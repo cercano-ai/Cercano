@@ -2443,11 +2443,8 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		if msg.ch != nil {
 			cmds = append(cmds, drainChatGPTLoginCmd(msg.ch, msg.attempt))
 		}
-		// Auto-open the verification page once, the moment we have the URL, so
-		// the user lands on it without hunting for the link in the modal.
-		if !m.chatgptLoginModal.browserOpened && m.chatgptLoginModal.verificationURL != "" {
-			m.chatgptLoginModal.browserOpened = true
-			cmds = append(cmds, openBrowserCmd(m.chatgptLoginModal.verificationURL))
+		if cmd := m.chatgptLoginModal.autoOpenBrowser(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
 
@@ -5523,9 +5520,10 @@ func (m Model) View() tea.View {
 		ReportAssociatedText:       true,
 	}
 	v.MouseMode = tea.MouseModeCellMotion
-	if m.claudeLoginModal != nil && m.claudeLoginModal.fullWidth() {
-		// The manual sign-in URL is printed for copying, often over SSH. Mouse
-		// tracking would send drags to the app and block terminal selection.
+	// A sign-in modal is showing a URL or code for copying, often over SSH.
+	// Mouse tracking would send drags to the app and block terminal selection.
+	if (m.claudeLoginModal != nil && m.claudeLoginModal.fullWidth()) ||
+		(m.chatgptLoginModal != nil && m.chatgptLoginModal.showsCode()) {
 		v.MouseMode = tea.MouseModeNone
 	}
 	// Drive the real terminal cursor to the input caret position. Only
