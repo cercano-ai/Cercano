@@ -16,6 +16,8 @@ package ui
 
 import (
 	"context"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -79,6 +81,25 @@ func newChatGPTLoginModal(profile, model string) *chatgptLoginModal {
 func (mo *chatgptLoginModal) setCode(verificationURL, userCode string) {
 	mo.verificationURL = verificationURL
 	mo.userCode = userCode
+}
+
+// autoOpenBrowser opens the verification page once, the moment the URL
+// arrives, but only where a browser can show up on this machine. Over SSH or
+// without a display the opener would run on the remote host, failing silently
+// or starting a text-mode browser in this terminal. The printed URL and code
+// cover those cases.
+func (mo *chatgptLoginModal) autoOpenBrowser() tea.Cmd {
+	if mo.browserOpened || mo.verificationURL == "" || !browserLaunchable(os.Getenv, runtime.GOOS) {
+		return nil
+	}
+	mo.browserOpened = true
+	return openBrowserCmd(mo.verificationURL)
+}
+
+// showsCode reports whether the URL and code are on screen for the user to
+// copy. The root model releases mouse tracking then so terminal selection works.
+func (mo *chatgptLoginModal) showsCode() bool {
+	return mo.state == chatgptLoginWaiting && mo.userCode != ""
 }
 
 // setDone transitions to the success state carrying the created profile's

@@ -3,6 +3,8 @@ package ui
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"cercano/source/server/pkg/agentclient"
 )
 
@@ -59,5 +61,57 @@ func TestDrainChatGPTLoginDeliversFrame(t *testing.T) {
 	}
 	if frame.ch == nil {
 		t.Error("channel should be retained for re-drain on a non-closed stream")
+	}
+}
+
+func waitingChatGPTModalWithCode() *chatgptLoginModal {
+	mo := newChatGPTLoginModal("chatgpt", "")
+	mo.setCode("https://auth.openai.com/codex/device", "ABCD-1234")
+	return mo
+}
+
+// Over SSH the opener would run on the remote host: it fails silently or starts
+// a text-mode browser in this terminal. The printed URL and code cover it.
+func TestChatGPTLoginAutoOpenSkippedWhenHeadless(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "1 2 3 4")
+	t.Setenv("SSH_TTY", "/dev/pts/1")
+	t.Setenv("DISPLAY", "")
+	t.Setenv("WAYLAND_DISPLAY", "")
+	mo := waitingChatGPTModalWithCode()
+	if cmd := mo.autoOpenBrowser(); cmd != nil || mo.browserOpened {
+		t.Fatal("auto-open attempted over headless SSH")
+	}
+}
+
+func TestChatGPTLoginAutoOpenOnceWithDisplay(t *testing.T) {
+	for _, k := range []string{"SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("DISPLAY", ":0")
+	mo := waitingChatGPTModalWithCode()
+	if cmd := mo.autoOpenBrowser(); cmd == nil || !mo.browserOpened {
+		t.Fatal("expected one auto-open where a browser can show up")
+	}
+	if cmd := mo.autoOpenBrowser(); cmd != nil {
+		t.Fatal("auto-open fired twice")
+	}
+}
+
+// The verification URL and code are shown for copying, often over SSH, so the
+// terminal must own the mouse while they are on screen.
+func TestChatGPTLoginModalReleasesMouseForSelection(t *testing.T) {
+	m := New(nil, false)
+	m.width, m.height = 140, 45
+	m.chatgptLoginModal = newChatGPTLoginModal("chatgpt", "")
+	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
+		t.Fatalf("before the code arrives, mouse mode = %v, want cell motion", got)
+	}
+	m.chatgptLoginModal = waitingChatGPTModalWithCode()
+	if got := m.View().MouseMode; got != tea.MouseModeNone {
+		t.Fatalf("with the code showing, mouse mode = %v, want none", got)
+	}
+	m.chatgptLoginModal.setDone("acct")
+	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
+		t.Fatalf("after sign-in finished, mouse mode = %v, want cell motion", got)
 	}
 }
