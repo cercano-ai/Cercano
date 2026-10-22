@@ -371,12 +371,21 @@ func (s *Store) saveActivationJournalConn(ctx context.Context, conn *sql.Conn, e
 func (s *Store) LoadActivationJournal(ctx context.Context, opID int64) (ActivationJournal, int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return ActivationJournal{}, 0, err
+	}
+	defer conn.Close()
+	return s.loadActivationJournalConn(ctx, conn, opID)
+}
+
+func (s *Store) loadActivationJournalConn(ctx context.Context, conn *sql.Conn, opID int64) (ActivationJournal, int64, error) {
 	if opID <= 0 {
 		return ActivationJournal{}, 0, fmt.Errorf("%w: operation id must be positive", ErrInvalidRecord)
 	}
 	var rowInstall, payload string
 	var revision int64
-	err := s.db.QueryRowContext(ctx,
+	err := conn.QueryRowContext(ctx,
 		`SELECT install_id, revision, journal_json FROM activation_journals WHERE op_id = ?`, opID).Scan(&rowInstall, &revision, &payload)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ActivationJournal{}, 0, fmt.Errorf("%w: activation journal %d", ErrRecordNotFound, opID)

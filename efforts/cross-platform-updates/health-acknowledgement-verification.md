@@ -49,8 +49,9 @@ disposable installations; no production candidate is launched.
 Sequential native observations are not authenticated TCP peer identity or a lease
 on future survival. Trusted packaging policy and cooperative installation
 exclusion remain required. This is not end-to-end update acceptance or native
-Windows/Linux validation. Lifecycle reconciliation of health-verified remains
-future work. Startup safety remains unresolved for future launch orchestration;
+Windows/Linux validation. Bounded lifecycle reconciliation is now documented in
+[health-reconciliation-verification.md](health-reconciliation-verification.md).
+Startup safety remains unresolved for future launch orchestration;
 this primitive neither launches a candidate nor chooses a startup strategy.
 Read-only delegated review was unavailable under the bounded sub-agent rules;
 review was local. No merge or push.
