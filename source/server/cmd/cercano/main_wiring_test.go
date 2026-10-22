@@ -8,6 +8,9 @@ package main
 // early private-update arguments bypass required verification.
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"regexp"
 	"strings"
@@ -172,4 +175,38 @@ func TestMainStableLauncherRunsAfterChildVerificationBeforeCommands(t *testing.T
 	if claim < 0 || launch <= claim || commands <= launch {
 		t.Fatal("stable launcher is outside verified startup boundary")
 	}
+}
+
+func TestMainDispatcherIsFirstExecutableStatement(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "main" {
+			continue
+		}
+		if len(fn.Body.List) == 0 {
+			t.Fatal("empty main")
+		}
+		gate, ok := fn.Body.List[0].(*ast.IfStmt)
+		if !ok {
+			t.Fatal("first statement must be dispatcher gate")
+		}
+		init, ok := gate.Init.(*ast.AssignStmt)
+		if !ok || len(init.Rhs) != 1 {
+			t.Fatal("missing dispatch assignment")
+		}
+		call, ok := init.Rhs[0].(*ast.CallExpr)
+		if !ok {
+			t.Fatal("missing dispatch call")
+		}
+		name, ok := call.Fun.(*ast.Ident)
+		if !ok || name.Name != "dispatchPrivateUpdate" {
+			t.Fatal("dispatch is not first")
+		}
+		return
+	}
+	t.Fatal("main missing")
 }

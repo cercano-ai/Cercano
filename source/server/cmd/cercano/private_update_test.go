@@ -203,6 +203,9 @@ func TestUpdaterProtocolCapabilityJSON(t *testing.T) {
 	if info.Component != "cercano" {
 		t.Errorf("component = %q, want cercano", info.Component)
 	}
+	if !info.OfflinePreflight {
+		t.Fatal("missing offline preflight capability")
+	}
 	if info.Protocol != 1 {
 		t.Errorf("protocol = %d, want 1", info.Protocol)
 	}
@@ -231,7 +234,7 @@ func runMainFixture(t *testing.T, args ...string) (string, string, int) {
 		}
 		switch strings.ToUpper(key) {
 		case "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA",
-			"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME":
+			"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "TMPDIR", "TMP", "TEMP":
 		default:
 			env = append(env, kv)
 		}
@@ -255,6 +258,9 @@ func runMainFixture(t *testing.T, args ...string) (string, string, int) {
 		env = append(env, kv.key+"="+dir)
 	}
 
+	temp := t.TempDir()
+	roots["TMPDIR"] = temp
+	env = append(env, "TMPDIR="+temp, "TMP="+temp, "TEMP="+temp)
 	rawArgs, err := json.Marshal(args)
 	if err != nil {
 		t.Fatalf("marshal fixture args: %v", err)
@@ -269,7 +275,7 @@ func runMainFixture(t *testing.T, args ...string) (string, string, int) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe)
 	cmd.Env = env
-	var stdout, stderr strings.Builder
+	var stdout, stderr boundedFixtureOutput
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	runErr := cmd.Run() // Wait reaps the process; the deadline kill bounds it.
@@ -349,7 +355,7 @@ func TestMainSubprocessCapabilityQuery(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &info); err != nil {
 		t.Fatalf("capability stdout is not JSON: %v (raw %q)", err, stdout)
 	}
-	if info.Component != "cercano" || info.Protocol != 1 || info.ExecutionReady {
+	if info.Component != "cercano" || info.Protocol != 1 || info.ExecutionReady || !info.OfflinePreflight {
 		t.Fatalf("capability = %+v, want component cercano / protocol 1 / execution_ready false", info)
 	}
 }
@@ -361,5 +367,28 @@ func TestMainSubprocessPlainVersionUnchanged(t *testing.T) {
 	}
 	if stdout != "cercano vdev\n" {
 		t.Fatalf("stdout = %q, want %q", stdout, "cercano vdev\n")
+	}
+}
+
+// Drain output without allowing a broken child to allocate unbounded memory.
+type boundedFixtureOutput struct{ strings.Builder }
+
+func (b *boundedFixtureOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	if remaining := 4096 - b.Len(); remaining > 0 {
+		if len(p) > remaining {
+			p = p[:remaining]
+		}
+		b.Builder.Write(p)
+	}
+	return n, nil
+}
+func TestMissingPreflightCapabilityIsUnsupported(t *testing.T) {
+	var info updaterProtocolInfo
+	if err := json.Unmarshal([]byte(`{"component":"cercano","protocol":1,"execution_ready":false}`), &info); err != nil {
+		t.Fatal(err)
+	}
+	if info.OfflinePreflight {
+		t.Fatal("old capability treated as supported")
 	}
 }

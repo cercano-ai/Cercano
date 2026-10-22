@@ -76,17 +76,21 @@ type updaterProtocolInfo struct {
 	Protocol int `json:"protocol"`
 	// ExecutionReady reports whether private update execution is wired up.
 	// It is false until execution is actually available; an updater must
-	// not attempt the private flag against a binary reporting false, and
+	// not attempt update execution against a binary reporting false, and
 	// must never attempt it against a binary producing no document at all.
 	ExecutionReady bool `json:"execution_ready"`
+	// OfflinePreflight supports the exact __internal-update --preflight probe.
+	// An absent field in older binaries means unsupported, not execution-ready.
+	OfflinePreflight bool `json:"offline_preflight"`
 }
 
 // printUpdaterProtocol emits the capability document on out.
 func printUpdaterProtocol(out io.Writer) error {
 	return json.NewEncoder(out).Encode(updaterProtocolInfo{
-		Component:      "cercano",
-		Protocol:       updaterProtocolVersion,
-		ExecutionReady: false,
+		Component:        "cercano",
+		Protocol:         updaterProtocolVersion,
+		ExecutionReady:   false,
+		OfflinePreflight: true,
 	})
 }
 
