@@ -203,3 +203,20 @@ crash/concurrency across versions, and installed-system activation/rollback rema
 unqualified. Conversation race tests are not cross-version multi-process crash
 proof. No production compatibility declaration or release authorization follows.
 No live HOME/database, normal agent startup, push, merge or release was used.
+
+### Previous independent review (reported evidence)
+
+The task owner reports that a previous independent review passed both the
+conversation race suite and the bounded conversation experiment against exact
+candidate **e9496fb6c35df349ab7850016fce1c67c37e0589** (baseline
+**58befd2801dd6f3d53438e8c8bfc74d937a9e811** for the experiment). This paragraph
+records that supplied review result; it is not a claim that the configuration
+fixture author reran those checks or inspected an additional review transcript.
+The other earlier proportional focused checks above ran on a temporary modified
+module before checkpoint and are **not independently exact-SHA-bound evidence**.
+Original conversation logs and assertions have not been replaced or altered.
+
+The separate `../configuration/VERIFICATION.md` now records actual configuration
+Load/Save evidence for this pair, including a failing effective-defaults
+comparison. It does not change the bounded conversation result or qualify the
+remaining domains.

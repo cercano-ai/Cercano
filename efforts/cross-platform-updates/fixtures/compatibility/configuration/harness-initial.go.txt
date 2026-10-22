@@ -1,0 +1,69 @@
+// TEST ONLY: actual config APIs, no service/startup/credential imports.
+package main
+
+import (
+ "encoding/json"
+ "fmt"
+ "os"
+ "reflect"
+ "strings"
+
+ "cercano/source/server/pkg/config"
+)
+
+func must(err error) { if err != nil { panic(err) } }
+func encoded(c config.Config) []byte { b,e:=json.MarshalIndent(c,"","  "); must(e); return b }
+func change(c *config.Config) {
+ c.Port="50992"
+ c.WorkerIdleTimeoutSeconds=123
+ c.Agent.ShutdownOnLastClient=false
+ if len(c.CloudProfiles)>0 { c.CloudProfiles[0].TierOverrides[config.CostEconomy]="synthetic-candidate-economy" }
+}
+func main() {
+ mode,path,kind:=os.Args[1],os.Args[2],os.Args[3]
+ if mode=="seed" {
+  // Empty file exercises actual default merge, not a hand-built defaults mock.
+  must(os.WriteFile(path, nil,0600))
+  c,e:=config.Load(path); must(e)
+  if kind=="populated" {
+   c.Port="50991"; c.OllamaURL="http://127.0.0.1:59999"; c.OpenRuntime="ollama"
+   c.LocusMode="cloud_primary"; c.ExecutionMode="worker"; c.WorkerIdleTimeoutSeconds=77
+   c.CaptureDispatchReasoning=true
+   c.CloudProfiles=[]config.CloudProfile{
+    {Name:"synthetic-primary", Flavor:"chat_completions", Backend:"openai", Provider:"openai", Route:"direct", BaseURL:"https://primary.invalid/v1", TierOverrides:map[config.CostTier]string{config.CostEconomy:"synthetic-economy",config.CostStandard:"synthetic-standard"}, ImageModel:"synthetic-vision"},
+    {Name:"synthetic-backup", Flavor:"messages", Provider:"anthropic", Route:"direct", BaseURL:"https://backup.invalid", TierOverrides:map[config.CostTier]string{config.CostPremium:"synthetic-premium"}},
+   }
+   c.ActiveCloudProfile="synthetic-primary"; c.SetPrimaryBackups([]string{"synthetic-backup"})
+   c.Models.SetOverride("ollama",config.TierEveryday,"synthetic-local")
+   n:=8192; c.LlamaServer.ContextSize=&n
+  }
+  // Record before Save so same-version loss is not hidden by a reload.
+  must(os.WriteFile(path+".expected.json",encoded(c),0600))
+  must(config.Save(c,path)); fmt.Println("seed PASS",kind); return
+ }
+ c,e:=config.Load(path); must(e)
+ if mode=="diagnostic" {
+  before,e:=os.ReadFile(path); must(e)
+  fmt.Printf("DIAGNOSTIC %s input=%s loaded=%s\n",kind,before,encoded(c))
+  must(config.Save(c,path)); after,e:=os.ReadFile(path); must(e)
+  if kind=="unknown" && strings.Contains(string(after),"fixture_future") { panic("unknown field unexpectedly retained") }
+  if kind=="legacy" {
+   if c.OpenRuntime!="ollama" || c.LocusMode!="open_only" { panic("legacy runtime/locus migration mismatch") }
+   model,ok:=c.Models.OverrideFor("ollama",config.TierEveryday)
+   if !ok || model!="synthetic-legacy" { panic("legacy model migration mismatch") }
+  }
+  fmt.Printf("DIAGNOSTIC %s saved=%s\n",kind,after); return
+ }
+ if mode=="write" { change(&c); must(config.Save(c,path)); fmt.Println("write PASS",kind); return }
+ b,e:=os.ReadFile(path+".expected.json"); must(e)
+ var want config.Config; must(json.Unmarshal(b,&want))
+ if mode=="verify" { change(&want) } else if mode!="seed-check" { panic("unknown mode") }
+ // JSON canonicalization makes nil/pointer/map representations consistent;
+ // compare every loaded field, including effective baked recommendations.
+ var a,z map[string]any
+ must(json.Unmarshal(encoded(c),&a)); must(json.Unmarshal(encoded(want),&z))
+ failures:=0
+ for key,w:=range z { if !reflect.DeepEqual(a[key],w) { fmt.Printf("FAIL %s %s %s got=%v want=%v\n",kind,mode,key,a[key],w); failures++ } }
+ for key:=range a { if _,ok:=z[key]; !ok { fmt.Println("FAIL unexpected field",key); failures++ } }
+ if failures>0 { os.Exit(1) }; fmt.Println("PASS",kind,mode)
+}
