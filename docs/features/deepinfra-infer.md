@@ -1,6 +1,7 @@
 # deepinfra_infer capability
 
-Status: implemented (partial-recovery effort; no commit yet)
+Status: implemented in `source/server/internal/capabilities/builtins/deepinfra_infer.go`.
+Provider model availability and pricing require separate live verification.
 
 ## What it is
 
@@ -29,7 +30,7 @@ not a live paid call):
 
 ## Surfaces and tier
 
-- Tier: **W** (spends paid quota; confirm-gated like other write-tier tools).
+- Tier: **W** (spends paid quota; ordinary write-tier confirmation depends on permission mode, and is not guaranteed in permissive/bypass mode).
 - Surfaces: `SurfaceAgent | SurfaceMCP` — one capability implementation,
   exposed on the standalone agent loop (via `agentadapter`) and the MCP
   plugin catalog (via `capabilities.RegisterMCPCatalogSource`, picked up

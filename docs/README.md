@@ -6,10 +6,32 @@ spec) across its whole lifecycle. **Status lives in each doc's header**, not in 
 folder path, so a feature's folder never moves when it ships. Reorg history is in
 `archive/` (`_migration_audit.md`, `_reorg_audit.md`).
 
+## Start here
+
+- [Install and launch](../README.md#get-started) — packaged client versus development launcher.
+- [Agent setup and commands](agent/README.md) and [feature guide](agent/features/README.md).
+- [Routing, profiles and account failover](cloud-routing.md).
+- [Local runtimes](agent/features/integrated-local-runtime.md).
+- [Independent tasks](agent/independent-tasks.md) and [session model overrides](features/cli/session-model.md).
+- [Images](agent/vision-input.md) and [native inference](features/deepinfra-infer.md).
+- [Enterprise connection](enterprise-connection.md), [managed routing](enterprise-managed-routing.md),
+  and [shared skills](enterprise-shared-skills.md).
+- [Contributor build/debug guide](agent/self-dev.md).
+- [Publicity freshness audit and coverage limitations](publicity-freshness-audit.md).
+
+## Current guides versus historical records
+
+Feature directories mix current guides with proposals, implementation plans,
+research and dated acceptance evidence. A filename such as `spec.md` does **not**
+by itself establish that every described feature shipped. Read status and scope,
+and consult code/tests for current behavior. `efforts/`, `docs/archive/`,
+`docs/bugs/`, `docs/decisions/`, and research subtrees preserve historical evidence;
+they are not release promises. The navigation above is the user-facing entry point.
+
 ## `features/` — one folder per feature/initiative
 
 Each folder holds the docs that feature needs, using conventional filenames:
-`spec.md` (as-built), `design.md` (approved design), `plan.md` / `tasks.md`
+`spec.md` (specification; check status), `design.md` (design), `plan.md` / `tasks.md`
 (implementation), `followups.md`. Check the `Status:` header inside each doc.
 
 ### `features/cli/` — the standalone CLI / agent initiative

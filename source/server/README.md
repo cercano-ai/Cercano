@@ -1,103 +1,45 @@
-# Cercano AI Agent
+# Cercano server
 
-This repository contains the Go-based AI agent for the Cercano project. It includes a gRPC server for inter-process communication and a smart router that uses a local LLM (Large Language Model) to classify user requests and route them to appropriate local or cloud models.
+This Go module builds `cercano`, the agent gRPC server and MCP host. The terminal
+client is a separate module, `source/clients/cli`, and binary, `cercano-cli`.
+Bare `cercano` is not the installed terminal UI.
 
-## Getting Started
+## Build from this checkout
 
-Follow these steps to set up, build, and run the AI agent.
+Both Go modules require Go 1.26 (see their `go.mod` files). From the repository root:
 
-### Prerequisites
+```bash
+make -C source/server build
+make -C source/clients/cli build
+```
 
-*   **Go:** Go 1.21 or later. [Download & Install Go](https://go.dev/doc/install)
-*   **Ollama:** The default local LLM runtime. [Ollama Website](https://ollama.com/)
-*   **llama.cpp / llama-server:** Optional managed GGUF runtime for embedded inference.
-*   **Protocol Buffers Compiler (`protoc`):** Used to generate gRPC code.
+The outputs are `source/server/bin/cercano` and
+`source/clients/cli/bin/cercano-cli`. Co-locate them for the CLI's sibling-server
+auto-launch, or use the [development launcher](../../docs/agent/self-dev.md).
+`make build` supplies version metadata and invokes optional macOS signing.
 
-### Installation
+For packaged installation and supported platforms, start at the
+[root README](../../README.md#get-started). For configuration and commands, see
+[the agent guide](../../docs/agent/README.md).
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/bryan_costanich/Cercano.git
-    cd Cercano
-    ```
+## Inference
 
-2.  **Install `protoc`:**
-    On macOS:
-    ```bash
-    brew install protobuf
-    ```
-    For other operating systems, please refer to the [Protocol Buffers documentation](https://grpc.io/docs/protoc-installation/).
+The default `open_runtime` is `llama_server`, a managed llama.cpp child process.
+Optional `mistralrs` and Ollama backends are also supported. Ollama is not a
+mandatory prerequisite. Runtime binaries and compatible model files are separate
+from building the agent. Configure Runtime / Local Models and task routing in the
+CLI; see the [runtime guide](../../docs/agent/features/integrated-local-runtime.md).
+Cloud profiles are configured independently in Cloud and Routing.
 
-3.  **Install Go gRPC plugins:**
-    ```bash
-    go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-    ```
-    Ensure your `$GOPATH/bin` is in your system's `PATH`. You can add it by running:
-    ```bash
-    export PATH=$PATH:$(go env GOPATH)/bin
-    ```
-    (You might want to add this line to your shell's profile file, e.g., `~/.zshrc` or `~/.bash_profile`, for persistence.)
+## Development
 
-4.  **Install local runtimes:**
-    On macOS:
-    ```bash
-    brew install ollama
-    brew install llama.cpp
-    brew services start ollama
-    ```
-    For other operating systems, run `bin/cercano setup` after building; it can install Ollama on Linux and prepares `~/.cercano/models` for GGUF files. Install `llama.cpp` manually if `llama-server` is not on `PATH`.
+- `cmd/cercano/`: unified server/command entry point.
+- `internal/server/`: gRPC service implementation.
+- `internal/agent/`: tool loop and agent orchestration.
+- `internal/llm/`, `internal/inference/`: providers and inference policy.
+- `internal/localruntime/`: managed local processes and model lifecycle.
+- `pkg/`: exported config, protocol, client and update packages shared with the CLI.
 
-5.  **Download the embedding and LLM models:**
-    ```bash
-    ollama pull nomic-embed-text
-    ollama pull qwen3-coder
-    ```
-    The smart router uses `nomic-embed-text` for semantic classification via embeddings. `qwen3-coder` is used as a default local LLM for request processing.
-
-### Build and Run the AI Agent
-
-1.  **Navigate to the server directory:**
-    ```bash
-    cd source/server
-    ```
-
-2.  **Build the agent:**
-    ```bash
-    mkdir -p ../../bin
-    go build -o ../../bin/agent ./cmd/agent
-    ```
-
-3.  **Run the agent:**
-    ```bash
-    ../../bin/agent
-    ```
-    The gRPC server will start and listen on port `50052`.
-
-### Testing the gRPC Server
-
-While the agent is running in one terminal, you can test its gRPC endpoint using `grpcurl` in another terminal.
-
-1.  **Install `grpcurl`:**
-    On macOS:
-    ```bash
-    brew install grpcurl
-    ```
-    For other operating systems, refer to the [grpcurl GitHub page](https://github.com/fullstorydev/grpcurl).
-
-2.  **Send a test request:**
-    Navigate to the `source/proto` directory for the `.proto` file:
-    ```bash
-    cd source/proto
-    grpcurl -plaintext -proto agent.proto -d '{"input": "What is the capital of France?"}' localhost:50052 agent.Agent/ProcessRequest
-    ```
-    The classification of the request will be handled by the smart router using semantic similarity against prototypes.
-
-## Project Structure
-
-*   `source/cmd/agent/`: Contains the main application entry point.
-*   `source/internal/agent/`: Contains the gRPC server implementation, Agent orchestrator, and smart router.
-*   `source/internal/llm/`: Contains model provider implementations (Ollama, Cloud/LangChainGo).
-*   `source/internal/loop/`: Contains the iterative coordinator loop for agentic tasks.
-*   `source/internal/tools/`: Contains code generation and validation tools.
-*   `source/internal/agent/prototypes.yaml`: YAML file defining example phrases for semantic routing and intent classification.
+Run unit tests from this module with `go test ./...`. Regenerating protocol
+bindings is separate from ordinary builds; see [proto regeneration](../../docs/agent/proto-regen.md)
+for the pinned tooling rather than installing arbitrary latest plugin versions.

@@ -12,7 +12,7 @@ Looking for the external co-processor integration? It is
 **[deprecated for now](../co-processor/README.md)**; its historical instructions
 are preserved separately.
 
-The standalone Cercano agent is a daily-driver AI coding assistant with native tool calling, a terminal UI, and a headless mode for scripts and CI. It connects to local models via Ollama and to Anthropic Claude via Meridian (Claude Max OAuth) or a direct API key.
+The standalone Cercano agent is a daily-driver AI coding assistant with native tool calling, a terminal UI, and a headless mode for scripts and CI. It supports managed llama-server (the default), optional mistral.rs, Ollama, and cloud provider profiles. See [routing](../cloud-routing.md) for account and task configuration.
 
 ## Set up and use Cercano as a standalone agent
 
@@ -23,9 +23,9 @@ sections ([What you get](#what-you-get), [Quick start](#quick-start),
 
 ### 1. Prerequisites
 
-- **Go** (to build the server and CLI — they're separate Go modules under `source/`).
+- **Go 1.26** (to build the server and CLI — they're separate Go modules under `source/`).
 - **A model to talk to.** Pick at least one:
-  - **Local, zero-cost, offline:** [Ollama](https://ollama.com) with a tool-capable model pulled (e.g. `ollama pull qwen3-coder`). No API key.
+  - **Local inference:** managed llama-server, optional mistral.rs, or [Ollama](https://ollama.com), with a compatible model. Local inference has no provider per-token fee; downloads and network tools are not offline. See the [runtime guide](features/integrated-local-runtime.md).
   - **Anthropic Claude:** a direct API key, *or* [Meridian](https://github.com/rynfar/meridian) if you drive Claude through a Claude Max subscription.
   - **OpenAI-compatible** (OpenAI, Gemini, Groq, …) via an API key, or **ChatGPT** via a Plus/Pro subscription sign-in.
 
@@ -50,21 +50,21 @@ it and how to add it to `PATH` if needed).
 cercano
 ```
 
-That's the interactive terminal UI. When stdin is a TTY, `cercano` runs the
+This development launcher is distinct from the installed server binary. For
+Homebrew/release installs, launch `cercano-cli`; bare `cercano` is the server.
+When stdin is a TTY, the development launcher runs the
 CLI; the CLI auto-launches the gRPC agent on `:50052` if one isn't already
 running. To run the agent server by hand, use `cercano agent`.
 
 ### 4. Point it at a model
 
-- **Local (Ollama):** if no cloud provider is configured, the agent just uses your local Ollama model. Set which one with `/config` → Local Model, or `/config local_model qwen3-coder`. Done.
+- **Local:** open `/config` → Runtime / Local Models, select a backend and compatible model, and configure Local task routes. Runtime installation and routing are separate settings.
 - **Cloud:** open `/config` (or `/cloud`) and add a provider profile — Anthropic, an OpenAI-compatible endpoint, or a ChatGPT subscription sign-in. Use **Add another account** to save independent sign-ins for the same provider. In **Routing → Primary**, select the preferred account and an ordered list of backups. Quota exhaustion advances through that list and stays on the next account, with no cooldown or automatic return; exhausting every account stops the request. Authentication errors retain their existing recovery prompts. See [Cloud setup](#cloud-setup) below for the details and config-file examples.
 
 ### 5. Talk to it
 
 Type a prompt and hit Enter. The agent decides on its own when to read files,
-grep, run commands, or edit code. For anything destructive (write, edit, run a
-command, delete, git push) it pauses and asks you to confirm with
-`[y]es / [n]o / [d]iff` — how often it asks depends on your
+grep, run commands, or edit code. Confirmation depends on the tool tier and your
 [permission mode](#permission-modes) (`permissive` by default). Switch modes
 any time with `/strict`, `/permissive`, or `/bypass`.
 
@@ -112,7 +112,7 @@ Then `cercano` runs the CLI when stdin is a TTY, and `cercano agent` runs the gR
 cercano
 ```
 
-Type a prompt. The agent decides whether to use tools (Read, Glob, Grep, LS, Bash, Edit, Write, plus git operations). For W- and X-tier tools, the CLI prompts you to confirm `[y]es / [n]o / [d]iff`.
+Type a prompt. The agent decides whether to use tools (Read, Glob, Grep, LS, Bash, Edit, Write, plus git operations). For ordinary built-ins, W-tier calls require confirmation in strict mode; X-tier calls require it in strict and permissive modes. MCP tools and explicit human-handoff tools have additional gates. See the permission table below.
 
 ### Headless / scripted mode
 
@@ -171,21 +171,16 @@ The agent supports multiple cloud providers:
 - **Anthropic** — via direct API key or Meridian (Claude Max OAuth)
 - **OpenAI-compatible** — OpenAI, Gemini, Groq, and others (see [cloud-openai.md](cloud-openai.md#5-openai-compatible-endpoints) for endpoint examples and setup)
 - **OpenAI (ChatGPT subscription)** — sign in with a ChatGPT Plus/Pro account instead of an API key (unofficial; see below)
-- **Local** — Ollama (offline, no API key needed)
+- **Local** — managed llama-server, optional mistral.rs, or Ollama (no cloud API key needed)
 
 ### Providers
 
 ### Meridian (Claude Max via OAuth)
 
-If you have [Meridian](https://github.com/rynfar/meridian) running on `127.0.0.1:3456`, configure:
-
-```yaml
-# ~/.config/cercano/config.yaml
-cloud_provider: anthropic
-cloud_model: claude-sonnet-4-6
-cloud_base_url: http://127.0.0.1:3456
-cloud_api_key: dummy
-```
+Add an Anthropic profile in `/cloud` and configure its endpoint and credentials.
+For Meridian, use your running proxy endpoint (commonly `http://127.0.0.1:3456`).
+Use profile-scoped quality selections in [cloud routing](../cloud-routing.md),
+not legacy top-level `cloud_model` mutations.
 
 The Anthropic provider streams through Meridian, which uses your Claude Max subscription. Cercano injects `x-opencode-session` / `x-opencode-request` / `x-opencode-agent-mode` headers per request so Meridian routes through its OpenCode adapter and bumps the SDK turn cap from 3 to 4.
 
@@ -198,7 +193,7 @@ The provider remains labeled untested until separately authorized live checks pa
 
 ### Direct Anthropic API
 
-Set a real `cloud_api_key` and leave `cloud_base_url` empty.
+Add an Anthropic API-key profile in `/cloud`; use its default API endpoint.
 
 ### ChatGPT subscription (device-code OAuth)
 
@@ -217,9 +212,12 @@ gpt-5.4, gpt-5.4-mini, …). An API key stays the fully-sanctioned path and is
 one keystroke away in the same UI. Design + endpoint details:
 [docs/features/chatgpt-subscription-auth/design.md](../features/chatgpt-subscription-auth/design.md).
 
-### Local-only (Ollama)
+### Local inference
 
-If no cloud is configured, the agent runs purely on local Ollama with whatever `local_model` you've set. Tool calling works for tool-capable local models (qwen3-coder, qwen2.5-coder, llama3.1+, deepseek-r1, mistral-nemo, granite3.x). Non-tool-capable models are rejected with a clear error rather than degrading silently.
+Select a compatible runtime and model in Runtime / Local Models. Use local-only
+locus policy when cloud inference must be prohibited; simply configuring a local
+model does not prevent other task routes or network tools from using the network.
+Tool and image support depend on the selected model/backend.
 
 ## Architecture
 
@@ -263,7 +261,7 @@ The internal `Block` type carries text / `tool_use` / `tool_result` / `image` an
 
 Bounded autonomous loop. Per iteration:
 
-1. Build the tool catalog from `agenttools.Registry` (the 15 built-in tools).
+1. Build the tool catalog from `agenttools.Registry` (registered built-in and capability tools).
 2. Call `Provider.StreamChat` with the catalog. Streaming is required: Meridian's non-streaming path has a 3-turn SDK cap that bites broad agentic prompts.
 3. Accumulate text + `tool_use` blocks from the stream.
 4. Partition tool calls by tier:
@@ -271,7 +269,7 @@ Bounded autonomous loop. Per iteration:
    - W/X-tier serializes through the permission gate
 5. For each W/X call requiring confirmation, emit a `PermissionRequired` streaming event; wait for the client's `AllowToolCall` or `DenyToolCall` reply via the `PendingDecisions` map.
 6. Execute the allowed tools. Each result becomes a `tool_result` block, fed back as a user message.
-7. Track guards: 3 consecutive iterations of all-errored calls aborts; `MaxToolLoopIterations = 10` caps total round-trips; user denial of any confirm is a hard turn-end.
+7. Track guards: 3 consecutive iterations of all-errored calls aborts; the configured tool-loop iteration limit caps round-trips (see `pkg/config` defaults); user denial of any confirm is a hard turn-end.
 
 ### Autonomous run completion
 

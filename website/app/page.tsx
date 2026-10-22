@@ -242,7 +242,7 @@ export default function Home() {
                 {copied ? "Copied" : "Copy"}
               </button>
             </div>
-            <p className="after-install">Then run <code>cercano</code>. Configure providers, local models, routing, and permissions from inside the TUI.</p>
+            <p className="after-install">Then run <code>cercano-cli</code>. Configure providers, local models, routing, and permissions from inside the TUI.</p>
 
             <div className="package-roadmap" aria-label="Upcoming package managers">
               <div><span>apt</span><small>Linux · coming soon</small></div>

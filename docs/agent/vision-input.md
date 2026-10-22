@@ -1,5 +1,12 @@
 # Vision (Image Input) — Provider-Layer Plumbing — Design
 
+> Historical provider-layer design. Its “inbound path deferred” statements below
+> describe the original scope, not current availability. Current code includes
+> attachment inheritance (`internal/server/image_inheritance_test.go`) and
+> `inspect_image` (`internal/capabilities/builtins/inspect_image.go`). See the
+> [CLI image-input documentation](../features/cli/image-input/) and
+> [native inference guide](../features/deepinfra-infer.md).
+
 **Status:** Provider-layer plumbing implemented 2026-06-27. Inbound path still deferred. Built together with
 [cloud-openai.md](./cloud-openai.md) (the OpenAI provider's adapter consumes the
 image block).

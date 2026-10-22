@@ -1,5 +1,12 @@
 # Cercano Enterprise implementation status
 
+> Dated integration/acceptance record: branch and PR-open statements below are
+> historical, not a live report of remote repository state. Consult
+> [connection](enterprise-connection.md), [managed routing](enterprise-managed-routing.md),
+> and [shared skills](enterprise-shared-skills.md) for the in-repository guides.
+> External deployment and cross-repository acceptance have not been revalidated
+> by the publicity documentation pass.
+
 The target is a reproducible local V1 demonstration: an administrator manages
 members, teams, model policies and shared skills, and the running Cercano host
 applies those settings to a developer's work. The local implementation is in the
