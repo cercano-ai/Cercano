@@ -1,4 +1,8 @@
-# Bounded conversation compatibility experiment — FAIL
+# Bounded conversation compatibility experiment — remediation PASS
+
+Original failure evidence is retained below. The approved remediation rerun and
+its exact candidate SHA are recorded at the end; this is not full compatibility
+qualification.
 
 TEST ONLY, executed 2026-10-22 on darwin/arm64 with Go 1.26.3. This is actual
 conversation-package evidence, not the parent directory's synthetic gate and
@@ -20,7 +24,12 @@ not full compatibility or release/activation authorization.
   Each copy lives at `source/server/cmd/compat-experiment/main.go`, inside its
   own module's internal import boundary. No production source is changed.
 
-## Reproduce
+## Original reproduction (historical failure)
+
+The command below was run with the runner from fixture commit
+`061024c0f6f3a33a9f0fbc1d1d6c2880fc13b262` (and rerun before remediation).
+The current runner pins the corrected candidate; use the new command at the end
+to avoid overwriting original failure evidence.
 
 From the repository root, with those Git objects, Python 3.9+, local Go 1.26,
  and already cached module dependencies:
@@ -120,3 +129,77 @@ migration histories, compaction/retention/error/crash/concurrent writes, full
 autonomy evolution, config, credentials, native Windows/Linux, packaged release
 binaries or full startup. No compatibility declaration, production format ID,
 release gate integration or full compatibility claim follows from this evidence.
+
+## Approved remediation scope (2026-10-22)
+
+The user explicitly approved aligning candidate request/history persistence with
+v0.25.0 and rerunning this experiment. Port only the released additive request
+usage table, legacy INSERT OR IGNORE import, request-priority reads (including
+raw-history carry-forward), source-based single-table writes and focused tests.
+No whole-branch merge, speculative dual writes, timestamp precedence redesign,
+live HOME/keychain/database/startup, push or merge is authorized. Preserve unrelated
+feature changes. Stop if broader incompatible migrations become necessary.
+
+Before changes, reran the original pinned experiment: exit 1, both focused suites
+passed (prior 0.388s, candidate 0.360s), and populated candidate missing usage /
+prior stale 11 rather than 22 failures reproduced. Raw rerun evidence is retained
+in `results-before-port.txt`; original `results.txt` remains unchanged.
+
+## Remediation result — PASS, bounded scenarios only
+
+Solved source/tests commit (new pinned candidate):
+**e9496fb6c35df349ab7850016fce1c67c37e0589**.
+Baseline remains **58befd2801dd6f3d53438e8c8bfc74d937a9e811**.
+No broader migration was required. `store.go`, `schema.sql` and the adjusted
+round-trip test now exactly match the released baseline files; the isolation test
+ports the released tests and adds legacy-seed/current-write/reopen precedence
+and history-only coverage. No API signature, RPC, or unrelated feature changed.
+
+Executed after the source checkpoint:
+
+```sh
+COMPAT_GOMODCACHE=/Users/bryancostanich/go/pkg/mod \
+  python3 efforts/cross-platform-updates/fixtures/compatibility/conversation/run.py \
+  > efforts/cross-platform-updates/fixtures/compatibility/conversation/results-after-port.txt 2>&1
+```
+
+Exit **0**; `EXPERIMENT: PASS (bounded scenarios only)`. Both builds pass;
+conversation tests pass (prior 0.473s, candidate 0.385s). All empty/populated
+assertions pass, including old seed usage visibility in candidate and current
+22-token request visibility in prior after candidate writes. Original results
+and before-port reproduction remain intact, without weakening harness assertions.
+
+**Baseline Open still executes mutating production migration code.** In the new
+scenarios the request rows already exist, so its INSERT OR IGNORE import has
+nothing to add: both logical mutation and file hash changed are False, with no
+added/removed dump lines. This observation is not a claim that baseline Open is
+read-only. The old run demonstrated actual import mutation.
+
+### Proportional regression checks
+
+`focused-results.txt` records exact commands, outputs and exits (all **0**).
+These ran before the source checkpoint against a temporary copy of the modified
+actual `source/server` module, with the same explicit offline Go/temp HOME/config/
+cache environment as the compatibility runner. No live agent or keychain was
+used. The temporary test driver and module were not installed in the application.
+
+- `go test -mod=readonly -race ./internal/conversation -count=1 -timeout=120s`:
+  **ok**, 2.832s (includes migration, retention, upgrade preservation and isolation).
+- `go vet -mod=readonly ./internal/conversation ./internal/hostsvc/persistence`:
+  **exit 0**, no diagnostics.
+- Full `internal/hostsvc/persistence` package: **ok**, 0.429s.
+- Agent `TestRecordContextUsage*`: **ok**, 0.483s.
+- Server request-accounting/context-usage/conversation-turns/compaction RPC/
+  worker post-turn/tool-loop persistence selection: **ok**, 0.650s. Exact regex
+  is in the raw output. These exercise the changed store semantics through
+  callers without running full unrelated E2E. `git diff --check` also passed.
+
+### Remaining domains
+
+This resolves the reproduced request/history persistence blocker only. Config,
+credentials/keychain, other persisted domains and schema histories, complete
+autonomy evolution, native Windows/Linux, packaged artifact binding, full startup,
+crash/concurrency across versions, and installed-system activation/rollback remain
+unqualified. Conversation race tests are not cross-version multi-process crash
+proof. No production compatibility declaration or release authorization follows.
+No live HOME/database, normal agent startup, push, merge or release was used.

@@ -12,7 +12,8 @@ import tarfile
 import tempfile
 
 BASELINE = '58befd2801dd6f3d53438e8c8bfc74d937a9e811'
-CANDIDATE = '25969d70e8e834fa982978285577ce11e3088277'
+# Original failing candidate/results remain recorded in VERIFICATION.md/results.txt.
+CANDIDATE = 'e9496fb6c35df349ab7850016fce1c67c37e0589'
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[4]
 failed = False

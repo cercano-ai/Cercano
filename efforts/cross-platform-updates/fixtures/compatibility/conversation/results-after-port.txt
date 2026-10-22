@@ -1,0 +1,201 @@
+baseline: 58befd2801dd6f3d53438e8c8bfc74d937a9e811 candidate: e9496fb6c35df349ab7850016fce1c67c37e0589
+$ go version
+go version go1.26.3 darwin/arm64
+exit: 0
+$ git archive --format=tar -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior.tar 58befd2801dd6f3d53438e8c8bfc74d937a9e811 source/server
+exit: 0
+$ go build -mod=readonly -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior/harness ./cmd/compat-experiment
+exit: 0
+prior harness sha256: f1c0351c5d91ca8d655ac2249dd46dd848d27c52385b14463cc084cbb7b45f52
+$ git archive --format=tar -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/candidate.tar e9496fb6c35df349ab7850016fce1c67c37e0589 source/server
+exit: 0
+$ go build -mod=readonly -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/candidate/harness ./cmd/compat-experiment
+exit: 0
+candidate harness sha256: 30d8a950553415a5cd5947c20467c2113b2ca1625dfb4725cd59f0c3e83ce437
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior/harness seed /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/empty.db empty
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/empty.db empty
+PASS empty count
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/candidate/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/empty.db empty
+PASS empty count
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/candidate/harness write /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/empty.db empty
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/candidate/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/empty.db empty
+PASS candidate title
+PASS candidate recap
+PASS candidate project
+PASS candidate model
+PASS candidate turns
+PASS candidate run count
+PASS candidate run ID
+PASS candidate brief
+PASS candidate decisions
+PASS candidate state
+PASS candidate usage exists
+PASS candidate usage
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior/harness open /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/empty.db empty
+exit: 0
+empty prior Open logical mutation: False file hash changed: False
+removed dump lines: []
+added dump lines: []
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/empty.db empty
+PASS candidate title
+PASS candidate recap
+PASS candidate project
+PASS candidate model
+PASS candidate turns
+PASS candidate run count
+PASS candidate run ID
+PASS candidate brief
+PASS candidate decisions
+PASS candidate state
+PASS candidate usage exists
+PASS candidate usage
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior/harness seed /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/populated.db populated
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/populated.db populated
+PASS untouched title
+PASS untouched recap
+PASS untouched project
+PASS untouched model
+PASS untouched turns
+PASS untouched run count
+PASS untouched run ID
+PASS untouched brief
+PASS untouched decisions
+PASS untouched state
+PASS untouched usage exists
+PASS untouched usage
+PASS updated title
+PASS updated recap
+PASS updated project
+PASS updated model
+PASS updated turns
+PASS updated run count
+PASS updated run ID
+PASS updated brief
+PASS updated decisions
+PASS updated state
+PASS updated usage exists
+PASS updated usage
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/candidate/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/populated.db populated
+PASS untouched title
+PASS untouched recap
+PASS untouched project
+PASS untouched model
+PASS untouched turns
+PASS untouched run count
+PASS untouched run ID
+PASS untouched brief
+PASS untouched decisions
+PASS untouched state
+PASS untouched usage exists
+PASS untouched usage
+PASS updated title
+PASS updated recap
+PASS updated project
+PASS updated model
+PASS updated turns
+PASS updated run count
+PASS updated run ID
+PASS updated brief
+PASS updated decisions
+PASS updated state
+PASS updated usage exists
+PASS updated usage
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/candidate/harness write /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/populated.db populated
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/candidate/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/populated.db populated
+PASS candidate title
+PASS candidate recap
+PASS candidate project
+PASS candidate model
+PASS candidate turns
+PASS candidate run count
+PASS candidate run ID
+PASS candidate brief
+PASS candidate decisions
+PASS candidate state
+PASS candidate usage exists
+PASS candidate usage
+PASS untouched title
+PASS untouched recap
+PASS untouched project
+PASS untouched model
+PASS untouched turns
+PASS untouched run count
+PASS untouched run ID
+PASS untouched brief
+PASS untouched decisions
+PASS untouched state
+PASS untouched usage exists
+PASS untouched usage
+PASS updated title
+PASS updated recap
+PASS updated project
+PASS updated model
+PASS updated turns
+PASS updated run count
+PASS updated run ID
+PASS updated brief
+PASS updated decisions
+PASS updated state
+PASS updated usage exists
+PASS updated usage
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior/harness open /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/populated.db populated
+exit: 0
+populated prior Open logical mutation: False file hash changed: False
+removed dump lines: []
+added dump lines: []
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/prior/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-ql7popqb/populated.db populated
+PASS candidate title
+PASS candidate recap
+PASS candidate project
+PASS candidate model
+PASS candidate turns
+PASS candidate run count
+PASS candidate run ID
+PASS candidate brief
+PASS candidate decisions
+PASS candidate state
+PASS candidate usage exists
+PASS candidate usage
+PASS untouched title
+PASS untouched recap
+PASS untouched project
+PASS untouched model
+PASS untouched turns
+PASS untouched run count
+PASS untouched run ID
+PASS untouched brief
+PASS untouched decisions
+PASS untouched state
+PASS untouched usage exists
+PASS untouched usage
+PASS updated title
+PASS updated recap
+PASS updated project
+PASS updated model
+PASS updated turns
+PASS updated run count
+PASS updated run ID
+PASS updated brief
+PASS updated decisions
+PASS updated state
+PASS updated usage exists
+PASS updated usage
+exit: 0
+$ go test -mod=readonly ./internal/conversation -count=1 -timeout=60s
+ok  	cercano/source/server/internal/conversation	0.473s
+exit: 0
+$ go test -mod=readonly ./internal/conversation -count=1 -timeout=60s
+ok  	cercano/source/server/internal/conversation	0.385s
+exit: 0
+EXPERIMENT: PASS (bounded scenarios only)
