@@ -100,7 +100,7 @@ After the coordinator commits to draining, reject or defer new work with an obse
 
 Identify and coordinate only the processes belonging to the target installation and user. Account for attached clients and child model-runtime processes holding versioned files. Do not use broad process-name killing or a rename probe as authoritative process ownership evidence.
 
-For self-managed activation, preserve the previous version until health verification succeeds. Health includes the intended agent reporting the expected release, being ready for work, and attached clients reconnecting successfully. With no attached client, use a bounded protocol-level health check. With no agent previously running, use a bounded isolated health probe if required and leave no new background agent running after completion. Define handling for clients that were already disconnected; an absent client must not hold cleanup indefinitely.
+For self-managed activation, preserve the previous version until health verification succeeds. Health success requires exact owned candidate process identity/listener observations, the expected release, and readiness within a bounded deadline. Attached terminals reconnect independently and cannot block update success. With no attached client, use a bounded protocol-level health check. With no agent previously running, use a bounded isolated health probe if required and leave no new background agent running after completion. Define handling for clients that were already disconnected; an absent client must not hold cleanup indefinitely.
 
 If initial startup or health verification fails, restore the previous complete version selection and report recovery. Do not retain a permanent rollback cache after successful verification. Delete the superseded version once verified healthy and no process still depends on it. If locked files prevent deletion, record pending cleanup, retry safely later, and show cleanup as pending rather than claiming deletion or force-killing the owner. Never delete the selected version, an active staging operation, or user data.
 
@@ -152,7 +152,7 @@ The user approved per-user self-updating installations as the first milestone. M
 
 ### Versioned directories with stable launchers and bounded retention
 
-The user approved versioned directories, conditional on deleting old versions after successful launch. This specification makes successful launch a readiness/reconnection check and defers deletion only for live references or cleanup failures.
+The user approved versioned directories, conditional on deleting old versions after successful launch. This specification makes successful launch an owned-candidate identity/listener, expected-release and readiness check and defers deletion only for live references or cleanup failures.
 
 | Axis | Versioned directories — chosen | In-place replacement with backups |
 |---|---|---|
@@ -216,4 +216,8 @@ The user approved a candidate-specific launch wrapper with the minimum launch-pa
 
 ### Approved read-only candidate-health observation
 
-The user approved combining exact-owned-candidate lifetime checks, native listener observations, and the existing `GetAgentHealth` RPC in a bounded read-only observation layer. A consistent observation is not authenticated peer identity or health success. Endpoint exclusivity and attached-client reconnection remain unresolved gates. This slice must not authorize activation completion, rollback, cleanup, signaling, or live update execution.
+The user approved combining exact-owned-candidate lifetime checks, native listener observations, and the existing `GetAgentHealth` RPC in a bounded read-only observation layer. A consistent observation is not authenticated peer identity or health success. The observation itself does not authenticate the peer; the subsequently approved policy below defines its use by the health-success gate. This slice must not authorize activation completion, rollback, cleanup, signaling, or live update execution.
+
+### Approved candidate health-success policy (2026-10-22)
+
+The user explicitly approved exact owned candidate process identity/listener plus expected release and readiness within a bounded deadline as the update success gate. Attached terminals reconnect independently and cannot block success; this supersedes earlier client-reconnection health requirements. Failed or uncertain health is not success: retain the previous version and recovery facts. Prove the owned candidate stopped before rollback; neither transport timeout nor PID alone proves exit or authorizes action. This approval adds no schema/migration, live install/process-stop, rollback execution, or old-version cleanup authority. Consistent sequential observations are the approved operational gate, not a claim of authenticated TCP peer identity or future liveness.

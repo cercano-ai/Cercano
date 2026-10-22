@@ -14,4 +14,8 @@ Verification on macOS:
 
 Tests cover sample ordering, before/after uncertainty, identity changes, PID/version mismatch, contradictory readiness, response copying, cancellation, invalid requests, nil candidate, actual loopback RPC transport (including Unimplemented, oversized response and deadline), and an exact owned disposable child with native listener inspection and real health RPC. The Windows positive integration fixture uses the existing owned permissive-job harness rather than weakening production breakaway policy.
 
-No live agent or user installation was changed. The new API has no production orchestration caller. No push or CI execution was performed for this slice. Health-success policy, endpoint exclusivity/authentication, client reconnection, and update completion remain separate gates.
+No live agent or user installation was changed. The new API has no production orchestration caller. No push or CI execution was performed for this slice. At that checkpoint, health-success policy and update completion remained separate gates; the approval below supersedes the policy blocker, not the observation limitations.
+
+## Superseding user approval — 2026-10-22
+
+Exact owned candidate identity/listener, expected release, and readiness within a bounded deadline are now the approved update success gate. Attached terminals reconnect independently and cannot block success. Sequential observations still do not authenticate the TCP peer or promise future liveness. Failed/uncertain health must retain previous-version and recovery information; rollback requires proven owned-candidate exit, never timeout or PID alone. No schema change, live installation/process stop, cleanup, or rollback execution is authorized by this slice.
