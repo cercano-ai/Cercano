@@ -194,13 +194,17 @@ type Compaction struct {
 //	"turn"        exact provider-facing accounting captured while serving a turn
 //	"compaction"  post-pass send-view totals a compaction pass already computed
 //
+// Request and history snapshots are stored independently. GetContextUsage
+// prefers the latest request and carries forward separately measured raw history.
+// A history-only result is not suitable for the request meter.
+//
 // Model records the model whose window the snapshot was measured against, so a
 // snapshot taken under a different route can be recognized instead of trusted.
 type ContextUsage struct {
 	Provider           string
 	RuntimeInstanceID  string
 	ConversationID     string
-	TokensUsed         int // the sent (compacted) size
+	TokensUsed         int // message size for a request; untrimmed view size for history
 	RawTokens          int // the uncompacted size
 	MessageTokens      int
 	SystemTokens       int
@@ -439,6 +443,13 @@ func Open(path string) (Store, error) {
 			db.Close()
 			return nil, fmt.Errorf("migrate recap columns: %w", err)
 		}
+	}
+	// Preserve legacy request snapshots before a background pass can replace them.
+	// Explicit columns also handle databases whose runtime columns were appended.
+	if _, err := db.Exec(`INSERT OR IGNORE INTO conversation_request_usage (conversation_id, tokens_used, raw_tokens, message_tokens, system_tokens, tool_schema_tokens, output_reserve, estimated_request, context_window, window_known, model, source, computed_at, provider, runtime_instance_id)
+		SELECT conversation_id, tokens_used, raw_tokens, message_tokens, system_tokens, tool_schema_tokens, output_reserve, estimated_request, context_window, window_known, model, source, computed_at, provider, runtime_instance_id FROM conversation_context_usage WHERE source = 'turn'`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate request usage: %w", err)
 	}
 	return &sqliteStore{db: db}, nil
 }
@@ -1036,10 +1047,22 @@ func (s *sqliteStore) GetContextUsage(ctx context.Context, conversationID string
 	var windowKnown int
 	var computed int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT tokens_used, raw_tokens, message_tokens, system_tokens, tool_schema_tokens,
+		`SELECT tokens_used, CASE WHEN source = 'turn' THEN COALESCE(
+                    (SELECT NULLIF(raw_tokens, 0) FROM conversation_context_usage WHERE conversation_id = ?), raw_tokens) ELSE raw_tokens END,
+                message_tokens, system_tokens, tool_schema_tokens,
 		        output_reserve, estimated_request, context_window, window_known,
 		        model, source, computed_at, provider, runtime_instance_id
-		 FROM conversation_context_usage WHERE conversation_id = ?`, conversationID).
+		 FROM (
+             SELECT tokens_used, raw_tokens, message_tokens, system_tokens, tool_schema_tokens,
+                    output_reserve, estimated_request, context_window, window_known, model,
+                    source, computed_at, provider, runtime_instance_id, 0 AS priority
+             FROM conversation_request_usage WHERE conversation_id = ?
+             UNION ALL
+             SELECT tokens_used, raw_tokens, message_tokens, system_tokens, tool_schema_tokens,
+                    output_reserve, estimated_request, context_window, window_known, model,
+                    source, computed_at, provider, runtime_instance_id, 1 AS priority
+             FROM conversation_context_usage WHERE conversation_id = ?
+         ) ORDER BY priority LIMIT 1`, conversationID, conversationID, conversationID).
 		Scan(&u.TokensUsed, &u.RawTokens, &u.MessageTokens, &u.SystemTokens, &u.ToolSchemaTokens,
 			&u.OutputReserve, &u.EstimatedRequest, &u.ContextWindow, &windowKnown,
 			&u.Model, &u.Source, &computed, &u.Provider, &u.RuntimeInstanceID)
@@ -1092,8 +1115,14 @@ func (s *sqliteStore) SaveContextUsage(ctx context.Context, u ContextUsage) erro
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Table selection is internal, never caller-provided SQL. Separate rows make
+	// this safe across independent agent/worker connections without a read/merge race.
+	table := "conversation_context_usage"
+	if u.Source == "turn" {
+		table = "conversation_request_usage"
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO conversation_context_usage
+		INSERT INTO `+table+`
 			(conversation_id, tokens_used, raw_tokens, message_tokens, system_tokens,
 			 tool_schema_tokens, output_reserve, estimated_request, context_window,
 			 window_known, model, source, computed_at, provider, runtime_instance_id)

@@ -79,12 +79,12 @@ func TestContextUsage_RoundTripAndUpsert(t *testing.T) {
 
 	// Upsert overwrites in place: one current snapshot per conversation.
 	in.TokensUsed = 20_000
-	in.Source = "compaction"
+	in.Source = "turn"
 	if err := s.SaveContextUsage(ctx, in); err != nil {
 		t.Fatal(err)
 	}
 	got, _, _ = s.GetContextUsage(ctx, "c1")
-	if got.TokensUsed != 20_000 || got.Source != "compaction" {
+	if got.TokensUsed != 20_000 || got.Source != "turn" {
 		t.Fatalf("upsert should overwrite, got tokens=%d source=%q", got.TokensUsed, got.Source)
 	}
 }
