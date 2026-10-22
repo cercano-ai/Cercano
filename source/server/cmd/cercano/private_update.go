@@ -120,6 +120,13 @@ func dispatchPrivateUpdate(args []string, out, errOut io.Writer, runner privateU
 		return privateExitUsage, true
 	}
 
+	// Offline preflight shares the reserved dispatch, never the update runner.
+	// Any extra token (including installation locators) is rejected before
+	// installation lookup or ordinary startup can touch persistent user state.
+	if len(args) >= 2 && args[1] == "--preflight" {
+		return runCandidatePreflight(args[2:], out, errOut), true
+	}
+
 	req, err := parsePrivateUpdateArgs(args[1:])
 	if err != nil {
 		fmt.Fprintf(errOut, "cercano: %v\nusage: cercano %s --install-id ID --operation-id N\n", err, privateUpdateNamespace)

@@ -28,3 +28,31 @@ configuration health; unverified post-startup state changes forbid automatic
 rollback promises. This choice is awaiting approval before candidate startup and
 selection removal are connected. No new service, listener or shipped binary is
 proposed.
+
+## Superseding approval and bounded offline preflight (2026-10-22)
+
+The user approved the isolated-preflight strategy; see the existing spec's
+startup-safety section. `__internal-update --preflight` now uses the earliest
+private dispatch. It accepts no extra tokens and emits a constant JSON document
+under 512 bytes. Exit zero means only entrypoint reachability/report delivery;
+health is not checked and persistent-state compatibility is unknown. Write
+errors/short writes fail. No normal initialization, listener or child launch is
+performed. Updater capability reporting remains unchanged and execution false.
+No production caller invokes this mode. In particular, do not probe an unknown
+old binary using private argv; safe capability discovery remains future work.
+
+Local macOS verification passed with GOPROXY=off and GOSUMDB=off:
+- `go test ./cmd/cercano -run 'Test(CandidatePreflight|MainSubprocess|MainWires|DispatchPrivateUpdate|UpdaterProtocol)' -count=1 -timeout=120s`
+- Same focused suite with `-race`.
+- `go vet ./cmd/cercano`
+
+Tests cover strict/duplicate/extra/equals/locator arguments, oversized rejected
+input, bounded output, runner noninvocation, and output failures. Real-main
+subprocess fixtures isolate HOME/XDG/AppData, assert no files created, enforce a
+deadline and reap the exact child. Wiring tests establish dispatch before
+ordinary startup; this is not an OS sandbox or network-packet isolation claim.
+No native Windows/Linux execution, live agent/install actions, push or merge.
+
+Normal activation remains unavailable. Explicit persistent-state compatibility
+evidence, owned launch orchestration and state-safe rollback with exact candidate
+completion remain gates. Preflight does not establish any of them.

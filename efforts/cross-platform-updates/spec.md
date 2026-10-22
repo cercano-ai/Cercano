@@ -124,6 +124,12 @@ The user approved authorizing force interruption through protected local install
 
 Power loss and process termination must leave a recoverable state. A selection file alone is not proof of a crash-safe transaction on Windows. Define durable journal/selection behavior, single-writer exclusion, startup reconciliation, and cleanup of abandoned stages, then verify them with fault injection and native tests.
 
+### Approved isolated startup-safety strategy (2026-10-22)
+
+The user explicitly approved an isolated offline private candidate preflight before normal initialization. Preflight must bypass config/state/keychain access, retention and orphan-worker reaping; it is not ordinary readiness or persistent-state compatibility evidence. Normal candidate startup for automatic activation requires explicit evidence that persistent-state changes remain backward compatible. Unknown compatibility refuses automatic activation. Rollback requires both state safety and exact owned candidate completion; a previously absent agent must leave no probe alive. Timeouts, PID observations and successful preflight output are not completion receipts.
+
+The initial bounded implementation accepts only `__internal-update --preflight` through the existing earliest private dispatch and emits a fixed-size versioned JSON report of entrypoint reachability, health not checked and persistent-state compatibility unknown. No state, path, operation, command or locator inputs are accepted. This is a preparatory offline execution check, not a normal agent or a sandbox. Existing updater capabilities still report execution unavailable; capability discovery for orchestrated preflight, compatibility evidence and normal activation remain unwired. No live installation/agent action is authorized.
+
 ## Trust model
 
 TUF (The Update Framework) is the approved authentication model for self-managed updates across Windows, Linux, and macOS. Use a maintained Go implementation rather than implementing the protocol from scratch. The early integration gate must verify compatibility, metadata publication, expiry behavior, sequential root rotation, rollback/freeze protection, target selection, and recovery from interrupted metadata refresh.
