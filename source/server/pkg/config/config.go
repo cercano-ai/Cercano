@@ -4,6 +4,7 @@ import (
 	"cercano/source/server/pkg/accountidentity"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,7 +189,14 @@ func (m ModelProfiles) ResolveCloudModelForTier(prof CloudProfile, tier Tier) st
 		vendor = vendorForRoute(baseVendor, prof.Route)
 	}
 	if tier == TierVision {
-		return prof.ImageModel
+		if prof.ImageModel != "" {
+			return prof.ImageModel
+		}
+		// Vision defaults are independent of the text quality tiers.
+		if vendor == "mistral" {
+			return "mistral-large-4"
+		}
+		return ""
 	}
 	if ct, ok := CostTierForCapability(tier); ok {
 		if override := prof.TierOverrides[ct]; override != "" {
@@ -295,8 +303,8 @@ func inferProviderVendor(p CloudProfile) string {
 			return p.Backend
 		}
 		// Backend-less OpenAI-compatible providers (DeepInfra, Together,
-		// OpenRouter, DeepSeek) all speak the chat-completions dialect but
-		// serve entirely different model lineups. Without this, every one of
+		// OpenRouter, DeepSeek, Cerebras) all speak the chat-completions
+		// dialect but serve entirely different model lineups. Without this, every one of
 		// them inferred vendor "openai" and drew OpenAI model ids out of the
 		// cost tables — a DeepInfra profile would resolve to "gpt-5.5", send
 		// it to DeepInfra, and be rejected. The base URL is what actually
@@ -320,6 +328,9 @@ func inferProviderVendor(p CloudProfile) string {
 // between the two namespaces, and would put an import edge from this public
 // package into an internal one. The lists are pinned by tests on both sides.
 func vendorByHost(baseURL string) string {
+	if u, err := url.Parse(baseURL); err == nil && u.User == nil && strings.EqualFold(u.Hostname(), "api.mistral.ai") {
+		return "mistral"
+	}
 	host := strings.ToLower(baseURL)
 	switch {
 	case strings.Contains(host, "deepinfra."):
@@ -330,6 +341,8 @@ func vendorByHost(baseURL string) string {
 		return "openrouter"
 	case strings.Contains(host, "deepseek."):
 		return "deepseek"
+	case strings.Contains(host, "cerebras."):
+		return "cerebras"
 	}
 	return ""
 }
@@ -643,21 +656,28 @@ func Defaults() Config {
 						Premium:  CostTierModel{Model: "claude-fable-5"},
 					},
 					"openai": {
-						Economy:  CostTierModel{Model: "gpt-5-mini"},
-						Standard: CostTierModel{Model: "gpt-6-astra"},
+						Economy:  CostTierModel{Model: "gpt-6-luna"},
+						Standard: CostTierModel{Model: "gpt-6.1-sol"},
 						Premium:  CostTierModel{Model: "gpt-6-astra"},
 					},
-					// OpenAI reached through a ChatGPT subscription (Codex)
-					// serves a narrower lineup than the direct API: the mini
-					// models are rejected with a 400 ("not supported when
-					// using Codex with a ChatGPT account"). Economy therefore
-					// resolves to the same model as standard — this route has
-					// no cheaper option, and a working expensive summarizer
-					// beats a broken cheap one.
+					// User-approved tier lineup; these exact IDs are also available
+					// through the account-scoped ChatGPT subscription catalog.
 					"openai-chatgpt": {
-						Economy:  CostTierModel{Model: "gpt-6-astra"},
-						Standard: CostTierModel{Model: "gpt-6-astra"},
+						Economy:  CostTierModel{Model: "gpt-6-luna"},
+						Standard: CostTierModel{Model: "gpt-6.1-sol"},
 						Premium:  CostTierModel{Model: "gpt-6-astra"},
+					},
+					// Approved Mistral recommendations; live tool-continuation
+					// compatibility is verified, not comparative quality or pricing.
+					"mistral": {
+						Economy:  CostTierModel{Model: "mistral-small-latest"},
+						Standard: CostTierModel{Model: "mistral-large-4"},
+						Premium:  CostTierModel{Model: "zai-glm-5-3"},
+					},
+					// Approved Cerebras Economy default; Standard and Premium remain
+					// unset for live discovery or explicit user choices.
+					"cerebras": {
+						Economy: CostTierModel{Model: "gpt-oss-120b"},
 					},
 					// DeepInfra hosts many vendors' open-weight models rather
 					// than publishing its own, so these are chosen for the

@@ -1,0 +1,57 @@
+Post-fix, offline allowlisted environment; temporary HOME/XDG/cache; existing module cache.
+$ go test -mod=readonly ./pkg/config -count=1 -timeout=60s
+ok  	cercano/source/server/pkg/config	0.677s
+exit: 0
+$ go test -mod=readonly -race ./pkg/config -count=1 -timeout=60s
+ok  	cercano/source/server/pkg/config	2.003s
+exit: 0
+$ go test -mod=readonly ./pkg/config -run TestBaselineProvider|TestResolveCloud|TestExplicitProvider|TestRetiredOpenAI -v -count=1 -timeout=60s
+=== RUN   TestBaselineProviderDefaults
+=== RUN   TestBaselineProviderDefaults/openai
+=== RUN   TestBaselineProviderDefaults/openai-chatgpt
+=== RUN   TestBaselineProviderDefaults/mistral
+=== RUN   TestBaselineProviderDefaults/cerebras
+--- PASS: TestBaselineProviderDefaults (0.00s)
+    --- PASS: TestBaselineProviderDefaults/openai (0.00s)
+    --- PASS: TestBaselineProviderDefaults/openai-chatgpt (0.00s)
+    --- PASS: TestBaselineProviderDefaults/mistral (0.00s)
+    --- PASS: TestBaselineProviderDefaults/cerebras (0.00s)
+=== RUN   TestBaselineProviderInferenceAndVision
+=== RUN   TestBaselineProviderInferenceAndVision/mistral-host
+=== RUN   TestBaselineProviderInferenceAndVision/mistral-case-port
+=== RUN   TestBaselineProviderInferenceAndVision/mistral-explicit
+=== RUN   TestBaselineProviderInferenceAndVision/cerebras-host
+=== RUN   TestBaselineProviderInferenceAndVision/chatgpt-route
+=== RUN   TestBaselineProviderInferenceAndVision/explicit-provider-wins
+=== RUN   TestBaselineProviderInferenceAndVision/backend-wins
+=== RUN   TestBaselineProviderInferenceAndVision/not-mistral-host
+=== RUN   TestBaselineProviderInferenceAndVision/userinfo-not-inferred
+--- PASS: TestBaselineProviderInferenceAndVision (0.00s)
+    --- PASS: TestBaselineProviderInferenceAndVision/mistral-host (0.00s)
+    --- PASS: TestBaselineProviderInferenceAndVision/mistral-case-port (0.00s)
+    --- PASS: TestBaselineProviderInferenceAndVision/mistral-explicit (0.00s)
+    --- PASS: TestBaselineProviderInferenceAndVision/cerebras-host (0.00s)
+    --- PASS: TestBaselineProviderInferenceAndVision/chatgpt-route (0.00s)
+    --- PASS: TestBaselineProviderInferenceAndVision/explicit-provider-wins (0.00s)
+    --- PASS: TestBaselineProviderInferenceAndVision/backend-wins (0.00s)
+    --- PASS: TestBaselineProviderInferenceAndVision/not-mistral-host (0.00s)
+    --- PASS: TestBaselineProviderInferenceAndVision/userinfo-not-inferred (0.00s)
+=== RUN   TestResolveCloudModelForTier_DeepInfra
+--- PASS: TestResolveCloudModelForTier_DeepInfra (0.00s)
+=== RUN   TestResolveCloudModelForTier_DeepInfraTiersAreDistinct
+--- PASS: TestResolveCloudModelForTier_DeepInfraTiersAreDistinct (0.00s)
+=== RUN   TestResolveCloud
+--- PASS: TestResolveCloud (0.00s)
+=== RUN   TestResolveCloudModelForTier
+--- PASS: TestResolveCloudModelForTier (0.00s)
+=== RUN   TestResolveCloudModelForTierIsRouteAware
+--- PASS: TestResolveCloudModelForTierIsRouteAware (0.00s)
+=== RUN   TestResolveCloudModelForTierFallsBackToBaseVendor
+--- PASS: TestResolveCloudModelForTierFallsBackToBaseVendor (0.00s)
+=== RUN   TestExplicitProviderIsNotRouteQualified
+--- PASS: TestExplicitProviderIsNotRouteQualified (0.00s)
+=== RUN   TestRetiredOpenAIDefaultFollowsCatalog
+--- PASS: TestRetiredOpenAIDefaultFollowsCatalog (0.02s)
+PASS
+ok  	cercano/source/server/pkg/config	0.196s
+exit: 0

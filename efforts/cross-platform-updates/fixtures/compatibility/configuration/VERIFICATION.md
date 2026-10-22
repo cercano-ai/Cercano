@@ -125,3 +125,31 @@ Original conversation evidence is preserved. The effective defaults drift is
 recorded for review rather than fixed or waived.
 
 Additional fixture checks: Python AST parse passed; `git diff --check` passed.
+
+## Approved bounded remediation — 2026-10-22
+
+User explicitly approved: **Preserve v0.25.0 provider defaults and resolution
+behavior.** This executes the existing approved effort, not a new plan or waiver.
+Inspected exact baseline source at
+`58befd2801dd6f3d53438e8c8bfc74d937a9e811`, not just the previous summary.
+Restore OpenAI/ChatGPT tables, Mistral/Cerebras tables and host inference, and
+Mistral implicit vision; explicit provider/backend, tier and image precedence
+remain intact. No schema, updater or Meridian migration changes.
+
+Before production edits, new `TestBaselineProvider*` probes failed (exit 1,
+0.390s): all four provider tables/resolutions and Mistral implicit vision drift
+were reproduced; explicit text/image override assertions did not fail.
+`regression-before.txt` retains the failure output. Existing model-profile
+expectations were restored to the exact baseline tests (no assertions removed).
+
+After the fix, offline isolated tests passed (all exit 0):
+- `go test -mod=readonly ./pkg/config -count=1 -timeout=60s`: 0.677s.
+- Same suite with `-race`: 2.003s.
+- Focused `TestBaselineProvider|TestResolveCloud|TestExplicitProvider|TestRetiredOpenAI`
+  with `-v -count=1 -timeout=60s`: 0.196s.
+
+`regression-after.txt` records commands and results. Tests used temporary
+HOME/XDG/cache paths and an existing module cache with network module lookup
+disabled. No normal startup, provider calls, real configuration, databases or
+keychains were used. `git diff --check` passed. Committed-candidate compatibility
+rerun is pending below; the earlier failure above remains historical evidence.

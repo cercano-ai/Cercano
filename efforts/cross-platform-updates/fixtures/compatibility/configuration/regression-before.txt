@@ -1,0 +1,51 @@
+Pre-fix production: 1364b840ff4c; new TestBaselineProvider probes, offline temporary HOME/cache.
+--- FAIL: TestBaselineProviderDefaults (0.01s)
+    --- FAIL: TestBaselineProviderDefaults/openai (0.00s)
+        baseline_defaults_test.go:21: economy = "gpt-5-mini", true; want "gpt-6-luna"
+        baseline_defaults_test.go:26: economy resolution = "gpt-5-mini", want "gpt-6-luna"
+        baseline_defaults_test.go:21: standard = "gpt-6-astra", true; want "gpt-6.1-sol"
+        baseline_defaults_test.go:26: standard resolution = "gpt-6-astra", want "gpt-6.1-sol"
+    --- FAIL: TestBaselineProviderDefaults/openai-chatgpt (0.00s)
+        baseline_defaults_test.go:21: economy = "gpt-6-astra", true; want "gpt-6-luna"
+        baseline_defaults_test.go:26: economy resolution = "gpt-6-astra", want "gpt-6-luna"
+        baseline_defaults_test.go:21: standard = "gpt-6-astra", true; want "gpt-6.1-sol"
+        baseline_defaults_test.go:26: standard resolution = "gpt-6-astra", want "gpt-6.1-sol"
+    --- FAIL: TestBaselineProviderDefaults/mistral (0.00s)
+        baseline_defaults_test.go:16: missing provider table
+        baseline_defaults_test.go:21: economy = "", false; want "mistral-small-latest"
+        baseline_defaults_test.go:26: economy resolution = "", want "mistral-small-latest"
+        baseline_defaults_test.go:21: standard = "", false; want "mistral-large-4"
+        baseline_defaults_test.go:26: standard resolution = "", want "mistral-large-4"
+        baseline_defaults_test.go:21: premium = "", false; want "zai-glm-5-3"
+        baseline_defaults_test.go:26: premium resolution = "", want "zai-glm-5-3"
+    --- FAIL: TestBaselineProviderDefaults/cerebras (0.00s)
+        baseline_defaults_test.go:16: missing provider table
+        baseline_defaults_test.go:21: economy = "", false; want "gpt-oss-120b"
+        baseline_defaults_test.go:26: economy resolution = "", want "gpt-oss-120b"
+--- FAIL: TestBaselineProviderInferenceAndVision (0.00s)
+    --- FAIL: TestBaselineProviderInferenceAndVision/mistral-host (0.00s)
+        baseline_defaults_test.go:56: text = "gpt-5-mini", want "mistral-small-latest"
+        baseline_defaults_test.go:60: vision = "", want "mistral-large-4"
+    --- FAIL: TestBaselineProviderInferenceAndVision/mistral-case-port (0.00s)
+        baseline_defaults_test.go:56: text = "gpt-5-mini", want "mistral-small-latest"
+        baseline_defaults_test.go:60: vision = "", want "mistral-large-4"
+    --- FAIL: TestBaselineProviderInferenceAndVision/mistral-explicit (0.00s)
+        baseline_defaults_test.go:56: text = "", want "mistral-small-latest"
+        baseline_defaults_test.go:60: vision = "", want "mistral-large-4"
+    --- FAIL: TestBaselineProviderInferenceAndVision/cerebras-host (0.00s)
+        baseline_defaults_test.go:56: text = "gpt-5-mini", want "gpt-oss-120b"
+    --- FAIL: TestBaselineProviderInferenceAndVision/chatgpt-route (0.00s)
+        baseline_defaults_test.go:56: text = "gpt-6-astra", want "gpt-6-luna"
+    --- FAIL: TestBaselineProviderInferenceAndVision/explicit-provider-wins (0.00s)
+        baseline_defaults_test.go:56: text = "", want "mistral-small-latest"
+        baseline_defaults_test.go:60: vision = "", want "mistral-large-4"
+    --- FAIL: TestBaselineProviderInferenceAndVision/backend-wins (0.00s)
+        baseline_defaults_test.go:56: text = "gpt-5-mini", want "gpt-6-luna"
+    --- FAIL: TestBaselineProviderInferenceAndVision/not-mistral-host (0.00s)
+        baseline_defaults_test.go:56: text = "gpt-5-mini", want "gpt-6-luna"
+    --- FAIL: TestBaselineProviderInferenceAndVision/userinfo-not-inferred (0.00s)
+        baseline_defaults_test.go:56: text = "gpt-5-mini", want "gpt-6-luna"
+FAIL
+FAIL	cercano/source/server/pkg/config	0.390s
+FAIL
+exit: 1

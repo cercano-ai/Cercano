@@ -132,14 +132,13 @@ func TestResolveCloudModelForTierIsRouteAware(t *testing.T) {
 	if got == "gpt-5-mini" {
 		t.Errorf("chatgpt route economy resolved to %q — Codex rejects mini models with a 400", got)
 	}
-	if got != "gpt-6-astra" {
-		t.Errorf("chatgpt route economy = %q, want gpt-6-astra", got)
+	if got != "gpt-6-luna" {
+		t.Errorf("chatgpt route economy = %q, want gpt-6-luna", got)
 	}
 
-	// The direct API keeps its cheaper economy model: the fix must not make
-	// every OpenAI caller pay premium prices.
-	if got := d.ModelProfiles.ResolveCloudModelForTier(directAPI, TierFastLightText); got != "gpt-5-mini" {
-		t.Errorf("direct openai economy = %q, want gpt-5-mini (unchanged)", got)
+	// Both routes use the requested economical lineup.
+	if got := d.ModelProfiles.ResolveCloudModelForTier(directAPI, TierFastLightText); got != "gpt-6-luna" {
+		t.Errorf("direct openai economy = %q, want gpt-6-luna", got)
 	}
 }
 
@@ -177,8 +176,10 @@ func TestDefaultsSeedsCostTables(t *testing.T) {
 	for _, vendor := range []string{"openai", "openai-chatgpt"} {
 		for _, tier := range []CostTier{CostEconomy, CostStandard, CostPremium} {
 			want := "gpt-6-astra"
-			if vendor == "openai" && tier == CostEconomy {
-				want = "gpt-5-mini"
+			if tier == CostEconomy {
+				want = "gpt-6-luna"
+			} else if tier == CostStandard {
+				want = "gpt-6.1-sol"
 			}
 			if got, ok := d.ModelProfiles.ResolveCloud(vendor, tier); !ok || got != want {
 				t.Errorf("%s %s => %q,%v want %s,true", vendor, tier, got, ok, want)
@@ -199,7 +200,7 @@ func TestRetiredOpenAIDefaultFollowsCatalog(t *testing.T) {
 			cfg := Defaults()
 			cfg.CloudProfiles = []CloudProfile{profile}
 			normalizeCloudModelDefaults(&cfg)
-			want := "gpt-6-astra"
+			want := "gpt-6.1-sol"
 			if got := cfg.ModelProfiles.ResolveCloudModelForTier(cfg.CloudProfiles[0], TierEveryday); got != want {
 				t.Errorf("profile %+v: got %q, want %q", profile, got, want)
 			}
