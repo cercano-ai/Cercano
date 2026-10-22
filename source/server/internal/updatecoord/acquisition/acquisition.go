@@ -44,8 +44,9 @@
 //     them and does not defend against a hostile process racing the same
 //     user's cache.
 //   - A Receipt reporting the verified length and SHA-256 from signed
-//     metadata is returned only after the verified bytes are durably in
-//     place.
+//     metadata is returned only after file Sync and Close succeed and the
+//     verified file is successfully published. The output directory is not
+//     synced; directory-entry survival across power loss is not guaranteed.
 //
 // Explicitly out of scope (and absent here): archive extraction, staging,
 // activation, restart, installer execution, key generation, publication,
@@ -182,9 +183,11 @@ var ErrNoSignedSHA256 = errors.New("signed metadata carries no sha256 digest for
 
 // Acquire refreshes trusted metadata from the configured HTTPS source and
 // downloads the requested relative target path, returning a receipt only
-// after the bytes verified against the signed length and SHA-256 are durably
-// written into OutputDir. The context bounds the whole acquisition; a
-// canceled context fails closed with no output file left behind.
+// after the bytes verified against the signed length and SHA-256 pass file
+// Sync and Close and are successfully published in OutputDir. The directory
+// is not synced; there is no directory-entry power-loss guarantee. The context
+// bounds the whole acquisition; a canceled context fails closed with no output
+// file left behind.
 func Acquire(ctx context.Context, opts Options, targetRelPath string) (*Receipt, error) {
 	if ctx == nil {
 		return nil, errors.New("acquisition: context is required")

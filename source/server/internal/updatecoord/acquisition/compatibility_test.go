@@ -149,3 +149,87 @@ func TestCompatibilityBindingAndOptIn(t *testing.T) {
 		})
 	}
 }
+
+func TestCompatibilityMalformedIdentifierAliases(t *testing.T) {
+	for _, field := range []string{"contract", "database", "config", "credentials"} {
+		for name, malformed := range map[string]string{"utf8": string([]byte{0xff}), "high surrogate": `\uD800`, "low surrogate": `\uDC00`} {
+			t.Run(field+"/"+name, func(t *testing.T) {
+				c := syntheticContract()
+				dst := &c.ID
+				switch field {
+				case "database":
+					dst = &c.DatabaseFormat
+				case "config":
+					dst = &c.ConfigFormat
+				case "credentials":
+					dst = &c.CredentialsFormat
+				}
+				raw := strings.Replace(syntheticDeclaration, *dst, malformed, 1)
+				*dst = "�"
+				if err := validateCompatibility([]byte(raw), *c); err == nil {
+					t.Fatal("malformed declaration aliased caller U+FFFD")
+				}
+			})
+		}
+	}
+}
+
+func TestCompatibilityUnicodeIdentifiers(t *testing.T) {
+	for _, value := range []string{"�", "日本語", "é", "e\u0301", "😀", `\uD800`} {
+		c := CompatibilityContract{value, value, value, value}
+		encoded, _ := json.Marshal(value)
+		raw := syntheticDeclaration
+		for _, old := range []string{"fixture-matrix-v1", "fixture-db-v1", "fixture-config-v1", "fixture-credentials-v1"} {
+			raw = strings.Replace(raw, `"`+old+`"`, string(encoded), 1)
+		}
+		if err := validateCompatibility([]byte(raw), c); err != nil {
+			t.Fatalf("%q: %v", value, err)
+		}
+		if value == "😀" {
+			raw = strings.ReplaceAll(raw, "😀", `\uD83D\uDE00`)
+			if err := validateCompatibility([]byte(raw), c); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for i := 0; i < 4; i++ {
+		c := syntheticContract()
+		fields := []*string{&c.ID, &c.DatabaseFormat, &c.ConfigFormat, &c.CredentialsFormat}
+		*fields[i] = string([]byte{0xed, 0xa0, 0x80}) // UTF-8 encoding of a surrogate is invalid.
+		if err := c.validate(); err == nil {
+			t.Fatalf("invalid caller field %d accepted", i)
+		}
+	}
+}
+
+func TestCompatibilityPublicationFailures(t *testing.T) {
+	for _, mode := range []string{"cancel", "close"} {
+		t.Run(mode, func(t *testing.T) {
+			raw := json.RawMessage(syntheticDeclaration)
+			fx := newFixtureSpecs(t, time.Now().Add(time.Hour), nil, targetSpec{path: "candidate.zip", data: []byte("candidate"), custom: &raw})
+			opts := fixtureOptions(fx, t.TempDir(), t.TempDir())
+			opts.RequiredCompatibility = syntheticContract()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			client := fx.server.Client()
+			if mode == "cancel" {
+				client = &http.Client{Transport: &cancelingTransport{base: client.Transport, cancel: cancel}}
+			}
+			if mode == "close" {
+				original := osClose
+				osClose = func(*os.File) error { return os.ErrPermission }
+				defer func() { osClose = original }()
+			}
+			receipt, err := acquire(ctx, opts, "candidate.zip", client)
+			if err == nil || receipt != nil {
+				t.Fatalf("receipt=%+v err=%v", receipt, err)
+			}
+			if mode == "close" && fx.targetRequests == 0 {
+				t.Fatal("did not reach target download")
+			}
+			if names := outputEntries(t, opts.OutputDir); len(names) != 0 {
+				t.Fatalf("output: %v", names)
+			}
+		})
+	}
+}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"unicode/utf8"
 )
 
 // CompatibilityContract is trusted caller policy, never policy learned from a
@@ -15,6 +17,8 @@ import (
 // IDs or supported formats are defined here. The caller must also trust its TUF
 // release signer to enforce the artifact-bound release-test gate; this client
 // authenticates that signer's declaration, not independent test evidence.
+// Identifiers are well-formed UTF-8, 1..256 bytes, compared exactly without
+// Unicode normalization. Valid Unicode (including U+FFFD) is permitted.
 type CompatibilityContract struct {
 	ID                string
 	DatabaseFormat    string
@@ -24,8 +28,8 @@ type CompatibilityContract struct {
 
 func (c CompatibilityContract) validate() error {
 	for _, s := range []string{c.ID, c.DatabaseFormat, c.ConfigFormat, c.CredentialsFormat} {
-		if s == "" || len(s) > 256 {
-			return errors.New("compatibility: explicit contract and all prior formats required (1..256 bytes)")
+		if s == "" || len(s) > 256 || !utf8.ValidString(s) {
+			return errors.New("compatibility: explicit contract and all prior formats required (well-formed UTF-8, 1..256 bytes)")
 		}
 	}
 	return nil
@@ -94,7 +98,7 @@ func validateCompatibility(raw []byte, c CompatibilityContract) error {
 		return errors.New("compatibility: unsupported version")
 	}
 	var id string
-	if err = json.Unmarshal(obj["contract"], &id); err != nil || id != c.ID {
+	if err = decodeIdentifier(obj["contract"], &id); err != nil || id != c.ID {
 		return errors.New("compatibility: unsupported contract")
 	}
 	domains, err := exactObject(obj["domains"], "database", "config", "credentials")
@@ -107,7 +111,7 @@ func validateCompatibility(raw []byte, c CompatibilityContract) error {
 			return fmt.Errorf("compatibility: %s: %w", name, err)
 		}
 		var prior string
-		if err = json.Unmarshal(domain["prior_format"], &prior); err != nil || prior != format {
+		if err = decodeIdentifier(domain["prior_format"], &prior); err != nil || prior != format {
 			return fmt.Errorf("compatibility: unsupported %s prior format", name)
 		}
 		if string(domain["prior_reads_candidate_writes"]) != "true" {
@@ -115,4 +119,39 @@ func validateCompatibility(raw []byte, c CompatibilityContract) error {
 		}
 	}
 	return nil
+}
+
+// encoding/json replaces malformed UTF-8 and unpaired UTF-16 escapes with
+// U+FFFD. Reject those spellings before decoding so they cannot alias a valid ID.
+func decodeIdentifier(raw []byte, dst *string) error {
+	raw = bytes.TrimSpace(raw)
+	if !utf8.Valid(raw) || !json.Valid(raw) || len(raw) < 2 || raw[0] != '"' {
+		return errors.New("compatibility: invalid identifier string")
+	}
+	for i := 1; i < len(raw)-1; i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		i++
+		if raw[i] != 'u' {
+			continue
+		}
+		// json.Valid guarantees four hexadecimal digits after every Unicode escape.
+		n, _ := strconv.ParseUint(string(raw[i+1:i+5]), 16, 16)
+		i += 4
+		if n >= 0xdc00 && n <= 0xdfff {
+			return errors.New("compatibility: unpaired low surrogate")
+		}
+		if n >= 0xd800 && n <= 0xdbff {
+			if i+6 >= len(raw) || raw[i+1] != '\\' || raw[i+2] != 'u' {
+				return errors.New("compatibility: unpaired high surrogate")
+			}
+			low, err := strconv.ParseUint(string(raw[i+3:i+7]), 16, 16)
+			if err != nil || low < 0xdc00 || low > 0xdfff {
+				return errors.New("compatibility: unpaired high surrogate")
+			}
+			i += 6
+		}
+	}
+	return json.Unmarshal(raw, dst)
 }
