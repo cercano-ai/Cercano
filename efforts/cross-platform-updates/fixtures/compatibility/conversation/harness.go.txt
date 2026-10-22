@@ -1,0 +1,121 @@
+// Test-only source copied under each pinned module's cmd boundary by run.py.
+package main
+
+import (
+	c "cercano/source/server/internal/conversation"
+	"context"
+	"fmt"
+	"os"
+	"reflect"
+	"time"
+)
+
+var ctx = context.Background()
+var failed bool
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+func check(label string, got, want any) {
+	if !reflect.DeepEqual(got, want) {
+		failed = true
+		fmt.Printf("FAIL %s: got=%+v want=%+v\n", label, got, want)
+	} else {
+		fmt.Println("PASS", label)
+	}
+}
+func turn(id, owner string, n int) c.Turn {
+	return c.Turn{ID: id, ConversationID: owner, Role: "user", Content: "fixture " + id + " 日本語", BlocksJSON: `[{"type":"text","text":"fixture"}]`, TokensIn: n, TokensOut: n + 1, LatencyMs: 7, CreatedAt: time.Unix(int64(100+n), 0).UTC()}
+}
+func usage(id string, n int) c.ContextUsage {
+	return c.ContextUsage{ConversationID: id, Source: "turn", TokensUsed: n, MessageTokens: n, EstimatedRequest: n + 10, ContextWindow: 1000, ContextWindowKnown: true, Provider: "fixture", RuntimeInstanceID: "fixture-runtime", Model: "fixture-model", ComputedAt: time.Unix(int64(200+n), 0).UTC()}
+}
+func seed(s c.Store, id string) {
+	must(s.EnsureConversation(ctx, id, "/fixture/project", "fixture-model"))
+	must(s.Append(ctx, turn(id+"-old", id, 1)))
+	must(s.Rename(ctx, id, "title "+id))
+	must(s.UpdateRecap(ctx, id, "recap "+id))
+	_, err := s.CreateAutonomyRun(ctx, c.AutonomyRun{RunID: id + "-run", ConversationID: id, State: "completed", BriefJSON: `{"goal":"preserve"}`, DecisionsJSON: `[]`})
+	must(err)
+	must(s.SaveContextUsage(ctx, usage(id, 11)))
+}
+func verify(s c.Store, id string, updated bool) {
+	info, err := s.Get(ctx, id)
+	must(err)
+	check(id+" title", info.Title, "title "+id)
+	check(id+" recap", info.Recap, "recap "+id)
+	check(id+" project", info.ProjectDir, "/fixture/project")
+	check(id+" model", info.Model, "fixture-model")
+	turns, err := s.GetTurns(ctx, id)
+	must(err)
+	want := []c.Turn{turn(id+"-old", id, 1)}
+	n := 11
+	if updated {
+		want = append(want, turn(id+"-new", id, 2))
+		n = 22
+	}
+	// SQLite stores epoch seconds, not a Go time.Location. Compare instants in UTC.
+	for i := range turns {
+		turns[i].CreatedAt = turns[i].CreatedAt.UTC()
+	}
+	check(id+" turns", turns, want)
+	runs, err := s.ListAutonomyRuns(ctx, id)
+	must(err)
+	check(id+" run count", len(runs), 1)
+	if len(runs) == 1 {
+		check(id+" run ID", runs[0].RunID, id+"-run")
+		check(id+" brief", runs[0].BriefJSON, `{"goal":"preserve"}`)
+		check(id+" decisions", runs[0].DecisionsJSON, `[]`)
+		check(id+" state", runs[0].State, "completed")
+	}
+	u, ok, err := s.GetContextUsage(ctx, id)
+	must(err)
+	u.ComputedAt = u.ComputedAt.UTC()
+	check(id+" usage exists", ok, true)
+	check(id+" usage", u, usage(id, n))
+}
+func main() {
+	if len(os.Args) != 4 {
+		panic("mode db empty|populated required")
+	}
+	mode, path, kind := os.Args[1], os.Args[2], os.Args[3]
+	s, err := c.Open(path)
+	must(err)
+	switch mode {
+	case "seed":
+		if kind == "populated" {
+			seed(s, "untouched")
+			seed(s, "updated")
+		}
+	case "seed-check":
+		if kind == "populated" {
+			verify(s, "untouched", false)
+			verify(s, "updated", false)
+		} else {
+			list, err := s.List(ctx, "", 100)
+			must(err)
+			check("empty count", len(list), 0)
+		}
+	case "write":
+		seed(s, "candidate")
+		if kind == "populated" {
+			must(s.Append(ctx, turn("updated-new", "updated", 2)))
+			must(s.SaveContextUsage(ctx, usage("updated", 22)))
+		}
+	case "verify":
+		verify(s, "candidate", false)
+		if kind == "populated" {
+			verify(s, "untouched", false)
+			verify(s, "updated", true)
+		}
+	case "open": // Intentionally mutating production Open; no reader API invoked.
+	default:
+		panic("unknown mode")
+	}
+	must(s.Close())
+	if failed {
+		os.Exit(1)
+	}
+}

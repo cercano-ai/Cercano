@@ -1,0 +1,201 @@
+baseline: 58befd2801dd6f3d53438e8c8bfc74d937a9e811 candidate: 25969d70e8e834fa982978285577ce11e3088277
+$ go version
+go version go1.26.3 darwin/arm64
+exit: 0
+$ git archive --format=tar -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior.tar 58befd2801dd6f3d53438e8c8bfc74d937a9e811 source/server
+exit: 0
+$ go build -mod=readonly -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior/harness ./cmd/compat-experiment
+exit: 0
+prior harness sha256: 5ab91ca8db137481584e6043deb19c704d7edd1694872b4b15189a26af0c3396
+$ git archive --format=tar -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/candidate.tar 25969d70e8e834fa982978285577ce11e3088277 source/server
+exit: 0
+$ go build -mod=readonly -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/candidate/harness ./cmd/compat-experiment
+exit: 0
+candidate harness sha256: 30efadf70847fdeab99c9d80cfa0ff7cd998b22d263321586e99410823cbea73
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior/harness seed /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/empty.db empty
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/empty.db empty
+PASS empty count
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/candidate/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/empty.db empty
+PASS empty count
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/candidate/harness write /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/empty.db empty
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/candidate/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/empty.db empty
+PASS candidate title
+PASS candidate recap
+PASS candidate project
+PASS candidate model
+PASS candidate turns
+PASS candidate run count
+PASS candidate run ID
+PASS candidate brief
+PASS candidate decisions
+PASS candidate state
+PASS candidate usage exists
+PASS candidate usage
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior/harness open /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/empty.db empty
+exit: 0
+empty prior Open logical mutation: True file hash changed: True
+removed dump lines: []
+added dump lines: ["INSERT INTO \"conversation_request_usage\" VALUES('fixture','fixture-runtime','candidate',11,0,11,0,0,0,21,1000,1,'fixture-model','turn',211);"]
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/empty.db empty
+PASS candidate title
+PASS candidate recap
+PASS candidate project
+PASS candidate model
+PASS candidate turns
+PASS candidate run count
+PASS candidate run ID
+PASS candidate brief
+PASS candidate decisions
+PASS candidate state
+PASS candidate usage exists
+PASS candidate usage
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior/harness seed /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/populated.db populated
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/populated.db populated
+PASS untouched title
+PASS untouched recap
+PASS untouched project
+PASS untouched model
+PASS untouched turns
+PASS untouched run count
+PASS untouched run ID
+PASS untouched brief
+PASS untouched decisions
+PASS untouched state
+PASS untouched usage exists
+PASS untouched usage
+PASS updated title
+PASS updated recap
+PASS updated project
+PASS updated model
+PASS updated turns
+PASS updated run count
+PASS updated run ID
+PASS updated brief
+PASS updated decisions
+PASS updated state
+PASS updated usage exists
+PASS updated usage
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/candidate/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/populated.db populated
+PASS untouched title
+PASS untouched recap
+PASS untouched project
+PASS untouched model
+PASS untouched turns
+PASS untouched run count
+PASS untouched run ID
+PASS untouched brief
+PASS untouched decisions
+PASS untouched state
+FAIL untouched usage exists: got=false want=true
+FAIL untouched usage: got={Provider: RuntimeInstanceID: ConversationID:untouched TokensUsed:0 RawTokens:0 MessageTokens:0 SystemTokens:0 ToolSchemaTokens:0 OutputReserve:0 EstimatedRequest:0 ContextWindow:0 ContextWindowKnown:false Model: Source: ComputedAt:0001-01-01 00:00:00 +0000 UTC} want={Provider:fixture RuntimeInstanceID:fixture-runtime ConversationID:untouched TokensUsed:11 RawTokens:0 MessageTokens:11 SystemTokens:0 ToolSchemaTokens:0 OutputReserve:0 EstimatedRequest:21 ContextWindow:1000 ContextWindowKnown:true Model:fixture-model Source:turn ComputedAt:1970-01-01 00:03:31 +0000 UTC}
+PASS updated title
+PASS updated recap
+PASS updated project
+PASS updated model
+PASS updated turns
+PASS updated run count
+PASS updated run ID
+PASS updated brief
+PASS updated decisions
+PASS updated state
+FAIL updated usage exists: got=false want=true
+FAIL updated usage: got={Provider: RuntimeInstanceID: ConversationID:updated TokensUsed:0 RawTokens:0 MessageTokens:0 SystemTokens:0 ToolSchemaTokens:0 OutputReserve:0 EstimatedRequest:0 ContextWindow:0 ContextWindowKnown:false Model: Source: ComputedAt:0001-01-01 00:00:00 +0000 UTC} want={Provider:fixture RuntimeInstanceID:fixture-runtime ConversationID:updated TokensUsed:11 RawTokens:0 MessageTokens:11 SystemTokens:0 ToolSchemaTokens:0 OutputReserve:0 EstimatedRequest:21 ContextWindow:1000 ContextWindowKnown:true Model:fixture-model Source:turn ComputedAt:1970-01-01 00:03:31 +0000 UTC}
+exit: 1
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/candidate/harness write /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/populated.db populated
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/candidate/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/populated.db populated
+PASS candidate title
+PASS candidate recap
+PASS candidate project
+PASS candidate model
+PASS candidate turns
+PASS candidate run count
+PASS candidate run ID
+PASS candidate brief
+PASS candidate decisions
+PASS candidate state
+PASS candidate usage exists
+PASS candidate usage
+PASS untouched title
+PASS untouched recap
+PASS untouched project
+PASS untouched model
+PASS untouched turns
+PASS untouched run count
+PASS untouched run ID
+PASS untouched brief
+PASS untouched decisions
+PASS untouched state
+FAIL untouched usage exists: got=false want=true
+FAIL untouched usage: got={Provider: RuntimeInstanceID: ConversationID:untouched TokensUsed:0 RawTokens:0 MessageTokens:0 SystemTokens:0 ToolSchemaTokens:0 OutputReserve:0 EstimatedRequest:0 ContextWindow:0 ContextWindowKnown:false Model: Source: ComputedAt:0001-01-01 00:00:00 +0000 UTC} want={Provider:fixture RuntimeInstanceID:fixture-runtime ConversationID:untouched TokensUsed:11 RawTokens:0 MessageTokens:11 SystemTokens:0 ToolSchemaTokens:0 OutputReserve:0 EstimatedRequest:21 ContextWindow:1000 ContextWindowKnown:true Model:fixture-model Source:turn ComputedAt:1970-01-01 00:03:31 +0000 UTC}
+PASS updated title
+PASS updated recap
+PASS updated project
+PASS updated model
+PASS updated turns
+PASS updated run count
+PASS updated run ID
+PASS updated brief
+PASS updated decisions
+PASS updated state
+PASS updated usage exists
+PASS updated usage
+exit: 1
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior/harness open /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/populated.db populated
+exit: 0
+populated prior Open logical mutation: True file hash changed: True
+removed dump lines: []
+added dump lines: ["INSERT INTO \"conversation_request_usage\" VALUES('fixture','fixture-runtime','candidate',11,0,11,0,0,0,21,1000,1,'fixture-model','turn',211);"]
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/prior/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-conversation-compat-5swjk0df/populated.db populated
+PASS candidate title
+PASS candidate recap
+PASS candidate project
+PASS candidate model
+PASS candidate turns
+PASS candidate run count
+PASS candidate run ID
+PASS candidate brief
+PASS candidate decisions
+PASS candidate state
+PASS candidate usage exists
+PASS candidate usage
+PASS untouched title
+PASS untouched recap
+PASS untouched project
+PASS untouched model
+PASS untouched turns
+PASS untouched run count
+PASS untouched run ID
+PASS untouched brief
+PASS untouched decisions
+PASS untouched state
+PASS untouched usage exists
+PASS untouched usage
+PASS updated title
+PASS updated recap
+PASS updated project
+PASS updated model
+PASS updated turns
+PASS updated run count
+PASS updated run ID
+PASS updated brief
+PASS updated decisions
+PASS updated state
+PASS updated usage exists
+FAIL updated usage: got={Provider:fixture RuntimeInstanceID:fixture-runtime ConversationID:updated TokensUsed:11 RawTokens:0 MessageTokens:11 SystemTokens:0 ToolSchemaTokens:0 OutputReserve:0 EstimatedRequest:21 ContextWindow:1000 ContextWindowKnown:true Model:fixture-model Source:turn ComputedAt:1970-01-01 00:03:31 +0000 UTC} want={Provider:fixture RuntimeInstanceID:fixture-runtime ConversationID:updated TokensUsed:22 RawTokens:0 MessageTokens:22 SystemTokens:0 ToolSchemaTokens:0 OutputReserve:0 EstimatedRequest:32 ContextWindow:1000 ContextWindowKnown:true Model:fixture-model Source:turn ComputedAt:1970-01-01 00:03:42 +0000 UTC}
+exit: 1
+$ go test -mod=readonly ./internal/conversation -count=1 -timeout=60s
+ok  	cercano/source/server/internal/conversation	0.402s
+exit: 0
+$ go test -mod=readonly ./internal/conversation -count=1 -timeout=60s
+ok  	cercano/source/server/internal/conversation	0.335s
+exit: 0
+EXPERIMENT: FAIL (see assertions above)
