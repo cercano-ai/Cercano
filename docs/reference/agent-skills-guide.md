@@ -1,6 +1,6 @@
 # Creating Agent Skills for Cercano
 
-This guide covers how to write [Agent Skills](https://agentskills.io) (SKILL.md files) that wrap Cercano's MCP tools. Skills make your tools discoverable by any compatible agent — Claude Code, Cursor, Copilot, Gemini CLI, and 30+ others.
+This guide covers how to write [Agent Skills](https://agentskills.io) (SKILL.md files) that wrap Cercano's MCP tools. Skills provide discovery instructions for compatible agents; supported locations and activation behavior depend on the host.
 
 ## What is a Skill?
 
@@ -28,7 +28,7 @@ your-project/
         SKILL.md          # Copy for Claude Code discovery (slash commands)
 ```
 
-- `.agents/skills/` is the standard location — any Agent Skills-compatible agent scans here.
+- `.agents/skills/` is the shared location used in this repository; check whether your host scans it.
 - `.claude/skills/` is Claude Code-specific. Skills here appear as `/your-skill-name` slash commands.
 - The directory name must match the `name` field in the SKILL.md frontmatter.
 
@@ -45,7 +45,7 @@ description: >                  # Required. What this skill does and when to use
   One or two sentences that help the agent decide whether this skill
   is relevant to the current task. Max 1024 chars.
 compatibility: >                # Optional. Environment requirements.
-  Requires Cercano server running and connected to an Ollama instance.
+  Requires Cercano server running, MCP connected, and a configured Reconnaissance task route.
 license: MIT                    # Optional. License name or path to LICENSE file.
 metadata:                       # Optional. Arbitrary key-value pairs.
   author: your-name
@@ -75,17 +75,18 @@ Here's a complete SKILL.md that wraps the `cercano_classify` tool:
 ---
 name: cercano-classify
 description: >
-  Classify or triage text using local AI via Cercano. Returns a category,
+  Classify or triage text using Cercano’s configured Reconnaissance route. Returns a category,
   confidence level, and brief reasoning. Use this for quick local triage of
   errors, logs, code quality issues, bug reports, or any content that needs
-  categorization without sending it to the cloud.
-compatibility: Requires Cercano server running and connected to an Ollama instance.
+  categorization. The selected route determines local or cloud execution.
+compatibility: Requires Cercano server running, MCP connected, and a configured Reconnaissance task route.
 ---
 
 # Cercano Classify
 
-Classify or triage text using local AI through Cercano's MCP interface.
-Returns a category, confidence score, and reasoning.
+Classify text or a file through Cercano's MCP interface.
+Requests a category, qualitative confidence (high/medium/low), and reasoning
+from the model; this is model-generated text, not a calibrated score.
 
 ## MCP Tool
 
@@ -95,7 +96,8 @@ Returns a category, confidence score, and reasoning.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `text` | string | Yes | The text to classify. |
+| `text` | string | Either text or file_path | The text to classify. |
+| `file_path` | string | Either text or file_path | File to read on the server; takes precedence over text. Relative paths use the call working directory. |
 | `categories` | string | No | Comma-separated list of target categories. |
 
 ## Examples
@@ -123,7 +125,7 @@ The `description` field is how agents decide whether to activate your skill. Tip
 
 - **Be specific** — "Classify text using local AI" is better than "AI classification tool".
 - **Include trigger words** — mention the actions and domains your skill handles (e.g., "triage", "errors", "logs", "categorize").
-- **State the benefit** — why use this skill? (e.g., "without sending it to the cloud", "faster than cloud round-trip").
+- **State the benefit accurately** — do not promise offline, free, or local execution unless the selected route and tools guarantee it.
 - **Keep it under 1024 characters** — agents only load frontmatter during discovery, so this needs to be concise.
 
 ## Installing Skills
@@ -131,7 +133,7 @@ The `description` field is how agents decide whether to activate your skill. Tip
 Copy your skill directory into the project:
 
 ```bash
-# Standard location (all compatible agents)
+# Shared location (host support varies)
 cp -r your-skill-name/ .agents/skills/your-skill-name/
 
 # Claude Code (enables /your-skill-name slash command)
@@ -152,4 +154,4 @@ This is useful for agents that want to discover Cercano's capabilities at runtim
 ## Reference
 
 - [Agent Skills Specification](https://agentskills.io/specification)
-- [Cercano's published skills](../.agents/skills/)
+- [Cercano's published skills](../../.agents/skills/)

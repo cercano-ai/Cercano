@@ -47,8 +47,8 @@ All source paths above are under `source/server/` unless otherwise qualified.
 - Local inline Markdown links: scanned tracked Markdown outside fenced blocks,
   resolving relative paths against each document, comparing against baseline
   tracked paths. Does not validate anchors, reference-style links, images,
-  external URLs or templated paths. 11 preexisting missing targets remained;
-  no new missing target after this report was created. Details below.
+  external URLs or templated paths. 11 preexisting missing targets remained in the initial pass;
+  the follow-up below resolves them.
 - No full product integration suite, agent installation/restart, or live paid
   inference. No pushes or landing.
 
@@ -72,19 +72,23 @@ partial audit. Review is not certification of all 521 inventoried files.
 - Source tests passing do not validate claims of privacy for arbitrary network
   tools or credential exports. Local inference does not imply offline operation.
 
-## Preexisting missing local-link targets
+## Follow-up: skill example and preexisting local-link targets
 
-- `docs/features/agent-capabilities/task-model/research/README.md` → `findings/01_performance-of-genetic-algorithms-in-the-context-of.md`
-- `docs/features/agent-capabilities/task-model/research/README.md` → `findings/02_a-survey-of-multi-agent-deep-reinforcement-learning-with.md`
-- `docs/features/agent-capabilities/task-model/research/README.md` → `findings/03_a-performance-study-of-ga-and-lsh-in-multiprocessor-job.md`
-- `docs/features/agent-capabilities/task-model/research/README.md` → `findings/16_performance-comparison-on-parallel-cpu-and-gpu-algorithms.md`
-- `docs/features/agent-capabilities/task-model/research/README.md` → `references/01_ayan-dutta-google-scholar.md`
-- `docs/features/agent-capabilities/task-model/research/README.md` → `references/02_francisco-claude.md`
-- `docs/features/agent-capabilities/task-model/research/README.md` → `references/03_rebecca-e-grinter-google-scholar.md`
-- `docs/features/agent-capabilities/task-model/research/README.md` → `references/04_google-scholar-settings.md`
-- `docs/features/agent-capabilities/task-model/research/README.md` → `references/05_pi-extension-github-topics-github.md`
-- `docs/features/agent-capabilities/task-model/research/README.md` → `references/06_google.md`
-- `docs/reference/agent-skills-guide.md` → `../.agents/skills/`
+This follow-up is **not completion of the maintained-document semantic audit**.
+The remaining CLI, specialist, enterprise, plugin, release, and platform groups
+still require source comparisons; they are local work, not external-only blockers.
+
+| Document | Disposition and source evidence |
+| --- | --- |
+| `docs/reference/agent-skills-guide.md` | Corrected classify example: configured Reconnaissance route rather than guaranteed local/Ollama inference; added `file_path`, precedence, and qualitative model confidence. Evidence: `source/server/internal/capabilities/builtins/coproc_classify.go:23-68`. Checked MCP skill list/get registration in `source/server/internal/mcp/server.go:369` and dynamic capability registration following `registerTools`. Removed universal host-discovery claims; external skill-host/spec compatibility not certified. Fixed repository skill link. |
+| `docs/features/agent-capabilities/task-model/research/README.md` | Historical generated research, explicitly labeled and linked to existing `CAVEATS.md`. That record documents deliberate deletion of four off-topic findings and six reference artifacts. Preserved historical titles as pruned entries rather than inventing destinations or restoring deleted material. No retrospective factual rewrite of the synthesis. |
+
+All 11 previously listed missing targets are now resolved: one corrected relative
+path and ten intentionally pruned historical entries converted to non-links with
+an explanation. Follow-up inline-link scan of 520 tracked Markdown files found zero missing
+relative targets (outside triple-backtick fences; images, reference links,
+anchors, external URLs, and templated paths excluded). This does not certify
+anchors or external destinations. Website files were not changed.
 
 ## Tracked inventory
 
@@ -412,7 +416,7 @@ partial audit. Review is not certification of all 521 inventoried files.
 | `docs/linux-artifact.md` | guide/instructions/website (candidate maintained) | inventory/link scan only |
 | `docs/local-macos-signing.md` | guide/instructions/website (candidate maintained) | inventory/link scan only |
 | `docs/macos-release-build.md` | guide/instructions/website (candidate maintained) | inventory/link scan only |
-| `docs/reference/agent-skills-guide.md` | guide/instructions/website (candidate maintained) | inventory/link scan only |
+| `docs/reference/agent-skills-guide.md` | guide/instructions/website (candidate maintained) | targeted semantic corrections; follow-up evidence above |
 | `docs/reference/code-styleguides/general.md` | guide/instructions/website (candidate maintained) | inventory/link scan only |
 | `docs/reference/code-styleguides/go.md` | guide/instructions/website (candidate maintained) | inventory/link scan only |
 | `docs/reference/product.md` | guide/instructions/website (candidate maintained) | inventory/link scan only |
