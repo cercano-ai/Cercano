@@ -1,9 +1,9 @@
-# Bounded real configuration experiment — FAIL (effective defaults drift)
+# Bounded real configuration experiment — PASS after approved defaults repair
 
 TEST ONLY, 2026-10-22. This is actual `pkg/config.Load` / `config.Save` evidence,
 not a production compatibility declaration, artifact qualification or startup test.
 
-## Exact inputs and reproduction
+## Historical failing experiment — exact inputs and reproduction
 
 - Approved prior stable v0.25.0: `58befd2801dd6f3d53438e8c8bfc74d937a9e811`.
 - Candidate: `e9496fb6c35df349ab7850016fce1c67c37e0589`.
@@ -15,7 +15,8 @@ not a production compatibility declaration, artifact qualification or startup te
   both compiled harness SHA-256 hashes. Binary hashes are per-run (temporary
   build paths vary), not published artifact hashes.
 
-Executed from repository root:
+Historical invocation from repository root (runner at checkpoint `1364b840ff4c`
+pinned the failing candidate; current runner pins the repaired candidate):
 
 ```sh
 COMPAT_GOMODCACHE=/Users/bryancostanich/go/pkg/mod \
@@ -114,7 +115,7 @@ are printed in the log. All eight diagnostic invocations exit **0**:
   This does not qualify every historical migration, Meridian/subscription
   transition, deprecated cloud secret, unknown nested field or malformed input.
 
-## Limits / blocker
+## Historical limits / blocker
 
 Bounded fixture complete with a negative effective-semantics result. No broader
 compatibility guarantee, credentials/keychain qualification, all-provider model
@@ -152,4 +153,40 @@ After the fix, offline isolated tests passed (all exit 0):
 HOME/XDG/cache paths and an existing module cache with network module lookup
 disabled. No normal startup, provider calls, real configuration, databases or
 keychains were used. `git diff --check` passed. Committed-candidate compatibility
-rerun is pending below; the earlier failure above remains historical evidence.
+rerun is recorded below; the earlier failure above remains historical evidence.
+
+## Committed-candidate rerun — PASS (bounded scenarios only)
+
+- Baseline unchanged: `58befd2801dd6f3d53438e8c8bfc74d937a9e811`.
+- Repaired code candidate: `3bfdf49fcf3cce93563e8097b0d27384576bfb5e`.
+- Evidence-only checkpoint follows that candidate; it does not change production
+  source or claim its own SHA was compiled by this run.
+- Inspected `run.py` and `harness.go.txt` before use: archived committed modules,
+  safe regular-file extraction, allowlisted environment, temporary config/home/
+  build paths, explicit offline module cache, no startup/credential/provider
+  calls. Platform memory detection still executes local `sysctl` on Darwin;
+  this is not an OS/network sandbox.
+
+Executed from repository root:
+
+```sh
+COMPAT_GOMODCACHE=/Users/bryancostanich/go/pkg/mod \
+  python3 efforts/cross-platform-updates/fixtures/compatibility/configuration/run.py \
+  > efforts/cross-platform-updates/fixtures/compatibility/configuration/results-restored.txt 2>&1
+```
+
+Runner exit **0**, `EXPERIMENT: PASS (bounded scenarios only)`, Go 1.26.3
+darwin/arm64. Both archived harness builds passed. All 12 scenario invocations
+passed: empty/populated prior seed, prior/candidate seed-check, candidate write,
+candidate/prior verify. All eight independent unknown/legacy diagnostic
+invocations passed. Both archived config suites passed (prior 0.611s, candidate
+0.634s). Log records exact pins, commands, exits and runner/harness hashes.
+
+No failing cases remain in this bounded rerun. Full Config comparison still
+includes **ModelProfiles**: neither harness nor acceptance assertions changed.
+Original `results.txt`, `results-initial.txt` and harnesses are retained.
+The earlier effective-default drift blocker is resolved for these scenarios,
+not waived. This does not establish all-provider live availability, every
+historical migration, real credential compatibility, Windows/Linux runtime
+behavior, startup or artifact/activation/rollback qualification. No production
+data, databases or keychains, network calls, pushes or merges were used.

@@ -13,7 +13,8 @@ import tempfile
 
 BASELINE = '58befd2801dd6f3d53438e8c8bfc74d937a9e811'
 # Original failing candidate/results remain recorded in VERIFICATION.md/results.txt.
-CANDIDATE = 'e9496fb6c35df349ab7850016fce1c67c37e0589'
+# Approved defaults repair; passing rerun is recorded in results-restored.txt.
+CANDIDATE = '3bfdf49fcf3cce93563e8097b0d27384576bfb5e'
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[4]
 failed = False

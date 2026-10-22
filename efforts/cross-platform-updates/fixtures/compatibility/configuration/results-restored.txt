@@ -1,0 +1,2771 @@
+baseline: 58befd2801dd6f3d53438e8c8bfc74d937a9e811 candidate: 3bfdf49fcf3cce93563e8097b0d27384576bfb5e
+run.py sha256: 415d9ac22f93d050b556cca23ffecd0bd2309c207b94279693c16c8c9e76def3
+harness.go.txt sha256: 9c4eb2cb743a6c407176b4761cc05678904da2d0c50075797466a0e59582e8b8
+$ go version
+go version go1.26.3 darwin/arm64
+exit: 0
+$ git archive --format=tar -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior.tar 58befd2801dd6f3d53438e8c8bfc74d937a9e811 source/server
+exit: 0
+$ go build -mod=readonly -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness ./cmd/compat-experiment
+exit: 0
+prior harness sha256: 9a055b4bced6ab29728f9f6f3400be0e1f4c68ba7820fc4104a482028e3a7b39
+$ git archive --format=tar -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate.tar 3bfdf49fcf3cce93563e8097b0d27384576bfb5e source/server
+exit: 0
+$ go build -mod=readonly -o /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate/harness ./cmd/compat-experiment
+exit: 0
+candidate harness sha256: ed62b490c660fbe86122f0491e867a54dba9cdd8c5e42db05a279fbceeb2baa6
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness seed /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/empty.yaml empty
+seed PASS empty
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/empty.yaml empty
+PASS empty seed-check
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/empty.yaml empty
+PASS empty seed-check
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate/harness write /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/empty.yaml empty
+write PASS empty
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/empty.yaml empty
+PASS empty verify
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/empty.yaml empty
+PASS empty verify
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness seed /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/populated.yaml populated
+seed PASS populated
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/populated.yaml populated
+PASS populated seed-check
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate/harness seed-check /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/populated.yaml populated
+PASS populated seed-check
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate/harness write /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/populated.yaml populated
+write PASS populated
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/populated.yaml populated
+PASS populated verify
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness verify /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/populated.yaml populated
+PASS populated verify
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness diagnostic /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/unknown-prior.yaml unknown
+DIAGNOSTIC unknown input=fixture_future: {secret: synthetic-only}
+port: "50991"
+ loaded={
+  "CaptureDispatchReasoning": false,
+  "OllamaURL": "http://localhost:11434",
+  "OpenRuntime": "llama_server",
+  "OpenModel": "",
+  "EmbeddingModel": "",
+  "CloudProvider": "",
+  "CloudModel": "",
+  "CloudAPIKey": "",
+  "CloudBaseURL": "",
+  "CloudProfiles": null,
+  "ActiveCloudProfile": "",
+  "BackupCloudProfile": "",
+  "BackupCloudProfiles": null,
+  "SecondaryCloudProfile": "",
+  "SecondaryBackupCloudProfile": "",
+  "TaskAssignments": null,
+  "SecondaryRedirect": "",
+  "LocalRedirect": "",
+  "LocusMode": "cloud_primary",
+  "Port": "50991",
+  "ExecutionMode": "worker",
+  "WorkerIdleTimeoutSeconds": 0,
+  "Agent": {
+    "ShutdownOnLastClient": true
+  },
+  "LlamaServer": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ContextSize": null,
+    "GPULayers": "auto",
+    "Threads": 0,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "60s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    }
+  },
+  "MistralRS": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ISQ": "",
+    "PagedAttn": "auto",
+    "PAMemoryFraction": "0.35",
+    "PAMemoryMB": 0,
+    "MaxSeqLen": 32768,
+    "MaxSeqs": 1,
+    "MaxBatchSize": 1,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "120s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    },
+    "LogLevel": ""
+  },
+  "Compaction": {
+    "Enabled": true,
+    "ActivationFloorTokens": 40000,
+    "SegmentTokens": 8000,
+    "VerbatimRecent": 6,
+    "HardOverridePct": 0.9,
+    "CompactedBudgetPct": 0,
+    "TieredRetentionSegments": 0,
+    "RolloverRawTokenThreshold": 0,
+    "RolloverReconsolidationThreshold": 0,
+    "RolloverRearmMultiple": 0,
+    "RolloverVerbatimTurns": 0,
+    "Retention": {
+      "RawRetentionDays": 90,
+      "CompactedRetentionDays": 180,
+      "KeepForever": false
+    },
+    "ToolElisionOnly": false,
+    "ElideToolResults": false,
+    "LossyToolElision": false,
+    "SummarizerModel": ""
+  },
+  "Watchdog": {
+    "Enabled": false,
+    "Mode": "challenge-and-justify",
+    "Checks": [
+      "systematic-debugging",
+      "design-decisions",
+      "verification-strategy",
+      "compute-before-simulate",
+      "commit-checkpoint",
+      "plain-english",
+      "worktree-first",
+      "follow-through"
+    ],
+    "Model": "",
+    "EscalateAfter": 2,
+    "Echo": false,
+    "Audit": {
+      "Enabled": true,
+      "Path": "",
+      "IncludePrompts": true,
+      "IncludeResponses": true
+    }
+  },
+  "ToolLoop": {
+    "MaxIterations": 200
+  },
+  "Models": {
+    "Open": {
+      "Overrides": null
+    }
+  },
+  "ModelProfiles": {
+    "Cloud": {
+      "Providers": {
+        "anthropic": {
+          "Economy": {
+            "Model": "claude-haiku-4-5"
+          },
+          "Standard": {
+            "Model": "claude-opus-5"
+          },
+          "Premium": {
+            "Model": "claude-fable-5"
+          }
+        },
+        "cerebras": {
+          "Economy": {
+            "Model": "gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": ""
+          },
+          "Premium": {
+            "Model": ""
+          }
+        },
+        "deepinfra": {
+          "Economy": {
+            "Model": "openai/gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": "zai-org/GLM-5.3-Flash"
+          },
+          "Premium": {
+            "Model": "zai-org/GLM-5.3"
+          }
+        },
+        "mistral": {
+          "Economy": {
+            "Model": "mistral-small-latest"
+          },
+          "Standard": {
+            "Model": "mistral-large-4"
+          },
+          "Premium": {
+            "Model": "zai-glm-5-3"
+          }
+        },
+        "openai": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        },
+        "openai-chatgpt": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        }
+      }
+    }
+  }
+}
+DIAGNOSTIC unknown saved=ollama_url: http://localhost:11434
+open_runtime: llama_server
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: cloud_primary
+port: "50991"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open: {}
+
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness diagnostic /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/unknown-prior.yaml unknown
+DIAGNOSTIC unknown input=ollama_url: http://localhost:11434
+open_runtime: llama_server
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: cloud_primary
+port: "50991"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open: {}
+ loaded={
+  "CaptureDispatchReasoning": false,
+  "OllamaURL": "http://localhost:11434",
+  "OpenRuntime": "llama_server",
+  "OpenModel": "",
+  "EmbeddingModel": "",
+  "CloudProvider": "",
+  "CloudModel": "",
+  "CloudAPIKey": "",
+  "CloudBaseURL": "",
+  "CloudProfiles": null,
+  "ActiveCloudProfile": "",
+  "BackupCloudProfile": "",
+  "BackupCloudProfiles": null,
+  "SecondaryCloudProfile": "",
+  "SecondaryBackupCloudProfile": "",
+  "TaskAssignments": null,
+  "SecondaryRedirect": "",
+  "LocalRedirect": "",
+  "LocusMode": "cloud_primary",
+  "Port": "50991",
+  "ExecutionMode": "worker",
+  "WorkerIdleTimeoutSeconds": 0,
+  "Agent": {
+    "ShutdownOnLastClient": true
+  },
+  "LlamaServer": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ContextSize": null,
+    "GPULayers": "auto",
+    "Threads": 0,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "60s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    }
+  },
+  "MistralRS": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ISQ": "",
+    "PagedAttn": "auto",
+    "PAMemoryFraction": "0.35",
+    "PAMemoryMB": 0,
+    "MaxSeqLen": 32768,
+    "MaxSeqs": 1,
+    "MaxBatchSize": 1,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "120s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    },
+    "LogLevel": ""
+  },
+  "Compaction": {
+    "Enabled": true,
+    "ActivationFloorTokens": 40000,
+    "SegmentTokens": 8000,
+    "VerbatimRecent": 6,
+    "HardOverridePct": 0.9,
+    "CompactedBudgetPct": 0,
+    "TieredRetentionSegments": 0,
+    "RolloverRawTokenThreshold": 0,
+    "RolloverReconsolidationThreshold": 0,
+    "RolloverRearmMultiple": 0,
+    "RolloverVerbatimTurns": 0,
+    "Retention": {
+      "RawRetentionDays": 90,
+      "CompactedRetentionDays": 180,
+      "KeepForever": false
+    },
+    "ToolElisionOnly": false,
+    "ElideToolResults": false,
+    "LossyToolElision": false,
+    "SummarizerModel": ""
+  },
+  "Watchdog": {
+    "Enabled": false,
+    "Mode": "challenge-and-justify",
+    "Checks": [
+      "systematic-debugging",
+      "design-decisions",
+      "verification-strategy",
+      "compute-before-simulate",
+      "commit-checkpoint",
+      "plain-english",
+      "worktree-first",
+      "follow-through"
+    ],
+    "Model": "",
+    "EscalateAfter": 2,
+    "Echo": false,
+    "Audit": {
+      "Enabled": true,
+      "Path": "",
+      "IncludePrompts": true,
+      "IncludeResponses": true
+    }
+  },
+  "ToolLoop": {
+    "MaxIterations": 200
+  },
+  "Models": {
+    "Open": {
+      "Overrides": null
+    }
+  },
+  "ModelProfiles": {
+    "Cloud": {
+      "Providers": {
+        "anthropic": {
+          "Economy": {
+            "Model": "claude-haiku-4-5"
+          },
+          "Standard": {
+            "Model": "claude-opus-5"
+          },
+          "Premium": {
+            "Model": "claude-fable-5"
+          }
+        },
+        "cerebras": {
+          "Economy": {
+            "Model": "gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": ""
+          },
+          "Premium": {
+            "Model": ""
+          }
+        },
+        "deepinfra": {
+          "Economy": {
+            "Model": "openai/gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": "zai-org/GLM-5.3-Flash"
+          },
+          "Premium": {
+            "Model": "zai-org/GLM-5.3"
+          }
+        },
+        "mistral": {
+          "Economy": {
+            "Model": "mistral-small-latest"
+          },
+          "Standard": {
+            "Model": "mistral-large-4"
+          },
+          "Premium": {
+            "Model": "zai-glm-5-3"
+          }
+        },
+        "openai": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        },
+        "openai-chatgpt": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        }
+      }
+    }
+  }
+}
+DIAGNOSTIC unknown saved=ollama_url: http://localhost:11434
+open_runtime: llama_server
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: cloud_primary
+port: "50991"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open: {}
+
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate/harness diagnostic /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/unknown-candidate.yaml unknown
+DIAGNOSTIC unknown input=fixture_future: {secret: synthetic-only}
+port: "50991"
+ loaded={
+  "CaptureDispatchReasoning": false,
+  "OllamaURL": "http://localhost:11434",
+  "OpenRuntime": "llama_server",
+  "OpenModel": "",
+  "EmbeddingModel": "",
+  "CloudProvider": "",
+  "CloudModel": "",
+  "CloudAPIKey": "",
+  "CloudBaseURL": "",
+  "CloudProfiles": null,
+  "ActiveCloudProfile": "",
+  "BackupCloudProfile": "",
+  "BackupCloudProfiles": null,
+  "SecondaryCloudProfile": "",
+  "SecondaryBackupCloudProfile": "",
+  "TaskAssignments": null,
+  "SecondaryRedirect": "",
+  "LocalRedirect": "",
+  "LocusMode": "cloud_primary",
+  "Port": "50991",
+  "ExecutionMode": "worker",
+  "WorkerIdleTimeoutSeconds": 0,
+  "Agent": {
+    "ShutdownOnLastClient": true
+  },
+  "LlamaServer": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ContextSize": null,
+    "GPULayers": "auto",
+    "Threads": 0,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "60s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    }
+  },
+  "MistralRS": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ISQ": "",
+    "PagedAttn": "auto",
+    "PAMemoryFraction": "0.35",
+    "PAMemoryMB": 0,
+    "MaxSeqLen": 32768,
+    "MaxSeqs": 1,
+    "MaxBatchSize": 1,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "120s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    },
+    "LogLevel": ""
+  },
+  "Compaction": {
+    "Enabled": true,
+    "ActivationFloorTokens": 40000,
+    "SegmentTokens": 8000,
+    "VerbatimRecent": 6,
+    "HardOverridePct": 0.9,
+    "CompactedBudgetPct": 0,
+    "TieredRetentionSegments": 0,
+    "RolloverRawTokenThreshold": 0,
+    "RolloverReconsolidationThreshold": 0,
+    "RolloverRearmMultiple": 0,
+    "RolloverVerbatimTurns": 0,
+    "Retention": {
+      "RawRetentionDays": 90,
+      "CompactedRetentionDays": 180,
+      "KeepForever": false
+    },
+    "ToolElisionOnly": false,
+    "ElideToolResults": false,
+    "LossyToolElision": false,
+    "SummarizerModel": ""
+  },
+  "Watchdog": {
+    "Enabled": false,
+    "Mode": "challenge-and-justify",
+    "Checks": [
+      "systematic-debugging",
+      "design-decisions",
+      "verification-strategy",
+      "compute-before-simulate",
+      "commit-checkpoint",
+      "plain-english",
+      "worktree-first",
+      "follow-through"
+    ],
+    "Model": "",
+    "EscalateAfter": 2,
+    "Echo": false,
+    "Audit": {
+      "Enabled": true,
+      "Path": "",
+      "IncludePrompts": true,
+      "IncludeResponses": true
+    }
+  },
+  "ToolLoop": {
+    "MaxIterations": 200
+  },
+  "Models": {
+    "Open": {
+      "Overrides": null
+    }
+  },
+  "ModelProfiles": {
+    "Cloud": {
+      "Providers": {
+        "anthropic": {
+          "Economy": {
+            "Model": "claude-haiku-4-5"
+          },
+          "Standard": {
+            "Model": "claude-opus-5"
+          },
+          "Premium": {
+            "Model": "claude-fable-5"
+          }
+        },
+        "cerebras": {
+          "Economy": {
+            "Model": "gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": ""
+          },
+          "Premium": {
+            "Model": ""
+          }
+        },
+        "deepinfra": {
+          "Economy": {
+            "Model": "openai/gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": "zai-org/GLM-5.3-Flash"
+          },
+          "Premium": {
+            "Model": "zai-org/GLM-5.3"
+          }
+        },
+        "mistral": {
+          "Economy": {
+            "Model": "mistral-small-latest"
+          },
+          "Standard": {
+            "Model": "mistral-large-4"
+          },
+          "Premium": {
+            "Model": "zai-glm-5-3"
+          }
+        },
+        "openai": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        },
+        "openai-chatgpt": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        }
+      }
+    }
+  }
+}
+DIAGNOSTIC unknown saved=ollama_url: http://localhost:11434
+open_runtime: llama_server
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: cloud_primary
+port: "50991"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open: {}
+
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness diagnostic /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/unknown-candidate.yaml unknown
+DIAGNOSTIC unknown input=ollama_url: http://localhost:11434
+open_runtime: llama_server
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: cloud_primary
+port: "50991"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open: {}
+ loaded={
+  "CaptureDispatchReasoning": false,
+  "OllamaURL": "http://localhost:11434",
+  "OpenRuntime": "llama_server",
+  "OpenModel": "",
+  "EmbeddingModel": "",
+  "CloudProvider": "",
+  "CloudModel": "",
+  "CloudAPIKey": "",
+  "CloudBaseURL": "",
+  "CloudProfiles": null,
+  "ActiveCloudProfile": "",
+  "BackupCloudProfile": "",
+  "BackupCloudProfiles": null,
+  "SecondaryCloudProfile": "",
+  "SecondaryBackupCloudProfile": "",
+  "TaskAssignments": null,
+  "SecondaryRedirect": "",
+  "LocalRedirect": "",
+  "LocusMode": "cloud_primary",
+  "Port": "50991",
+  "ExecutionMode": "worker",
+  "WorkerIdleTimeoutSeconds": 0,
+  "Agent": {
+    "ShutdownOnLastClient": true
+  },
+  "LlamaServer": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ContextSize": null,
+    "GPULayers": "auto",
+    "Threads": 0,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "60s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    }
+  },
+  "MistralRS": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ISQ": "",
+    "PagedAttn": "auto",
+    "PAMemoryFraction": "0.35",
+    "PAMemoryMB": 0,
+    "MaxSeqLen": 32768,
+    "MaxSeqs": 1,
+    "MaxBatchSize": 1,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "120s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    },
+    "LogLevel": ""
+  },
+  "Compaction": {
+    "Enabled": true,
+    "ActivationFloorTokens": 40000,
+    "SegmentTokens": 8000,
+    "VerbatimRecent": 6,
+    "HardOverridePct": 0.9,
+    "CompactedBudgetPct": 0,
+    "TieredRetentionSegments": 0,
+    "RolloverRawTokenThreshold": 0,
+    "RolloverReconsolidationThreshold": 0,
+    "RolloverRearmMultiple": 0,
+    "RolloverVerbatimTurns": 0,
+    "Retention": {
+      "RawRetentionDays": 90,
+      "CompactedRetentionDays": 180,
+      "KeepForever": false
+    },
+    "ToolElisionOnly": false,
+    "ElideToolResults": false,
+    "LossyToolElision": false,
+    "SummarizerModel": ""
+  },
+  "Watchdog": {
+    "Enabled": false,
+    "Mode": "challenge-and-justify",
+    "Checks": [
+      "systematic-debugging",
+      "design-decisions",
+      "verification-strategy",
+      "compute-before-simulate",
+      "commit-checkpoint",
+      "plain-english",
+      "worktree-first",
+      "follow-through"
+    ],
+    "Model": "",
+    "EscalateAfter": 2,
+    "Echo": false,
+    "Audit": {
+      "Enabled": true,
+      "Path": "",
+      "IncludePrompts": true,
+      "IncludeResponses": true
+    }
+  },
+  "ToolLoop": {
+    "MaxIterations": 200
+  },
+  "Models": {
+    "Open": {
+      "Overrides": null
+    }
+  },
+  "ModelProfiles": {
+    "Cloud": {
+      "Providers": {
+        "anthropic": {
+          "Economy": {
+            "Model": "claude-haiku-4-5"
+          },
+          "Standard": {
+            "Model": "claude-opus-5"
+          },
+          "Premium": {
+            "Model": "claude-fable-5"
+          }
+        },
+        "cerebras": {
+          "Economy": {
+            "Model": "gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": ""
+          },
+          "Premium": {
+            "Model": ""
+          }
+        },
+        "deepinfra": {
+          "Economy": {
+            "Model": "openai/gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": "zai-org/GLM-5.3-Flash"
+          },
+          "Premium": {
+            "Model": "zai-org/GLM-5.3"
+          }
+        },
+        "mistral": {
+          "Economy": {
+            "Model": "mistral-small-latest"
+          },
+          "Standard": {
+            "Model": "mistral-large-4"
+          },
+          "Premium": {
+            "Model": "zai-glm-5-3"
+          }
+        },
+        "openai": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        },
+        "openai-chatgpt": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        }
+      }
+    }
+  }
+}
+DIAGNOSTIC unknown saved=ollama_url: http://localhost:11434
+open_runtime: llama_server
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: cloud_primary
+port: "50991"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open: {}
+
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness diagnostic /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/legacy-prior.yaml legacy
+DIAGNOSTIC legacy input=local_runtime: ollama
+local_model: synthetic-legacy
+locus_mode: local_only
+ loaded={
+  "CaptureDispatchReasoning": false,
+  "OllamaURL": "http://localhost:11434",
+  "OpenRuntime": "ollama",
+  "OpenModel": "",
+  "EmbeddingModel": "",
+  "CloudProvider": "",
+  "CloudModel": "",
+  "CloudAPIKey": "",
+  "CloudBaseURL": "",
+  "CloudProfiles": null,
+  "ActiveCloudProfile": "",
+  "BackupCloudProfile": "",
+  "BackupCloudProfiles": null,
+  "SecondaryCloudProfile": "",
+  "SecondaryBackupCloudProfile": "",
+  "TaskAssignments": null,
+  "SecondaryRedirect": "",
+  "LocalRedirect": "",
+  "LocusMode": "open_only",
+  "Port": "50052",
+  "ExecutionMode": "worker",
+  "WorkerIdleTimeoutSeconds": 0,
+  "Agent": {
+    "ShutdownOnLastClient": true
+  },
+  "LlamaServer": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ContextSize": null,
+    "GPULayers": "auto",
+    "Threads": 0,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "60s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    }
+  },
+  "MistralRS": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ISQ": "",
+    "PagedAttn": "auto",
+    "PAMemoryFraction": "0.35",
+    "PAMemoryMB": 0,
+    "MaxSeqLen": 32768,
+    "MaxSeqs": 1,
+    "MaxBatchSize": 1,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "120s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    },
+    "LogLevel": ""
+  },
+  "Compaction": {
+    "Enabled": true,
+    "ActivationFloorTokens": 40000,
+    "SegmentTokens": 8000,
+    "VerbatimRecent": 6,
+    "HardOverridePct": 0.9,
+    "CompactedBudgetPct": 0,
+    "TieredRetentionSegments": 0,
+    "RolloverRawTokenThreshold": 0,
+    "RolloverReconsolidationThreshold": 0,
+    "RolloverRearmMultiple": 0,
+    "RolloverVerbatimTurns": 0,
+    "Retention": {
+      "RawRetentionDays": 90,
+      "CompactedRetentionDays": 180,
+      "KeepForever": false
+    },
+    "ToolElisionOnly": false,
+    "ElideToolResults": false,
+    "LossyToolElision": false,
+    "SummarizerModel": ""
+  },
+  "Watchdog": {
+    "Enabled": false,
+    "Mode": "challenge-and-justify",
+    "Checks": [
+      "systematic-debugging",
+      "design-decisions",
+      "verification-strategy",
+      "compute-before-simulate",
+      "commit-checkpoint",
+      "plain-english",
+      "worktree-first",
+      "follow-through"
+    ],
+    "Model": "",
+    "EscalateAfter": 2,
+    "Echo": false,
+    "Audit": {
+      "Enabled": true,
+      "Path": "",
+      "IncludePrompts": true,
+      "IncludeResponses": true
+    }
+  },
+  "ToolLoop": {
+    "MaxIterations": 200
+  },
+  "Models": {
+    "Open": {
+      "Overrides": {
+        "ollama": {
+          "everyday": "synthetic-legacy"
+        }
+      }
+    }
+  },
+  "ModelProfiles": {
+    "Cloud": {
+      "Providers": {
+        "anthropic": {
+          "Economy": {
+            "Model": "claude-haiku-4-5"
+          },
+          "Standard": {
+            "Model": "claude-opus-5"
+          },
+          "Premium": {
+            "Model": "claude-fable-5"
+          }
+        },
+        "cerebras": {
+          "Economy": {
+            "Model": "gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": ""
+          },
+          "Premium": {
+            "Model": ""
+          }
+        },
+        "deepinfra": {
+          "Economy": {
+            "Model": "openai/gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": "zai-org/GLM-5.3-Flash"
+          },
+          "Premium": {
+            "Model": "zai-org/GLM-5.3"
+          }
+        },
+        "mistral": {
+          "Economy": {
+            "Model": "mistral-small-latest"
+          },
+          "Standard": {
+            "Model": "mistral-large-4"
+          },
+          "Premium": {
+            "Model": "zai-glm-5-3"
+          }
+        },
+        "openai": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        },
+        "openai-chatgpt": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        }
+      }
+    }
+  }
+}
+DIAGNOSTIC legacy saved=ollama_url: http://localhost:11434
+open_runtime: ollama
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: open_only
+port: "50052"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open:
+        overrides:
+            ollama:
+                everyday: synthetic-legacy
+
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness diagnostic /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/legacy-prior.yaml legacy
+DIAGNOSTIC legacy input=ollama_url: http://localhost:11434
+open_runtime: ollama
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: open_only
+port: "50052"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open:
+        overrides:
+            ollama:
+                everyday: synthetic-legacy
+ loaded={
+  "CaptureDispatchReasoning": false,
+  "OllamaURL": "http://localhost:11434",
+  "OpenRuntime": "ollama",
+  "OpenModel": "",
+  "EmbeddingModel": "",
+  "CloudProvider": "",
+  "CloudModel": "",
+  "CloudAPIKey": "",
+  "CloudBaseURL": "",
+  "CloudProfiles": null,
+  "ActiveCloudProfile": "",
+  "BackupCloudProfile": "",
+  "BackupCloudProfiles": null,
+  "SecondaryCloudProfile": "",
+  "SecondaryBackupCloudProfile": "",
+  "TaskAssignments": null,
+  "SecondaryRedirect": "",
+  "LocalRedirect": "",
+  "LocusMode": "open_only",
+  "Port": "50052",
+  "ExecutionMode": "worker",
+  "WorkerIdleTimeoutSeconds": 0,
+  "Agent": {
+    "ShutdownOnLastClient": true
+  },
+  "LlamaServer": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ContextSize": null,
+    "GPULayers": "auto",
+    "Threads": 0,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "60s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    }
+  },
+  "MistralRS": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ISQ": "",
+    "PagedAttn": "auto",
+    "PAMemoryFraction": "0.35",
+    "PAMemoryMB": 0,
+    "MaxSeqLen": 32768,
+    "MaxSeqs": 1,
+    "MaxBatchSize": 1,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "120s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    },
+    "LogLevel": ""
+  },
+  "Compaction": {
+    "Enabled": true,
+    "ActivationFloorTokens": 40000,
+    "SegmentTokens": 8000,
+    "VerbatimRecent": 6,
+    "HardOverridePct": 0.9,
+    "CompactedBudgetPct": 0,
+    "TieredRetentionSegments": 0,
+    "RolloverRawTokenThreshold": 0,
+    "RolloverReconsolidationThreshold": 0,
+    "RolloverRearmMultiple": 0,
+    "RolloverVerbatimTurns": 0,
+    "Retention": {
+      "RawRetentionDays": 90,
+      "CompactedRetentionDays": 180,
+      "KeepForever": false
+    },
+    "ToolElisionOnly": false,
+    "ElideToolResults": false,
+    "LossyToolElision": false,
+    "SummarizerModel": ""
+  },
+  "Watchdog": {
+    "Enabled": false,
+    "Mode": "challenge-and-justify",
+    "Checks": [
+      "systematic-debugging",
+      "design-decisions",
+      "verification-strategy",
+      "compute-before-simulate",
+      "commit-checkpoint",
+      "plain-english",
+      "worktree-first",
+      "follow-through"
+    ],
+    "Model": "",
+    "EscalateAfter": 2,
+    "Echo": false,
+    "Audit": {
+      "Enabled": true,
+      "Path": "",
+      "IncludePrompts": true,
+      "IncludeResponses": true
+    }
+  },
+  "ToolLoop": {
+    "MaxIterations": 200
+  },
+  "Models": {
+    "Open": {
+      "Overrides": {
+        "ollama": {
+          "everyday": "synthetic-legacy"
+        }
+      }
+    }
+  },
+  "ModelProfiles": {
+    "Cloud": {
+      "Providers": {
+        "anthropic": {
+          "Economy": {
+            "Model": "claude-haiku-4-5"
+          },
+          "Standard": {
+            "Model": "claude-opus-5"
+          },
+          "Premium": {
+            "Model": "claude-fable-5"
+          }
+        },
+        "cerebras": {
+          "Economy": {
+            "Model": "gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": ""
+          },
+          "Premium": {
+            "Model": ""
+          }
+        },
+        "deepinfra": {
+          "Economy": {
+            "Model": "openai/gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": "zai-org/GLM-5.3-Flash"
+          },
+          "Premium": {
+            "Model": "zai-org/GLM-5.3"
+          }
+        },
+        "mistral": {
+          "Economy": {
+            "Model": "mistral-small-latest"
+          },
+          "Standard": {
+            "Model": "mistral-large-4"
+          },
+          "Premium": {
+            "Model": "zai-glm-5-3"
+          }
+        },
+        "openai": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        },
+        "openai-chatgpt": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        }
+      }
+    }
+  }
+}
+DIAGNOSTIC legacy saved=ollama_url: http://localhost:11434
+open_runtime: ollama
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: open_only
+port: "50052"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open:
+        overrides:
+            ollama:
+                everyday: synthetic-legacy
+
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/candidate/harness diagnostic /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/legacy-candidate.yaml legacy
+DIAGNOSTIC legacy input=local_runtime: ollama
+local_model: synthetic-legacy
+locus_mode: local_only
+ loaded={
+  "CaptureDispatchReasoning": false,
+  "OllamaURL": "http://localhost:11434",
+  "OpenRuntime": "ollama",
+  "OpenModel": "",
+  "EmbeddingModel": "",
+  "CloudProvider": "",
+  "CloudModel": "",
+  "CloudAPIKey": "",
+  "CloudBaseURL": "",
+  "CloudProfiles": null,
+  "ActiveCloudProfile": "",
+  "BackupCloudProfile": "",
+  "BackupCloudProfiles": null,
+  "SecondaryCloudProfile": "",
+  "SecondaryBackupCloudProfile": "",
+  "TaskAssignments": null,
+  "SecondaryRedirect": "",
+  "LocalRedirect": "",
+  "LocusMode": "open_only",
+  "Port": "50052",
+  "ExecutionMode": "worker",
+  "WorkerIdleTimeoutSeconds": 0,
+  "Agent": {
+    "ShutdownOnLastClient": true
+  },
+  "LlamaServer": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ContextSize": null,
+    "GPULayers": "auto",
+    "Threads": 0,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "60s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    }
+  },
+  "MistralRS": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ISQ": "",
+    "PagedAttn": "auto",
+    "PAMemoryFraction": "0.35",
+    "PAMemoryMB": 0,
+    "MaxSeqLen": 32768,
+    "MaxSeqs": 1,
+    "MaxBatchSize": 1,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "120s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    },
+    "LogLevel": ""
+  },
+  "Compaction": {
+    "Enabled": true,
+    "ActivationFloorTokens": 40000,
+    "SegmentTokens": 8000,
+    "VerbatimRecent": 6,
+    "HardOverridePct": 0.9,
+    "CompactedBudgetPct": 0,
+    "TieredRetentionSegments": 0,
+    "RolloverRawTokenThreshold": 0,
+    "RolloverReconsolidationThreshold": 0,
+    "RolloverRearmMultiple": 0,
+    "RolloverVerbatimTurns": 0,
+    "Retention": {
+      "RawRetentionDays": 90,
+      "CompactedRetentionDays": 180,
+      "KeepForever": false
+    },
+    "ToolElisionOnly": false,
+    "ElideToolResults": false,
+    "LossyToolElision": false,
+    "SummarizerModel": ""
+  },
+  "Watchdog": {
+    "Enabled": false,
+    "Mode": "challenge-and-justify",
+    "Checks": [
+      "systematic-debugging",
+      "design-decisions",
+      "verification-strategy",
+      "compute-before-simulate",
+      "commit-checkpoint",
+      "plain-english",
+      "worktree-first",
+      "follow-through"
+    ],
+    "Model": "",
+    "EscalateAfter": 2,
+    "Echo": false,
+    "Audit": {
+      "Enabled": true,
+      "Path": "",
+      "IncludePrompts": true,
+      "IncludeResponses": true
+    }
+  },
+  "ToolLoop": {
+    "MaxIterations": 200
+  },
+  "Models": {
+    "Open": {
+      "Overrides": {
+        "ollama": {
+          "everyday": "synthetic-legacy"
+        }
+      }
+    }
+  },
+  "ModelProfiles": {
+    "Cloud": {
+      "Providers": {
+        "anthropic": {
+          "Economy": {
+            "Model": "claude-haiku-4-5"
+          },
+          "Standard": {
+            "Model": "claude-opus-5"
+          },
+          "Premium": {
+            "Model": "claude-fable-5"
+          }
+        },
+        "cerebras": {
+          "Economy": {
+            "Model": "gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": ""
+          },
+          "Premium": {
+            "Model": ""
+          }
+        },
+        "deepinfra": {
+          "Economy": {
+            "Model": "openai/gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": "zai-org/GLM-5.3-Flash"
+          },
+          "Premium": {
+            "Model": "zai-org/GLM-5.3"
+          }
+        },
+        "mistral": {
+          "Economy": {
+            "Model": "mistral-small-latest"
+          },
+          "Standard": {
+            "Model": "mistral-large-4"
+          },
+          "Premium": {
+            "Model": "zai-glm-5-3"
+          }
+        },
+        "openai": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        },
+        "openai-chatgpt": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        }
+      }
+    }
+  }
+}
+DIAGNOSTIC legacy saved=ollama_url: http://localhost:11434
+open_runtime: ollama
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: open_only
+port: "50052"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open:
+        overrides:
+            ollama:
+                everyday: synthetic-legacy
+
+exit: 0
+$ /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/prior/harness diagnostic /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-config-compat-siw3h5pi/legacy-candidate.yaml legacy
+DIAGNOSTIC legacy input=ollama_url: http://localhost:11434
+open_runtime: ollama
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: open_only
+port: "50052"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open:
+        overrides:
+            ollama:
+                everyday: synthetic-legacy
+ loaded={
+  "CaptureDispatchReasoning": false,
+  "OllamaURL": "http://localhost:11434",
+  "OpenRuntime": "ollama",
+  "OpenModel": "",
+  "EmbeddingModel": "",
+  "CloudProvider": "",
+  "CloudModel": "",
+  "CloudAPIKey": "",
+  "CloudBaseURL": "",
+  "CloudProfiles": null,
+  "ActiveCloudProfile": "",
+  "BackupCloudProfile": "",
+  "BackupCloudProfiles": null,
+  "SecondaryCloudProfile": "",
+  "SecondaryBackupCloudProfile": "",
+  "TaskAssignments": null,
+  "SecondaryRedirect": "",
+  "LocalRedirect": "",
+  "LocusMode": "open_only",
+  "Port": "50052",
+  "ExecutionMode": "worker",
+  "WorkerIdleTimeoutSeconds": 0,
+  "Agent": {
+    "ShutdownOnLastClient": true
+  },
+  "LlamaServer": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ContextSize": null,
+    "GPULayers": "auto",
+    "Threads": 0,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "60s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    }
+  },
+  "MistralRS": {
+    "Enabled": false,
+    "Binary": "",
+    "ModelDirs": [
+      "~/.cercano/models"
+    ],
+    "DefaultModel": "",
+    "Host": "127.0.0.1",
+    "Port": 0,
+    "ISQ": "",
+    "PagedAttn": "auto",
+    "PAMemoryFraction": "0.35",
+    "PAMemoryMB": 0,
+    "MaxSeqLen": 32768,
+    "MaxSeqs": 1,
+    "MaxBatchSize": 1,
+    "ExtraArgs": null,
+    "ReadinessTimeout": "120s",
+    "Restart": {
+      "Enabled": true,
+      "MaxAttempts": 3,
+      "Backoff": "2s"
+    },
+    "LogLevel": ""
+  },
+  "Compaction": {
+    "Enabled": true,
+    "ActivationFloorTokens": 40000,
+    "SegmentTokens": 8000,
+    "VerbatimRecent": 6,
+    "HardOverridePct": 0.9,
+    "CompactedBudgetPct": 0,
+    "TieredRetentionSegments": 0,
+    "RolloverRawTokenThreshold": 0,
+    "RolloverReconsolidationThreshold": 0,
+    "RolloverRearmMultiple": 0,
+    "RolloverVerbatimTurns": 0,
+    "Retention": {
+      "RawRetentionDays": 90,
+      "CompactedRetentionDays": 180,
+      "KeepForever": false
+    },
+    "ToolElisionOnly": false,
+    "ElideToolResults": false,
+    "LossyToolElision": false,
+    "SummarizerModel": ""
+  },
+  "Watchdog": {
+    "Enabled": false,
+    "Mode": "challenge-and-justify",
+    "Checks": [
+      "systematic-debugging",
+      "design-decisions",
+      "verification-strategy",
+      "compute-before-simulate",
+      "commit-checkpoint",
+      "plain-english",
+      "worktree-first",
+      "follow-through"
+    ],
+    "Model": "",
+    "EscalateAfter": 2,
+    "Echo": false,
+    "Audit": {
+      "Enabled": true,
+      "Path": "",
+      "IncludePrompts": true,
+      "IncludeResponses": true
+    }
+  },
+  "ToolLoop": {
+    "MaxIterations": 200
+  },
+  "Models": {
+    "Open": {
+      "Overrides": {
+        "ollama": {
+          "everyday": "synthetic-legacy"
+        }
+      }
+    }
+  },
+  "ModelProfiles": {
+    "Cloud": {
+      "Providers": {
+        "anthropic": {
+          "Economy": {
+            "Model": "claude-haiku-4-5"
+          },
+          "Standard": {
+            "Model": "claude-opus-5"
+          },
+          "Premium": {
+            "Model": "claude-fable-5"
+          }
+        },
+        "cerebras": {
+          "Economy": {
+            "Model": "gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": ""
+          },
+          "Premium": {
+            "Model": ""
+          }
+        },
+        "deepinfra": {
+          "Economy": {
+            "Model": "openai/gpt-oss-120b"
+          },
+          "Standard": {
+            "Model": "zai-org/GLM-5.3-Flash"
+          },
+          "Premium": {
+            "Model": "zai-org/GLM-5.3"
+          }
+        },
+        "mistral": {
+          "Economy": {
+            "Model": "mistral-small-latest"
+          },
+          "Standard": {
+            "Model": "mistral-large-4"
+          },
+          "Premium": {
+            "Model": "zai-glm-5-3"
+          }
+        },
+        "openai": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        },
+        "openai-chatgpt": {
+          "Economy": {
+            "Model": "gpt-6-luna"
+          },
+          "Standard": {
+            "Model": "gpt-6.1-sol"
+          },
+          "Premium": {
+            "Model": "gpt-6-astra"
+          }
+        }
+      }
+    }
+  }
+}
+DIAGNOSTIC legacy saved=ollama_url: http://localhost:11434
+open_runtime: ollama
+cloud_profiles: []
+active_cloud_profile: ""
+locus_mode: open_only
+port: "50052"
+execution_mode: worker
+agent:
+    shutdown_on_last_client: true
+llama_server:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    gpu_layers: auto
+    threads: 0
+    extra_args: []
+    readiness_timeout: 60s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+mistralrs:
+    enabled: false
+    binary: ""
+    model_dirs:
+        - ~/.cercano/models
+    default_model: ""
+    host: 127.0.0.1
+    port: 0
+    isq: ""
+    paged_attn: auto
+    pa_memory_fraction: "0.35"
+    pa_memory_mb: 0
+    max_seq_len: 32768
+    max_seqs: 1
+    max_batch_size: 1
+    extra_args: []
+    readiness_timeout: 120s
+    restart:
+        enabled: true
+        max_attempts: 3
+        backoff: 2s
+    log_level: ""
+compaction:
+    enabled: true
+    activation_floor_tokens: 40000
+    segment_tokens: 8000
+    verbatim_recent: 6
+    hard_override_pct: 0.9
+    compacted_budget_pct: 0
+    tiered_retention_segments: 0
+    rollover_raw_token_threshold: 0
+    rollover_reconsolidation_threshold: 0
+    rollover_rearm_multiple: 0
+    rollover_verbatim_turns: 0
+    retention:
+        raw_retention_days: 90
+        compacted_retention_days: 180
+        keep_forever: false
+    tool_elision_only: false
+    elide_tool_results: false
+    lossy_tool_elision: false
+watchdog:
+    enabled: false
+    mode: challenge-and-justify
+    checks:
+        - systematic-debugging
+        - design-decisions
+        - verification-strategy
+        - compute-before-simulate
+        - commit-checkpoint
+        - plain-english
+        - worktree-first
+        - follow-through
+    model: ""
+    escalate_after: 2
+    echo: false
+    audit:
+        enabled: true
+        include_prompts: true
+        include_responses: true
+tool_loop:
+    max_iterations: 200
+models:
+    open:
+        overrides:
+            ollama:
+                everyday: synthetic-legacy
+
+exit: 0
+$ go test -mod=readonly ./pkg/config -count=1 -timeout=60s
+ok  	cercano/source/server/pkg/config	0.611s
+exit: 0
+$ go test -mod=readonly ./pkg/config -count=1 -timeout=60s
+ok  	cercano/source/server/pkg/config	0.634s
+exit: 0
+EXPERIMENT: PASS (bounded scenarios only)
