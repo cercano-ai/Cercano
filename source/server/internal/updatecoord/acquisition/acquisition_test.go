@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -41,8 +42,9 @@ type fixture struct {
 
 // targetSpec describes one signed target inside a fixture.
 type targetSpec struct {
-	path string
-	data []byte
+	custom *json.RawMessage
+	path   string
+	data   []byte
 	// hashes lists the digest algorithms signed for the target
 	// (default: sha256 only).
 	hashes []string
@@ -114,6 +116,7 @@ func newFixtureSpecs(t *testing.T, expiry time.Time, tamper func(path string, da
 		if spec.length != nil {
 			tf.Length = *spec.length
 		}
+		tf.Custom = spec.custom
 		targetsMeta.Signed.Targets[spec.path] = tf
 		fx.targets[spec.path] = data
 	}

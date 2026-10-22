@@ -82,6 +82,12 @@ import (
 // Every field is required (RequestTimeout excepted); no defaults for URLs,
 // directories, or trust material exist here.
 type Options struct {
+	// RequiredCompatibility opts into strict compatibility qualification. Nil
+	// preserves acquisition-only behavior and NEVER qualifies compatibility.
+	// Non-nil requires the entire signed target custom object to be the v1
+	// declaration documented in compatibility.go and the update spec.
+	// The caller must not mutate this policy during acquisition.
+	RequiredCompatibility *CompatibilityContract
 	// TrustedRoot is the trusted root metadata bytes supplied by the caller
 	// from its own protected provisioning. It is never fetched, never
 	// written, and never re-derived here.
@@ -127,6 +133,12 @@ type Options struct {
 // are the values authorized by signed TUF metadata, which the downloaded
 // bytes were verified against before being written.
 type Receipt struct {
+	// CompatibilityQualified means the authenticated declaration matched the
+	// explicit caller policy for this exact verified target. It is not proof
+	// of tests, runtime readiness, or permission to start/activate a candidate.
+	// Like the rest of Receipt, this is an in-process result, not a transferable
+	// credential; callers must not trust externally constructed receipts.
+	CompatibilityQualified bool
 	// TargetPath is the signed relative target path that was requested.
 	TargetPath string
 	// OutputPath is the location of the verified bytes in OutputDir.
@@ -271,6 +283,14 @@ func acquire(ctx context.Context, opts Options, targetRelPath string, client *ht
 	if err = opts.checkTargetLength(info.Length); err != nil {
 		return nil, fmt.Errorf("acquisition: target %q: %w", targetRelPath, err)
 	}
+	if opts.RequiredCompatibility != nil {
+		if info.Custom == nil {
+			return nil, errors.New("acquisition: missing compatibility declaration")
+		}
+		if err = validateCompatibility(*info.Custom, *opts.RequiredCompatibility); err != nil {
+			return nil, fmt.Errorf("acquisition: target %q: %w", targetRelPath, err)
+		}
+	}
 	_, data, err := u.DownloadTarget(info, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("acquisition: verified download refused for %q: %w", targetRelPath, err)
@@ -291,10 +311,11 @@ func acquire(ctx context.Context, opts Options, targetRelPath string, client *ht
 		return nil, err
 	}
 	return &Receipt{
-		TargetPath: targetRelPath,
-		OutputPath: outputPath,
-		Length:     info.Length,
-		SHA256:     digest,
+		CompatibilityQualified: opts.RequiredCompatibility != nil,
+		TargetPath:             targetRelPath,
+		OutputPath:             outputPath,
+		Length:                 info.Length,
+		SHA256:                 digest,
 	}, nil
 }
 
