@@ -58,7 +58,8 @@ Objective: prevent update races and protect active work before implementing file
 - [ ] Add explicit user-confirmed cancellation of active work without an implicit timeout-to-kill policy
 - [ ] Restore normal admission on deferral, safe pre-activation cancellation or failed preparation
 - [ ] Coordinate restart and reconnect without introducing a version compatibility handshake
-- [ ] Define health success for expected agent version/readiness and connected clients, including a bounded no-client or previously-absent-agent probe
+- [~] Define health success for exact owned candidate identity/listener, expected release and readiness within a bounded deadline; attached terminals reconnect independently (user approval 2026-10-22)
+  - Bounded slice implemented: read-only activationtxn gate reuses Candidate.ObserveHealth and existing operation/journal types; rejects mismatched or recovery-pending state. Durable success integration and bounded previously-absent-agent probe exit proof remain pending.
 - [ ] Preserve the invariant that an upgrade does not leave a previously absent agent running
 - [ ] Port existing Homebrew behavior onto the shared foundation while retaining its ownership safeguards
 - [ ] Test race conditions, concurrent launch, process identity replacement, non-draining work and platform child-process cleanup

@@ -19,3 +19,16 @@ No live agent or user installation was changed. The new API has no production or
 ## Superseding user approval — 2026-10-22
 
 Exact owned candidate identity/listener, expected release, and readiness within a bounded deadline are now the approved update success gate. Attached terminals reconnect independently and cannot block success. Sequential observations still do not authenticate the TCP peer or promise future liveness. Failed/uncertain health must retain previous-version and recovery information; rollback requires proven owned-candidate exit, never timeout or PID alone. No schema change, live installation/process stop, cleanup, or rollback execution is authorized by this slice.
+
+## Bounded health-policy integration slice
+
+`activationtxn.ObserveCandidateHealth` now evaluates one observation using the approved policy and existing operation/journal types. It validates the journal and matching operation identity/version, requires selected + healthcheck, and refuses recovery-requested/needed records before any observation. It delegates exact lifetime/listener and bounded RPC work to `Candidate.ObserveHealth`; unknown, inconsistent, not-ready, errors, cancellation and contradictory responses never succeed. No client reconnection input is required.
+
+This is a read-only preparatory gate, not durable completion. Its caller must supply the exact verified selected launch and current records under installation exclusion, then revalidate selection and revisions before recording success. No production orchestrator is wired yet. Previously-absent-agent probes still require separate proven exit before completion. All journal/prior-selection recovery facts remain untouched on both positive and negative results.
+
+Verification on macOS in this run:
+- `go test -race ./internal/updatecoord/activationtxn ./internal/updatecoord/candidate ./internal/updatecoord/state ./internal/updatecoord/operation -count=1 -timeout=150s` passed.
+- `go vet ./internal/updatecoord/activationtxn ./internal/updatecoord/candidate ./internal/updatecoord/state ./internal/updatecoord/operation` passed.
+- New tests cover policy outcomes, operation/journal mismatch, recovery refusal, cancellation, observer errors, malformed positive observations, and nil candidate. Existing candidate tests exercise real loopback transport and owned disposable fixtures. No native Windows/Linux execution was performed in this run.
+
+Remaining: bind this gate into selected-candidate orchestration, revalidate authoritative selection/revisions and persist health success with existing APIs, handle crash reconciliation and previously-absent-agent exit proof. Cleanup and rollback execution are not implemented by this slice.
