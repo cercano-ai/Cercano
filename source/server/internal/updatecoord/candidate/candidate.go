@@ -17,6 +17,7 @@ type Candidate struct {
 	process  *launch.Process
 	identity nativeprocess.Identity
 	bound    bool
+	image    os.FileInfo // executable identity captured while binding the owned launch
 }
 
 // Start never adopts a PID. On post-start error the returned candidate retains
@@ -51,6 +52,7 @@ func start(opts launch.Options, inspect func(int) (nativeprocess.Identity, error
 			return ErrIdentity
 		}
 		c.identity = id
+		c.image = actual
 		return nil
 	})
 	if p == nil {
@@ -63,6 +65,32 @@ func start(opts launch.Options, inspect func(int) (nativeprocess.Identity, error
 	c.bound = true
 	return c, nil
 }
+
+// SelectedIdentity additionally refuses a replaced or changed executable since
+// launch binding. It is read-only, never adopts a PID, and does not verify image
+// content; callers must independently check persisted manifest fingerprints.
+func (c *Candidate) SelectedIdentity() (nativeprocess.Identity, error) {
+	id, err := c.Identity()
+	if err != nil {
+		return id, err
+	}
+	if c.image == nil {
+		return nativeprocess.Identity{}, ErrIdentity
+	}
+	current, err := os.Stat(id.Executable)
+	if err != nil {
+		return nativeprocess.Identity{}, fmt.Errorf("%w: %w", ErrIdentity, err)
+	}
+	if !sameSelectedImage(c.image, current) {
+		return nativeprocess.Identity{}, ErrIdentity
+	}
+	return id, nil
+}
+
+func sameSelectedImage(bound, current os.FileInfo) bool {
+	return bound != nil && current != nil && os.SameFile(bound, current) && bound.Size() == current.Size() && bound.ModTime().Equal(current.ModTime())
+}
+
 func (c *Candidate) Process() *launch.Process {
 	if c == nil {
 		return nil
