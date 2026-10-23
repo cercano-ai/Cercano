@@ -5,6 +5,7 @@ import (
 	"errors"
 	"google.golang.org/grpc"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -251,5 +252,31 @@ func TestSecondModelHostExitsQuietlyWhileFirstIsStarting(t *testing.T) {
 	got, err := modelhost.ReadRecord(dir)
 	if err != nil || got.Addr != rec.Addr {
 		t.Fatalf("record changed: %+v, %v", got, err)
+	}
+}
+
+func TestModelHostConfigIgnoresProfileConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CERCANO_PROFILE", "")
+	if err := os.MkdirAll(filepath.Dir(config.DefaultPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.DefaultPath(), []byte("llama_server:\n  extra_args: [\"--from-profile\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mc := config.Defaults()
+	mach := config.MachineConfig{LlamaServer: mc.LlamaServer, MistralRS: mc.MistralRS}
+	mach.LlamaServer.ExtraArgs = []string{"--from-machine"}
+	if err := config.SaveMachine(mach); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := machineRuntimeConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.LlamaServer.ExtraArgs; len(got) != 1 || got[0] != "--from-machine" {
+		t.Errorf("ExtraArgs = %v, want [--from-machine]", got)
 	}
 }

@@ -1041,6 +1041,12 @@ func Load(path string) (Config, error) {
 		applyToolLoopDefaults(&cfg.ToolLoop, defaults.ToolLoop)
 	}
 
+	// Local runtime settings are machine-wide: machine.yaml wins when it
+	// exists; otherwise values from an older profile file are kept.
+	if err := overlayMachine(&cfg); err != nil {
+		return cfg, err
+	}
+
 	applyEnvOverrides(&cfg)
 	finalizeModelTiers(&cfg)
 	migrateCloudProfiles(&cfg)
@@ -1302,6 +1308,7 @@ func Save(cfg Config, path string) error {
 	if err := cfg.LlamaServer.Validate(); err != nil {
 		return err
 	}
+	machine := MachineConfig{LlamaServer: cfg.LlamaServer, MistralRS: cfg.MistralRS}
 	// Stripping inherited and obsolete values must not mutate live snapshots.
 	cfg = cfg.Clone()
 	dir := filepath.Dir(path)
@@ -1320,6 +1327,14 @@ func Save(cfg Config, path string) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	// llama_server and mistralrs belong to machine.yaml, not the profile.
+	data, err = stripMachineKeys(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	if err := SaveMachine(machine); err != nil {
+		return err
 	}
 
 	if err := os.WriteFile(path, data, 0644); err != nil {

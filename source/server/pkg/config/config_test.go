@@ -188,6 +188,7 @@ func TestSavePreservesAutomaticLlamaServerContext(t *testing.T) {
 }
 
 func TestLoad_LlamaServerContextSizePresence(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // machine.yaml must not leak between tests
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(`
@@ -206,6 +207,7 @@ llama_server:
 }
 
 func TestLoad_LlamaServerRestartCanBeDisabled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // machine.yaml must not leak between tests
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	os.WriteFile(path, []byte(`

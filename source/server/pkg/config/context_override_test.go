@@ -11,6 +11,7 @@ import (
 func TestContextOverrideRoundTrips(t *testing.T) {
 	for _, value := range []string{"", "null", "8192", "65536"} {
 		t.Run("value_"+value, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir()) // machine.yaml must not leak between subtests
 			path := filepath.Join(t.TempDir(), "config.yaml")
 			body := "llama_server:\n  enabled: true\n"
 			if value != "" {
@@ -48,6 +49,7 @@ func TestContextOverrideRoundTrips(t *testing.T) {
 }
 
 func TestContextOverrideRejectsNonpositive(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // machine.yaml must not leak between tests
 	for _, n := range []int{0, -1} {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")

@@ -719,14 +719,34 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 // stale-partial and orphan sweeps, provider registration and interrupted
 // download resumption. It does not warm any runtime.
 func newLocalRuntimeManager(cfg config.Config, events *crashlog.Writer) *localruntime.InMemoryManager {
+	return newLocalRuntimeManagerWithLoader(cfg, events, func() (config.Config, error) {
+		return config.Load(config.DefaultPath())
+	})
+}
+
+// machineRuntimeConfig is the configuration of the shared model host: the
+// defaults with the machine-wide runtime sections from machine.yaml. It never
+// reads a profile's config, because the host serves every profile.
+func machineRuntimeConfig() (config.Config, error) {
+	cfg := config.Defaults()
+	mc, err := config.LoadMachine()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.LlamaServer = mc.LlamaServer
+	cfg.MistralRS = mc.MistralRS
+	return cfg, nil
+}
+
+// newLocalRuntimeManagerWithLoader is newLocalRuntimeManager with the
+// restart-time config reloader supplied by the caller.
+func newLocalRuntimeManagerWithLoader(cfg config.Config, events *crashlog.Writer, load func() (config.Config, error)) *localruntime.InMemoryManager {
 	manager := localruntime.NewManager(
 		localruntime.WithEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg))),
 		// Re-read config from disk on restart so a runtime relaunch picks up
 		// edits (e.g. mistralrs.max_seq_len) rather than reusing the config
 		// captured at server boot.
-		localruntime.WithConfigLoader(func() (config.Config, error) {
-			return config.Load(config.DefaultPath())
-		}),
+		localruntime.WithConfigLoader(load),
 	)
 	sweepStalePartials(cfg, manager)
 	provider := runtimellama.NewProvider(cfg.LlamaServer)
@@ -1058,12 +1078,20 @@ func main() {
 			// Shared local model host: one process per user owns the local
 			// runtime instances and serves every agent over loopback gRPC.
 			// Normally launched by agents, not by hand.
-			cfg, err := config.Load(config.DefaultPath())
+			cfg, err := machineRuntimeConfig()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
+				fmt.Fprintf(os.Stderr, "[WARN] Failed to load machine config: %v (using defaults)\n", err)
 				cfg = config.Defaults()
 			}
-			crashLogPath := profileFile("crash.log")
+			crashLogPath := filepath.Join(".", "crash.log")
+			if runDir, rdErr := modelhost.RunDir(); rdErr != nil {
+				fmt.Fprintf(os.Stderr, "[WARN] model host run directory: %v\n", rdErr)
+			} else {
+				// Create the run directory 0700 before the crash log can
+				// create it with looser permissions.
+				_ = os.MkdirAll(runDir, 0o700)
+				crashLogPath = filepath.Join(runDir, "crash.log")
+			}
 			crashWriter, cwErr := crashlog.NewWriter(crashLogPath, version)
 			if cwErr != nil {
 				fmt.Fprintf(os.Stderr, "[WARN] Failed to open crash log at %s: %v\n", crashLogPath, cwErr)
