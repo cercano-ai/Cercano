@@ -49,7 +49,13 @@ func TestDiscover(t *testing.T) {
 		{"ambiguous", func(f *fakeProcesses) { f.pids = []int{1, 2}; f.ids[2] = id(2); f.listeners[2] = true }, 0, true},
 		{"disappeared", func(f *fakeProcesses) { f.inspectErrors[1] = syscall.ESRCH }, 0, false},
 		{"disappeared during socket probe", func(f *fakeProcesses) { f.listenErrors[1] = syscall.ESRCH }, 0, false},
-		{"unreadable identity", func(f *fakeProcesses) { f.inspectErrors[1] = syscall.EPERM }, 0, true},
+		// A same-user process that cannot be inspected (for example a helper
+		// whose path libproc cannot read) is skipped, not fatal.
+		{"unreadable identity", func(f *fakeProcesses) { f.inspectErrors[1] = syscall.EPERM }, 0, false},
+		{"unreadable unrelated process", func(f *fakeProcesses) {
+			f.pids = []int{973, 1}
+			f.inspectErrors[973] = syscall.ENOENT
+		}, 1, false},
 		{"unstable socket snapshot", func(f *fakeProcesses) { f.listenErrors[1] = syscall.EAGAIN }, 0, true},
 		{"list error", func(f *fakeProcesses) { f.listError = errors.New("denied") }, 0, true},
 		{"mismatched PID", func(f *fakeProcesses) { f.ids[1] = id(2) }, 0, true},
