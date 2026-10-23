@@ -71,3 +71,34 @@ func TestCoordinateRestartOrderingAndFailures(t *testing.T) {
 		})
 	}
 }
+
+// withReady confirms the replacement by its process ID rather than by the old
+// endpoint, and a readiness failure still fails the restart.
+func TestCoordinateRestartWithReadyByPID(t *testing.T) {
+	for _, readyErr := range []error{nil, errors.New("not registered")} {
+		id := Identity{PID: 1, UID: 501, Executable: "/opt/homebrew/Cellar/cercano/1/bin/cercano", StartSeconds: 1}
+		source := &fakeProcesses{pids: []int{1}, ids: map[int]Identity{1: id}, listeners: map[int]bool{1: true}}
+		ops := restartOps{
+			source:    source,
+			capture:   func(Identity) (LaunchState, error) { return LaunchState{Identity: id}, nil },
+			preflight: func(string, LaunchState) error { return nil },
+			lock:      func(context.Context, LaunchState) (func(), error) { return func() {}, nil },
+			shutdown:  func(context.Context, Identity, netip.AddrPort) error { return nil },
+			waitExit:  func(context.Context, Identity) error { return nil },
+			start:     func(string, LaunchState) (Identity, error) { return Identity{PID: 7}, nil },
+			ready: func(context.Context, Identity, netip.AddrPort) error {
+				t.Error("endpoint readiness used")
+				return nil
+			},
+		}
+		var gotPID int
+		ops = withReady(ops, func(_ context.Context, pid int) error { gotPID = pid; return readyErr })
+		restarted, err := coordinateRestart(context.Background(), ops, "/opt/homebrew/Cellar/cercano/2/bin/cercano", 501, netip.MustParseAddrPort("127.0.0.1:12345"))
+		if gotPID != 7 {
+			t.Fatalf("ready got PID %d, want the replacement's 7", gotPID)
+		}
+		if restarted != (readyErr == nil) || (err != nil) != (readyErr != nil) {
+			t.Fatalf("readyErr=%v: restarted=%v err=%v", readyErr, restarted, err)
+		}
+	}
+}

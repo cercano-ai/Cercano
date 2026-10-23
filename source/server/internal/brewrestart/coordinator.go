@@ -20,6 +20,13 @@ type restartOps struct {
 	ready     func(context.Context, Identity, netip.AddrPort) error
 }
 
+// withReady replaces ops' readiness check with ready, which is given the
+// replacement's process ID instead of watching the old endpoint.
+func withReady(ops restartOps, ready func(ctx context.Context, pid int) error) restartOps {
+	ops.ready = func(ctx context.Context, id Identity, _ netip.AddrPort) error { return ready(ctx, id.PID) }
+	return ops
+}
+
 func coordinateRestart(ctx context.Context, ops restartOps, newExecutable string, uid uint32, endpoint netip.AddrPort) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err

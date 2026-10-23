@@ -30,6 +30,17 @@ func RestartInstalled(ctx context.Context, newExecutable string, endpoint netip.
 	return coordinateRestart(ctx, nativeRestartOps(), newExecutable, uint32(os.Getuid()), endpoint)
 }
 
+// RestartInstalledReady is RestartInstalled for an agent that need not listen
+// on endpoint again once restarted, such as a profile agent on an ephemeral
+// port. endpoint identifies the running agent to stop; ready reports when the
+// replacement, given by process ID, serves, and must return once ctx ends.
+func RestartInstalledReady(ctx context.Context, newExecutable string, endpoint netip.AddrPort, ready func(ctx context.Context, pid int) error) (bool, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return false, fmt.Errorf("restart requires a deadline")
+	}
+	return coordinateRestart(ctx, withReady(nativeRestartOps(), ready), newExecutable, uint32(os.Getuid()), endpoint)
+}
+
 func nativeRestartOps() restartOps {
 	return restartOps{
 		source: kernelProcesses{}, capture: CaptureLaunchState, preflight: preflightRestart,
