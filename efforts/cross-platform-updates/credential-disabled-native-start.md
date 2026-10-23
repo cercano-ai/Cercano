@@ -27,6 +27,14 @@ Four actual normal-agent startup cases ran for fixture release 1: stable and dir
 
 Children receive an explicit environment allowlist and isolated HOME/config/cache/TMPDIR, installation and agent endpoint. The sandbox denies securityd/keychain access and network except the fixture's loopback inference endpoint and allocated agent listener. The default agent port is rejected, and readiness compares the child PID before interaction. Failure cleanup targets only the owned child.
 
+## Expanded native evidence
+
+`a36efba095a7` closes a reproduced transparent gRPC-reconnect bypass: credential-disabled ClientConns use one successful transport, with application reconnect creating/rechecking a fresh connection. `f8dfe4ff03d4` adds an explicit pinned connection for updater native-peer observations independent of credential policy, and anchors protected operation input/status to the retained directory object. These checks are not peer authentication.
+
+`97ffd5accfe0` enables the disabled-client policy in the native harness itself. `03124f2f1ca4` extends normal-start testing to both fixture releases × stable/direct launch × missing/corrupt/inaccessible updater bookkeeping. Each of the twelve agent cases includes a real CLI pseudo-terminal interaction using Python's standard-library PTY driver, voluntary `/quit`, and saved-turn checks through the parent RPC client. The CLI sandbox only permits its isolated agent endpoint and denies agent executable launch; this slice deliberately does not exercise CLI auto-launch.
+
+Parent reran the full expanded harness with both native opt-ins and `CERCANO_DISABLE_CREDENTIALS=1`: PASS, 87.228 seconds package runtime. This supersedes the narrower four-case coverage above. Parent also ran focused race tests across agentclient, setupresetcmd and server for transport isolation, credential compatibility, health and drain; they passed.
+
 ## Limits
 
-This proves real normal agent startup and local RPC interaction with credential access explicitly disabled. It does not verify native keychain behavior, CLI PTY interaction, the second release's normal startup, inaccessible-bookkeeping normal startup, full reconnect behavior, complete updater participant evidence, integrated draining or publication. Those acceptance items remain open. No push or live installation change is authorized.
+This proves real normal agent/CLI startup and local fixture-backed interaction with credential access explicitly disabled. It does not verify native keychain behavior, paid providers, cross-version application compatibility, complete updater participant evidence, integrated draining/publication, or native CLI auto-launch/reconnect acceptance. The separate drain-stream and protected handoff implementations remain incomplete update integration. No push or live installation change is authorized.
