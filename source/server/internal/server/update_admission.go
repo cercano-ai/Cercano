@@ -14,8 +14,7 @@ import (
 )
 
 // updateAdmission counts actual admitted lifetimes, not broker generations or
-// connected observers. Its zero value is ready. No public RPC arms it yet:
-// background work sources must be covered before exposing update preparation.
+// connected observers. Its zero value is ready. The drain RPC checks background coverage before arming it.
 type updateAdmission struct {
 	mu       sync.Mutex
 	active   uint64
@@ -78,7 +77,9 @@ func (g *updateAdmission) enterContext(ctx context.Context) (context.Context, fu
 // drain seals roots immediately. The context owns the seal even after idle is
 // returned; cancellation or explicit release resumes admission. Work is never
 // cancelled here, and its count retires only when each real lifetime returns.
-func (g *updateAdmission) drain(ctx context.Context) (func(), error) {
+// Optional sealed notifications run after exclusion, before waiting, without
+// the mutex held. Notification failure releases this owner's seal.
+func (g *updateAdmission) drain(ctx context.Context, sealed ...func() error) (func(), error) {
 	g.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		g.mu.Unlock()
@@ -98,6 +99,12 @@ func (g *updateAdmission) drain(ctx context.Context) (func(), error) {
 	}
 	stop := context.AfterFunc(ctx, release)
 	ownedRelease := func() { stop(); release() }
+	for _, notify := range sealed {
+		if err := notify(); err != nil {
+			ownedRelease()
+			return nil, err
+		}
+	}
 	for {
 		g.mu.Lock()
 		if err := ctx.Err(); err != nil {
@@ -226,13 +233,15 @@ func updateAdmissionExemptUnary(prefix string) map[string]bool {
 	}
 }
 
-// updateAdmissionExemptStreams lists the DOCUMENTED passive Agent stream
-// methods: pure observers that hold no update-relevant state and must never
+// updateAdmissionExemptStreams lists passive observers plus the drain owner.
+// DrainForUpdate validates before sealing and must not count its own lifetime.
+// Observers hold no update-relevant state and must never
 // pin the work count — clients need to keep attaching and watching events
 // (including the disconnect that tells them an update bounce is happening)
 // while preparation is paused.
 func updateAdmissionExemptStreams(prefix string) map[string]bool {
 	return map[string]bool{
+		prefix + "DrainForUpdate":     true, // owns the gate; counting it would deadlock idle
 		prefix + "SubscribeEvents":    true,
 		prefix + "AttachConversation": true,
 		prefix + "StreamRuntimeLogs":  true,
@@ -273,9 +282,8 @@ func (s *Server) UpdateAdmissionUnaryInterceptor() grpc.UnaryServerInterceptor {
 // UpdateAdmissionStreamInterceptor returns a grpc.StreamServerInterceptor that
 // counts every non-observer Agent stream lifetime against update admission,
 // with the same default-admit semantics as the unary interceptor: unlisted and
-// future Agent streams count; only the documented passive observer streams
-// (SubscribeEvents, AttachConversation, StreamRuntimeLogs) pass through
-// uncounted, and non-Agent services are untouched.
+// future Agent streams count; only the documented passive observers and the
+// drain owner pass through uncounted. Non-Agent services are untouched.
 //
 // The count is released only when the stream HANDLER returns — not when the
 // stream's context is canceled. A canceled context still has to unwind

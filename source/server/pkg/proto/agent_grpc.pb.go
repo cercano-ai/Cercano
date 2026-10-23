@@ -73,6 +73,7 @@ const (
 	Agent_SetSessionProfile_FullMethodName                     = "/agent.Agent/SetSessionProfile"
 	Agent_GetSessionProfile_FullMethodName                     = "/agent.Agent/GetSessionProfile"
 	Agent_SubscribeEvents_FullMethodName                       = "/agent.Agent/SubscribeEvents"
+	Agent_DrainForUpdate_FullMethodName                        = "/agent.Agent/DrainForUpdate"
 	Agent_AllowToolCall_FullMethodName                         = "/agent.Agent/AllowToolCall"
 	Agent_DenyToolCall_FullMethodName                          = "/agent.Agent/DenyToolCall"
 	Agent_AcceptRollover_FullMethodName                        = "/agent.Agent/AcceptRollover"
@@ -300,6 +301,9 @@ type AgentClient interface {
 	// the mode is changed via SetPermissionMode by any client, or when the
 	// permissions file is edited out-of-band by a human or a tool).
 	SubscribeEvents(ctx context.Context, in *SubscribeEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ClientEvent], error)
+	// Reversible root-work seal owned only by this stream. Cancellation releases
+	// it, including after IDLE. No commit, shutdown, or replacement authority.
+	DrainForUpdate(ctx context.Context, in *DrainForUpdateRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[UpdateDrainState], error)
 	// AllowToolCall + DenyToolCall are how a client replies to a
 	// PermissionRequired stream event.
 	AllowToolCall(ctx context.Context, in *AllowToolCallRequest, opts ...grpc.CallOption) (*AllowToolCallResponse, error)
@@ -995,6 +999,25 @@ func (c *agentClient) SubscribeEvents(ctx context.Context, in *SubscribeEventsRe
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Agent_SubscribeEventsClient = grpc.ServerStreamingClient[ClientEvent]
 
+func (c *agentClient) DrainForUpdate(ctx context.Context, in *DrainForUpdateRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[UpdateDrainState], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Agent_ServiceDesc.Streams[9], Agent_DrainForUpdate_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[DrainForUpdateRequest, UpdateDrainState]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Agent_DrainForUpdateClient = grpc.ServerStreamingClient[UpdateDrainState]
+
 func (c *agentClient) AllowToolCall(ctx context.Context, in *AllowToolCallRequest, opts ...grpc.CallOption) (*AllowToolCallResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AllowToolCallResponse)
@@ -1197,7 +1220,7 @@ func (c *agentClient) ListCloudProfileModels(ctx context.Context, in *ListCloudP
 
 func (c *agentClient) StartChatGPTLogin(ctx context.Context, in *StartChatGPTLoginRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StartChatGPTLoginEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Agent_ServiceDesc.Streams[9], Agent_StartChatGPTLogin_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &Agent_ServiceDesc.Streams[10], Agent_StartChatGPTLogin_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1216,7 +1239,7 @@ type Agent_StartChatGPTLoginClient = grpc.ServerStreamingClient[StartChatGPTLogi
 
 func (c *agentClient) StartClaudeLogin(ctx context.Context, in *StartClaudeLoginRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StartClaudeLoginEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Agent_ServiceDesc.Streams[10], Agent_StartClaudeLogin_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &Agent_ServiceDesc.Streams[11], Agent_StartClaudeLogin_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1235,7 +1258,7 @@ type Agent_StartClaudeLoginClient = grpc.ServerStreamingClient[StartClaudeLoginE
 
 func (c *agentClient) ReauthenticateCloud(ctx context.Context, in *CloudReauthenticationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[CloudLoginEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Agent_ServiceDesc.Streams[11], Agent_ReauthenticateCloud_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &Agent_ServiceDesc.Streams[12], Agent_ReauthenticateCloud_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1472,6 +1495,9 @@ type AgentServer interface {
 	// the mode is changed via SetPermissionMode by any client, or when the
 	// permissions file is edited out-of-band by a human or a tool).
 	SubscribeEvents(*SubscribeEventsRequest, grpc.ServerStreamingServer[ClientEvent]) error
+	// Reversible root-work seal owned only by this stream. Cancellation releases
+	// it, including after IDLE. No commit, shutdown, or replacement authority.
+	DrainForUpdate(*DrainForUpdateRequest, grpc.ServerStreamingServer[UpdateDrainState]) error
 	// AllowToolCall + DenyToolCall are how a client replies to a
 	// PermissionRequired stream event.
 	AllowToolCall(context.Context, *AllowToolCallRequest) (*AllowToolCallResponse, error)
@@ -1707,6 +1733,9 @@ func (UnimplementedAgentServer) GetSessionProfile(context.Context, *GetSessionPr
 }
 func (UnimplementedAgentServer) SubscribeEvents(*SubscribeEventsRequest, grpc.ServerStreamingServer[ClientEvent]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeEvents not implemented")
+}
+func (UnimplementedAgentServer) DrainForUpdate(*DrainForUpdateRequest, grpc.ServerStreamingServer[UpdateDrainState]) error {
+	return status.Error(codes.Unimplemented, "method DrainForUpdate not implemented")
 }
 func (UnimplementedAgentServer) AllowToolCall(context.Context, *AllowToolCallRequest) (*AllowToolCallResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AllowToolCall not implemented")
@@ -2713,6 +2742,17 @@ func _Agent_SubscribeEvents_Handler(srv interface{}, stream grpc.ServerStream) e
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Agent_SubscribeEventsServer = grpc.ServerStreamingServer[ClientEvent]
 
+func _Agent_DrainForUpdate_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(DrainForUpdateRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AgentServer).DrainForUpdate(m, &grpc.GenericServerStream[DrainForUpdateRequest, UpdateDrainState]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Agent_DrainForUpdateServer = grpc.ServerStreamingServer[UpdateDrainState]
+
 func _Agent_AllowToolCall_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AllowToolCallRequest)
 	if err := dec(in); err != nil {
@@ -3462,6 +3502,11 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeEvents",
 			Handler:       _Agent_SubscribeEvents_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "DrainForUpdate",
+			Handler:       _Agent_DrainForUpdate_Handler,
 			ServerStreams: true,
 		},
 		{

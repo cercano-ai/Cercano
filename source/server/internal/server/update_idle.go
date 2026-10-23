@@ -9,9 +9,8 @@ import (
 
 // This file is the bounded, internal core of update preparation: waiting for
 // every update-relevant work source to be idle and sealing the existing
-// admission gate around it. There is deliberately NO RPC, listener, auth, or
-// process-kill behavior here — the design stays internal until an update
-// entrypoint is separately integrated.
+// admission gate around it. The existing Agent drain RPC uses this core;
+// there is no listener, authentication, or process-kill behavior here.
 
 // errUpdateCoverageIncomplete is the refusal returned when update preparation
 // cannot PROVE a work source idle because its startup tracking hook is not
@@ -151,11 +150,11 @@ func (s *Server) prepareUpdateIdle(ctx context.Context, ready func(release func(
 // and retains exclusion until release or owner context cancellation. The
 // integrated coordinator must pass its connection-lifetime context, not an
 // initiating client's context. No shutdown or force behavior is implied.
-func (s *Server) drainForUpdate(ctx context.Context) (func(), error) {
+func (s *Server) drainForUpdate(ctx context.Context, sealed ...func() error) (func(), error) {
 	if err := s.updateCoverageSnapshot().refusal(); err != nil {
 		return nil, err
 	}
-	release, err := s.updateWork.drain(ctx)
+	release, err := s.updateWork.drain(ctx, sealed...)
 	if err != nil {
 		return nil, err
 	}

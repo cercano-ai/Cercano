@@ -238,6 +238,10 @@ service Agent {
   // permissions file is edited out-of-band by a human or a tool).
   rpc SubscribeEvents (SubscribeEventsRequest) returns (stream ClientEvent) {}
 
+  // Reversible root-work seal owned only by this stream. Cancellation releases
+  // it, including after IDLE. No commit, shutdown, or replacement authority.
+  rpc DrainForUpdate (DrainForUpdateRequest) returns (stream UpdateDrainState) {}
+
   // AllowToolCall + DenyToolCall are how a client replies to a
   // PermissionRequired stream event.
   rpc AllowToolCall (AllowToolCallRequest) returns (AllowToolCallResponse) {}
@@ -2468,3 +2472,19 @@ message SessionModelRequest {
  string work_dir = 6;
 }
 message SessionModelResponse { string id = 1; bytes result_json = 2; string error = 3; }
+
+// Opaque operation identity, not authentication or takeover authority. Exactly
+// 32 lowercase hexadecimal characters; no process identities are accepted.
+message DrainForUpdateRequest {
+  string operation_token = 1;
+}
+message UpdateDrainState {
+  string operation_token = 1;
+  enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    SEALED = 1;
+    DRAINING = 2;
+    IDLE = 3;
+  }
+  Phase phase = 2;
+}

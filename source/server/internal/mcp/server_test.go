@@ -1519,3 +1519,7 @@ func (m *mockAgentClient) UpdateRoutingAssignments(context.Context, *proto.Updat
 func (m *mockAgentClient) ResetSetup(context.Context, *proto.ResetSetupRequest, ...grpc.CallOption) (*proto.ResetSetupResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "setup reset is not an MCP tool")
 }
+
+func (m *mockAgentClient) DrainForUpdate(ctx context.Context, in *proto.DrainForUpdateRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[proto.UpdateDrainState], error) {
+	return nil, nil
+}
