@@ -17,6 +17,7 @@ import (
 
 	"cercano/source/server/internal/hostregistry"
 	"cercano/source/server/internal/server"
+	"cercano/source/server/internal/testenv"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/proto"
@@ -290,8 +291,9 @@ var agentBin struct {
 	err  error
 }
 
+// TestMain keeps these tests' default Cercano paths under a temporary home.
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := testenv.IsolateHome(m)
 	if agentBin.dir != "" {
 		_ = os.RemoveAll(agentBin.dir)
 	}
