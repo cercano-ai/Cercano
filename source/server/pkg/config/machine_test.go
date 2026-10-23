@@ -256,3 +256,42 @@ func TestLoadUsesMachineFileWhenProfileFileMissing(t *testing.T) {
 		t.Errorf("ISQ = %q, want Q4K", cfg.MistralRS.ISQ)
 	}
 }
+
+func TestRepeatSaveBySecondProfileKeepsFirstProfilesField(t *testing.T) {
+	a, b, pa, pb := loadPair(t)
+	a.MistralRS.ISQ = "Q4K"
+	if err := Save(a, pa); err != nil {
+		t.Fatal(err)
+	}
+	b.LlamaServer.ExtraArgs = []string{"--from-b"}
+	if err := Save(b, pb); err != nil {
+		t.Fatal(err)
+	}
+	b.Port = "50123"
+	if err := Save(b, pb); err != nil {
+		t.Fatal(err)
+	}
+	mc, _ := LoadMachine()
+	if mc.MistralRS.ISQ != "Q4K" || len(mc.LlamaServer.ExtraArgs) != 1 {
+		t.Errorf("machine = ISQ %q extra %v, want Q4K and [--from-b]", mc.MistralRS.ISQ, mc.LlamaServer.ExtraArgs)
+	}
+}
+
+func TestSnapshotTakenBeforeRefreshDoesNotRevertOtherProfile(t *testing.T) {
+	a, b, pa, pb := loadPair(t)
+	snap := a.Clone()
+	b.MistralRS.ISQ = "Q4K"
+	if err := Save(b, pb); err != nil {
+		t.Fatal(err)
+	}
+	mc, _ := LoadMachine()
+	a.SetMachineSections(mc) // what the watcher does to the live config
+	snap.Port = "50124"      // an in-flight update built on the old snapshot
+	if err := Save(snap, pa); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadMachine()
+	if got.MistralRS.ISQ != "Q4K" {
+		t.Errorf("ISQ = %q, want Q4K", got.MistralRS.ISQ)
+	}
+}

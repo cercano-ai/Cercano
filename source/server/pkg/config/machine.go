@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	"reflect"
-	"sync"
 	"time"
 
 	"cercano/source/server/internal/filelock"
@@ -100,11 +99,24 @@ func machineFileExists() bool {
 	return err == nil
 }
 
-// machineBaseline records the machine sections a config last read from, or
-// wrote to, machine.yaml.
+// machineBaseline is the machine.yaml content a config copy last saw. It is a
+// value carried by each Config copy; nothing is shared, so every snapshot
+// compares only against what it itself saw. An unset baseline means the
+// defaults.
 type machineBaseline struct {
-	mu sync.Mutex
-	mc MachineConfig
+	set bool
+	mc  MachineConfig
+}
+
+func newBaseline(mc MachineConfig) machineBaseline {
+	return machineBaseline{set: true, mc: cloneMachine(mc)}
+}
+
+func (b machineBaseline) get() MachineConfig {
+	if !b.set {
+		return machineDefaults()
+	}
+	return b.mc
 }
 
 func cloneMachine(mc MachineConfig) MachineConfig {
@@ -119,7 +131,7 @@ func cloneMachine(mc MachineConfig) MachineConfig {
 // defaults, so the first Save writes those legacy values to machine.yaml.
 func overlayMachine(cfg *Config) error {
 	if !machineFileExists() {
-		cfg.machineBase = &machineBaseline{mc: machineDefaults()}
+		cfg.machineBase = newBaseline(machineDefaults())
 		return nil
 	}
 	mc, err := LoadMachine()
@@ -128,7 +140,7 @@ func overlayMachine(cfg *Config) error {
 	}
 	cfg.LlamaServer = mc.LlamaServer
 	cfg.MistralRS = mc.MistralRS
-	cfg.machineBase = &machineBaseline{mc: cloneMachine(mc)}
+	cfg.machineBase = newBaseline(mc)
 	return nil
 }
 
@@ -139,12 +151,7 @@ func (c *Config) SetMachineSections(mc MachineConfig) {
 	mc = cloneMachine(mc)
 	c.LlamaServer = mc.LlamaServer
 	c.MistralRS = mc.MistralRS
-	if c.machineBase == nil {
-		c.machineBase = &machineBaseline{}
-	}
-	c.machineBase.mu.Lock()
-	c.machineBase.mc = cloneMachine(mc)
-	c.machineBase.mu.Unlock()
+	c.machineBase = newBaseline(mc)
 }
 
 // MachineSectionsEqual reports whether the runtime sections equal mc.
@@ -175,15 +182,8 @@ func mergeChangedFields(dst, cur, base any) {
 // fields survive.
 func (c *Config) saveMachineChanges() error {
 	cur := MachineConfig{LlamaServer: c.LlamaServer, MistralRS: c.MistralRS}
-	base := c.machineBase
-	if base == nil {
-		// Built without Load: compare against the defaults and leave no
-		// baseline behind.
-		base = &machineBaseline{mc: machineDefaults()}
-	}
-	base.mu.Lock()
-	defer base.mu.Unlock()
-	if reflect.DeepEqual(cur, base.mc) {
+	base := c.machineBase.get()
+	if reflect.DeepEqual(cur, base) {
 		return nil
 	}
 	lockPath := filepath.Join(filepath.Dir(paths.MachineConfigPath()), "machine.lock")
@@ -201,13 +201,9 @@ func (c *Config) saveMachineChanges() error {
 	if err != nil {
 		return err
 	}
-	mergeChangedFields(&merged.LlamaServer, &cur.LlamaServer, &base.mc.LlamaServer)
-	mergeChangedFields(&merged.MistralRS, &cur.MistralRS, &base.mc.MistralRS)
-	if err := SaveMachine(merged); err != nil {
-		return err
-	}
-	base.mc = cloneMachine(merged)
-	return nil
+	mergeChangedFields(&merged.LlamaServer, &cur.LlamaServer, &base.LlamaServer)
+	mergeChangedFields(&merged.MistralRS, &cur.MistralRS, &base.MistralRS)
+	return SaveMachine(merged)
 }
 
 // stripMachineKeys removes the machine-wide sections from marshaled profile

@@ -409,10 +409,6 @@ type Config struct {
 	Agent                    AgentConfig       `yaml:"agent"`
 	LlamaServer              LlamaServerConfig `yaml:"llama_server"`
 	MistralRS                MistralRSConfig   `yaml:"mistralrs"`
-	// machineBase tracks the machine.yaml sections this config last saw, so
-	// Save writes back only fields this config changed. Shared (not deep
-	// copied) by Clone so every copy of one live config shares one baseline.
-	machineBase *machineBaseline
 	Compaction               CompactionConfig  `yaml:"compaction"`
 	Watchdog                 WatchdogConfig    `yaml:"watchdog"`
 	ToolLoop                 ToolLoopConfig    `yaml:"tool_loop"`
@@ -421,6 +417,12 @@ type Config struct {
 	// strips built-in vendor entries so user config does not pin moving cloud
 	// product defaults.
 	ModelProfiles ModelProfiles `yaml:"model_profiles,omitempty"`
+
+	// machineBase tracks the machine.yaml sections this config last saw, so
+	// Save writes back only fields this config changed. A value: every copy
+	// (Clone included) carries its own, so a snapshot compares only against
+	// what it saw.
+	machineBase machineBaseline
 }
 
 // Note: the former `catalog.backend` key selected one active catalog source.
@@ -1208,6 +1210,9 @@ func applyEnvOverrides(cfg *Config) {
 // array.
 func (c Config) Clone() Config {
 	out := c
+	if c.machineBase.set {
+		out.machineBase = newBaseline(c.machineBase.mc)
+	}
 	if c.BackupCloudProfiles != nil {
 		out.BackupCloudProfiles = append([]string{}, c.BackupCloudProfiles...)
 	}
@@ -1339,14 +1344,13 @@ func Save(cfg Config, path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	if err := cfg.saveMachineChanges(); err != nil {
-		return err
-	}
 
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file %q: %w", path, err)
 	}
-	return nil
+	// Profile edits are on disk before the machine write, so a machine-lock
+	// timeout loses nothing from the profile file.
+	return cfg.saveMachineChanges()
 }
 
 // ContextOverride returns the explicit context override, or zero for automatic
