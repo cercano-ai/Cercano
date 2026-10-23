@@ -142,12 +142,12 @@ func TestUpdateAdmissionPrimaryEntrypointsRefuseBeforeSideEffects(t *testing.T) 
 		t.Fatal(e)
 	}
 	defer release()
-	// Nil backend/request/stream is deliberate: rejection must happen before
+	// Nil backend/request is deliberate: rejection must happen before
 	// persistence, provider access, logging request text, or starting a turn.
 	if _, e = s.ProcessRequest(context.Background(), nil); status.Code(e) != codes.Unavailable {
 		t.Fatalf("unary: %v", e)
 	}
-	if e = s.StreamProcessRequest(nil, nil); status.Code(e) != codes.Unavailable {
+	if e = s.StreamProcessRequest(nil, &grpc.GenericServerStream[any, proto.StreamProcessResponse]{ServerStream: &updateAdmissionFakeStream{ctx: context.Background()}}); status.Code(e) != codes.Unavailable {
 		t.Fatalf("stream: %v", e)
 	}
 	if out, err := s.InvokeTool(context.Background(), nil); err != nil || out == nil || out.Error == "" {
@@ -159,16 +159,16 @@ func TestUpdateAdmissionPrimaryEntrypointsRefuseBeforeSideEffects(t *testing.T) 
 	if out, err := s.DownloadRuntimeModel(context.Background(), nil); err != nil || out == nil || out.Ok || out.Error == "" {
 		t.Fatalf("download admitted: %+v %v", out, err)
 	}
-	if err := s.InstallOpenRuntime(nil, nil); status.Code(err) != codes.Unavailable {
+	if err := s.InstallOpenRuntime(nil, &grpc.GenericServerStream[any, proto.InstallProgress]{ServerStream: &updateAdmissionFakeStream{ctx: context.Background()}}); status.Code(err) != codes.Unavailable {
 		t.Fatalf("runtime installation admitted: %v", err)
 	}
-	if err := s.StartChatGPTLogin(nil, nil); status.Code(err) != codes.Unavailable {
+	if err := s.StartChatGPTLogin(nil, &grpc.GenericServerStream[any, proto.StartChatGPTLoginEvent]{ServerStream: &updateAdmissionFakeStream{ctx: context.Background()}}); status.Code(err) != codes.Unavailable {
 		t.Fatalf("login admitted: %v", err)
 	}
-	if err := s.StartClaudeLogin(nil, nil); status.Code(err) != codes.Unavailable {
+	if err := s.StartClaudeLogin(nil, &grpc.GenericServerStream[any, proto.StartClaudeLoginEvent]{ServerStream: &updateAdmissionFakeStream{ctx: context.Background()}}); status.Code(err) != codes.Unavailable {
 		t.Fatalf("login admitted: %v", err)
 	}
-	if err := s.RegenerateContext(nil, nil); status.Code(err) != codes.Unavailable {
+	if err := s.RegenerateContext(nil, &grpc.GenericServerStream[any, proto.RegenerateContextProgress]{ServerStream: &updateAdmissionFakeStream{ctx: context.Background()}}); status.Code(err) != codes.Unavailable {
 		t.Fatalf("compaction admitted: %v", err)
 	}
 	out, e := s.InvokeCapability(context.Background(), nil)
@@ -492,7 +492,7 @@ func TestUpdateAdmissionInterceptorDoubleCountsSafelyWithHandlerGuard(t *testing
 	// The real handler keeps its own per-method guard (admitUpdateWork).
 	// The nested lifetimes must retire in reverse order and leave zero.
 	if _, err := icpt(context.Background(), nil, info, func(ctx context.Context, req any) (any, error) {
-		release, err := s.admitUpdateWork()
+		release, err := s.admitUpdateWork(ctx)
 		if err != nil {
 			return nil, err
 		}

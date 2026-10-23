@@ -17,7 +17,7 @@ type schedSpy struct {
 	ids []string
 }
 
-func (s *schedSpy) Schedule(id string)                           { s.ids = append(s.ids, id) }
+func (s *schedSpy) ScheduleContext(_ context.Context, id string) { s.ids = append(s.ids, id) }
 func (s *schedSpy) CompactNow(_ context.Context, _ string) error { return nil }
 func (s *schedSpy) IsCompacting(_ string) bool                   { return false }
 

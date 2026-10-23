@@ -17,7 +17,7 @@ func (g *Generator) startWork(parent context.Context) (context.Context, func(), 
 	releaseActivity := func() {}
 	if g.workAdmission != nil {
 		var err error
-		releaseActivity, err = g.workAdmission()
+		parent, releaseActivity, err = g.workAdmission(parent)
 		if err != nil || releaseActivity == nil {
 			g.mu.Unlock()
 			return nil, nil, false
@@ -71,6 +71,17 @@ func (g *Generator) Close(ctx context.Context) error {
 // BindWorkAdmission is a startup-only hook. Late binding refuses rather than
 // pretending existing untracked timers/callbacks are idle.
 func (g *Generator) BindWorkAdmission(acquire func() (func(), error)) error {
+	if acquire == nil {
+		return g.BindWorkAdmissionContext(nil)
+	}
+	return g.BindWorkAdmissionContext(func(ctx context.Context) (context.Context, func(), error) {
+		release, err := acquire()
+		return ctx, release, err
+	})
+}
+
+// BindWorkAdmissionContext propagates admitted ownership into asynchronous work.
+func (g *Generator) BindWorkAdmissionContext(acquire func(context.Context) (context.Context, func(), error)) error {
 	if acquire == nil {
 		return errors.New("nil compaction work admission")
 	}

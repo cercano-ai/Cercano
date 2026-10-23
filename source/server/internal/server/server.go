@@ -105,7 +105,8 @@ type McpManager interface {
 }
 
 // Server is the gRPC server for the Agent service.
-type Server struct {	pendingForceSave         *ForceSaveFailure
+type Server struct {
+	pendingForceSave         *ForceSaveFailure
 	forceSaveRecorder        func(context.Context, []broker.ActiveTurn) error // test seam; production defaults to durable store
 	forcePersistenceDeadline time.Time                                        // shared bounded final-write window; guarded by safeStopMu
 
@@ -1025,7 +1026,7 @@ func (s *Server) SetRuntimeManager(m localruntime.Manager) {
 	if m != nil {
 		if tracked, ok := m.(*localruntime.InMemoryManager); ok {
 			if tracked != s.updateTrackedRuntime {
-				s.updateRuntimeTrackingErr = tracked.BindDownloadWork(s.updateWork.enter)
+				s.updateRuntimeTrackingErr = tracked.BindDownloadWorkContext(s.updateWork.enterContext)
 				if s.updateRuntimeTrackingErr == nil {
 					s.updateTrackedRuntime = tracked
 				}
@@ -1084,7 +1085,7 @@ func (s *Server) SetLoopCompactorFactory(fn func() agent.LoopCompactor) {
 func (s *Server) SetCompactionGenerator(g *compactiongen.Generator) {
 	s.updateCompactionTrackingErr = nil
 	if g != nil && g != s.updateTrackedCompactor {
-		s.updateCompactionTrackingErr = g.BindWorkAdmission(s.updateWork.enter)
+		s.updateCompactionTrackingErr = g.BindWorkAdmissionContext(s.updateWork.enterContext)
 		if s.updateCompactionTrackingErr == nil {
 			s.updateTrackedCompactor = g
 		}
@@ -1171,7 +1172,7 @@ func NewServer(a *agent.Agent, router RouterCloudUpdater, coordinator *loop.ADKC
 	// resume hydration worker. The worker can outlive its RPC (client
 	// disconnects mid-stream), so it must hold its own admitted lifetime until
 	// it actually returns. Late binding is refused by the service.
-	s.updateHydrationTrackingErr = s.persistSvc.BindResumeHydrationWork(s.updateWork.enter)
+	s.updateHydrationTrackingErr = s.persistSvc.BindResumeHydrationWorkContext(s.updateWork.enterContext)
 	if s.updateHydrationTrackingErr != nil {
 		log.Printf("[persistence] resume hydration work admission: %v", s.updateHydrationTrackingErr)
 	}
@@ -1183,7 +1184,7 @@ func NewServer(a *agent.Agent, router RouterCloudUpdater, coordinator *loop.ADKC
 	// before it is spawned until the refresh goroutine actually returns. The
 	// hook observes only the admission gate: it never receives or reads
 	// profile names, tokens, or secret values.
-	s.updateCredentialTrackingErr = cfgService.Credentials().BindWorkAdmission(s.updateWork.enter)
+	s.updateCredentialTrackingErr = cfgService.Credentials().BindWorkAdmissionContext(s.updateWork.enterContext)
 	if s.updateCredentialTrackingErr != nil {
 		log.Printf("[credentials] refresh work admission: %v", s.updateCredentialTrackingErr)
 	}
@@ -2116,7 +2117,7 @@ func (s *Server) ResumeConversation(ctx context.Context, req *proto.ResumeConver
 		s.logResumeRPCFailure("resume_conversation", nil, req, started, err, "persistence_unavailable")
 		return nil, err
 	}
-	release, admissionErr := s.admitUpdateWork()
+	release, admissionErr := s.admitUpdateWork(ctx)
 	if admissionErr != nil {
 		s.logResumeRPCFailure("resume_conversation", nil, req, started, admissionErr, "admission_unavailable")
 		return nil, admissionErr
@@ -2139,7 +2140,7 @@ func (s *Server) StreamResumeConversation(req *proto.ResumeConversationRequest, 
 		s.logResumeRPCFailure("stream_resume_conversation", nil, req, started, err, "persistence_unavailable")
 		return err
 	}
-	release, admissionErr := s.admitUpdateWork()
+	release, admissionErr := s.admitUpdateWork(stream.Context())
 	if admissionErr != nil {
 		s.logResumeRPCFailure("stream_resume_conversation", nil, req, started, admissionErr, "admission_unavailable")
 		return admissionErr
@@ -2164,7 +2165,7 @@ func (s *Server) StreamResumeConversationViewportFirst(req *proto.ResumeConversa
 		s.logResumeRPCFailure("stream_resume_conversation_viewport_first", nil, req, started, err, "persistence_unavailable")
 		return err
 	}
-	release, admissionErr := s.admitUpdateWork()
+	release, admissionErr := s.admitUpdateWork(stream.Context())
 	if admissionErr != nil {
 		s.logResumeRPCFailure("stream_resume_conversation_viewport_first", nil, req, started, admissionErr, "admission_unavailable")
 		return admissionErr
@@ -2287,7 +2288,7 @@ func (s *Server) ListTools(ctx context.Context, req *proto.ListToolsRequest) (*p
 // args. Tool errors are surfaced as InvokeToolResponse.error rather than gRPC
 // errors so the CLI can render them inline.
 func (s *Server) InvokeTool(ctx context.Context, req *proto.InvokeToolRequest) (*proto.InvokeToolResponse, error) {
-	release, admissionErr := s.admitUpdateWork()
+	release, admissionErr := s.admitUpdateWork(ctx)
 	if admissionErr != nil {
 		return &proto.InvokeToolResponse{Error: admissionErr.Error()}, nil
 	}
@@ -2713,7 +2714,7 @@ func (s *Server) ListRuntimeEndpoints(ctx context.Context, req *proto.ListRuntim
 
 // StartRuntimeModel implements proto.AgentServer.
 func (s *Server) StartRuntimeModel(ctx context.Context, req *proto.StartRuntimeModelRequest) (*proto.StartRuntimeModelResponse, error) {
-	release, admissionErr := s.admitUpdateWork()
+	release, admissionErr := s.admitUpdateWork(ctx)
 	if admissionErr != nil {
 		return &proto.StartRuntimeModelResponse{Error: admissionErr.Error()}, nil
 	}
@@ -2763,7 +2764,7 @@ func (s *Server) RestartRuntime(ctx context.Context, req *proto.RestartRuntimeRe
 
 // DownloadRuntimeModel implements proto.AgentServer.
 func (s *Server) DownloadRuntimeModel(ctx context.Context, req *proto.DownloadRuntimeModelRequest) (*proto.DownloadRuntimeModelResponse, error) {
-	release, admissionErr := s.admitUpdateWork()
+	release, admissionErr := s.admitUpdateWork(ctx)
 	if admissionErr != nil {
 		return &proto.DownloadRuntimeModelResponse{Error: admissionErr.Error()}, nil
 	}
@@ -3141,7 +3142,7 @@ func formatRuntimeTime(t time.Time) string {
 
 // ProcessRequest implements proto.AgentServer (Unary).
 func (s *Server) ProcessRequest(ctx context.Context, req *proto.ProcessRequestRequest) (*proto.ProcessRequestResponse, error) {
-	release, err := s.admitUpdateWork()
+	release, err := s.admitUpdateWork(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3165,7 +3166,7 @@ func (s *Server) ProcessRequest(ctx context.Context, req *proto.ProcessRequestRe
 
 // StreamProcessRequest implements proto.AgentServer (Streaming).
 func (s *Server) StreamProcessRequest(req *proto.ProcessRequestRequest, stream proto.Agent_StreamProcessRequestServer) error {
-	release, err := s.admitUpdateWork()
+	release, err := s.admitUpdateWork(stream.Context())
 	if err != nil {
 		return err
 	}
@@ -3659,7 +3660,7 @@ func (s *Server) streamProcessRequestWithToolLoop(req *proto.ProcessRequestReque
 		// so the host compensates here. Runs for worker turns only (tr.worker) —
 		// in-process already did it, so no double-counting.
 		if tr.worker {
-			s.workerPostTurn(convID, tr.result)
+			s.workerPostTurn(ctx, convID, tr.result)
 		}
 
 		// Turn boundary: after post-turn bookkeeping (so raw-token accounting is
@@ -3753,7 +3754,7 @@ func (s *Server) streamProcessRequestWithToolLoop(req *proto.ProcessRequestReque
 // telemetry. In-process, runner.Core does all of this inside RunTurn. Uses the
 // model + aggregate token counts the worker returned. No-op when there is no
 // conversation or no host Agent.
-func (s *Server) workerPostTurn(convID string, res runnersvc.Result) {
+func (s *Server) workerPostTurn(ctx context.Context, convID string, res runnersvc.Result) {
 	if convID == "" || s.agent == nil {
 		return
 	}
@@ -3766,7 +3767,7 @@ func (s *Server) workerPostTurn(convID string, res runnersvc.Result) {
 	}
 	s.agent.RecordContextUsageForRoute(convID, model, res.InputTokens, res.OutputTokens, res.Route)
 	s.agent.ScheduleRecap(convID)
-	s.agent.ScheduleCompaction(convID)
+	s.agent.ScheduleCompaction(ctx, convID)
 	// Usage telemetry: one aggregate event for the whole worker turn — the host
 	// only has turn totals (the child provider is unwrapped), whereas in-process
 	// emits per model call via usage.Wrap. Approximate, but keeps cost/usage

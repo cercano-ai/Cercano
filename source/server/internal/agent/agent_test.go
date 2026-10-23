@@ -550,7 +550,9 @@ type fakeCompactionScheduler struct {
 	compacting bool
 }
 
-func (f *fakeCompactionScheduler) Schedule(id string) { f.scheduled = append(f.scheduled, id) }
+func (f *fakeCompactionScheduler) ScheduleContext(_ context.Context, id string) {
+	f.scheduled = append(f.scheduled, id)
+}
 func (f *fakeCompactionScheduler) CompactNow(_ context.Context, _ string) error {
 	f.nowCalls++
 	return nil
@@ -560,14 +562,14 @@ func (f *fakeCompactionScheduler) IsCompacting(string) bool { return f.compactin
 func TestScheduleCompaction_NilSafeAndDelegates(t *testing.T) {
 	// Nil-safe: no scheduler attached.
 	a := NewAgent(nil, nil)
-	a.ScheduleCompaction("c1") // must not panic
+	a.ScheduleCompaction(context.Background(), "c1") // must not panic
 	if err := a.CompactNow(context.Background(), "c1"); err != nil {
 		t.Errorf("nil CompactNow should be a no-op nil, got %v", err)
 	}
 
 	fc := &fakeCompactionScheduler{}
 	a2 := NewAgent(nil, nil, WithCompactionScheduler(fc))
-	a2.ScheduleCompaction("c1")
+	a2.ScheduleCompaction(context.Background(), "c1")
 	_ = a2.CompactNow(context.Background(), "c1")
 	if len(fc.scheduled) != 1 || fc.scheduled[0] != "c1" {
 		t.Errorf("Schedule not delegated: %v", fc.scheduled)

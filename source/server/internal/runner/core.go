@@ -692,7 +692,7 @@ func (c *Core) RunTurn(
 	// persist. RecordContextUsage below is nil-receiver-safe.
 	if persistEnabled && c.d.Agent != nil {
 		c.d.Agent.ScheduleRecap(req.ConversationID)
-		c.d.Agent.ScheduleCompaction(req.ConversationID)
+		c.d.Agent.ScheduleCompaction(ctx, req.ConversationID)
 	}
 	c.d.Agent.RecordContextUsageForRoute(req.ConversationID, selectedModel, result.InputTokens, result.OutputTokens, result.Route)
 

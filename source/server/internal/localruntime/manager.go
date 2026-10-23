@@ -54,7 +54,7 @@ type InMemoryManager struct {
 	downloads         map[string]ModelRecord
 	downloadJobs      map[string]*downloadJob
 	allDownloadJobs   map[*downloadJob]struct{}
-	downloadAdmission func() (func(), error)
+	downloadAdmission func(context.Context) (context.Context, func(), error)
 	httpClient        *http.Client
 	logs              []LogEntry
 	logLimit          int
@@ -395,7 +395,7 @@ func (m *InMemoryManager) DownloadModel(ctx context.Context, req DownloadRequest
 	}
 	model.DownloadedBytes = 0
 	model.DownloadTotalBytes = total
-	downloadCtx, cancel := context.WithCancel(context.Background())
+	downloadCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	job := &downloadJob{cancel: cancel}
 	// Claim the download slot atomically. The pre-check at the top of the
 	// function races the slow findDownloadModel gap (it may run Inventory), so
@@ -413,7 +413,7 @@ func (m *InMemoryManager) DownloadModel(ctx context.Context, req DownloadRequest
 		return &existing, nil
 	}
 	if m.downloadAdmission != nil {
-		release, err := m.downloadAdmission()
+		ownedCtx, release, err := m.downloadAdmission(downloadCtx)
 		if err != nil {
 			m.mu.Unlock()
 			cancel()
@@ -425,6 +425,7 @@ func (m *InMemoryManager) DownloadModel(ctx context.Context, req DownloadRequest
 			return nil, errors.New("download work admission returned no release")
 		}
 		job.releaseWork = release
+		downloadCtx = ownedCtx
 	}
 	if m.allDownloadJobs == nil {
 		m.allDownloadJobs = make(map[*downloadJob]struct{})
@@ -709,6 +710,17 @@ func (m *InMemoryManager) clearDownloadJob(modelID string, job *downloadJob) {
 // a Cancelled/Downloaded notification. Rebinding is rejected.
 func (m *InMemoryManager) BindDownloadWork(acquire func() (func(), error)) error {
 	if acquire == nil {
+		return m.BindDownloadWorkContext(nil)
+	}
+	return m.BindDownloadWorkContext(func(ctx context.Context) (context.Context, func(), error) {
+		release, err := acquire()
+		return ctx, release, err
+	})
+}
+
+// BindDownloadWorkContext propagates admitted ownership into asynchronous work.
+func (m *InMemoryManager) BindDownloadWorkContext(acquire func(context.Context) (context.Context, func(), error)) error {
+	if acquire == nil {
 		return errors.New("nil download work admission")
 	}
 	m.mu.Lock()
@@ -718,7 +730,7 @@ func (m *InMemoryManager) BindDownloadWork(acquire func() (func(), error)) error
 	}
 	acquired := make(map[*downloadJob]func())
 	for job := range m.allDownloadJobs {
-		release, err := acquire()
+		_, release, err := acquire(context.Background())
 		if err != nil || release == nil {
 			for _, undo := range acquired {
 				undo()

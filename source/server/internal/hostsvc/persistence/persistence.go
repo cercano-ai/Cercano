@@ -47,7 +47,7 @@ type ConvAgent interface {
 	DeleteConversation(ctx context.Context, conversationID string) error
 	RenameConversation(ctx context.Context, conversationID, title string) error
 	IsCompacting(conversationID string) bool
-	ScheduleCompaction(conversationID string)
+	ScheduleCompaction(ctx context.Context, conversationID string)
 }
 
 // Service is the interface the front door (Server) depends on for conversation
@@ -114,6 +114,7 @@ type Service interface {
 	// refused. Caller installs this hook at startup only; it performs no
 	// runtime-default writes.
 	BindResumeHydrationWork(acquire func() (func(), error)) error
+	BindResumeHydrationWorkContext(acquire func(context.Context) (context.Context, func(), error)) error
 
 	// RecordTurnContextUsage caches the exact provider-facing request
 	// accounting captured while serving a turn, so the context meter survives
@@ -228,7 +229,7 @@ type svc struct {
 	// resumeHydrationActive counts workers between spawn and actual return so
 	// late binding can be refused.
 	resumeAdmissionMu     sync.Mutex
-	resumeAdmission       func() (func(), error)
+	resumeAdmission       func(context.Context) (context.Context, func(), error)
 	resumeHydrationActive int
 }
 
@@ -270,6 +271,17 @@ func New(
 // spawned, and release tracks the worker's actual return.
 func (x *svc) BindResumeHydrationWork(acquire func() (func(), error)) error {
 	if acquire == nil {
+		return x.BindResumeHydrationWorkContext(nil)
+	}
+	return x.BindResumeHydrationWorkContext(func(ctx context.Context) (context.Context, func(), error) {
+		release, err := acquire()
+		return ctx, release, err
+	})
+}
+
+// BindResumeHydrationWorkContext propagates admitted ownership into asynchronous work.
+func (x *svc) BindResumeHydrationWorkContext(acquire func(context.Context) (context.Context, func(), error)) error {
+	if acquire == nil {
 		return fmt.Errorf("nil resume hydration work admission")
 	}
 	x.resumeAdmissionMu.Lock()
@@ -291,27 +303,28 @@ func (x *svc) BindResumeHydrationWork(acquire func() (func(), error)) error {
 // nothing. An unbound hook keeps the pre-hook behavior: hydration runs
 // without a tracked lifetime, but it still counts as active work so a late
 // BindResumeHydrationWork is refused rather than pretending it is idle.
-func (x *svc) beginResumeHydrationWork() (func(), error) {
+func (x *svc) beginResumeHydrationWork(ctx context.Context) (context.Context, func(), error) {
 	x.resumeAdmissionMu.Lock()
 	x.resumeHydrationActive++
 	acquire := x.resumeAdmission
 	x.resumeAdmissionMu.Unlock()
 	var releaseActivity func()
 	if acquire != nil {
-		release, err := acquire()
+		ownedCtx, release, err := acquire(ctx)
 		if err != nil || release == nil {
 			x.resumeAdmissionMu.Lock()
 			x.resumeHydrationActive--
 			x.resumeAdmissionMu.Unlock()
 			if err != nil {
-				return nil, fmt.Errorf("conversation resume hydration unavailable: %w", err)
+				return ctx, nil, fmt.Errorf("conversation resume hydration unavailable: %w", err)
 			}
-			return nil, fmt.Errorf("conversation resume hydration admission returned no release")
+			return ctx, nil, fmt.Errorf("conversation resume hydration admission returned no release")
 		}
 		releaseActivity = release
+		ctx = ownedCtx
 	}
 	var once sync.Once
-	return func() {
+	return ctx, func() {
 		once.Do(func() {
 			x.resumeAdmissionMu.Lock()
 			x.resumeHydrationActive--
@@ -648,7 +661,7 @@ func (x *svc) assembleHistoryForTarget(ctx context.Context, convID string, targe
 		// Never compact inline — kick the background generator (debounced,
 		// deduped, timeout-bounded) and bring THIS turn under the limit with
 		// LLM-free steps only.
-		x.convAgent.ScheduleCompaction(convID)
+		x.convAgent.ScheduleCompaction(ctx, convID)
 		if acct.Truncated {
 			fmt.Fprintf(os.Stderr, "[compaction] hard-override %s: %d tokens > limit %d — truncated %d oldest messages (background pass scheduled)\n",
 				convID, acct.InitialTokens, acct.HardLimit, acct.DroppedMessages)
@@ -791,14 +804,14 @@ func (x *svc) StreamResumeConversationViewportFirst(req *proto.ResumeConversatio
 	// when this RPC returns first (client disconnect, cancelled ctx, or an
 	// earlier send error). Refused admission rejects the stream without
 	// starting hydration.
-	releaseHydration, admitErr := x.beginResumeHydrationWork()
+	hydrationCtx, releaseHydration, admitErr := x.beginResumeHydrationWork(ctx)
 	if admitErr != nil {
 		return admitErr
 	}
 	hydrationDone := make(chan error, 1)
 	go func() {
 		defer releaseHydration()
-		_, err := x.convAgent.ResumeConversation(ctx, convID)
+		_, err := x.convAgent.ResumeConversation(hydrationCtx, convID)
 		hydrationDone <- err
 	}()
 
@@ -1348,7 +1361,7 @@ func (x *svc) RegenerateContext(req *proto.RegenerateContextRequest, stream prot
 		// pass claims the conversation immediately (so the status bar can show
 		// real Compacting=true), persists bounded progress, and reschedules
 		// itself while backlog remains.
-		if err := x.compactionGen.CompactAsync(convID); err != nil {
+		if err := x.compactionGen.CompactAsyncContext(stream.Context(), convID); err != nil {
 			return stream.Send(&proto.RegenerateContextProgress{Done: true, Ok: false, Error: "context compaction cannot start while the agent is preparing to stop"})
 		}
 		return stream.Send(&proto.RegenerateContextProgress{

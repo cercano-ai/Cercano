@@ -114,7 +114,7 @@ func (a *Agent) ScheduleRecap(conversationID string) {
 // and can run it synchronously. Implemented by *compactiongen.Generator; an
 // interface so agent doesn't import the generator package.
 type CompactionScheduler interface {
-	Schedule(conversationID string)
+	ScheduleContext(ctx context.Context, conversationID string)
 	CompactNow(ctx context.Context, conversationID string) error
 	IsCompacting(conversationID string) bool
 }
@@ -140,9 +140,9 @@ func (a *Agent) currentLocusMode() string {
 }
 
 // ScheduleCompaction requests a debounced compaction pass. Nil-safe.
-func (a *Agent) ScheduleCompaction(conversationID string) {
+func (a *Agent) ScheduleCompaction(ctx context.Context, conversationID string) {
 	if a.compaction != nil {
-		a.compaction.Schedule(conversationID)
+		a.compaction.ScheduleContext(ctx, conversationID)
 	}
 }
 
@@ -271,7 +271,7 @@ func (a *Agent) storeConversationTurn(ctx context.Context, conversationID, origi
 			fmt.Fprintf(os.Stderr, "[persistent-store] Append(assistant, %s) failed: %v\n", conversationID, err)
 		}
 		a.ScheduleRecap(conversationID)
-		a.ScheduleCompaction(conversationID)
+		a.ScheduleCompaction(ctx, conversationID)
 	}
 }
 

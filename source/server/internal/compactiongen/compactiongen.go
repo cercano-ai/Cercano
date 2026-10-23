@@ -29,7 +29,7 @@ type Store interface {
 
 // Generator debounces compaction per conversation.
 type Generator struct {
-	workAdmission func() (func(), error) // startup hook, guarded by mu
+	workAdmission func(context.Context) (context.Context, func(), error) // startup hook, guarded by mu
 	activeWork    int
 	rootContext   context.Context
 	cancelRoot    context.CancelFunc
@@ -155,6 +155,10 @@ type scheduledPass struct {
 }
 
 func (g *Generator) Schedule(conversationID string) {
+	g.ScheduleContext(context.Background(), conversationID)
+}
+
+func (g *Generator) ScheduleContext(ctx context.Context, conversationID string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.closed || !g.enabled {
@@ -167,7 +171,7 @@ func (g *Generator) Schedule(conversationID string) {
 	release := func() {}
 	if g.workAdmission != nil {
 		var err error
-		release, err = g.workAdmission()
+		ctx, release, err = g.workAdmission(ctx)
 		if err != nil || release == nil {
 			return
 		} // No work was accepted after the pause.
@@ -181,7 +185,7 @@ func (g *Generator) Schedule(conversationID string) {
 			delete(g.timers, conversationID)
 		}
 		g.mu.Unlock()
-		ctx, cancel := compaction.WithExecutionBudget(context.Background())
+		ctx, cancel := compaction.WithExecutionBudget(context.WithoutCancel(ctx))
 		defer cancel()
 		_ = g.runCompaction(ctx, conversationID)
 	})
@@ -190,7 +194,11 @@ func (g *Generator) Schedule(conversationID string) {
 
 // CompactAsync retains work before spawning and outlives the requesting stream.
 func (g *Generator) CompactAsync(conversationID string) error {
-	ctx, release, ok := g.startWork(context.Background())
+	return g.CompactAsyncContext(context.Background(), conversationID)
+}
+
+func (g *Generator) CompactAsyncContext(parent context.Context, conversationID string) error {
+	ctx, release, ok := g.startWork(context.WithoutCancel(parent))
 	if !ok {
 		return context.Canceled
 	}
@@ -235,7 +243,7 @@ func (g *Generator) runCompaction(ctx context.Context, conversationID string) er
 		// Another pass holds the conversation; reschedule rather than skip so
 		// the debounced backlog isn't silently dropped.
 		g.logf("[compaction] pass deferred %s: another pass is in flight\n", conversationID)
-		g.Schedule(conversationID)
+		g.ScheduleContext(ctx, conversationID)
 		return nil
 	}
 	defer g.release(conversationID)
@@ -325,7 +333,7 @@ func (g *Generator) runCompaction(ctx context.Context, conversationID string) er
 		// Backlog remains; a bounded pass persisted its progress. Reschedule so
 		// the next chunk runs after the debounce — the backlog converges one
 		// bounded pass at a time.
-		g.Schedule(conversationID)
+		g.ScheduleContext(ctx, conversationID)
 	}
 	return nil
 }

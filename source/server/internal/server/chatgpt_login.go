@@ -25,7 +25,7 @@ func (s *Server) StartChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream p
 }
 
 func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream proto.Agent_StartChatGPTLoginServer, reauthenticate bool, flow chatgptauth.Flow) error {
-	release, admissionErr := s.admitUpdateWork()
+	release, admissionErr := s.admitUpdateWork(stream.Context())
 	if admissionErr != nil {
 		return admissionErr
 	}

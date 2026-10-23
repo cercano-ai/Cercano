@@ -106,8 +106,8 @@ func (f viewportResumeFakeAgent) DeleteConversation(context.Context, string) err
 func (f viewportResumeFakeAgent) RenameConversation(context.Context, string, string) error {
 	return nil
 }
-func (f viewportResumeFakeAgent) IsCompacting(string) bool  { return false }
-func (f viewportResumeFakeAgent) ScheduleCompaction(string) {}
+func (f viewportResumeFakeAgent) IsCompacting(string) bool                   { return false }
+func (f viewportResumeFakeAgent) ScheduleCompaction(context.Context, string) {}
 
 type viewportResumeFakeStream struct {
 	mu     sync.Mutex

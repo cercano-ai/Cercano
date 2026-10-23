@@ -41,7 +41,7 @@ type Service struct {
 	// callbacks may be invoked while the caller that spawned a flight still
 	// holds a profile lock, so they must not reenter this service.
 	activityMu  sync.Mutex
-	admission   func() (func(), error)
+	admission   func(context.Context) (context.Context, func(), error)
 	liveFlights map[*flight]func()
 }
 type profileState struct {
@@ -87,6 +87,17 @@ func New(store secrets.Store) *Service {
 // only its own admission gate.
 func (s *Service) BindWorkAdmission(acquire func() (func(), error)) error {
 	if acquire == nil {
+		return s.BindWorkAdmissionContext(nil)
+	}
+	return s.BindWorkAdmissionContext(func(ctx context.Context) (context.Context, func(), error) {
+		release, err := acquire()
+		return ctx, release, err
+	})
+}
+
+// BindWorkAdmissionContext propagates admitted ownership into asynchronous work.
+func (s *Service) BindWorkAdmissionContext(acquire func(context.Context) (context.Context, func(), error)) error {
+	if acquire == nil {
 		return errors.New("nil credential work admission")
 	}
 	s.activityMu.Lock()
@@ -98,7 +109,7 @@ func (s *Service) BindWorkAdmission(acquire func() (func(), error)) error {
 	// BIND TIME rather than on the first refresh: the probe lease is retired
 	// immediately and is never attached to a flight. The hook must not reenter
 	// this service.
-	probe, err := acquire()
+	_, probe, err := acquire(context.Background())
 	if err != nil || probe == nil {
 		if err != nil {
 			return fmt.Errorf("credential work admission: %w", err)
@@ -114,7 +125,7 @@ func (s *Service) BindWorkAdmission(acquire func() (func(), error)) error {
 		if release != nil {
 			continue // defensive: a flight is never leased before the hook exists
 		}
-		lease, err := acquire()
+		_, lease, err := acquire(context.Background())
 		if err != nil || lease == nil {
 			// Undo: retire every lease taken during this bind and mark those
 			// flights unleased again so a later bind can lease them cleanly.
@@ -145,20 +156,20 @@ func (s *Service) BindWorkAdmission(acquire func() (func(), error)) error {
 // cannot interleave (either the flight is in the map before the bind's
 // retroactive walk sees it, or it observes the freshly bound hook). That is
 // safe because the hook must not reenter this service.
-func (s *Service) beginFlightActivity() (func(), error) {
+func (s *Service) beginFlightActivity(ctx context.Context) (context.Context, func(), error) {
 	s.activityMu.Lock()
 	defer s.activityMu.Unlock()
 	if s.admission == nil {
-		return nil, nil
+		return ctx, nil, nil
 	}
-	release, err := s.admission()
+	ctx, release, err := s.admission(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrAdmission, err)
+		return ctx, nil, fmt.Errorf("%w: %w", ErrAdmission, err)
 	}
 	if release == nil {
-		return nil, fmt.Errorf("%w: admission returned no release", ErrAdmission)
+		return ctx, nil, fmt.Errorf("%w: admission returned no release", ErrAdmission)
 	}
-	return release, nil
+	return ctx, release, nil
 }
 
 // retainFlight records the flight as live BEFORE it is spawned, so the lease
@@ -325,14 +336,14 @@ func (s *Service) acquire(ctx context.Context, profile, provider string, resolve
 			// is never classified as an invalid or revoked credential. The
 			// hook may be invoked while this profile lock is held, so it must
 			// not reenter the service.
-			releaseActivity, err := s.beginFlightActivity()
+			ownedCtx, releaseActivity, err := s.beginFlightActivity(ctx)
 			if err != nil {
 				p.mu.Unlock()
 				return token{}, err
 			}
 			// A waiter owns only its cancellation, not the shared refresh. The last
 			// waiter cancels the bounded refresh context; other waiters stay live.
-			workCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshTimeout)
+			workCtx, cancel := context.WithTimeout(context.WithoutCancel(ownedCtx), refreshTimeout)
 			f = &flight{provider: provider, generation: p.generation, done: make(chan struct{}), exited: make(chan struct{}), cancel: cancel}
 			// Retain the flight before spawning so its lease is already visible
 			// to BindWorkAdmission and the gate from the moment it can run.

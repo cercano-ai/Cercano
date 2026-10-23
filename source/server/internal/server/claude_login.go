@@ -25,7 +25,7 @@ func (s *Server) StartClaudeLogin(req *proto.StartClaudeLoginRequest, stream pro
 }
 
 func (s *Server) runClaudeLogin(req *proto.StartClaudeLoginRequest, stream proto.Agent_StartClaudeLoginServer, reauthenticate bool, flow anthropicauth.Flow) error {
-	release, admissionErr := s.admitUpdateWork()
+	release, admissionErr := s.admitUpdateWork(stream.Context())
 	if admissionErr != nil {
 		return admissionErr
 	}

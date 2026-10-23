@@ -146,3 +146,22 @@ func (s *Server) prepareUpdateIdle(ctx context.Context, ready func(release func(
 	}
 	ready(release, err)
 }
+
+// drainForUpdate seals new roots immediately, waits for admitted lifetimes,
+// and retains exclusion until release or owner context cancellation. The
+// integrated coordinator must pass its connection-lifetime context, not an
+// initiating client's context. No shutdown or force behavior is implied.
+func (s *Server) drainForUpdate(ctx context.Context) (func(), error) {
+	if err := s.updateCoverageSnapshot().refusal(); err != nil {
+		return nil, err
+	}
+	release, err := s.updateWork.drain(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.updateCoverageSnapshot().refusal(); err != nil {
+		release()
+		return nil, err
+	}
+	return release, nil
+}

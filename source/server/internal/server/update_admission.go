@@ -17,10 +17,11 @@ import (
 // connected observers. Its zero value is ready. No public RPC arms it yet:
 // background work sources must be covered before exposing update preparation.
 type updateAdmission struct {
-	mu      sync.Mutex
-	active  uint64
-	paused  bool
-	changed chan struct{}
+	mu       sync.Mutex
+	active   uint64
+	paused   bool
+	draining bool
+	changed  chan struct{}
 }
 
 var errUpdateAdmissionPaused = errors.New("agent update preparation is active; retry shortly")
@@ -41,6 +42,82 @@ func (g *updateAdmission) enter() (func(), error) {
 	g.mu.Unlock()
 	var once sync.Once
 	return func() { once.Do(func() { g.mu.Lock(); g.active--; g.notifyLocked(); g.mu.Unlock() }) }, nil
+}
+
+// updateWorkOwner is a gate-bound, revocable continuation capability. It is
+// never inferred from a global active count and cannot cross gate instances.
+type updateWorkOwner struct {
+	gate *updateAdmission
+	live bool
+}
+type updateWorkOwnerKey struct{}
+
+func (g *updateAdmission) enterContext(ctx context.Context) (context.Context, func(), error) {
+	g.mu.Lock()
+	owner, _ := ctx.Value(updateWorkOwnerKey{}).(*updateWorkOwner)
+	continuation := owner != nil && owner.gate == g && owner.live
+	if (owner != nil && !continuation) || (g.paused && !(g.draining && continuation)) {
+		g.mu.Unlock()
+		return ctx, nil, errUpdateAdmissionPaused
+	}
+	child := &updateWorkOwner{gate: g, live: true}
+	g.active++
+	g.mu.Unlock()
+	var once sync.Once
+	return context.WithValue(ctx, updateWorkOwnerKey{}, child), func() {
+		once.Do(func() {
+			g.mu.Lock()
+			child.live = false
+			g.active--
+			g.notifyLocked()
+			g.mu.Unlock()
+		})
+	}, nil
+}
+
+// drain seals roots immediately. The context owns the seal even after idle is
+// returned; cancellation or explicit release resumes admission. Work is never
+// cancelled here, and its count retires only when each real lifetime returns.
+func (g *updateAdmission) drain(ctx context.Context) (func(), error) {
+	g.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		g.mu.Unlock()
+		return nil, err
+	}
+	if g.paused {
+		g.mu.Unlock()
+		return nil, errUpdateAdmissionPaused
+	}
+	g.paused = true
+	g.draining = true
+	g.notifyLocked()
+	g.mu.Unlock()
+	var once sync.Once
+	release := func() {
+		once.Do(func() { g.mu.Lock(); g.paused = false; g.draining = false; g.notifyLocked(); g.mu.Unlock() })
+	}
+	stop := context.AfterFunc(ctx, release)
+	ownedRelease := func() { stop(); release() }
+	for {
+		g.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			g.mu.Unlock()
+			ownedRelease()
+			return nil, err
+		}
+		if g.active == 0 {
+			g.mu.Unlock()
+			return ownedRelease, nil
+		}
+		changed := g.changed
+		g.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			ownedRelease()
+			return nil, ctx.Err()
+		case <-changed:
+		}
+	}
 }
 
 // pauseWhenIdle does not cancel work or freeze nested calls while work exists.
@@ -94,8 +171,8 @@ func (g *updateAdmission) sealForForce(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) admitUpdateWork() (func(), error) {
-	release, err := s.updateWork.enter()
+func (s *Server) admitUpdateWork(ctx context.Context) (func(), error) {
+	_, release, err := s.updateWork.enterContext(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, err.Error())
 	}
@@ -142,9 +219,10 @@ func agentFullMethodPrefix() string {
 // must be servable while update preparation holds the gate.
 func updateAdmissionExemptUnary(prefix string) map[string]bool {
 	return map[string]bool{
-		prefix + "ShutdownAgent":         true,
-		prefix + "ShutdownAgentWhenIdle": true,
-		prefix + "GetAgentHealth":        true,
+		prefix + "ShutdownAgent":              true,
+		prefix + "ShutdownAgentWhenIdle":      true,
+		prefix + "GetAgentHealth":             true,
+		prefix + "CancelRuntimeModelDownload": true,
 	}
 }
 
@@ -173,8 +251,9 @@ func updateAdmissionExemptStreams(prefix string) map[string]bool {
 //
 // Handlers that already call admitUpdateWork keep their per-method guards:
 // the nested enter/release pairs simply hold two counts for the same call
-// (each release is once-guarded), and the pause boundary is a boolean, so the
-// double count is safe — the call is only idle again when both are retired.
+// (each release is once-guarded). The interceptor propagates a gate-bound
+// capability so handler guards can cross a reversible drain seal. The call
+// is only idle again when all admitted lifetimes are retired.
 func (s *Server) UpdateAdmissionUnaryInterceptor() grpc.UnaryServerInterceptor {
 	prefix := agentFullMethodPrefix()
 	exempt := updateAdmissionExemptUnary(prefix)
@@ -182,9 +261,9 @@ func (s *Server) UpdateAdmissionUnaryInterceptor() grpc.UnaryServerInterceptor {
 		if !strings.HasPrefix(info.FullMethod, prefix) || exempt[info.FullMethod] {
 			return handler(ctx, req)
 		}
-		release, err := s.admitUpdateWork()
+		ctx, release, err := s.updateWork.enterContext(ctx)
 		if err != nil {
-			return nil, err
+			return nil, status.Error(codes.Unavailable, err.Error())
 		}
 		defer release()
 		return handler(ctx, req)
@@ -210,11 +289,18 @@ func (s *Server) UpdateAdmissionStreamInterceptor() grpc.StreamServerInterceptor
 		if !strings.HasPrefix(info.FullMethod, prefix) || exempt[info.FullMethod] {
 			return handler(srv, ss)
 		}
-		release, err := s.admitUpdateWork()
+		ctx, release, err := s.updateWork.enterContext(ss.Context())
 		if err != nil {
-			return err
+			return status.Error(codes.Unavailable, err.Error())
 		}
 		defer release()
-		return handler(srv, ss)
+		return handler(srv, &updateOwnedStream{ServerStream: ss, ctx: ctx})
 	}
 }
+
+type updateOwnedStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *updateOwnedStream) Context() context.Context { return s.ctx }

@@ -27,7 +27,7 @@ func TestWorkerPostTurn_EmitsUsageAndAdvancesMeter(t *testing.T) {
 	srv.SetUsageSink(func(u usage.Usage) { got = append(got, u) })
 
 	// The aggregate result a worker turn returns (token totals + model tier).
-	srv.workerPostTurn("conv-wpt", runnersvc.Result{
+	srv.workerPostTurn(context.Background(), "conv-wpt", runnersvc.Result{
 		Model: "m", IsCloud: true, InputTokens: 4321, OutputTokens: 99,
 	})
 
@@ -62,7 +62,7 @@ func TestWorkerPostTurn_NoopWithoutConversation(t *testing.T) {
 	srv.SetUsageSink(func(usage.Usage) { fired++ })
 
 	// Empty conversation id -> no-op (mirrors the runner's persistEnabled guard).
-	srv.workerPostTurn("", runnersvc.Result{InputTokens: 10, OutputTokens: 5})
+	srv.workerPostTurn(context.Background(), "", runnersvc.Result{InputTokens: 10, OutputTokens: 5})
 
 	if fired != 0 {
 		t.Errorf("usage sink fired %d times for an empty conversation id, want 0", fired)

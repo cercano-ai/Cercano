@@ -40,8 +40,8 @@ func (f *hydrationStubAgent) DeleteConversation(context.Context, string) error {
 func (f *hydrationStubAgent) RenameConversation(context.Context, string, string) error {
 	return nil
 }
-func (f *hydrationStubAgent) IsCompacting(string) bool  { return false }
-func (f *hydrationStubAgent) ScheduleCompaction(string) {}
+func (f *hydrationStubAgent) IsCompacting(string) bool                   { return false }
+func (f *hydrationStubAgent) ScheduleCompaction(context.Context, string) {}
 
 // countingAdmission tracks acquire/release calls. Its release intentionally
 // guards nothing itself, so a double release from the service would be
