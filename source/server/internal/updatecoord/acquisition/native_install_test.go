@@ -32,7 +32,7 @@ import (
 
 // TestNativeTemporaryInstall is opt-in because it builds six real executables.
 // Normal startup requires a second explicit opt-in after isolation review.
-// It stops before updater orchestration and publication.
+// It exercises the bounded incomplete updater drain, but never publication.
 // All executing artifacts are acquired and staged, never the build outputs.
 func TestNativeTemporaryInstall(t *testing.T) {
 	if os.Getenv("CERCANO_NATIVE_INSTALL_TEST") != "1" {
@@ -249,7 +249,11 @@ func TestNativeTemporaryInstall(t *testing.T) {
 						if !stable {
 							cliPath, cliArgs = filepath.Join(dir, "bin/cercano-cli"), locators
 						}
-						nativeNormalInteraction(t, path, args, cliPath, cliArgs, fixtureVersions[i], env, home, profile)
+						var integrated *nativeDrainInstall
+						if i == 0 && dbState == "corrupt" && !stable {
+							integrated = &nativeDrainInstall{installRoot, record.InstallID, stateRoot, stateDir, filepath.Join(stagedDirs[0], "bin/cercano-updater")}
+						}
+						nativeNormalInteraction(t, path, args, cliPath, cliArgs, fixtureVersions[i], env, home, profile, integrated)
 						if dbState == "missing" {
 							if _, err := os.Stat(db); !os.IsNotExist(err) {
 								t.Fatalf("normal startup created bookkeeping: %v", err)
@@ -285,18 +289,25 @@ func TestNativeTemporaryInstall(t *testing.T) {
 			t.Fatal("old/candidate not retained", err)
 		}
 	}
-	t.Log("staged two complete current-source fixture releases; protected stable and child offline version startup without SQL. Normal agent RPC evidence is reported only by enabled normal subtests. CLI PTY evidence is reported only by enabled cli-pty subtests. No updater drain, publication or compatibility proof.")
+	t.Log("staged two complete current-source fixture releases; protected stable and child offline version startup without SQL. Normal agent RPC evidence is reported only by enabled normal subtests. CLI PTY evidence is reported only by enabled cli-pty subtests. Updater lifetime/drain evidence is reported only by the old-image corrupt-SQL integration subtest. No publication or compatibility proof.")
 }
 
 // nativeNormalInteraction is deliberately separately gated. No auto-launch RPC client:
 // every RPC targets the allocated endpoint and must prove this exact child PID.
-func nativeNormalInteraction(t *testing.T, image string, args []string, cliImage string, cliArgs []string, version string, baseEnv []string, home, denyProfile string) {
+func nativeNormalInteraction(t *testing.T, image string, args []string, cliImage string, cliArgs []string, version string, baseEnv []string, home, denyProfile string, integrated *nativeDrainInstall) {
 	// Exercise the client's no-credential attestation/transport policy as well
 	// as the explicit child setting; never merely trust a reachable endpoint.
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	const answer = "native fixture response"
 	const prompt = "Reply with the native fixture response; do not use tools."
 	var chats atomic.Int64
+	blocked, release := make(chan struct{}, 1), make(chan struct{})
+	var released atomic.Bool
+	unblock := func() {
+		if released.CompareAndSwap(false, true) {
+			close(release)
+		}
+	}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -316,6 +327,20 @@ func nativeNormalInteraction(t *testing.T, image string, args []string, cliImage
 				return
 			}
 			for _, m := range body.Messages {
+				if strings.Contains(m.Content, "native deliberately blocked") {
+					select {
+					case blocked <- struct{}{}:
+					default:
+					}
+					select {
+					case <-release:
+					case <-r.Context().Done():
+						return
+					}
+					break
+				}
+			}
+			for _, m := range body.Messages {
 				if strings.Contains(m.Content, prompt) {
 					chats.Add(1)
 					break
@@ -328,6 +353,7 @@ func nativeNormalInteraction(t *testing.T, image string, args []string, cliImage
 		}
 	}))
 	defer fixture.Close()
+	defer unblock()
 	_, fixturePort, err := net.SplitHostPort(strings.TrimPrefix(fixture.URL, "http://"))
 	if err != nil || fixturePort == config.Defaults().Port {
 		t.Fatal("unsafe fixture endpoint")
@@ -476,6 +502,9 @@ func nativeNormalInteraction(t *testing.T, image string, args []string, cliImage
 	t.Run("cli-pty", func(t *testing.T) {
 		nativeCLIInteraction(t, client, cmd.Process.Pid, version, cliImage, cliArgs, env, home, denyProfile, port)
 	})
+	if integrated != nil {
+		nativeUpdaterDrain(t, client, cmd.Process.Pid, cliImage, cliArgs, env, home, denyProfile, port, *integrated, blocked, unblock)
+	}
 	stop, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	err = client.ShutdownAgent(stop, "bounded native harness complete")
 	stopCancel()
@@ -518,53 +547,8 @@ func nativeCLIInteraction(t *testing.T, client *agentclient.Client, pid int, ver
 	prompt := fmt.Sprintf("Inert native PTY check %d; do not use tools.", time.Now().UnixNano())
 	// No network-bind allowance; only the verified agent can be reached.
 	profile := denyProfile + fmt.Sprintf(`(allow network-outbound (remote ip "localhost:%s"))(deny process-exec (regex #"/cercano$"))`, port)
-	const helper = `
-import os, pty, fcntl, termios, struct, select, subprocess, sys, time, re
-prompt = sys.argv[1]
-master, slave = pty.openpty()
-fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 45, 160, 0, 0))
-p = None
-output = bytearray()
-try:
-    p = subprocess.Popen(sys.argv[2:], stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
-    os.close(slave)
-    start = time.monotonic()
-    sent = False
-    quit_at = None
-    while time.monotonic() - start < 55:
-        if select.select([master], [], [], 0.1)[0]:
-            try: chunk = os.read(master, 65536)
-            except OSError: chunk = b''
-            output.extend(chunk)
-            # Answer terminal capability queries without a terminal emulator.
-            if b'\x1b[6n' in chunk: os.write(master, b'\x1b[1;1R')
-            if b'\x1b]11;?' in chunk: os.write(master, b'\x1b]11;rgb:0000/0000/0000\x1b\\')
-        plain = re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', bytes(output))
-        if not sent and time.monotonic() - start > 3:
-            os.write(master, prompt.encode() + b'\r')
-            sent = True
-        if sent and quit_at is None and b'native fixture response' in plain:
-            # Allow the completed stream to settle before voluntary slash exit.
-            quit_at = time.monotonic() + 1
-        if quit_at is not None and time.monotonic() >= quit_at:
-            os.write(master, b'/quit\r')
-            quit_at = float('inf')
-        if p.poll() is not None:
-            assert p.returncode == 0, ('CLI exit', p.returncode)
-            assert quit_at is not None, 'CLI exited without rendering fixture answer'
-            assert b'auto-launched' not in plain, 'unexpected auto-launch'
-            print('PTY voluntarily exited and reaped PID=%d' % p.pid)
-            break
-    else:
-        raise RuntimeError('PTY interaction deadline exceeded')
-finally:
-    if p is not None and p.poll() is None:
-        p.kill()
-        p.wait(timeout=5)
-    os.close(master)
-    sys.stdout.buffer.write(output)
-`
-	argv := []string{"-c", helper, prompt, "/usr/bin/sandbox-exec", "-p", profile, image}
+
+	argv := []string{"-c", nativePTYHelper, prompt, "/usr/bin/sandbox-exec", "-p", profile, image}
 	argv = append(argv, args...)
 	cmd := exec.CommandContext(ctx, python, argv...)
 	cmd.Env, cmd.Dir = append(append([]string{}, env...), "TERM=xterm-256color"), home
@@ -597,3 +581,60 @@ finally:
 	}
 	t.Fatal("PTY prompt and response not found in parent RPC persisted history")
 }
+
+const nativePTYHelper = `
+import os, pty, fcntl, termios, struct, select, subprocess, sys, time, re
+prompt = sys.argv[1]
+control = os.environ.get('NATIVE_PTY_CONTROL')
+master, slave = pty.openpty()
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 45, 160, 0, 0))
+p = None
+output = bytearray()
+try:
+    p = subprocess.Popen(sys.argv[2:], stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    os.close(slave)
+    if control:
+        with open(control + '.pid', 'w') as f: f.write(str(p.pid))
+    start = time.monotonic()
+    sent = False
+    quit_at = None
+    while time.monotonic() - start < (110 if control else 55):
+        if select.select([master], [], [], 0.1)[0]:
+            try: chunk = os.read(master, 65536)
+            except OSError: chunk = b''
+            output.extend(chunk)
+            # Answer terminal capability queries without a terminal emulator.
+            if b'\x1b[6n' in chunk: os.write(master, b'\x1b[1;1R')
+            if b'\x1b]11;?' in chunk: os.write(master, b'\x1b]11;rgb:0000/0000/0000\x1b\\')
+        plain = re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', bytes(output))
+        if not sent and time.monotonic() - start > 3:
+            os.write(master, prompt.encode() + b'\r')
+            sent = True
+        if sent and quit_at is None and b'native fixture response' in plain:
+            # Allow the completed stream to settle before voluntary slash exit.
+            if control:
+                with open(control + '.ready', 'w') as f: f.write('rendered')
+                quit_at = float('inf')
+            else:
+                quit_at = time.monotonic() + 1
+        if control and os.path.exists(control + '.quit'):
+            os.unlink(control + '.quit')
+            quit_at = time.monotonic()
+        if quit_at is not None and time.monotonic() >= quit_at:
+            os.write(master, b'/quit\r')
+            quit_at = float('inf')
+        if p.poll() is not None:
+            assert p.returncode == 0, ('CLI exit', p.returncode)
+            assert quit_at is not None, 'CLI exited without rendering fixture answer'
+            assert b'auto-launched' not in plain, 'unexpected auto-launch'
+            print('PTY voluntarily exited and reaped PID=%d' % p.pid)
+            break
+    else:
+        raise RuntimeError('PTY interaction deadline exceeded')
+finally:
+    if p is not None and p.poll() is None:
+        p.kill()
+        p.wait(timeout=5)
+    os.close(master)
+    sys.stdout.buffer.write(output)
+`
