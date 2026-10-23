@@ -79,3 +79,17 @@ func CaptureLaunchState(expected Identity) (LaunchState, error) {
 	}
 	return LaunchState{Identity: after, Args: args, Env: env, Directory: dir}, nil
 }
+
+// procArgsEnv reads a process's arguments and environment. The environment
+// can hold credentials: callers keep only what they need and clear the rest.
+func procArgsEnv(pid int) ([]string, []string, error) {
+	var data *C.char
+	var size C.size_t
+	if code := C.cercano_args(C.int(pid), &data, &size); code != 0 {
+		return nil, nil, syscall.Errno(code)
+	}
+	defer C.free(unsafe.Pointer(data))
+	raw := C.GoBytes(unsafe.Pointer(data), C.int(size))
+	defer clear(raw)
+	return parseProcArgs(raw)
+}

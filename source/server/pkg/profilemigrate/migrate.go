@@ -41,6 +41,11 @@ type Options struct {
 	LegacyAgentAlive func(ctx context.Context) (bool, error)
 	// StopLegacyAgent asks that agent to shut down.
 	StopLegacyAgent func(ctx context.Context) error
+	// ListProcesses lists the user's running processes, to find Cercano
+	// processes started before profiles (such as `cercano --mcp`, which ran
+	// its own host on another port and keeps the legacy files open). Nil
+	// skips the check.
+	ListProcesses func() ([]Process, error)
 }
 
 var (
@@ -143,6 +148,9 @@ func Run(ctx context.Context, opts Options) error {
 	if pending {
 		// Only an install with legacy data can have a legacy agent running.
 		if err := stopLegacyAgent(ctx, opts); err != nil {
+			return err
+		}
+		if err := waitForOtherCercano(ctx, opts, l.home); err != nil {
 			return err
 		}
 		if moved, err = plan.run(); err != nil {

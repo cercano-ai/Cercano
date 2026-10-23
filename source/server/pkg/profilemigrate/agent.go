@@ -36,8 +36,9 @@ var (
 
 // DefaultOptions returns Options for the current user that find a
 // pre-profile Cercano agent on 127.0.0.1 at LegacyPort and stop it with the
-// existing ShutdownAgent RPC. The port is resolved on first use, which Run
-// does before moving anything. Nothing is ever launched.
+// existing ShutdownAgent RPC, and that wait for other pre-profile Cercano
+// processes using this home to exit. The port is resolved on first use,
+// which Run does before moving anything. Nothing is ever launched.
 func DefaultOptions() Options {
 	var once sync.Once
 	var addr string
@@ -52,6 +53,7 @@ func DefaultOptions() Options {
 		StopLegacyAgent: func(ctx context.Context) error {
 			return stopAgent(ctx, resolve())
 		},
+		ListProcesses: listUserProcesses,
 	}
 }
 
