@@ -74,16 +74,27 @@ func requireStartupEnvironment(args []string) {
 var migrationOptions = profilemigrate.DefaultOptions
 
 // needsProfileMigration reports whether the command in args must move
-// pre-profile data into the default profile before it starts. Workers are
-// spawned by an agent that has already migrated, and the model host is
-// machine-wide; commands that skip the startup check touch no profile data.
+// pre-profile data into the default profile before it starts. It does not
+// for:
+//   - worker: spawned by an agent that has already migrated;
+//   - model-host: machine-wide;
+//   - restart-after-upgrade: the Homebrew coordinator stops the pre-profile
+//     agent and relaunches the new binary, which migrates on startup;
+//   - help requests (-h, -help, --help anywhere), which change nothing;
+//   - commands that skip the startup check, which touch no profile data.
 func needsProfileMigration(args []string) bool {
 	if !needsStartupCheck(args) {
 		return false
 	}
 	if len(args) >= 2 {
 		switch args[1] {
-		case "worker", "model-host":
+		case "worker", "model-host", "restart-after-upgrade":
+			return false
+		}
+	}
+	for _, arg := range args[1:] {
+		switch arg {
+		case "-h", "-help", "--help":
 			return false
 		}
 	}

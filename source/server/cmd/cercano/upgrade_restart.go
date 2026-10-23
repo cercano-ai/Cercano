@@ -14,6 +14,7 @@ import (
 	"cercano/source/server/internal/brewrestart"
 	"cercano/source/server/internal/modelhost"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/profilemigrate"
 )
 
 // modelHostShutdownTimeout bounds each phase of the model host relaunch
@@ -32,7 +33,7 @@ func runUpgradeRestart(args []string) int {
 		})(ctx, executable)
 	}
 	return upgradeRestartCommand(args, os.Stdout,
-		func() (string, error) { cfg, err := config.Load(config.DefaultPath()); return cfg.Port, err },
+		upgradeRestartPort,
 		func() (string, error) {
 			path, err := os.Executable()
 			if err != nil {
@@ -42,6 +43,19 @@ func runUpgradeRestart(args []string) int {
 		},
 		relaunch,
 		brewrestart.RestartInstalled)
+}
+
+// upgradeRestartPort is the port of the agent to restart. Before the first
+// post-upgrade start there is no profile config yet, so the agent to restart
+// is a pre-profile one, listening where the legacy config said. This command
+// does not migrate: the agent it relaunches does that on startup.
+func upgradeRestartPort() (string, error) {
+	path := config.DefaultPath()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return profilemigrate.LegacyPort(), nil
+	}
+	cfg, err := config.Load(path)
+	return cfg.Port, err
 }
 
 // relaunchModelHostIn returns a function that replaces the model host

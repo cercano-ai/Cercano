@@ -45,7 +45,7 @@ func TestProfileMigrationRunsForProfileCommands(t *testing.T) {
 	for _, args := range [][]string{
 		{"cercano"}, {"cercano", "--mcp"}, {"cercano", "--server"}, {"cercano", "agent"},
 		{"cercano", "run", "hi"}, {"cercano", "setup"}, {"cercano", "reset"},
-		{"cercano", "enterprise", "status"}, {"cercano", "restart-after-upgrade"},
+		{"cercano", "enterprise", "status"},
 		{"cercano", "stats"}, {"cercano", "logs"}, {"cercano", "export"},
 	} {
 		if !needsProfileMigration(args) {
@@ -53,10 +53,16 @@ func TestProfileMigrationRunsForProfileCommands(t *testing.T) {
 		}
 	}
 	// Workers are spawned by an agent that already migrated; the model host
-	// is machine-wide; the rest print static information.
+	// is machine-wide; restart-after-upgrade leaves the move to the agent the
+	// Homebrew coordinator relaunches; help and static information change
+	// nothing.
 	for _, args := range [][]string{
 		{"cercano", "worker"}, {"cercano", "model-host"}, {"cercano", "version"},
 		{"cercano", "--version"}, {"cercano", "protocols", "sync"}, {"cercano", "skills", "sync"},
+		{"cercano", "restart-after-upgrade"}, {"cercano", "restart-after-upgrade", "--timeout", "1m"},
+		{"cercano", "--help"}, {"cercano", "-h"}, {"cercano", "-help"},
+		{"cercano", "setup", "--help"}, {"cercano", "setup", "-h"}, {"cercano", "run", "--help"},
+		{"cercano", "enterprise", "-h"}, {"cercano", "logs", "--help"}, {"cercano", "--mcp", "--help"},
 	} {
 		if needsProfileMigration(args) {
 			t.Errorf("needsProfileMigration(%v) = true, want false", args)
@@ -160,5 +166,65 @@ func TestMainMigratesBeforeDispatch(t *testing.T) {
 	}
 	if len(calls) < 2 || calls[0] != "requireStartupEnvironment" || calls[1] != "requireProfileMigration" {
 		t.Fatalf("main begins with %v, want [requireStartupEnvironment requireProfileMigration ...]", calls)
+	}
+}
+
+func TestRestartAfterUpgradeDoesNotMigrate(t *testing.T) {
+	tempHome(t)
+	calls := stubMigrationOptions(t)
+	legacy := filepath.Join(paths.ConfigRoot(), "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("port: \"50777\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"cercano", "restart-after-upgrade"}, {"cercano", "setup", "--help"}, {"cercano", "--help"}} {
+		if err := migrateProfileData(args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	if *calls != 0 {
+		t.Errorf("migration ran %d times", *calls)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Errorf("legacy config moved: %v", err)
+	}
+	if _, err := os.Stat(paths.ProfilesRoot()); !os.IsNotExist(err) {
+		t.Errorf("profiles root touched: %v", err)
+	}
+}
+
+// Before migration there is no profile config, so restart-after-upgrade
+// addresses the pre-profile agent where it actually listens.
+func TestUpgradeRestartPortFallsBackToLegacyAgent(t *testing.T) {
+	tempHome(t)
+	if port, err := upgradeRestartPort(); err != nil || port != "50052" {
+		t.Errorf("fresh: port = %q, %v; want the default", port, err)
+	}
+	legacy := filepath.Join(paths.ConfigRoot(), "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("port: \"50777\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if port, err := upgradeRestartPort(); err != nil || port != "50777" {
+		t.Errorf("legacy config: port = %q, %v; want 50777", port, err)
+	}
+	t.Setenv("CERCANO_PORT", "50888")
+	if port, err := upgradeRestartPort(); err != nil || port != "50888" {
+		t.Errorf("CERCANO_PORT: port = %q, %v; want 50888", port, err)
+	}
+	t.Setenv("CERCANO_PORT", "")
+	profileCfg := config.DefaultPath()
+	if err := os.MkdirAll(filepath.Dir(profileCfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(profileCfg, []byte("port: \"50999\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if port, err := upgradeRestartPort(); err != nil || port != "50999" {
+		t.Errorf("profile config: port = %q, %v; want 50999", port, err)
 	}
 }
