@@ -23,10 +23,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// embeddedGRPCBindAddr is where MCP embedded mode serves its private agent:
-// loopback only, on a free port.
-const embeddedGRPCBindAddr = "127.0.0.1:0"
-
 // agentHandoverWait is how long a new agent waits for the profile lock while
 // the agent holding it is starting or draining; tests shorten it.
 var agentHandoverWait = 15 * time.Second
@@ -257,14 +253,4 @@ func activeProfile() string {
 		return paths.DefaultProfile
 	}
 	return profile
-}
-
-// embeddedHostIdentity identifies MCP embedded mode's private agent. That
-// agent is not registered and takes no profile lock.
-func embeddedHostIdentity() server.HostIdentity {
-	id, err := newInstanceID()
-	if err != nil {
-		id = ""
-	}
-	return server.HostIdentity{Profile: activeProfile(), PID: os.Getpid(), InstanceID: id, Version: version}
 }

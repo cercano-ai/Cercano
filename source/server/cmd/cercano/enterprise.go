@@ -15,7 +15,6 @@ import (
 	"unicode"
 
 	"cercano/source/server/internal/enterprise"
-	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
 	"google.golang.org/grpc"
@@ -43,7 +42,7 @@ func openEnterpriseBrowser(ctx context.Context, target string) error {
 // refresh token, or treats a downloaded bundle as proof of host enforcement.
 func enterpriseCommand(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Fprintln(out, "Usage: cercano enterprise login --server https://enterprise.example --organization UUID | sync | status | policy | skills [--skill ID] | logout | standalone\nConnects to the running local Cercano host. Use --address 127.0.0.1:PORT for a non-default host. Add --json for machine-readable output. Logout keeps managed work blocked; standalone explicitly returns to personal settings.")
+		fmt.Fprintln(out, "Usage: cercano enterprise login --server https://enterprise.example --organization UUID | sync | status | policy | skills [--skill ID] | logout | standalone\nConnects to the active profile's Cercano host (CERCANO_PROFILE), starting it if needed. Use --address 127.0.0.1:PORT to reach a specific host instead. Add --json for machine-readable output. Logout keeps managed work blocked; standalone explicitly returns to personal settings.")
 		return nil
 	}
 	switch args[0] {
@@ -54,18 +53,14 @@ func enterpriseCommand(ctx context.Context, args []string, out io.Writer) error 
 	if runtime.GOOS != "darwin" {
 		return errors.New("enterprise account management currently supports macOS")
 	}
-	cfg, err := config.Load(config.DefaultPath())
-	if err != nil {
-		return fmt.Errorf("load Cercano configuration: %w", err)
-	}
 	flags := flag.NewFlagSet("enterprise", flag.ContinueOnError)
 	flags.SetOutput(out)
 	asJSON := flags.Bool("json", false, "print machine-readable output")
 	skillID := flags.String("skill", "", "namespaced enterprise skill ID to read")
 	server := flags.String("server", "", "trusted enterprise HTTPS origin")
 	org := flags.String("organization", "", "organization ID from your administrator")
-	address := flags.String("address", net.JoinHostPort("127.0.0.1", cfg.Port), "running local Cercano host")
-	if err = flags.Parse(args[1:]); err != nil {
+	address := flags.String("address", "", "running local Cercano host (default: the active profile's host)")
+	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
@@ -77,15 +72,26 @@ func enterpriseCommand(ctx context.Context, args []string, out io.Writer) error 
 	if *skillID != "" && (args[0] != "skills" || !strings.HasPrefix(*skillID, "enterprise/")) {
 		return errors.New("--skill requires the skills command and an enterprise/ ID from its catalog")
 	}
-	host, _, err := net.SplitHostPort(*address)
-	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
-		return errors.New("enterprise controls require a literal loopback host address")
+	var conn grpc.ClientConnInterface
+	if *address != "" {
+		host, _, err := net.SplitHostPort(*address)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+			return errors.New("enterprise controls require a literal loopback host address")
+		}
+		cc, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return err
+		}
+		defer cc.Close()
+		conn = cc
+	} else {
+		agent, err := dialActiveProfile(ctx, io.Discard)
+		if err != nil {
+			return err
+		}
+		defer agent.Close()
+		conn = agent.Conn()
 	}
-	conn, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 	timeout := 90 * time.Second
 	if args[0] == "login" {
 		timeout = 6 * time.Minute
@@ -94,6 +100,7 @@ func enterpriseCommand(ctx context.Context, args []string, out io.Writer) error 
 	defer cancel()
 	client := proto.NewEnterpriseClient(conn)
 	empty := &proto.EnterpriseControlRequest{}
+	var err error
 	var result *proto.EnterpriseStatus
 	var policyResult *proto.EnterprisePolicy
 	var skillsResult *proto.ListSkillsResponse

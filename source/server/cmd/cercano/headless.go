@@ -11,7 +11,6 @@ import (
 
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/pkg/agentclient"
-	"cercano/source/server/pkg/config"
 )
 
 // resolveHeadlessConvID returns the conversation id for a headless run: the
@@ -64,8 +63,9 @@ func parseHeadlessArgs(args []string) headlessArgs {
 
 const headlessUsage = `usage: cercano run [--auto-allow] [--conv ID] "prompt"
 
-Sends a single prompt to the cercano agent and streams the response.
-Auto-launches an agent if one isn't already running.
+Sends a single prompt to the active profile's cercano agent (CERCANO_PROFILE,
+default "default") and streams the response. Auto-launches the profile's
+agent if one isn't already running.
 
 Flags:
   --auto-allow   Approve W/X-tier tool confirmations automatically.
@@ -97,11 +97,6 @@ func runHeadless(args []string) {
 		os.Exit(2)
 	}
 
-	cfg, err := config.Load(config.DefaultPath())
-	if err != nil {
-		cfg = config.Defaults()
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -113,17 +108,12 @@ func runHeadless(args []string) {
 		cancel()
 	}()
 
-	addr := "localhost:" + cfg.Port
-	fmt.Fprintln(os.Stderr, "cercano: connecting to", addr+"…")
-	client, err := agentclient.Dial(ctx, addr)
+	client, err := dialActiveProfile(ctx, os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
 		os.Exit(1)
 	}
 	defer client.Close()
-	if client.AutoLaunched {
-		fmt.Fprintln(os.Stderr, "cercano: auto-launched agent server (log:", client.ServerLog+")")
-	}
 
 	convID = resolveHeadlessConvID(convID)
 

@@ -43,13 +43,6 @@ func TestAgentBindAddr(t *testing.T) {
 	}
 }
 
-func TestEmbeddedGRPCBindsLoopback(t *testing.T) {
-	host, _, err := net.SplitHostPort(embeddedGRPCBindAddr)
-	if err != nil || host != "127.0.0.1" {
-		t.Fatalf("embeddedGRPCBindAddr = %q, want a 127.0.0.1 address", embeddedGRPCBindAddr)
-	}
-}
-
 func TestListenFailureNamesPort(t *testing.T) {
 	err := listenFailure("127.0.0.1:50052", errors.New("bind: address already in use"))
 	if !strings.Contains(err.Error(), "port 50052") {

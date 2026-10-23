@@ -179,7 +179,7 @@ func isTransientConversationStoreOpenError(err error) bool {
 // be llama_server and the primary route may be cloud, neither of which needs
 // it. Ollama-backed features (Ollama chat models, embeddings, the model
 // catalog) fail at point-of-use instead, matching the lazy SmartRouter and
-// the embedded --mcp degraded-mode paths.
+// the --mcp degraded-mode path.
 func ollamaStartupWarning(check func(string) error, baseURL string) string {
 	if err := check(baseURL); err != nil {
 		return fmt.Sprintf("[WARN] Ollama unreachable at %s (%v) — continuing; Ollama-backed models and embeddings unavailable until it comes up.", baseURL, err)
@@ -200,10 +200,10 @@ const drainGrace = 10 * time.Minute
 
 // startGRPCServer initializes all providers and starts the gRPC server.
 // Returns the listener address and a cleanup function.
-// events may be nil (MCP embedded mode opens no log); a nil writer makes
-// durable runtime-event recording a no-op rather than a crash. identity is
-// what GetHostIdentity reports. The returned address is the one actually
-// bound, so a port of 0 comes back as the port the system chose.
+// events may be nil; a nil writer makes durable runtime-event recording a
+// no-op rather than a crash. identity is what GetHostIdentity reports. The
+// returned address is the one actually bound, so a port of 0 comes back as
+// the port the system chose.
 func startGRPCServer(cfg config.Config, bindAddr string, identity server.HostIdentity, events *crashlog.Writer) (string, func(), error) {
 	enterpriseHost, err := newEnterpriseHost()
 	if err != nil {
@@ -1202,7 +1202,7 @@ func main() {
 	// `cercano --server` all run it in the foreground.
 	switch {
 	case *mcpMode:
-		runMCPMode(cfg, *grpcAddr)
+		runMCPMode(*grpcAddr)
 	case *forceServer:
 		runServerMode(cfg)
 	default:
@@ -2086,30 +2086,31 @@ func runtimeStack(all bool) string {
 	return string(buf[:n])
 }
 
-// runMCPMode starts the MCP server. If no external gRPC address is provided,
-// it starts an embedded gRPC server on a random port.
-func runMCPMode(cfg config.Config, externalGRPC string) {
+// runMCPMode serves MCP over stdio. Its tools call the active profile's agent
+// (launched if none runs), or the agent at externalGRPC when given. If the
+// profile's agent cannot be reached it serves a degraded MCP server, so the
+// client sees a clear error instead of a dead pipe.
+func runMCPMode(externalGRPC string) {
 	// Tee diagnostic logging to a file so it survives Claude Code's stdio
 	// stderr capture window (which closes after the initial connect handshake).
 	setupDispatchLogFile()
 
-	var grpcTarget string
-
+	var grpcClient proto.AgentClient
 	if externalGRPC != "" {
-		// Connect to an external gRPC server
-		grpcTarget = externalGRPC
-		fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) connecting to external gRPC at %s...\n", version, grpcTarget)
-	} else {
-		// Embedded mode: start gRPC server in-process on a random port
-		fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) starting with embedded gRPC server...\n", version)
-		fmt.Fprintf(os.Stderr, "Local model: %s | Ollama: %s\n", openChatModel(cfg), cfg.OllamaURL)
-
-		// MCP embedded mode opens no crash log; runtime events are a
-		// no-op here rather than a second writer on the same file.
-		addr, _, err := startGRPCServer(cfg, embeddedGRPCBindAddr, embeddedHostIdentity(), nil)
+		fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) connecting to external gRPC at %s...\n", version, externalGRPC)
+		conn, err := grpc.NewClient(externalGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			// Start in degraded mode so the MCP pipe stays alive and
-			// the client gets a clear error instead of "Failed to reconnect".
+			fmt.Fprintf(os.Stderr, "Failed to connect to gRPC server at %s: %v\n", externalGRPC, err)
+			os.Exit(1)
+		}
+		defer conn.Close()
+		grpcClient = proto.NewAgentClient(conn)
+	} else {
+		fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) starting...\n", version)
+		agent, closeAgent, err := connectMCPAgent(context.Background())
+		if err != nil {
+			// Serve a degraded MCP server so the pipe stays alive and the
+			// client gets a clear error instead of "Failed to reconnect".
 			fmt.Fprintf(os.Stderr, "[ERROR] %v — starting in degraded mode\n", err)
 			s := mcpserver.NewDegradedServer(err)
 			if runErr := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); runErr != nil {
@@ -2118,19 +2119,10 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 			}
 			return
 		}
-		grpcTarget = addr
-		fmt.Fprintf(os.Stderr, "Embedded gRPC server listening at %s\n", grpcTarget)
+		defer closeAgent()
+		grpcClient = agent
 	}
 
-	// Connect MCP to gRPC
-	conn, err := grpc.NewClient(grpcTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to connect to gRPC server at %s: %v\n", grpcTarget, err)
-		os.Exit(1)
-	}
-	defer conn.Close()
-
-	grpcClient := proto.NewAgentClient(conn)
 	s := mcpserver.NewServer(grpcClient)
 
 	// Initialize telemetry
@@ -2162,6 +2154,34 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// connectMCPAgent connects MCP mode to the active profile's agent, launching
+// it when none runs. Calls through the returned client follow the agent
+// across restarts. MCP also holds the agent's event stream for its whole
+// session: that counts it as a client, so an auto-launched agent does not
+// shut down while MCP still uses it, and a dropped stream starts recovery
+// at once. closeAgent ends the stream and the connection.
+func connectMCPAgent(ctx context.Context) (agent proto.AgentClient, closeAgent func(), err error) {
+	client, err := dialActiveProfile(ctx, os.Stderr)
+	if err != nil {
+		return nil, nil, err
+	}
+	subCtx, cancel := context.WithCancel(ctx)
+	events, err := client.SubscribeEvents(subCtx)
+	if err != nil {
+		// The tools still work; only the keep-alive is missing.
+		fmt.Fprintf(os.Stderr, "[WARN] Could not subscribe to agent events: %v\n", err)
+	} else {
+		go func() {
+			for range events {
+			}
+		}()
+	}
+	return proto.NewAgentClient(client.Conn()), func() {
+		cancel()
+		_ = client.Close()
+	}, nil
 }
 
 // runWorkerMode serves the Worker gRPC service over a Unix-domain socket until

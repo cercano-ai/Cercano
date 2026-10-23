@@ -57,9 +57,12 @@ const launchLogTailLines = 10
 // Tests replace it to start an in-process host.
 var launchFunc = launchProfileAgent
 
-// errNoProfileHost reports that the profile's record names no host that
+// ErrNoProfileAgent reports that the profile's record names no host that
 // answers as this profile's registered agent.
-var errNoProfileHost = errors.New("no running agent for this profile")
+var ErrNoProfileAgent = errors.New("no running agent for this profile")
+
+// errNoProfileHost is ErrNoProfileAgent under its package-internal name.
+var errNoProfileHost = ErrNoProfileAgent
 
 // DialProfile connects to the agent host serving profile, launching one when
 // none is running. It trusts the profile's agent.json only after the host at
@@ -96,8 +99,27 @@ func DialProfile(ctx context.Context, profile string) (*Client, error) {
 	return c, nil
 }
 
-// Profile returns the profile a DialProfile client serves; empty for a
-// client dialed by address.
+// DialProfileExisting connects to the profile's running agent, verified the
+// same way as DialProfile, but never launches or respawns one. The error
+// wraps ErrNoProfileAgent when no agent answers for the profile. The caller
+// owns the connection's lifetime and retry policy.
+func DialProfileExisting(ctx context.Context, profile string) (*Client, error) {
+	if err := paths.ValidateProfileName(profile); err != nil {
+		return nil, err
+	}
+	if err := paths.CheckHome(); err != nil {
+		return nil, err
+	}
+	c, err := resolveProfileHost(ctx, profile)
+	if err != nil {
+		return nil, err
+	}
+	c.profile = profile
+	return c, nil
+}
+
+// Profile returns the profile a DialProfile or DialProfileExisting client
+// serves; empty for a client dialed by address.
 func (c *Client) Profile() string { return c.profile }
 
 // resolveProfileHost connects to the host named by the profile's record if it
@@ -130,7 +152,7 @@ func resolveProfileHost(ctx context.Context, profile string) (*Client, error) {
 	if err != nil || id.GetProfile() != profile || id.GetInstanceId() != rec.InstanceID {
 		_ = conn.Close()
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", errNoProfileHost, err)
+			return nil, fmt.Errorf("%w: %w", errNoProfileHost, err)
 		}
 		return nil, errNoProfileHost
 	}
@@ -159,7 +181,7 @@ func launchProfileHost(ctx context.Context, profile string) (c *Client, logPath 
 	offset := fileSize(logPath)
 	exited, err := launchFunc(profile, logPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("start the agent for profile %q: %w", profile, err)
+		return nil, "", fmt.Errorf("no agent for profile %q and could not auto-launch: %w", profile, err)
 	}
 	c, err = waitForProfileHost(ctx, profile, exited, logPath, offset)
 	if err != nil {
