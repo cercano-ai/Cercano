@@ -111,6 +111,12 @@ back to the host over the stream.
 
 ## 3. The layers / components
 
+The field lists and approximate line numbers below are phase-era sketches, not
+exhaustive current inventories. For example, `runner.Request` now also carries
+chat-route/model overrides, authentication recovery and input attribution; its
+`Deps` include vision and capability-profile accessors. Read the named types for
+the complete API.
+
 ### 3.1 The front door — `internal/server/server.go`
 
 `Server` embeds `proto.UnimplementedAgentServer` and terminates client
@@ -386,8 +392,9 @@ The broker fan-out is what makes one conversation watchable from several surface
    subscription, correct for a passive observer.
 2. Send the `replay` buffer first (everything published before this attach) via
    `sendRunnerEvent`.
-3. Forward live events off `ch` until the channel closes (turn ended/superseded)
-   or the client disconnects.
+3. Forward live events off `ch` until the channel closes (subscription detached)
+   or the client disconnects. Ordinary turn release and supersession do not close
+   passive subscriptions: they remain attached across turns until detached.
 
 Because `Attach` snapshots the replay buffer and registers the channel under one
 lock, a second surface that attaches **mid-turn** sees the turn so far (replay)
@@ -408,9 +415,9 @@ broker), the runner is a transient engine behind it.
 - **Containment.** Deferred pool release kills/evicts an unhealthy worker's
   process group and cleans up. Healthy completion instead retains it warm. The error flows back through the *same* host turn
   handler as an in-process error would: the handler's `defer release()` retires
-  the broker turn, the generation fence guarantees any late/racing event from the
-  dead worker is dropped (`Publish` checks `gen`), and attached surfaces see the
-  turn end. Do not equate passive broker-channel closure with receiving the initiating RPC’s gRPC status.
+  the broker turn, the generation fence rejects events from superseded/canceled generations.
+  Ordinary release clears the active handle but does not advance the generation
+  or close passive subscriptions; it alone is not a late-event fence. Do not equate passive broker-channel closure with receiving the initiating RPC’s gRPC status.
 - **Blast radius = one conversation.** The host process does not exit. Other
   conversations — their own workers, their own broker turns — are untouched. The
   next submit on the crashed conversation spawns a fresh worker. This is the
@@ -434,7 +441,7 @@ broker), the runner is a transient engine behind it.
   test *is* embedded mode; it guards the whole design in milliseconds.
 - **The generation fence.** At most one live turn per conversation; a superseding
   turn advances the gen; `Publish`/persist check `IsCurrent(conv, gen)`, so a
-  superseded (or dead-worker) turn's late events and writes are dropped, never
+  superseded/canceled generation's late events and writes are dropped, never
   interleaved.
 - **Host owns all state; worker is stateless compute.** Config, DB (one writer),
   keychain/OAuth, broker, permission decisions all live host-side. The worker
@@ -453,6 +460,15 @@ broker), the runner is a transient engine behind it.
 ---
 
 ## 9. Phase roadmap / status
+
+**Historical implementation notes.**
+
+These phase completion and equivalence assertions record the implementation at
+the time, not current acceptance results. In particular, orphan cleanup is
+best-effort (malformed pidfiles are left alone; unknown legacy spawners rely on
+the identity guard), not an unconditional no-orphans guarantee. Permission
+updates have a worker receiver but no host-side trigger: a running worker uses
+the permission values pinned at `StartTurn` until the next turn.
 
 | Phase | Scope | Status |
 |---|---|---|

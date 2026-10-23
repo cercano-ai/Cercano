@@ -26,8 +26,9 @@ instructed not to invent entries, approvals, provenance, or template placeholder
 
 ## Source references
 
-Each rendered transcript message carries a `source sha256:<32 hex digits>`
-reference: the first 128 bits of SHA-256 over its rendered evidence, including
+Each transcript message with rendered evidence carries a
+`source sha256:<32 hex digits>` reference (messages containing only unrendered
+blocks, such as hidden reasoning, are skipped): the first 128 bits of SHA-256 over its rendered evidence, including
 role and tool call/result metadata. Tool results now include their call ID and
 `is_error` flag, rather than only their textual contents.
 

@@ -736,3 +736,32 @@ The core-guide audit remains partial; neither publication nor scoped checks
 certify the entire repository. Remote SHA confirmation is reported after push,
 not inferred from this pre-push report. The worktree is retained for the remaining
 core-guide coverage and review; it is not deleted as part of publication.
+
+## Core-guide publication increment — 2026-10-22
+
+See [core-guide evidence and remaining coverage](audit-core-guides.md). The
+closure-pass evidence completes maintained-claim source comparison for
+`docs/agent/compaction-decision-fidelity.md`, including prompt/parser, evidence
+rendering, budget/retention/merge and main-thread/dispatch wiring. It does not
+certify live-model classification or repair of stored summaries.
+
+**The requested five-guide closure remains incomplete.** These four guides
+retain partial local semantic coverage:
+
+- `docs/agent/README.md`: launcher/headless, downstream commands, permissions,
+  resilience/auth, autonomy, attachment lifetime, persistence/resume and models.
+- `docs/agent/self-dev.md`: dev-mode metadata, task lifecycle/routing, build and
+  signing, paths, timeouts/cancellation, tracing, recap and reconnect behavior.
+- `docs/cloud-routing.md`: full remaining routing/account/image/identity-storage,
+  draft/save/wizard and worker-snapshot comparisons are not closed.
+- `docs/agent/agent-isolation/architecture.md`: additional broker/pool/orphan and
+  control-receiver comparisons corrected release/subscription semantics and
+  qualified phase-era inventories; full codec/provider/credential-proxy and
+  runner-core coverage remains incomplete.
+
+Focused offline compaction and broker tests passed; details are in the evidence
+report. No live external behavior, paid calls, installs, restarts or historical
+proposal certification. Only documentation is included in this publication,
+targeting `origin/docs/publicity-refresh` without merge or force push. Remote SHA
+is verified after push, not inferred here. Retain the worktree for the explicitly
+unfinished local coverage and review.
