@@ -28,6 +28,7 @@ const (
 	Agent_ResetSetup_FullMethodName                            = "/agent.Agent/ResetSetup"
 	Agent_ShutdownAgent_FullMethodName                         = "/agent.Agent/ShutdownAgent"
 	Agent_GetConfig_FullMethodName                             = "/agent.Agent/GetConfig"
+	Agent_GetHostIdentity_FullMethodName                       = "/agent.Agent/GetHostIdentity"
 	Agent_ListConversations_FullMethodName                     = "/agent.Agent/ListConversations"
 	Agent_ResumeConversation_FullMethodName                    = "/agent.Agent/ResumeConversation"
 	Agent_StreamResumeConversation_FullMethodName              = "/agent.Agent/StreamResumeConversation"
@@ -135,6 +136,11 @@ type AgentClient interface {
 	// GetConfig returns the current runtime config. API key is reported as a
 	// presence bool only — the literal value never leaves the agent.
 	GetConfig(ctx context.Context, in *GetConfigRequest, opts ...grpc.CallOption) (*GetConfigResponse, error)
+	// GetHostIdentity reports which profile this agent host serves and which
+	// process instance it is, so a client can confirm it reached the host named
+	// in the profile's registry record. It answers at once and needs no
+	// sign-in or model.
+	GetHostIdentity(ctx context.Context, in *GetHostIdentityRequest, opts ...grpc.CallOption) (*HostIdentity, error)
 	// Persisted-conversation surface: /history picker calls ListConversations;
 	// selecting a row calls ResumeConversation; deleting a row (future) calls
 	// DeleteConversation. Resume rehydrates the in-memory session store on the
@@ -463,6 +469,16 @@ func (c *agentClient) GetConfig(ctx context.Context, in *GetConfigRequest, opts 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetConfigResponse)
 	err := c.cc.Invoke(ctx, Agent_GetConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) GetHostIdentity(ctx context.Context, in *GetHostIdentityRequest, opts ...grpc.CallOption) (*HostIdentity, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HostIdentity)
+	err := c.cc.Invoke(ctx, Agent_GetHostIdentity_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1294,6 +1310,11 @@ type AgentServer interface {
 	// GetConfig returns the current runtime config. API key is reported as a
 	// presence bool only — the literal value never leaves the agent.
 	GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error)
+	// GetHostIdentity reports which profile this agent host serves and which
+	// process instance it is, so a client can confirm it reached the host named
+	// in the profile's registry record. It answers at once and needs no
+	// sign-in or model.
+	GetHostIdentity(context.Context, *GetHostIdentityRequest) (*HostIdentity, error)
 	// Persisted-conversation surface: /history picker calls ListConversations;
 	// selecting a row calls ResumeConversation; deleting a row (future) calls
 	// DeleteConversation. Resume rehydrates the in-memory session store on the
@@ -1537,6 +1558,9 @@ func (UnimplementedAgentServer) ShutdownAgent(context.Context, *ShutdownAgentReq
 }
 func (UnimplementedAgentServer) GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetConfig not implemented")
+}
+func (UnimplementedAgentServer) GetHostIdentity(context.Context, *GetHostIdentityRequest) (*HostIdentity, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetHostIdentity not implemented")
 }
 func (UnimplementedAgentServer) ListConversations(context.Context, *ListConversationsRequest) (*ListConversationsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListConversations not implemented")
@@ -1906,6 +1930,24 @@ func _Agent_GetConfig_Handler(srv interface{}, ctx context.Context, dec func(int
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServer).GetConfig(ctx, req.(*GetConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_GetHostIdentity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetHostIdentityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).GetHostIdentity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_GetHostIdentity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).GetHostIdentity(ctx, req.(*GetHostIdentityRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3130,6 +3172,10 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetConfig",
 			Handler:    _Agent_GetConfig_Handler,
+		},
+		{
+			MethodName: "GetHostIdentity",
+			Handler:    _Agent_GetHostIdentity_Handler,
 		},
 		{
 			MethodName: "ListConversations",

@@ -45,6 +45,12 @@ service Agent {
   // presence bool only — the literal value never leaves the agent.
   rpc GetConfig (GetConfigRequest) returns (GetConfigResponse) {}
 
+  // GetHostIdentity reports which profile this agent host serves and which
+  // process instance it is, so a client can confirm it reached the host named
+  // in the profile's registry record. It answers at once and needs no
+  // sign-in or model.
+  rpc GetHostIdentity (GetHostIdentityRequest) returns (HostIdentity) {}
+
   // Persisted-conversation surface: /history picker calls ListConversations;
   // selecting a row calls ResumeConversation; deleting a row (future) calls
   // DeleteConversation. Resume rehydrates the in-memory session store on the
@@ -2676,4 +2682,19 @@ message TaskSubscriptionEvent {
   TaskProgressRecord progress = 2;
   bool snapshot_complete = 3;
  }
+}
+
+message GetHostIdentityRequest {}
+
+// HostIdentity identifies a running agent host.
+message HostIdentity {
+  // profile is the Cercano profile this host serves.
+  string profile = 1;
+  // pid is the host's process ID.
+  int32 pid = 2;
+  // instance_id is random per process start; it matches the instance_id in
+  // the profile's agent.json while this host is registered.
+  string instance_id = 3;
+  // version is the host binary's version string.
+  string version = 4;
 }

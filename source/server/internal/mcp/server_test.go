@@ -127,6 +127,10 @@ func (m *mockAgentClient) GetConfig(ctx context.Context, in *proto.GetConfigRequ
 	return &proto.GetConfigResponse{}, nil
 }
 
+func (m *mockAgentClient) GetHostIdentity(ctx context.Context, in *proto.GetHostIdentityRequest, opts ...grpc.CallOption) (*proto.HostIdentity, error) {
+	return &proto.HostIdentity{}, nil
+}
+
 func (m *mockAgentClient) ListConversations(ctx context.Context, in *proto.ListConversationsRequest, opts ...grpc.CallOption) (*proto.ListConversationsResponse, error) {
 	return &proto.ListConversationsResponse{}, nil
 }
