@@ -352,7 +352,8 @@ func nativeNormalInteraction(t *testing.T, image string, args []string, version 
 	}
 	// Allow only the fixture's exact remote endpoint. No default agent/Ollama,
 	// external HTTP, DNS, proxy or inherited credential environment is allowed.
-	profile := denyProfile + fmt.Sprintf(`(allow network-outbound (remote ip "%s"))(allow network-bind (local ip "*:%s"))(allow network-inbound (local ip "%s"))`, strings.TrimPrefix(fixture.URL, "http://"), port, addr)
+	// Seatbelt's address grammar accepts localhost, not literal 127.0.0.1.
+	profile := denyProfile + fmt.Sprintf(`(allow network-outbound (remote ip "localhost:%s"))(allow network-bind (local ip "*:%s"))(allow network-inbound (local ip "localhost:%s"))`, fixturePort, port, port)
 	// Keep the allowlist explicit: never append os.Environ(), even for locale
 	// or proxy convenience. Check the caller cannot accidentally broaden it.
 	allowed := map[string]bool{"HOME": true, "XDG_CONFIG_HOME": true, "XDG_CACHE_HOME": true, "TMPDIR": true, "PATH": true, "LANG": true}
