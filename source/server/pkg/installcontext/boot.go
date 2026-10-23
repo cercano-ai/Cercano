@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"time"
 
-	"cercano/source/server/internal/updatecoord/activation"
 	"cercano/source/server/internal/updatecoord/enrollment"
 	"cercano/source/server/internal/updatecoord/exclusion"
 	"cercano/source/server/internal/updatecoord/privdir"
@@ -69,6 +68,11 @@ func PrepareLaunch(ctx context.Context, loc Locators, root string, client bool) 
 		err = e
 		return
 	}
+	dirBefore, e := os.Lstat(dir)
+	if e != nil {
+		err = e
+		return
+	}
 	bounded, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 	defer cancel()
 	lease, err = exclusion.Acquire(bounded, dir, exclusion.Launch)
@@ -84,8 +88,15 @@ func PrepareLaunch(ctx context.Context, loc Locators, root string, client bool) 
 			lease = nil
 		}
 	}()
+	// Acquire proves its opened lock and directory identity. Keep that named
+	// world stable through validation as well as acquisition.
+	lockBefore, e := os.Lstat(filepath.Join(dir, "update.lock"))
+	if e != nil {
+		err = e
+		return
+	}
 	selectionPath := filepath.Join(dir, selection.FileName)
-	selected, e := activation.ReadSelection(selectionPath)
+	selected, e := readBootSelection(selectionPath)
 	if e != nil {
 		err = e
 		return
@@ -119,7 +130,7 @@ func PrepareLaunch(ctx context.Context, loc Locators, root string, client bool) 
 	if err = verifyBootImage(target); err != nil {
 		return
 	}
-	after, e := activation.ReadSelection(selectionPath)
+	after, e := readBootSelection(selectionPath)
 	if e != nil {
 		err = e
 		return
@@ -130,6 +141,21 @@ func PrepareLaunch(ctx context.Context, loc Locators, root string, client bool) 
 		return
 	}
 	if after != selected || current != record {
+		err = enrollment.ErrUnsafe
+		return
+	}
+	dirAfter, e := os.Lstat(dir)
+	if e != nil {
+		err = e
+		return
+	}
+	lockAfter, e := os.Lstat(filepath.Join(dir, "update.lock"))
+	if e != nil {
+		err = e
+		return
+	}
+	if !dirAfter.IsDir() || !os.SameFile(dirBefore, dirAfter) ||
+		!lockAfter.Mode().IsRegular() || !os.SameFile(lockBefore, lockAfter) {
 		err = enrollment.ErrUnsafe
 		return
 	}
