@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -602,4 +603,263 @@ func TestMigrateCopiesAcrossFilesystems(t *testing.T) {
 	if exists(dispatch) {
 		t.Error("source dispatch log not removed after copy")
 	}
+}
+
+func TestMigrateSkipsProbeWithoutLegacyData(t *testing.T) {
+	home, _ := setHome(t)
+	// Not legacy data: machine-wide files and a stray profile directory.
+	writeFile(t, filepath.Join(paths.ConfigRoot(), "update_check.json"), "{}")
+	writeFile(t, filepath.Join(paths.ProfileDir("default"), "failures.jsonl"), "stray")
+	opts := Options{
+		Home: home,
+		LegacyAgentAlive: func(context.Context) (bool, error) {
+			t.Error("probed for a legacy agent on an install with no legacy data")
+			return true, nil
+		},
+	}
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !exists(markerPath()) {
+		t.Fatal("marker not written")
+	}
+}
+
+func TestMigrateProceedsWhenListenerIsNotAnAgent(t *testing.T) {
+	home, _ := setHome(t)
+	writeFile(t, filepath.Join(paths.ConfigRoot(), "config.yaml"), "port: \"50052\"\n")
+	opts := Options{
+		Home:             home,
+		LegacyAgentAlive: func(context.Context) (bool, error) { return true, nil },
+		StopLegacyAgent: func(context.Context) error {
+			return fmt.Errorf("shutdown: %w", ErrNotAgent)
+		},
+	}
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !exists(filepath.Join(paths.ProfileDir("default"), "config.yaml")) || !exists(markerPath()) {
+		t.Fatal("migration did not complete")
+	}
+}
+
+func TestSetAsideReportsErrors(t *testing.T) {
+	setHome(t)
+	dir := t.TempDir()
+	// The set-aside name exceeds the file name limit, so Lstat on it fails
+	// with something other than not-exist.
+	path := filepath.Join(dir, strings.Repeat("a", 250))
+	writeFile(t, path, "x")
+	done := make(chan error, 1)
+	go func() { done <- setAside(path) }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("setAside succeeded with an unusable set-aside name")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("setAside looped instead of returning the error")
+	}
+}
+
+// writeWALOnlyDB creates a WAL-mode database at dir/name whose last row lives
+// only in the -wal file, as after a crash: the files are copied while the
+// writer still holds them, so nothing is checkpointed.
+func writeWALOnlyDB(t *testing.T, dir, name string) {
+	t.Helper()
+	work := t.TempDir()
+	src := filepath.Join(work, name)
+	db, err := sql.Open("sqlite", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	for _, stmt := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA wal_autocheckpoint=0",
+		"CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT)",
+		"INSERT INTO conversations VALUES ('c1', 'only in the wal')",
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		data, err := os.ReadFile(src + suffix)
+		if err != nil {
+			t.Fatalf("read %s%s: %v", name, suffix, err)
+		}
+		if suffix == "-wal" && len(data) == 0 {
+			t.Fatal("empty WAL; the row was checkpointed")
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+suffix), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func queryTitle(t *testing.T, path string) (string, error) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var title string
+	err = db.QueryRow("SELECT title FROM conversations WHERE id = 'c1'").Scan(&title)
+	return title, err
+}
+
+func TestMigrateKeepsUncheckpointedWAL(t *testing.T) {
+	home, _ := setHome(t)
+	writeWALOnlyDB(t, paths.ConfigRoot(), "conversations.db")
+	// Control: the database file alone does not have the row.
+	bare := filepath.Join(t.TempDir(), "bare.db")
+	data, _ := os.ReadFile(filepath.Join(paths.ConfigRoot(), "conversations.db"))
+	if err := os.WriteFile(bare, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queryTitle(t, bare); err == nil {
+		t.Fatal("control: the row is in the main database file, not only the WAL")
+	}
+
+	if err := Run(context.Background(), noAgent(home)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	title, err := queryTitle(t, filepath.Join(paths.ProfileDir("default"), "conversations.db"))
+	if err != nil || title != "only in the wal" {
+		t.Fatalf("moved db: title = %q, err = %v", title, err)
+	}
+}
+
+// A run that moved the database but died before its -wal: the retry moves
+// the -wal beside it and sets nothing of the database aside.
+func TestMigrateRetryMovesRemainingWAL(t *testing.T) {
+	home, _ := setHome(t)
+	writeWALOnlyDB(t, paths.ConfigRoot(), "conversations.db")
+	def := paths.ProfileDir("default")
+	if err := os.MkdirAll(def, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(paths.ConfigRoot(), "conversations.db"), filepath.Join(def, "conversations.db")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Run(context.Background(), noAgent(home)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if exists(filepath.Join(paths.ConfigRoot(), "conversations.db"+suffix)) {
+			t.Errorf("conversations.db%s left at the legacy path", suffix)
+		}
+		if exists(filepath.Join(def, "conversations.db"+suffix+".pre-migration")) {
+			t.Errorf("conversations.db%s was set aside", suffix)
+		}
+	}
+	title, err := queryTitle(t, filepath.Join(def, "conversations.db"))
+	if err != nil || title != "only in the wal" {
+		t.Fatalf("title = %q, err = %v", title, err)
+	}
+}
+
+// seedEnterprise writes a small enterprise tree and makes every rename out of
+// ~/.cercano report a cross-device error.
+func seedEnterpriseCrossDevice(t *testing.T) (src string, files map[string]string) {
+	t.Helper()
+	src = filepath.Join(paths.StateRoot(), "enterprise")
+	files = map[string]string{
+		"active-bundle.json":  "bundle",
+		"managed/policy.json": "{}",
+		"managed/extra.json":  "extra",
+		"connection.lock":     "",
+	}
+	for rel, content := range files {
+		writeFile(t, filepath.Join(src, rel), content)
+	}
+	prev := rename
+	t.Cleanup(func() { rename = prev })
+	rename = func(from, to string) error {
+		if strings.HasPrefix(from, paths.StateRoot()+string(filepath.Separator)) {
+			return &os.LinkError{Op: "rename", Old: from, New: to, Err: errCrossDevice}
+		}
+		return os.Rename(from, to)
+	}
+	return src, files
+}
+
+func assertEnterpriseMoved(t *testing.T, src string, files map[string]string) {
+	t.Helper()
+	dst := filepath.Join(paths.ProfileDir("default"), "enterprise")
+	for rel, content := range files {
+		if got := readFile(t, filepath.Join(dst, rel)); got != content {
+			t.Errorf("%s = %q, want %q", rel, got, content)
+		}
+	}
+	for _, leftover := range []string{src, src + trashSuffix, dst + tempSuffix, dst + ".pre-migration"} {
+		if exists(leftover) {
+			t.Errorf("%s left behind", leftover)
+		}
+	}
+	if !exists(markerPath()) {
+		t.Error("marker not written")
+	}
+}
+
+func TestCrossDeviceMoveRecoversFromEachCrashPoint(t *testing.T) {
+	for _, step := range []string{stepCopied, stepSourceTrashed, stepInstalled} {
+		t.Run(step, func(t *testing.T) {
+			home, _ := setHome(t)
+			src, files := seedEnterpriseCrossDevice(t)
+			prev := afterStep
+			t.Cleanup(func() { afterStep = prev })
+			afterStep = func(s string) error {
+				if s == step {
+					return errors.New("simulated crash at " + s)
+				}
+				return nil
+			}
+			if err := Run(context.Background(), noAgent(home)); err == nil {
+				t.Fatal("Run succeeded through a simulated crash")
+			}
+			if exists(markerPath()) {
+				t.Fatal("marker written after a crash")
+			}
+			afterStep = prev
+			if err := Run(context.Background(), noAgent(home)); err != nil {
+				t.Fatalf("retry Run: %v", err)
+			}
+			assertEnterpriseMoved(t, src, files)
+		})
+	}
+}
+
+func TestCrossDeviceMoveRecoversFromPartialSourceRemoval(t *testing.T) {
+	home, _ := setHome(t)
+	src, files := seedEnterpriseCrossDevice(t)
+	prev := removeAll
+	t.Cleanup(func() { removeAll = prev })
+	removeAll = func(path string) error {
+		if strings.HasSuffix(path, trashSuffix) {
+			// Delete part of the trashed source, then fail.
+			_ = os.Remove(filepath.Join(path, "managed", "policy.json"))
+			return errors.New("simulated crash while removing the source")
+		}
+		return os.RemoveAll(path)
+	}
+	if err := Run(context.Background(), noAgent(home)); err == nil {
+		t.Fatal("Run succeeded although removing the source failed")
+	}
+	if exists(markerPath()) {
+		t.Fatal("marker written before the source was removed")
+	}
+	removeAll = prev
+	if err := Run(context.Background(), noAgent(home)); err != nil {
+		t.Fatalf("retry Run: %v", err)
+	}
+	// The complete copy survives; the half-removed source never replaces it.
+	assertEnterpriseMoved(t, src, files)
 }

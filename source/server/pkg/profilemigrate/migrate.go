@@ -44,14 +44,33 @@ type Options struct {
 }
 
 var (
-	// logOut receives the one line printed when files are moved.
+	// logOut receives the lines printed while migrating.
 	logOut io.Writer = os.Stderr
-	// stopWait bounds the wait for a stopped legacy agent to go away.
+	// stopWait bounds the wait for a stopped legacy agent's port to close.
 	stopWait = 15 * time.Second
 	// stopPoll is the interval between liveness checks while waiting.
 	stopPoll = 200 * time.Millisecond
-	// rename is os.Rename; tests replace it to simulate other filesystems.
+	// rename is os.Rename for a move between the legacy and the profile
+	// location; tests replace it to simulate different filesystems.
 	rename = os.Rename
+	// removeAll deletes a moved source; tests replace it to simulate a crash
+	// part way through.
+	removeAll = os.RemoveAll
+	// afterStep, when set, runs after each step of a cross-filesystem move;
+	// tests use it to simulate a crash between steps.
+	afterStep func(step string) error
+)
+
+// Steps of a cross-filesystem move, in order.
+const (
+	stepCopied        = "copied"         // src copied to dst+tempSuffix
+	stepSourceTrashed = "source-trashed" // src renamed to src+trashSuffix
+	stepInstalled     = "installed"      // dst+tempSuffix renamed to dst
+)
+
+const (
+	tempSuffix  = ".migrating"
+	trashSuffix = ".migrated-trash"
 )
 
 // errAgentRunning is returned when a pre-profile agent would not stop.
@@ -90,11 +109,11 @@ func (l layout) migrated() bool {
 }
 
 // Run moves pre-profile data into the default profile. It returns at once
-// when the marker exists. Otherwise it takes a cross-process lock, stops a
-// pre-profile agent if one is answering, moves every legacy file that exists,
-// splits the runtime sections into machine.yaml and writes the marker. Any
-// move failure returns an error without the marker, so the next start
-// retries; files already moved stay where they are.
+// when the marker exists. Otherwise it takes a cross-process lock and, when
+// legacy data exists, stops a pre-profile agent if one is answering and moves
+// every legacy file. It then splits the runtime sections into machine.yaml
+// and writes the marker. Any failure returns an error without the marker, so
+// the next start retries; files already moved stay where they are.
 func Run(ctx context.Context, opts Options) error {
 	l, err := resolveLayout(opts.Home)
 	if err != nil {
@@ -115,12 +134,20 @@ func Run(ctx context.Context, opts Options) error {
 		return nil
 	}
 
-	if err := stopLegacyAgent(ctx, opts); err != nil {
-		return err
-	}
-	moved, err := moveLegacyData(l)
+	plan := legacyPlan(l)
+	pending, err := plan.pending()
 	if err != nil {
-		return fmt.Errorf("move existing Cercano data into the default profile: %w", err)
+		return fmt.Errorf("look for existing Cercano data: %w", err)
+	}
+	moved := false
+	if pending {
+		// Only an install with legacy data can have a legacy agent running.
+		if err := stopLegacyAgent(ctx, opts); err != nil {
+			return err
+		}
+		if moved, err = plan.run(); err != nil {
+			return fmt.Errorf("move existing Cercano data into the default profile: %w", err)
+		}
 	}
 	if err := splitRuntimeSettings(l); err != nil {
 		return fmt.Errorf("move local runtime settings into %s: %w", l.machinePath, err)
@@ -139,7 +166,8 @@ func Run(ctx context.Context, opts Options) error {
 
 // stopLegacyAgent shuts down a pre-profile agent so no file is moved while it
 // has it open. Any agent answering here is pre-profile: newer agents migrate
-// before they listen.
+// before they listen. A listener that turns out not to be a Cercano agent
+// (ErrNotAgent) is left alone.
 func stopLegacyAgent(ctx context.Context, opts Options) error {
 	if opts.LegacyAgentAlive == nil {
 		return nil
@@ -155,7 +183,10 @@ func stopLegacyAgent(ctx context.Context, opts Options) error {
 		return errAgentRunning
 	}
 	if err := opts.StopLegacyAgent(ctx); err != nil {
-		return fmt.Errorf("%w (shutdown request failed: %v)", errAgentRunning, err)
+		if errors.Is(err, ErrNotAgent) {
+			return nil
+		}
+		return fmt.Errorf("%w (%v)", errAgentRunning, err)
 	}
 	deadline := time.Now().Add(stopWait)
 	for {
@@ -180,62 +211,98 @@ func stopLegacyAgent(ctx context.Context, opts Options) error {
 // with it; a stale one left beside a moved database could be replayed into it.
 var sqliteSiblings = []string{"", "-wal", "-shm", "-journal"}
 
-// moveLegacyData moves every legacy file that exists and reports whether
-// anything moved.
-func moveLegacyData(l layout) (bool, error) {
-	moved := false
-	note := func(did bool, err error) error {
-		moved = moved || did
-		return err
-	}
+type moveKind int
+
+const (
+	moveFile       moveKind = iota // set aside anything at dst, then move
+	moveDB                         // a SQLite database and its siblings
+	moveIfNew                      // only when nothing is at dst
+	moveBestEffort                 // like moveFile; failures are ignored
+)
+
+type moveSpec struct {
+	src, dst string
+	kind     moveKind
+}
+
+type movePlan []moveSpec
+
+// legacyPlan lists every pre-profile location and where it goes, in order.
+func legacyPlan(l layout) movePlan {
 	inRoot := func(name string) string { return filepath.Join(l.configRoot, name) }
 	inProfile := func(name string) string { return filepath.Join(l.defaultDir, name) }
-
+	var plan movePlan
 	for _, name := range []string{"config.yaml", "permissions.yaml", "catalog-cache.json"} {
-		if err := note(moveReplacing(inRoot(name), inProfile(name))); err != nil {
-			return moved, err
-		}
+		plan = append(plan, moveSpec{inRoot(name), inProfile(name), moveFile})
 	}
 	for _, db := range []string{"telemetry.db", "conversations.db", "watchdog-audit.db"} {
-		if err := note(moveDatabase(inRoot(db), inProfile(db))); err != nil {
-			return moved, err
-		}
+		plan = append(plan, moveSpec{inRoot(db), inProfile(db), moveDB})
 	}
 	for _, name := range []string{
 		"crash.log", "mcp.yaml", "mcp.json",
 		"failures.jsonl", "turn-routing.jsonl", "stream-anomalies.jsonl",
 		"hook_state.json", "scripts",
 	} {
-		if err := note(moveReplacing(inRoot(name), inProfile(name))); err != nil {
-			return moved, err
-		}
+		plan = append(plan, moveSpec{inRoot(name), inProfile(name), moveFile})
 	}
-
 	// Wizard state: the previous code read $XDG_CONFIG_HOME/cercano when
 	// XDG_CONFIG_HOME was set, so that copy is preferred. Neither replaces a
 	// wizard state already in the profile.
-	wizardDst := inProfile("wizard_state.yaml")
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		if err := note(moveIfAbsent(filepath.Join(xdg, "cercano", "wizard_state.yaml"), wizardDst)); err != nil {
-			return moved, err
+		plan = append(plan, moveSpec{filepath.Join(xdg, "cercano", "wizard_state.yaml"), inProfile("wizard_state.yaml"), moveIfNew})
+	}
+	plan = append(plan,
+		moveSpec{inRoot("wizard_state.yaml"), inProfile("wizard_state.yaml"), moveIfNew},
+		moveSpec{filepath.Join(l.stateRoot, "enterprise"), inProfile("enterprise"), moveFile},
+		moveSpec{filepath.Join(l.home, ".cercano-dispatch.log"), filepath.Join(l.defaultDir, "logs", "dispatch.log"), moveFile},
+	)
+	// CLI debug logs are diagnostics only.
+	for _, name := range []string{"tui-perf.log", "search-perf.jsonl", "colorprobe.log"} {
+		plan = append(plan, moveSpec{inRoot(name), filepath.Join(l.defaultDir, "logs", name), moveBestEffort})
+	}
+	return plan
+}
+
+// pending reports whether any legacy source, or an interrupted
+// cross-filesystem move of one, is still present.
+func (p movePlan) pending() (bool, error) {
+	for _, m := range p {
+		srcs := []string{m.src, m.src + trashSuffix}
+		if m.kind == moveDB {
+			srcs = srcs[:0]
+			for _, suffix := range sqliteSiblings {
+				srcs = append(srcs, m.src+suffix, m.src+suffix+trashSuffix)
+			}
+		}
+		for _, src := range srcs {
+			if _, err := os.Lstat(src); err == nil {
+				return true, nil
+			} else if !os.IsNotExist(err) {
+				return false, err
+			}
 		}
 	}
-	if err := note(moveIfAbsent(inRoot("wizard_state.yaml"), wizardDst)); err != nil {
-		return moved, err
-	}
+	return false, nil
+}
 
-	if err := note(moveReplacing(filepath.Join(l.stateRoot, "enterprise"), inProfile("enterprise"))); err != nil {
-		return moved, err
-	}
-	if err := note(moveReplacing(filepath.Join(l.home, ".cercano-dispatch.log"), filepath.Join(l.defaultDir, "logs", "dispatch.log"))); err != nil {
-		return moved, err
-	}
-
-	// CLI debug logs are diagnostics only: a failure does not block the
-	// migration.
-	for _, name := range []string{"tui-perf.log", "search-perf.jsonl", "colorprobe.log"} {
-		did, _ := moveReplacing(inRoot(name), filepath.Join(l.defaultDir, "logs", name))
+// run performs the plan and reports whether anything moved.
+func (p movePlan) run() (bool, error) {
+	moved := false
+	for _, m := range p {
+		var did bool
+		var err error
+		switch m.kind {
+		case moveDB:
+			did, err = moveDatabase(m.src, m.dst)
+		case moveIfNew:
+			did, err = moveIfAbsent(m.src, m.dst)
+		default:
+			did, err = moveReplacing(m.src, m.dst)
+		}
 		moved = moved || did
+		if err != nil && m.kind != moveBestEffort {
+			return moved, err
+		}
 	}
 	return moved, nil
 }
@@ -270,7 +337,11 @@ func moveDatabase(src, dst string) (bool, error) {
 // was not put there by this migration (the marker is absent), so it is set
 // aside as dst.pre-migration rather than overwritten. A destination of the
 // other kind (a directory where a file goes, or the reverse) is an error.
+// An interrupted cross-filesystem move of src is finished first.
 func moveReplacing(src, dst string) (bool, error) {
+	if done, err := finishInterruptedMove(src, dst); done || err != nil {
+		return done, err
+	}
 	srcInfo, err := os.Lstat(src)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -296,6 +367,9 @@ func moveReplacing(src, dst string) (bool, error) {
 
 // moveIfAbsent moves src to dst only when src exists and dst does not.
 func moveIfAbsent(src, dst string) (bool, error) {
+	if done, err := finishInterruptedMove(src, dst); done || err != nil {
+		return done, err
+	}
 	if _, err := os.Lstat(dst); err == nil {
 		return false, nil
 	} else if !os.IsNotExist(err) {
@@ -318,18 +392,29 @@ func setAside(path string) error {
 		if i > 1 {
 			aside += "-" + strconv.Itoa(i)
 		}
-		if _, err := os.Lstat(aside); os.IsNotExist(err) {
-			if err := os.Rename(path, aside); err != nil {
-				return fmt.Errorf("set aside %s: %w", path, err)
-			}
-			return nil
+		_, err := os.Lstat(aside)
+		if err == nil {
+			continue
 		}
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("set aside %s: %w", path, err)
+		}
+		if err := os.Rename(path, aside); err != nil {
+			return fmt.Errorf("set aside %s: %w", path, err)
+		}
+		return nil
 	}
 }
 
-// move renames src to dst, creating dst's parent. When src is on another
-// filesystem it copies into a temporary name beside dst, renames that into
-// place and then removes src.
+// move renames src to dst, creating dst's parent. When they are on
+// different filesystems it moves in steps that a crash at any point leaves
+// recoverable (see finishInterruptedMove):
+//
+//  1. copy src to dst.migrating (beside dst);
+//  2. rename src to src.migrated-trash (same filesystem as src), so src
+//     itself never exists alongside a complete copy;
+//  3. rename dst.migrating to dst;
+//  4. delete src.migrated-trash.
 func move(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return err
@@ -338,19 +423,75 @@ func move(src, dst string) error {
 	if err == nil || !isCrossDevice(err) {
 		return err
 	}
-	tmp := dst + ".migrating"
-	if err := os.RemoveAll(tmp); err != nil {
+	tmp, trash := dst+tempSuffix, src+trashSuffix
+	if err := removeAll(tmp); err != nil {
 		return err
 	}
 	if err := copyTree(src, tmp); err != nil {
-		_ = os.RemoveAll(tmp)
+		_ = removeAll(tmp)
 		return fmt.Errorf("copy %s: %w", src, err)
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.RemoveAll(tmp)
+	if err := step(stepCopied); err != nil {
 		return err
 	}
-	return os.RemoveAll(src)
+	if err := os.Rename(src, trash); err != nil {
+		return err
+	}
+	if err := step(stepSourceTrashed); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return err
+	}
+	if err := step(stepInstalled); err != nil {
+		return err
+	}
+	return removeAll(trash)
+}
+
+func step(name string) error {
+	if afterStep == nil {
+		return nil
+	}
+	return afterStep(name)
+}
+
+// finishInterruptedMove completes a cross-filesystem move that a crash cut
+// short. The state is unambiguous because src is renamed to the trash name
+// only after the copy is complete:
+//
+//   - no trash: nothing to finish (src, if present, was never trashed; a
+//     partial dst.migrating is discarded when the move is redone);
+//   - trash and dst: the copy was installed; delete the rest of the trash;
+//   - trash and dst.migrating: install the complete copy, delete the trash;
+//   - trash only: restore it to src so the move is redone.
+//
+// done reports that src's move is now complete.
+func finishInterruptedMove(src, dst string) (done bool, err error) {
+	trash, tmp := src+trashSuffix, dst+tempSuffix
+	if _, err := os.Lstat(trash); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		return true, removeAll(trash)
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	if _, err := os.Lstat(tmp); err == nil {
+		if err := os.Rename(tmp, dst); err != nil {
+			return false, err
+		}
+		return true, removeAll(trash)
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	if _, err := os.Lstat(src); err == nil {
+		return false, fmt.Errorf("both %s and %s exist; remove the one that is not current and retry", src, trash)
+	}
+	return false, os.Rename(trash, src)
 }
 
 // copyTree copies a file, symlink or directory tree, keeping permission bits.
