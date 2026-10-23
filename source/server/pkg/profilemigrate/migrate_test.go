@@ -328,9 +328,41 @@ func TestMigrateSplitsRuntimeSettings(t *testing.T) {
 	}
 }
 
-func TestMigrateKeepsExistingMachineConfig(t *testing.T) {
+// A machine.yaml that exists before the migration ran was not written from
+// this home's settings (an earlier test run or build wrote it). It is set
+// aside, and the runtime settings come from the legacy config.
+func TestMigrateSetsAsideExistingMachineConfig(t *testing.T) {
 	home, _ := setHome(t)
 	writeFile(t, filepath.Join(paths.ConfigRoot(), "config.yaml"), legacyConfigWithRuntime)
+	existing := "llama_server:\n    binary: \"\"\n    port: 0\n"
+	writeFile(t, paths.MachineConfigPath(), existing)
+
+	if err := Run(context.Background(), noAgent(home)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := readFile(t, paths.MachineConfigPath()+".pre-migration"); got != existing {
+		t.Errorf("machine.yaml.pre-migration = %q, want the earlier machine.yaml", got)
+	}
+	mc, err := config.LoadMachine()
+	if err != nil {
+		t.Fatalf("LoadMachine: %v", err)
+	}
+	if mc.LlamaServer.Binary != "/opt/llama-server" || mc.MistralRS.DefaultModel != "some/model" {
+		t.Errorf("machine sections not split from the legacy config: %+v / %+v", mc.LlamaServer, mc.MistralRS)
+	}
+	if strings.Contains(readFile(t, filepath.Join(paths.ProfileDir("default"), "config.yaml")), "llama_server") {
+		t.Error("profile config still has llama_server")
+	}
+	if !exists(markerPath()) {
+		t.Error("marker not written")
+	}
+}
+
+// Without runtime sections in the legacy config there is nothing to split,
+// so an existing machine.yaml stays.
+func TestMigrateKeepsMachineConfigWithoutLegacySections(t *testing.T) {
+	home, _ := setHome(t)
+	writeFile(t, filepath.Join(paths.ConfigRoot(), "config.yaml"), "port: \"50052\"\n")
 	existing := "llama_server:\n    binary: /already/here\n"
 	writeFile(t, paths.MachineConfigPath(), existing)
 
@@ -338,10 +370,10 @@ func TestMigrateKeepsExistingMachineConfig(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	if got := readFile(t, paths.MachineConfigPath()); got != existing {
-		t.Errorf("machine.yaml overwritten: %q", got)
+		t.Errorf("machine.yaml changed: %q", got)
 	}
-	if !exists(markerPath()) {
-		t.Error("marker not written")
+	if exists(paths.MachineConfigPath() + ".pre-migration") {
+		t.Error("machine.yaml set aside with nothing to split")
 	}
 }
 

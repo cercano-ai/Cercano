@@ -561,10 +561,11 @@ var machineSections = map[string]bool{"llama_server": true, "mistralrs": true}
 // and the comments, as they were.
 //
 // It changes nothing when the config is missing or cannot be parsed
-// (config.Load reports that as before), when it has neither section, or when
-// machine.yaml already exists: machine.yaml is never overwritten, and since
-// it then takes precedence the profile's copies are ignored on load and
-// dropped by the next save.
+// (config.Load reports that as before) or when it has neither section. A
+// machine.yaml that already exists was not written from these settings (the
+// marker is absent, so no migration wrote it: an earlier test run or build
+// did), and it would otherwise replace them; it is set aside as
+// machine.yaml.pre-migration rather than overwritten.
 func splitRuntimeSettings(l layout) error {
 	path := filepath.Join(l.defaultDir, "config.yaml")
 	data, err := os.ReadFile(path)
@@ -595,12 +596,6 @@ func splitRuntimeSettings(l layout) error {
 	if len(machine.Content) == 0 {
 		return nil
 	}
-	if _, err := os.Lstat(l.machinePath); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
 	machineData, err := yaml.Marshal(&yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{machine}})
 	if err != nil {
 		return err
@@ -614,6 +609,9 @@ func splitRuntimeSettings(l layout) error {
 	root.Content = kept
 	profileData, err := yaml.Marshal(&doc)
 	if err != nil {
+		return err
+	}
+	if err := setAside(l.machinePath); err != nil {
 		return err
 	}
 	if err := writeAtomic(l.machinePath, machineData, 0o600); err != nil {
