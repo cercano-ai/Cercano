@@ -21,8 +21,7 @@ func (s *Server) WatchEnrolledTUIUpdates(ctx context.Context, launcher, stateRoo
 // exactly before opening any state or emitting notices. This prevents cross-install
 // identity confusion.
 //
-// The force control may write existing protected control state but does not
-// mutate the enrollment record itself.
+// Observation is read-only and optional; it never registers or polls force control.
 func (s *Server) WatchBoundEnrolledTUIUpdates(ctx context.Context, launcher, stateRoot string, expected *enrollment.Record, diagnostic func(error)) {
 	s.watchBoundEnrolledTUIUpdates(ctx, launcher, stateRoot, expected, 5*time.Second, diagnostic)
 }
@@ -44,15 +43,9 @@ func (s *Server) watchBoundEnrolledTUIUpdates(ctx context.Context, launcher, sta
 	if ctx == nil || interval <= 0 || expected == nil {
 		return
 	}
-	// The force owner is created lazily, only after the initial enrollment
-	// equality check has passed: an unexpected record must never reach
-	// force-owner creation or any state access.
-	var forceOwner *forceLocalOwner
-	forceOwnerReady := false
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	lastError := ""
-	lastControlError := ""
 	for {
 		probe, cancel := context.WithTimeout(ctx, 2*time.Second)
 
@@ -71,35 +64,11 @@ func (s *Server) watchBoundEnrolledTUIUpdates(ctx context.Context, launcher, sta
 			return
 		} else {
 			lastError = ""
-			if !forceOwnerReady {
-				forceOwnerReady = true
-				var forceErr error
-				forceOwner, forceErr = s.newForceLocalOwner()
-				if forceErr != nil && diagnostic != nil {
-					diagnostic(forceErr)
-				}
-			}
 		}
 
-		// If enrollment is valid, proceed with force control and sync
+		// Only observe installed-completion metadata; retired local control is
+		// deliberately not part of the ordinary agent lifetime.
 		if e == nil {
-			// Force control may write existing protected control state
-			if forceOwner != nil {
-				stopped, controlErr := forceOwner.poll(probe, s, stateRoot, expected.InstallID)
-				if stopped {
-					cancel()
-					return
-				}
-				if controlErr != nil {
-					if diagnostic != nil && controlErr.Error() != lastControlError {
-						diagnostic(controlErr)
-					}
-					lastControlError = controlErr.Error()
-				} else {
-					lastControlError = ""
-				}
-			}
-
 			// Use bound sync helper that verifies record match before opening state
 			_, e = s.SyncBoundEnrolledTUIUpdate(probe, launcher, stateRoot, expected)
 		}

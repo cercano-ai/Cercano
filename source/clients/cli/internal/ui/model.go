@@ -117,12 +117,12 @@ type Model struct {
 	// verifiedContext is the early-main verified installation context; it is
 	// absent when the TUI was not launched as a verified installed member
 	// (no locators), in which case trusted-observer behavior is unchanged.
-	verifiedContext     installcontext.Verified
-	tuiCurrentVersion   string
-	tuiExpectedVersion  string
-	tuiUpdateOperation  int64
-	tuiRestartTarget    string
-	restartInit         tea.Cmd
+	verifiedContext    installcontext.Verified
+	tuiCurrentVersion  string
+	tuiExpectedVersion string
+	tuiUpdateOperation int64
+	tuiRestartTarget   string
+	restartInit        tea.Cmd
 
 	registry *slash.Registry
 
@@ -573,7 +573,7 @@ func (m *Model) applyTheme(t theme.Theme) {
 
 // Init is called by Bubble Tea once at startup.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.restartInit, m.discoverForceSaveCmd(), m.input.Focus(), m.splash.Init(), fetchConfigCmd(m.agent), fetchToolsCmd(m.agent), fetchPermissionModeCmd(m.agent), fetchOpenRuntimeStatusCmd(m.agent), fetchVisionCmd(m.agent), subscribeEventsCmd(m.agent), subscribeConnStateCmd(m.agent))
+	return tea.Batch(m.restartInit, m.input.Focus(), m.splash.Init(), fetchConfigCmd(m.agent), fetchToolsCmd(m.agent), fetchPermissionModeCmd(m.agent), fetchOpenRuntimeStatusCmd(m.agent), fetchVisionCmd(m.agent), subscribeEventsCmd(m.agent), subscribeConnStateCmd(m.agent))
 }
 
 // permissionModeMsg carries the result of the startup GetPermissionMode RPC.

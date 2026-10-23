@@ -14,10 +14,9 @@ import (
 )
 
 // startInstalledTUINotices runs the installed-TUI update observer for the
-// agent lifetime. The observer reads updater state and drives the existing
-// force-control poll, which may write existing protected control rows for
-// this installation (agent registration, force-stop/save intents and their
-// receipts); it performs no protocol negotiation and no enrollment.
+// agent lifetime. It only reads existing installed-completion metadata; errors
+// are diagnostic-only. It never initializes, migrates or repairs updater state,
+// registers force control, or polls force-stop/save intents.
 //
 // With a present verified context the observer resolves the stable launcher
 // from the verified record (never this process's own executable) and requires
@@ -49,15 +48,14 @@ func startInstalledTUINotices(verified installcontext.Verified, srv *server.Serv
 // startBoundInstalledTUINotices runs the installed-TUI update observer with
 // explicit identity binding. With a non-nil expected record, launcher must be
 // the verified stable launcher path; the observer verifies that the discovered
-// enrollment matches the expected record exactly BEFORE creating the force
-// owner, opening any state or emitting notices, and the bound watch loop
+// enrollment matches the expected record exactly BEFORE opening any state
+// or emitting notices, and the bound watch loop
 // revalidates the same fixed record on every probe — it never re-discovers a
 // different installation and emits for it. With a nil expected record the
 // unchanged no-context discovery path applies. This prevents cross-install
 // identity confusion.
 //
-// The force-control poll may write existing protected control rows for the
-// verified installation; it does not mutate the enrollment record itself.
+// Observation never mutates enrollment or updater control rows.
 func startBoundInstalledTUINotices(launcher string, expected *enrollment.Record, srv *server.Server) func() {
 	none := func() {}
 	ctx := context.Background()
@@ -94,8 +92,7 @@ func startBoundInstalledTUINotices(launcher string, expected *enrollment.Record,
 
 	// Expected enrollment: the record beside the verified stable launcher
 	// must equal the startup verified record exactly. Any mismatch (or
-	// discovery error) refuses the observer outright — before any force
-	// owner creation or state access.
+	// discovery error) refuses the observer outright — before any state access.
 	current, e := enrollment.DiscoverStableLauncher(ctx, launcher)
 	if e != nil || current != *expected {
 		return none

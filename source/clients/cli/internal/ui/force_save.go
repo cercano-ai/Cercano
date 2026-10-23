@@ -22,7 +22,8 @@ type forceSaveResultMsg struct {
 	err   error
 }
 
-// discoverForceSaveCmd is the startup force-save discovery command. With a
+// discoverForceSaveCmd is an explicit legacy force-save discovery seam, not
+// scheduled by ordinary UI initialization. With a
 // verified installation context it resolves the verified stable launcher and
 // discovers force-save strictly through forcesave.DiscoverVerified, which
 // requires the verified record to match the on-disk enrollment exactly — a
