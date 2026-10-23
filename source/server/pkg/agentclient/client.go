@@ -127,26 +127,54 @@ func DialExisting(ctx context.Context, addr string) (*Client, error) {
 
 var ErrCredentialIsolation = errors.New("agent credential isolation could not be verified")
 
+// singleTransportDialer binds an attestation to one successful TCP transport.
+// Failed initial attempts may retry, but a replacement requires a fresh
+// ClientConn and health attestation, never gRPC's transparent redial.
+func singleTransportDialer(dial func(context.Context, string) (net.Conn, error)) func(context.Context, string) (net.Conn, error) {
+	var mu sync.Mutex
+	var connected bool
+	return func(ctx context.Context, addr string) (net.Conn, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if connected {
+			return nil, ErrCredentialIsolation
+		}
+		conn, err := dial(ctx, addr)
+		if err == nil {
+			connected = true
+		}
+		return conn, err
+	}
+}
+
 func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// 64 MiB matches the server recv limit; also future-proofs large responses.
 	const maxGRPCMsgBytes = 64 << 20
-	conn, err := grpc.DialContext(dialCtx, addr,
+	isolationRequired := secrets.CheckAllowed() != nil
+	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallSendMsgSize(maxGRPCMsgBytes),
 			grpc.MaxCallRecvMsgSize(maxGRPCMsgBytes),
 		),
-	)
+	}
+	if isolationRequired {
+		dialer := &net.Dialer{}
+		opts = append(opts, grpc.WithContextDialer(singleTransportDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, "tcp", addr)
+		})))
+	}
+	conn, err := grpc.DialContext(dialCtx, addr, opts...)
 	if err != nil {
 		return nil, err
 	}
 	agent := proto.NewAgentClient(conn)
 	// Startup connection policy, not runtime revocation. Unknown/old agents
 	// cannot attest to isolation. Never expose a connection before this probe.
-	if secrets.CheckAllowed() != nil {
+	if isolationRequired {
 		health, err := agent.GetAgentHealth(dialCtx, &proto.GetAgentHealthRequest{})
 		if err != nil {
 			_ = conn.Close()
