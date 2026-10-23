@@ -149,3 +149,20 @@ func TestActiveProfileDirFallsBackToDefault(t *testing.T) {
 		t.Errorf("invalid profile: ActiveProfileDir() = %q, want %q", got, want)
 	}
 }
+
+func TestExplicitHomeVariantsMatchCurrentHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	rows := []struct{ name, explicit, current string }{
+		{"ConfigRoot", ConfigRootIn(home), ConfigRoot()},
+		{"StateRoot", StateRootIn(home), StateRoot()},
+		{"ProfilesRoot", ProfilesRootIn(home), ProfilesRoot()},
+		{"MachineConfigPath", MachineConfigPathIn(home), MachineConfigPath()},
+	}
+	for _, r := range rows {
+		if r.explicit != r.current {
+			t.Errorf("%sIn(home) = %q, %s() = %q", r.name, r.explicit, r.name, r.current)
+		}
+	}
+}

@@ -1015,6 +1015,10 @@ func main() {
 	// Every command that touches profile or machine state needs a home
 	// directory and a valid CERCANO_PROFILE before any path is computed.
 	requireStartupEnvironment(os.Args)
+	// Data written before profiles existed moves into the default profile
+	// before any command opens a profile file (config, permissions,
+	// conversations, enterprise state, logs).
+	requireProfileMigration(os.Args)
 
 	// Handle subcommands before flag parsing.
 	if len(os.Args) > 1 {

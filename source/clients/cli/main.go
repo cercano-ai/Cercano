@@ -50,6 +50,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Data written before profiles existed moves into the default profile
+	// before any profile file is read.
+	if err := migrateProfileData(); err != nil {
+		fmt.Fprintln(os.Stderr, "cercano:", err)
+		os.Exit(1)
+	}
+
 	// Config is shared with the server (pkg/config); the CLI needs the port to
 	// dial the agent.
 	cfg, err := config.Load(config.DefaultPath())

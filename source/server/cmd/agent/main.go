@@ -31,6 +31,7 @@ import (
 	"cercano/source/server/internal/tools"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/paths"
+	"cercano/source/server/pkg/profilemigrate"
 	"cercano/source/server/pkg/proto"
 
 	"google.golang.org/adk/session"
@@ -65,6 +66,15 @@ func main() {
 	}
 	if _, err := paths.Profile(); err != nil {
 		fmt.Fprintln(os.Stderr, "CERCANO_PROFILE:", err)
+		os.Exit(1)
+	}
+	// Move data written before profiles existed into the default profile
+	// before any profile file is opened.
+	migrateCtx, cancelMigrate := context.WithTimeout(context.Background(), 2*time.Minute)
+	err := profilemigrate.Run(migrateCtx, profilemigrate.DefaultOptions())
+	cancelMigrate()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 

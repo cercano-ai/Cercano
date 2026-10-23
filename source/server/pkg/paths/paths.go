@@ -64,15 +64,24 @@ func home() string {
 
 // ConfigRoot is $HOME/.config/cercano.
 // It panics if the home directory is unknown; see CheckHome.
-func ConfigRoot() string { return filepath.Join(home(), ".config", "cercano") }
+func ConfigRoot() string { return ConfigRootIn(home()) }
+
+// ConfigRootIn is ConfigRoot for an explicit home directory.
+func ConfigRootIn(home string) string { return filepath.Join(home, ".config", "cercano") }
 
 // StateRoot is $HOME/.cercano.
 // It panics if the home directory is unknown; see CheckHome.
-func StateRoot() string { return filepath.Join(home(), ".cercano") }
+func StateRoot() string { return StateRootIn(home()) }
+
+// StateRootIn is StateRoot for an explicit home directory.
+func StateRootIn(home string) string { return filepath.Join(home, ".cercano") }
 
 // ProfilesRoot is the directory holding all profile directories.
 // It panics if the home directory is unknown; see CheckHome.
-func ProfilesRoot() string { return filepath.Join(ConfigRoot(), "profiles") }
+func ProfilesRoot() string { return ProfilesRootIn(home()) }
+
+// ProfilesRootIn is ProfilesRoot for an explicit home directory.
+func ProfilesRootIn(home string) string { return filepath.Join(ConfigRootIn(home), "profiles") }
 
 // ProfileDir returns the directory for the named profile. It panics on an
 // invalid name or an unknown home directory; callers must validate first.
@@ -108,7 +117,12 @@ func ActiveProfileDir() string {
 
 // MachineConfigPath is the machine-wide config file.
 // It panics if the home directory is unknown; see CheckHome.
-func MachineConfigPath() string { return filepath.Join(ConfigRoot(), "machine.yaml") }
+func MachineConfigPath() string { return MachineConfigPathIn(home()) }
+
+// MachineConfigPathIn is MachineConfigPath for an explicit home directory.
+func MachineConfigPathIn(home string) string {
+	return filepath.Join(ConfigRootIn(home), "machine.yaml")
+}
 
 // ListProfiles returns the sorted valid profile directory names. A missing
 // profiles root yields an empty list, not an error. It panics if the home

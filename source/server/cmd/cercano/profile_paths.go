@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/paths"
+	"cercano/source/server/pkg/profilemigrate"
 )
 
 // profileFile returns name beside the active profile's config.yaml, where
@@ -61,6 +64,49 @@ func requireStartupEnvironment(args []string) {
 		return
 	}
 	if err := checkStartupEnvironment(); err != nil {
+		fmt.Fprintln(os.Stderr, "cercano:", err)
+		os.Exit(1)
+	}
+}
+
+// migrationOptions builds the options for moving pre-profile data; tests
+// replace it so they never probe or stop a real agent.
+var migrationOptions = profilemigrate.DefaultOptions
+
+// needsProfileMigration reports whether the command in args must move
+// pre-profile data into the default profile before it starts. Workers are
+// spawned by an agent that has already migrated, and the model host is
+// machine-wide; commands that skip the startup check touch no profile data.
+func needsProfileMigration(args []string) bool {
+	if !needsStartupCheck(args) {
+		return false
+	}
+	if len(args) >= 2 {
+		switch args[1] {
+		case "worker", "model-host":
+			return false
+		}
+	}
+	return true
+}
+
+// migrateProfileData moves pre-profile data into the default profile when
+// the command needs it. It returns at once after the first successful run.
+func migrateProfileData(args []string) error {
+	if !needsProfileMigration(args) {
+		return nil
+	}
+	// Covers waiting for another process's migration and a pre-profile
+	// agent's shutdown.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	return profilemigrate.Run(ctx, migrationOptions())
+}
+
+// requireProfileMigration exits with a readable error when the migration
+// fails; running on would open an empty profile beside the user's data.
+func requireProfileMigration(args []string) {
+	if err := migrateProfileData(args); err != nil {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
 		os.Exit(1)
 	}
