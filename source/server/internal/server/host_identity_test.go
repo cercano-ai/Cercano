@@ -20,8 +20,9 @@ func TestGetHostIdentityReportsProfile(t *testing.T) {
 	}
 }
 
-// GetHostIdentity must answer during shutdown too: clients use it to tell a
-// draining host from a different one, and it takes no lock that a turn holds.
+// GetHostIdentity takes no lock a turn or shutdown holds. Once the drain
+// starts the listener is closed, so this covers only connections that are
+// already open when BeginShutdown runs.
 func TestGetHostIdentityAnswersWhileShuttingDown(t *testing.T) {
 	srv := NewServer(nil, nil, nil, nil, nil)
 	srv.SetHostIdentity(HostIdentity{Profile: "default", PID: 1, InstanceID: "i", Version: "v"})

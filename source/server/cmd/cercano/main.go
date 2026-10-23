@@ -189,10 +189,13 @@ func ollamaStartupWarning(check func(string) error, baseURL string) string {
 
 // drainGrace bounds how long a shutting-down agent waits for in-flight turns
 // to finish before hard-stopping. It is a zombie-guard, not a tuning knob: an
-// agentic turn legitimately runs for minutes (model calls + tool executions),
-// and the drained process holds no resources a replacement needs — the
-// listener port frees the moment the drain starts. Only a truly wedged
-// handler should ever hit this. A second signal forces immediate exit.
+// agentic turn legitimately runs for minutes (model calls + tool executions).
+// The listener closes the moment the drain starts, but the draining process
+// holds the profile's agent lock until it exits, so drainGrace also bounds
+// how long a replacement agent for the same profile is blocked. A replacement
+// waits up to agentHandoverWait, then reports that the previous agent is
+// still finishing, and the client retries. Only a truly wedged handler should
+// ever hit this. A second signal forces immediate exit.
 const drainGrace = 10 * time.Minute
 
 // startGRPCServer initializes all providers and starts the gRPC server.
@@ -2027,6 +2030,10 @@ func runServerMode(cfg config.Config) {
 		host.close()
 		os.Exit(1)
 	}
+	// Catch signals before registering, so a signal that arrives from here on
+	// takes the shutdown path that removes the record.
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	if err := host.register(addr); err != nil {
 		fmt.Fprintf(os.Stderr, "\n[ERROR] %v\n", err)
 		cleanup()
@@ -2046,8 +2053,6 @@ func runServerMode(cfg config.Config) {
 	//
 	// Every signal now also gets recorded to the crash log so operators
 	// can distinguish a graceful stop from a mysterious disappearance.
-	sigCh := make(chan os.Signal, 2)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	sig := <-sigCh
 	fmt.Printf("Received %v — draining in-flight requests (signal again to force quit)...\n", sig)
 	if crashWriter != nil {

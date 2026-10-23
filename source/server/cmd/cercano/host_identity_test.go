@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"cercano/source/server/internal/hostregistry"
+	"cercano/source/server/internal/server"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/proto"
@@ -64,16 +65,56 @@ func TestModelHostRemoteOptionsReportProfile(t *testing.T) {
 	}
 }
 
-func TestAcquireAgentHostRefusesHeldProfile(t *testing.T) {
+// withHandoverWait shortens how long a new agent waits for the profile lock.
+func withHandoverWait(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := agentHandoverWait
+	agentHandoverWait = d
+	t.Cleanup(func() { agentHandoverWait = prev })
+}
+
+// serveHostIdentity serves an Agent that reports id on a loopback port and
+// returns its address.
+func serveHostIdentity(t *testing.T, id server.HostIdentity) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := server.NewServer(nil, nil, nil, nil, nil)
+	srv.SetHostIdentity(id)
+	s := grpc.NewServer()
+	proto.RegisterAgentServer(s, srv)
+	go func() { _ = s.Serve(lis) }()
+	t.Cleanup(s.Stop)
+	return lis.Addr().String()
+}
+
+// refusedAddr is a loopback address nothing listens on, like a draining
+// agent's address after GracefulStop has closed its listener.
+func refusedAddr(t *testing.T) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := lis.Addr().String()
+	lis.Close()
+	return addr
+}
+
+func TestAcquireAgentHostRefusesHealthyAgent(t *testing.T) {
 	tempHome(t)
+	withHandoverWait(t, 5*time.Second)
 	first, err := acquireAgentHost("work")
 	if err != nil {
 		t.Fatalf("first acquire: %v", err)
 	}
 	defer first.close()
-	if err := first.register("127.0.0.1:40000"); err != nil {
+	if err := first.register(serveHostIdentity(t, first.identity())); err != nil {
 		t.Fatalf("register: %v", err)
 	}
+	start := time.Now()
 	second, err := acquireAgentHost("work")
 	if err == nil {
 		second.close()
@@ -82,6 +123,9 @@ func TestAcquireAgentHostRefusesHeldProfile(t *testing.T) {
 	want := fmt.Sprintf(`profile "work" already has a running agent (pid %d)`, os.Getpid())
 	if err.Error() != want {
 		t.Fatalf("error = %q, want %q", err, want)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("refusing a healthy agent took %s; it must not wait for the lock", elapsed)
 	}
 
 	// A different profile is independent.
@@ -92,8 +136,94 @@ func TestAcquireAgentHostRefusesHeldProfile(t *testing.T) {
 	other.close()
 }
 
-func TestAcquireAgentHostWithoutRecordOmitsPID(t *testing.T) {
+// A draining agent has closed its listener but still holds the lock until it
+// exits; the new agent waits and then serves.
+func TestAcquireAgentHostWaitsForDrainingAgent(t *testing.T) {
+	home := tempHome(t)
+	withHandoverWait(t, 10*time.Second)
+	first, err := acquireAgentHost("work")
+	if err != nil {
+		t.Fatalf("first acquire: %v", err)
+	}
+	if err := first.register(refusedAddr(t)); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		first.close()
+	}()
+	second, err := acquireAgentHost("work")
+	if err != nil {
+		t.Fatalf("acquire after the draining agent exited: %v", err)
+	}
+	defer second.close()
+	if err := second.register("127.0.0.1:40002"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	rec, err := hostregistry.Read(filepath.Join(paths.ProfilesRootIn(home), "work"))
+	if err != nil || rec.InstanceID != second.instanceID {
+		t.Fatalf("record = %+v, %v; want the new agent's", rec, err)
+	}
+}
+
+// An agent still starting holds the lock with no record yet; once it answers,
+// the new agent reports it as running.
+func TestAcquireAgentHostRefusesAgentThatFinishesStarting(t *testing.T) {
 	tempHome(t)
+	withHandoverWait(t, 10*time.Second)
+	first, err := acquireAgentHost("work")
+	if err != nil {
+		t.Fatalf("first acquire: %v", err)
+	}
+	defer first.close()
+	addr := serveHostIdentity(t, first.identity())
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		_ = first.register(addr)
+	}()
+	start := time.Now()
+	second, err := acquireAgentHost("work")
+	if err == nil {
+		second.close()
+		t.Fatal("second acquire succeeded while the first agent runs")
+	}
+	want := fmt.Sprintf(`profile "work" already has a running agent (pid %d)`, os.Getpid())
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err, want)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("took %s to notice the started agent", elapsed)
+	}
+}
+
+func TestAcquireAgentHostGivesUpOnAgentThatNeverExits(t *testing.T) {
+	tempHome(t)
+	withHandoverWait(t, 600*time.Millisecond)
+	first, err := acquireAgentHost("work")
+	if err != nil {
+		t.Fatalf("first acquire: %v", err)
+	}
+	defer first.close()
+	if err := first.register(refusedAddr(t)); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	start := time.Now()
+	_, err = acquireAgentHost("work")
+	if err == nil {
+		t.Fatal("second acquire succeeded while the lock is held")
+	}
+	want := fmt.Sprintf(`the previous agent for profile "work" (pid %d) is still finishing its work; try again shortly`, os.Getpid())
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err, want)
+	}
+	if elapsed := time.Since(start); elapsed < 600*time.Millisecond || elapsed > 5*time.Second {
+		t.Fatalf("gave up after %s, want about the 600ms wait", elapsed)
+	}
+}
+
+func TestAcquireAgentHostGivesUpWithoutRecordOmitsPID(t *testing.T) {
+	tempHome(t)
+	withHandoverWait(t, 300*time.Millisecond)
 	first, err := acquireAgentHost("work")
 	if err != nil {
 		t.Fatalf("first acquire: %v", err)
@@ -103,8 +233,9 @@ func TestAcquireAgentHostWithoutRecordOmitsPID(t *testing.T) {
 	if err == nil {
 		t.Fatal("second acquire succeeded")
 	}
-	if !strings.HasPrefix(err.Error(), `profile "work" already has a running agent`) || strings.Contains(err.Error(), "pid") {
-		t.Fatalf("error = %q, want the running-agent message without a PID", err)
+	want := `the previous agent for profile "work" is still finishing its work; try again shortly`
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err, want)
 	}
 }
 
