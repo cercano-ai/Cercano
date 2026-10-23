@@ -28,19 +28,34 @@ cd source/clients/cli && go test ./... -count=1
 cd test/e2e && npm ci && npm run build && npm test
 ```
 
-Cercano builds as **two binaries**: `cercano` (the agent gRPC server / MCP host —
-a singleton) and `cercano-cli` (the terminal UI). The CLI is a thin gRPC client;
-it auto-launches `cercano agent` if no server is listening, finding the server
-binary as a sibling next to its own executable. The dev launcher
-(`source/server/scripts/cercano-launcher.sh`) builds both and co-locates them.
+Cercano builds as **two binaries**: `cercano` (the agent gRPC server / MCP host)
+and `cercano-cli` (the terminal UI). The CLI is a thin gRPC client. The dev
+launcher (`source/server/scripts/cercano-launcher.sh`) builds both and
+co-locates them.
+
+Cercano runs **one agent host per profile**. A profile's files (config,
+conversations, logs) live in `~/.config/cercano/profiles/<name>/` and its
+keychain entries are separate from other profiles'; machine-wide runtime
+settings live in `~/.config/cercano/machine.yaml`. The profile is chosen with
+`cercano-cli --profile <name>` or `CERCANO_PROFILE` (default: `default`). Each
+`cercano agent` holds `<profile>/agent.lock`, listens on 127.0.0.1, and records
+its pid and address in `<profile>/agent.json`. The `default` profile keeps its
+configured port (50052 unless changed); other profiles take an ephemeral port
+unless `CERCANO_PORT` sets one. The CLI finds its profile's agent through
+`agent.json` and auto-launches `cercano agent` when none answers, finding the
+server binary as a sibling next to its own executable. An auto-launched agent
+logs to `<profile>/logs/agent.log` and exits after its last client disconnects.
+Data from installs that predate profiles moves into `profiles/default` on first
+start.
 
 The `cercano` binary also runs one shared `cercano model-host` process that owns
 llama-server and mistral.rs for the whole machine. Agent hosts launch it on
 demand and it exits when idle, so several agents share one loaded model.
 `CERCANO_MODEL_HOST=inprocess` keeps models inside the agent process instead
-(for tests and troubleshooting). `cercano restart-after-upgrade` also relaunches
-a running model host with the upgraded binary, under the same launch lock agents
-use, so agents connect to the new host rather than starting their own.
+(for tests and troubleshooting). `cercano restart-after-upgrade` restarts the
+agent of every running profile and also relaunches a running model host with
+the upgraded binary, under the same launch lock agents use, so agents connect
+to the new host rather than starting their own.
 
 ## Project Structure
 
