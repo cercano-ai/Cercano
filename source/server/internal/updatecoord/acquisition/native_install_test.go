@@ -169,8 +169,8 @@ func TestNativeTemporaryInstall(t *testing.T) {
 			t.Logf("%s %s sha256=%x version=%q", version, member, digest, strings.TrimSpace(output))
 		}
 		output, err := run(filepath.Join(staged.Dir, "bin/cercano-updater"), "execute")
-		if err == nil || !strings.Contains(output, "execution unwired") {
-			t.Fatalf("updater must refuse: %v %s", err, output)
+		if err == nil || !strings.Contains(output, "usage: cercano-updater version | execute --input") {
+			t.Fatalf("updater must refuse missing protected handoff: %v %s", err, output)
 		}
 	}
 	// Install stable images from the acquired first release, not build outputs.
@@ -278,6 +278,9 @@ func TestNativeTemporaryInstall(t *testing.T) {
 // credential and executable sandbox review is complete. No auto-launch client:
 // every RPC targets the allocated endpoint and must prove this exact child PID.
 func nativeNormalInteraction(t *testing.T, image string, args []string, version string, baseEnv []string, home, denyProfile string) {
+	// Exercise the client's no-credential attestation/transport policy as well
+	// as the explicit child setting; never merely trust a reachable endpoint.
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	const answer = "native fixture response"
 	const prompt = "Reply with the native fixture response; do not use tools."
 	var chats atomic.Int64
