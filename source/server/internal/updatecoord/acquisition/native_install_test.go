@@ -6,18 +6,24 @@ import (
 	"cercano/source/server/internal/updatecoord/activation"
 	"cercano/source/server/internal/updatecoord/enrollment"
 	"cercano/source/server/internal/updatecoord/selection"
+	"cercano/source/server/pkg/agentclient"
+	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/installcontext"
 	"context"
 	"crypto/sha256"
 	"debug/macho"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,7 +31,8 @@ import (
 )
 
 // TestNativeTemporaryInstall is opt-in because it builds six real executables.
-// It intentionally stops before enrollment/normal startup and publication.
+// Normal startup requires a second explicit opt-in after isolation review.
+// It stops before updater orchestration and publication.
 // All executing artifacts are acquired and staged, never the build outputs.
 func TestNativeTemporaryInstall(t *testing.T) {
 	if os.Getenv("CERCANO_NATIVE_INSTALL_TEST") != "1" {
@@ -230,6 +237,28 @@ func TestNativeTemporaryInstall(t *testing.T) {
 					t.Logf("stable=%t DB=%s %s", stable, dbState, strings.TrimSpace(output))
 				}
 			}
+			if os.Getenv("CERCANO_NATIVE_NORMAL_START_TEST") == "1" && i == 0 && dbState != "inaccessible" {
+				for _, stable := range []bool{true, false} {
+					path, args := filepath.Join(installRoot, "cercano"), []string{"agent"}
+					if !stable {
+						path = filepath.Join(dir, "bin/cercano")
+						args = append(append([]string{}, locators...), "agent")
+					}
+					t.Run(fmt.Sprintf("normal/%s/stable=%t", dbState, stable), func(t *testing.T) {
+						nativeNormalInteraction(t, path, args, fixtureVersions[i], env, home, profile)
+						if dbState == "missing" {
+							if _, err := os.Stat(db); !os.IsNotExist(err) {
+								t.Fatalf("normal startup created bookkeeping: %v", err)
+							}
+						} else {
+							b, err := os.ReadFile(db)
+							if err != nil || string(b) != "not SQL" {
+								t.Fatalf("normal startup changed corrupt bookkeeping: %q %v", b, err)
+							}
+						}
+					})
+				}
+			}
 			if dbState != "missing" {
 				if err = os.Remove(db); err != nil {
 					t.Fatal(err)
@@ -242,5 +271,205 @@ func TestNativeTemporaryInstall(t *testing.T) {
 			t.Fatal("old/candidate not retained", err)
 		}
 	}
-	t.Log("staged two complete current-source fixture releases; protected stable and child offline version startup without SQL. No normal configuration/network/keychain startup, drain, publication or compatibility proof. NEXT: force local-control/CLI force-save startup and old-updater bounded handoff.")
+	t.Log("staged two complete current-source fixture releases; protected stable and child offline version startup without SQL. Normal agent RPC evidence is reported only by enabled normal subtests. No CLI interaction, drain, publication or compatibility proof.")
+}
+
+// nativeNormalInteraction is deliberately separately gated. Compile-only until
+// credential and executable sandbox review is complete. No auto-launch client:
+// every RPC targets the allocated endpoint and must prove this exact child PID.
+func nativeNormalInteraction(t *testing.T, image string, args []string, version string, baseEnv []string, home, denyProfile string) {
+	const answer = "native fixture response"
+	const prompt = "Reply with the native fixture response; do not use tools."
+	var chats atomic.Int64
+	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/tags":
+			io.WriteString(w, `{"models":[{"name":"native-fixture","model":"native-fixture","size":1,"details":{"family":"qwen2","parameter_size":"1B","quantization_level":"Q4_0"}}]}`)
+		case "/api/show":
+			io.WriteString(w, `{"capabilities":["completion","tools"],"model_info":{"general.architecture":"qwen2","qwen2.context_length":32768}}`)
+		case "/api/chat":
+			var body struct {
+				Messages []struct {
+					Content string `json:"content"`
+				} `json:"messages"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 2<<20)).Decode(&body); err != nil {
+				t.Errorf("fixture request: %v", err)
+				http.Error(w, "bad request", 400)
+				return
+			}
+			for _, m := range body.Messages {
+				if strings.Contains(m.Content, prompt) {
+					chats.Add(1)
+					break
+				}
+			}
+			io.WriteString(w, `{"model":"native-fixture","message":{"role":"assistant","content":"native fixture response"},"done":true,"done_reason":"stop","prompt_eval_count":10,"eval_count":4}`+"\n")
+		default:
+			t.Errorf("unexpected provider operation (no downloads allowed): %s %s", r.Method, r.URL.Path)
+			http.Error(w, "fixture endpoint not supported", 404)
+		}
+	}))
+	defer fixture.Close()
+	_, fixturePort, err := net.SplitHostPort(strings.TrimPrefix(fixture.URL, "http://"))
+	if err != nil || fixturePort == config.Defaults().Port {
+		t.Fatal("unsafe fixture endpoint")
+	}
+	// Reserve an ephemeral port, never the developer's default listener. The
+	// production agent binds :port; sandbox bind permission must account for that,
+	// while inbound traffic is restricted to the loopback local endpoint.
+	reservation, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := reservation.Addr().String()
+	_, port, _ := net.SplitHostPort(addr)
+	if port == config.Defaults().Port {
+		reservation.Close()
+		t.Fatal("allocated default agent port")
+	}
+	cfg := config.Defaults()
+	cfg.Port, cfg.OpenRuntime, cfg.OllamaURL, cfg.OpenModel = port, "ollama", fixture.URL, "native-fixture"
+	// Exercise the existing in-process execution mode for this first startup
+	// slice; do not spawn worker groups whose cleanup would outlive a failed test.
+	cfg.LocusMode, cfg.ExecutionMode = "open_only", "in_process"
+	for _, tier := range []config.Tier{config.TierEveryday, config.TierMostCapable, config.TierFastLight, config.TierFastLightText, config.TierEmbedding} {
+		cfg.Models.SetOverride("ollama", tier, "native-fixture")
+	}
+	cfg.Agent.ShutdownOnLastClient = false
+	cfg.CloudProfiles = nil
+	cfg.ActiveCloudProfile, cfg.CloudAPIKey = "", ""
+	cfg.LlamaServer.Enabled, cfg.MistralRS.Enabled = false, false
+	cfg.LlamaServer.ModelDirs = []string{filepath.Join(home, "models")}
+	cfg.MistralRS.ModelDirs = []string{filepath.Join(home, "models")}
+	configPath := filepath.Join(home, ".config", "cercano", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Save(cfg, configPath); err != nil {
+		t.Fatal(err)
+	}
+	// Allow only the fixture's exact remote endpoint. No default agent/Ollama,
+	// external HTTP, DNS, proxy or inherited credential environment is allowed.
+	profile := denyProfile + fmt.Sprintf(`(allow network-outbound (remote ip "%s"))(allow network-bind (local ip "*:%s"))(allow network-inbound (local ip "%s"))`, strings.TrimPrefix(fixture.URL, "http://"), port, addr)
+	// Keep the allowlist explicit: never append os.Environ(), even for locale
+	// or proxy convenience. Check the caller cannot accidentally broaden it.
+	allowed := map[string]bool{"HOME": true, "XDG_CONFIG_HOME": true, "XDG_CACHE_HOME": true, "TMPDIR": true, "PATH": true, "LANG": true}
+	for _, entry := range baseEnv {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || !allowed[key] {
+			t.Fatalf("unexpected child environment entry: %q", key)
+		}
+	}
+	env := append(append([]string{}, baseEnv...), "CERCANO_DISABLE_CREDENTIALS=1")
+	logFile, err := os.CreateTemp(home, "normal-start-*.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logFile.Close()
+	cmd := exec.Command("/usr/bin/sandbox-exec", append([]string{"-p", profile, image}, args...)...)
+	cmd.Env, cmd.Dir, cmd.Stdout, cmd.Stderr = env, home, logFile, logFile
+	reservation.Close()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	reaped := false
+	defer func() {
+		if !reaped { // Failure containment only: exact owned child, never pkill/group sweep.
+			_ = cmd.Process.Kill()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Error("owned child was not reaped")
+			}
+		}
+		if t.Failed() {
+			b, _ := os.ReadFile(logFile.Name())
+			t.Logf("normal-start log:\n%s", b)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	var client *agentclient.Client
+	for ctx.Err() == nil {
+		select {
+		case err := <-done:
+			reaped = true
+			t.Fatalf("agent exited before ready: %v", err)
+		default:
+		}
+		client, err = agentclient.DialExisting(ctx, addr)
+		if err == nil {
+			probe, stop := context.WithTimeout(ctx, time.Second)
+			health, healthErr := client.Health(probe)
+			stop()
+			if healthErr == nil {
+				if health.Pid != int32(cmd.Process.Pid) || health.Version != version {
+					client.Close()
+					t.Fatalf("foreign endpoint health: %+v", health)
+				}
+				if health.Ready {
+					break
+				}
+			}
+			client.Close()
+			client = nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if client == nil {
+		t.Fatalf("readiness deadline: %v", ctx.Err())
+	}
+	defer client.Close()
+	id := fmt.Sprintf("native-%d", time.Now().UnixNano())
+	stream, err := client.StreamChat(ctx, id, prompt, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := false
+	for msg := range stream {
+		if msg.Type == agentclient.TypeError {
+			t.Fatalf("chat: %v", msg.Err)
+		}
+		if msg.Type == agentclient.TypePermissionRequired || msg.Type == agentclient.TypeToolExecStart {
+			t.Fatal("fixture must not execute tools")
+		}
+		if msg.Type == agentclient.TypeDone {
+			completed = strings.Contains(msg.Final, answer)
+		}
+	}
+	if !completed || chats.Load() == 0 {
+		t.Fatal("no completed real local provider interaction")
+	}
+	turns, err := client.ResumeConversation(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userSaved, assistantSaved := false, false
+	for _, turn := range turns {
+		userSaved = userSaved || (turn.Role == "user" && strings.Contains(turn.Content, prompt))
+		assistantSaved = assistantSaved || (turn.Role == "assistant" && strings.Contains(turn.Content, answer))
+	}
+	if !userSaved || !assistantSaved {
+		t.Fatalf("interaction not persisted: %+v", turns)
+	}
+	stop, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err = client.ShutdownAgent(stop, "bounded native harness complete")
+	stopCancel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		reaped = true
+		if err != nil {
+			t.Fatalf("graceful exit: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("graceful shutdown deadline exceeded")
+	}
+	t.Logf("normal startup PID=%d version=%s; local RPC chat persisted; graceful child exit/reap", cmd.Process.Pid, version)
 }
