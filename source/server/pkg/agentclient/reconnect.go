@@ -359,11 +359,12 @@ func (c *Client) reconnect(ctx context.Context) error {
 // the server may have simply been slow — and on the throttle schedule
 // escalates to spawning a server there. A profile client resolves the
 // profile's host again from its registry record, since a restarted host may
-// listen on a new port, and on the throttle schedule launches one.
+// listen on a new port, and on the throttle schedule launches one unless it
+// came from DialProfileExisting.
 func (c *Client) redial(ctx context.Context, attempt int) (*Client, error) {
 	if c.profile != "" {
 		fresh, err := resolveProfileHost(ctx, c.profile)
-		if err == nil || !shouldRespawn(attempt) {
+		if err == nil || c.noLaunch || !shouldRespawn(attempt) {
 			return fresh, err
 		}
 		fresh, _, err = launchProfileHost(ctx, c.profile)

@@ -66,6 +66,10 @@ type subscribeHost struct {
 	proto.UnimplementedAgentServer
 	profile, instance string
 	subscribers       atomic.Int32
+	subscriptions     atomic.Int32 // ever opened
+	// endFirst ends the first subscription at once, as a draining agent's
+	// closeAll does.
+	endFirst bool
 }
 
 func (s *subscribeHost) GetHostIdentity(context.Context, *proto.GetHostIdentityRequest) (*proto.HostIdentity, error) {
@@ -73,6 +77,10 @@ func (s *subscribeHost) GetHostIdentity(context.Context, *proto.GetHostIdentityR
 }
 
 func (s *subscribeHost) SubscribeEvents(_ *proto.SubscribeEventsRequest, stream proto.Agent_SubscribeEventsServer) error {
+	n := s.subscriptions.Add(1)
+	if s.endFirst && n == 1 {
+		return nil
+	}
 	s.subscribers.Add(1)
 	defer s.subscribers.Add(-1)
 	<-stream.Context().Done()
@@ -111,6 +119,49 @@ func TestMCPHoldsAgentEventSubscription(t *testing.T) {
 	waitFor(t, func() bool { return host.subscribers.Load() == 1 }, "MCP to subscribe to agent events")
 	closeAgent()
 	waitFor(t, func() bool { return host.subscribers.Load() == 0 }, "the subscription to end when MCP closes")
+}
+
+// When the agent ends MCP's event stream (a graceful restart, or a terminal
+// stream error) MCP subscribes again, so the agent keeps counting it as a
+// client.
+func TestMCPResubscribesWhenEventStreamEnds(t *testing.T) {
+	tempHome(t)
+	t.Setenv("CERCANO_PROFILE", "work")
+	host := &subscribeHost{profile: "work", instance: "mcp-test", endFirst: true}
+	registerSubscribeHost(t, host)
+	useDialProfile(t, agentclient.DialProfile)
+
+	_, closeAgent, err := connectMCPAgent(context.Background())
+	if err != nil {
+		t.Fatalf("connectMCPAgent: %v", err)
+	}
+	waitFor(t, func() bool { return host.subscriptions.Load() >= 2 && host.subscribers.Load() == 1 }, "MCP to subscribe again after the stream ended")
+	closeAgent()
+	waitFor(t, func() bool { return host.subscribers.Load() == 0 }, "the subscription to end when MCP closes")
+	ended := host.subscriptions.Load()
+	time.Sleep(600 * time.Millisecond)
+	if got := host.subscriptions.Load(); got != ended {
+		t.Fatalf("MCP subscribed again after closing (%d -> %d)", ended, got)
+	}
+}
+
+// registerSubscribeHost serves host on loopback and records it as its
+// profile's agent.
+func registerSubscribeHost(t *testing.T, host *subscribeHost) {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := grpc.NewServer()
+	proto.RegisterAgentServer(s, host)
+	go func() { _ = s.Serve(lis) }()
+	t.Cleanup(s.Stop)
+	if err := hostregistry.Write(paths.ProfileDir(host.profile), hostregistry.Record{
+		Profile: host.profile, PID: os.Getpid(), Addr: lis.Addr().String(), InstanceID: host.instance, StartedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func waitFor(t *testing.T, cond func() bool, what string) {

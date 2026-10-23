@@ -77,3 +77,49 @@ func TestDialProfileLaunchFailureSaysCouldNotAutoLaunch(t *testing.T) {
 		t.Fatalf("err = %v, want it to say it could not auto-launch the agent for \"work\"", err)
 	}
 }
+
+// A client from DialProfileExisting may re-resolve the profile's running
+// agent when its connection drops, but never launches one.
+func TestDialProfileExistingReconnectNeverLaunches(t *testing.T) {
+	isolateProfileHome(t)
+	launches := 0
+	useLaunchFunc(t, func(string, string) (<-chan struct{}, error) {
+		launches++
+		return nil, errors.New("launch not expected")
+	})
+	h := mustStartTestHost(t, "work", newTestInstanceID())
+	if err := writeTestRecord("work", "work", h.addr, h.instance); err != nil {
+		t.Fatal(err)
+	}
+	c, err := DialProfileExisting(context.Background(), "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	h.srv.Stop()
+
+	// Attempt 1 is on the respawn schedule.
+	if !shouldRespawn(1) {
+		t.Fatal("test assumes attempt 1 may respawn")
+	}
+	if _, err := c.redial(context.Background(), 1); err == nil {
+		t.Fatal("redial succeeded with no agent running")
+	}
+	if launches != 0 {
+		t.Fatalf("launches = %d, want 0", launches)
+	}
+
+	// A new agent for the profile is still picked up.
+	h2 := mustStartTestHost(t, "work", newTestInstanceID())
+	if err := writeTestRecord("work", "work", h2.addr, h2.instance); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := c.redial(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("redial to the new agent: %v", err)
+	}
+	defer fresh.Close()
+	if fresh.addr != h2.addr {
+		t.Fatalf("redial reached %s, want %s", fresh.addr, h2.addr)
+	}
+}

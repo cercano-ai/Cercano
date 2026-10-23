@@ -102,7 +102,8 @@ func DialProfile(ctx context.Context, profile string) (*Client, error) {
 // DialProfileExisting connects to the profile's running agent, verified the
 // same way as DialProfile, but never launches or respawns one. The error
 // wraps ErrNoProfileAgent when no agent answers for the profile. The caller
-// owns the connection's lifetime and retry policy.
+// owns the connection's lifetime and retry policy; if the client reconnects,
+// it only looks for the profile's running agent again.
 func DialProfileExisting(ctx context.Context, profile string) (*Client, error) {
 	if err := paths.ValidateProfileName(profile); err != nil {
 		return nil, err
@@ -115,6 +116,7 @@ func DialProfileExisting(ctx context.Context, profile string) (*Client, error) {
 		return nil, err
 	}
 	c.profile = profile
+	c.noLaunch = true
 	return c, nil
 }
 

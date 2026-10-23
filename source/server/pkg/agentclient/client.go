@@ -64,6 +64,9 @@ type Client struct {
 	// profile is set for clients from DialProfile; reconnect then resolves
 	// the profile's host again instead of redialing addr. Empty for Dial.
 	profile string
+	// noLaunch is set for clients from DialProfileExisting: reconnect only
+	// re-resolves the profile's running agent and never launches one.
+	noLaunch bool
 
 	// Connection-state observation (see reconnect.go).
 	stateMu     sync.Mutex

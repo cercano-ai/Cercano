@@ -63,6 +63,7 @@ import (
 	"cercano/source/server/internal/telemetry"
 	"cercano/source/server/internal/tools"
 	"cercano/source/server/internal/toolstack"
+	"cercano/source/server/pkg/agentclient"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/proto"
@@ -2159,29 +2160,71 @@ func runMCPMode(externalGRPC string) {
 // connectMCPAgent connects MCP mode to the active profile's agent, launching
 // it when none runs. Calls through the returned client follow the agent
 // across restarts. MCP also holds the agent's event stream for its whole
-// session: that counts it as a client, so an auto-launched agent does not
-// shut down while MCP still uses it, and a dropped stream starts recovery
-// at once. closeAgent ends the stream and the connection.
+// session (see holdAgentEvents). closeAgent ends the stream and the
+// connection.
 func connectMCPAgent(ctx context.Context) (agent proto.AgentClient, closeAgent func(), err error) {
 	client, err := dialActiveProfile(ctx, os.Stderr)
 	if err != nil {
 		return nil, nil, err
 	}
 	subCtx, cancel := context.WithCancel(ctx)
-	events, err := client.SubscribeEvents(subCtx)
-	if err != nil {
-		// The tools still work; only the keep-alive is missing.
-		fmt.Fprintf(os.Stderr, "[WARN] Could not subscribe to agent events: %v\n", err)
-	} else {
-		go func() {
-			for range events {
-			}
-		}()
-	}
+	held := make(chan struct{})
+	go func() {
+		defer close(held)
+		holdAgentEvents(subCtx, client.SubscribeEvents)
+	}()
 	return proto.NewAgentClient(client.Conn()), func() {
 		cancel()
+		<-held
 		_ = client.Close()
 	}, nil
+}
+
+// Bounds of the wait before MCP opens the agent's event stream again.
+const (
+	mcpResubscribeMin = 250 * time.Millisecond
+	mcpResubscribeMax = 5 * time.Second
+)
+
+// holdAgentEvents keeps an agent event stream open until ctx ends. The open
+// stream counts MCP as a client, so an auto-launched agent neither shuts down
+// while MCP uses it nor outlives MCP when MCP was its last client; a dropped
+// stream also starts reconnect at once. The stream ends without a reconnect
+// when the agent shuts down gracefully or reports a terminal error, so it is
+// opened again, after a growing wait, until ctx ends: a restarted agent then
+// counts MCP too.
+func holdAgentEvents(ctx context.Context, subscribe func(context.Context) (<-chan agentclient.AgentEvent, error)) {
+	wait := mcpResubscribeMin
+	for {
+		opened := time.Now()
+		events, err := subscribe(ctx)
+		if err == nil {
+			for ev := range events {
+				if ev.Err != nil && ctx.Err() == nil {
+					err = ev.Err
+				}
+			}
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		// A stream that stayed open a while was healthy; start over with a
+		// short wait.
+		if time.Since(opened) > mcpResubscribeMax {
+			wait = mcpResubscribeMin
+		}
+		if err != nil && wait == mcpResubscribeMin {
+			fmt.Fprintf(os.Stderr, "[WARN] Agent event stream: %v; retrying\n", err)
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		wait = min(wait*2, mcpResubscribeMax)
+	}
 }
 
 // runWorkerMode serves the Worker gRPC service over a Unix-domain socket until
