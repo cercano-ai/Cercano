@@ -88,6 +88,53 @@ func PrepareLaunch(ctx context.Context, loc Locators, root string, client bool) 
 			lease = nil
 		}
 	}()
+	record, target, err = validateBootSelection(ctx, loc, dir, record, client, dirBefore)
+	return
+}
+
+// WithUpdateSelection validates the selected image using the ordinary boot
+// contract while an existing updater-owned barrier is held. No nested launch
+// lease or updater SQL is opened. The callback remains under the guarded lease.
+func WithUpdateSelection(ctx context.Context, loc Locators, root string, lease *exclusion.Handle, fn func(enrollment.Record, string, string) error) error {
+	if ctx == nil || fn == nil {
+		return enrollment.ErrUnsafe
+	}
+	if err := loc.Validate(); err != nil {
+		return err
+	}
+	dir, err := BootDirectory(root, loc.InstallID)
+	if err != nil {
+		return err
+	}
+	return lease.GuardUpdate(dir, func() error {
+		before, err := os.Lstat(dir)
+		if err != nil {
+			return err
+		}
+		record, err := enrollment.Read(ctx, loc.InstallRoot)
+		if err != nil {
+			return err
+		}
+		if record.InstallID != loc.InstallID {
+			return enrollment.ErrUnsafe
+		}
+		_, agent, err := validateBootSelection(ctx, loc, dir, record, false, before)
+		if err != nil {
+			return err
+		}
+		_, client, err := validateBootSelection(ctx, loc, dir, record, true, before)
+		if err != nil {
+			return err
+		}
+		if filepath.Dir(agent) != filepath.Dir(client) {
+			return enrollment.ErrUnsafe
+		}
+		return fn(record, agent, client)
+	})
+}
+
+func validateBootSelection(ctx context.Context, loc Locators, dir string, record enrollment.Record, client bool, dirBefore os.FileInfo) (validated enrollment.Record, target string, err error) {
+	validated = record
 	// Acquire proves its opened lock and directory identity. Keep that named
 	// world stable through validation as well as acquisition.
 	lockBefore, e := os.Lstat(filepath.Join(dir, "update.lock"))

@@ -51,3 +51,9 @@ func (d *UpdateDrain) Recv() (*proto.UpdateDrainState, error) {
 	d.next++
 	return frame, nil
 }
+
+// OpenUpdateDrain opens ownership on this existing connection without invoking
+// Dial, reconnect or auto-launch. Use a Client obtained from DialExisting.
+func (c *Client) OpenUpdateDrain(ctx context.Context, token string) (*UpdateDrain, error) {
+	return OpenUpdateDrain(ctx, proto.NewAgentClient(c.readConn()), token)
+}
