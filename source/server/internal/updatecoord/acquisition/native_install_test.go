@@ -583,7 +583,7 @@ func nativeCLIInteraction(t *testing.T, client *agentclient.Client, pid int, ver
 }
 
 const nativePTYHelper = `
-import os, pty, fcntl, termios, struct, select, subprocess, sys, time, re
+import os, pty, fcntl, termios, struct, select, subprocess, sys, time, re, signal
 prompt = sys.argv[1]
 control = os.environ.get('NATIVE_PTY_CONTROL')
 master, slave = pty.openpty()
@@ -597,6 +597,7 @@ try:
         with open(control + '.pid', 'w') as f: f.write(str(p.pid))
     start = time.monotonic()
     sent = False
+    notice_seen = False
     quit_at = None
     while time.monotonic() - start < (110 if control else 55):
         if select.select([master], [], [], 0.1)[0]:
@@ -614,13 +615,28 @@ try:
             # Allow the completed stream to settle before voluntary slash exit.
             if control:
                 with open(control + '.ready', 'w') as f: f.write('rendered')
+                os.write(master, b'native-unsent-draft')
                 quit_at = float('inf')
             else:
                 quit_at = time.monotonic() + 1
+        if control and not notice_seen and re.search(rb'update(?: last reported)?: (?:draining|idle) \(exit voluntary\)', plain):
+            notice_seen = True
+            os.write(master, b'-preserved')
+            time.sleep(0.2)
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 46, 161, 0, 0))
+            p.send_signal(signal.SIGWINCH)
+        if notice_seen and b'native-unsent-draft-preserved' in plain:
+            with open(control + '.notice', 'w') as f: f.write('displayed update notice; existing unsent draft survived')
+        if control and os.path.exists(control + '.abort'):
+            raise RuntimeError('harness cleanup; no voluntary exit')
         if control and os.path.exists(control + '.quit'):
             os.unlink(control + '.quit')
             quit_at = time.monotonic()
         if quit_at is not None and time.monotonic() >= quit_at:
+            if control:
+                # Explicit user discard only at voluntary exit, after the draft check.
+                os.write(master, b'\x7f' * len(b'native-unsent-draft' + (b'-preserved' if notice_seen else b'')))
+                time.sleep(0.2)
             os.write(master, b'/quit\r')
             quit_at = float('inf')
         if p.poll() is not None:

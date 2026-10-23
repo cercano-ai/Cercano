@@ -84,19 +84,24 @@ func nativeUpdaterDrain(t *testing.T, client *agentclient.Client, agentPID int, 
 		}
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait(); log.Close(); close(done) }()
+		var identity nativeprocess.Identity
 		deferCleanup = append(deferCleanup, func() {
-			_ = os.WriteFile(control+".quit", []byte("cleanup"), 0600)
+			_ = os.WriteFile(control+".abort", []byte("cleanup, not voluntary exit"), 0600)
 			select {
 			case <-done:
 			case <-time.After(8 * time.Second):
 				// The helper owns the CLI and its finally block kills/reaps it;
 				// do not kill the helper first and orphan the actual terminal.
-				if b, e := os.ReadFile(control + ".pid"); e == nil {
-					if pid, e := strconv.Atoi(string(b)); e == nil {
-						if id, e := nativeprocess.Inspect(pid); e == nil && id.Executable == cliImage {
-							p, _ := os.FindProcess(pid)
-							_ = p.Kill()
-						}
+				if identity.PID == 0 {
+					t.Error("PTY cleanup identity unknown; refusing to signal")
+				} else if id, e := nativeprocess.Inspect(identity.PID); e != nil || !id.SameProcess(identity) {
+					t.Errorf("PTY cleanup lifetime unverified; refusing to signal: %v", e)
+				} else {
+					p, e := os.FindProcess(identity.PID)
+					if e != nil {
+						t.Error(e)
+					} else if e = p.Kill(); e != nil {
+						t.Error(e)
 					}
 				}
 				select {
@@ -117,7 +122,7 @@ func nativeUpdaterDrain(t *testing.T, client *agentclient.Client, agentPID int, 
 		if e != nil {
 			t.Fatal(e)
 		}
-		identity, e := nativeprocess.Inspect(pid)
+		identity, e = nativeprocess.Inspect(pid)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -139,6 +144,35 @@ func nativeUpdaterDrain(t *testing.T, client *agentclient.Client, agentPID int, 
 			}
 		case <-ctx.Done():
 			t.Fatal("CLI exit deadline")
+		}
+	}
+	events, err := client.SubscribeEvents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitReadiness := func(token string, released bool) {
+		t.Helper()
+		timer := time.NewTimer(10 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case event, ok := <-events:
+				if !ok {
+					t.Fatal("SubscribeEvents closed before acknowledgment")
+				}
+				n := event.UpdateReadiness
+				if n == nil || n.OperationToken != token {
+					continue
+				}
+				if (!released && (n.Phase == "DRAINING" || n.Phase == "IDLE")) || (released && (n.Phase == "RELEASED" || n.Phase == "CANCELLED")) {
+					t.Logf("SubscribeEvents token=%s phase=%s (release is diagnostic, not admission proof)", token, n.Phase)
+					return
+				}
+			case <-timer.C:
+				t.Fatal("SubscribeEvents acknowledgment timeout; no voluntary CLI exit authorized")
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
 		}
 	}
 	first := startCLI(port)
@@ -292,7 +326,16 @@ func nativeUpdaterDrain(t *testing.T, client *agentclient.Client, agentPID int, 
 		if status.Token != token || status.State != "owner_evidence_sealed_incomplete" || status.Participants != len(participants) {
 			t.Fatalf("status: %+v", status)
 		}
-		t.Log("owner-evidence status recorded; explicitly NOT SubscribeEvents acknowledgement (pending)")
+		t.Log("owner-evidence status recorded; status alone does not authorize voluntary exit")
+		awaitReadiness(token, false)
+		if attempt == 0 {
+			waitFile(first.control + ".notice")
+			select {
+			case <-first.done:
+				t.Fatal("initiating CLI exited before acknowledged voluntary exit")
+			default:
+			}
+		}
 		updaterID, err := nativeprocess.Inspect(owner.Pid())
 		if err != nil || updaterID.Executable != install.updater {
 			t.Fatalf("actual acquired updater identity: %+v %v", updaterID, err)
@@ -379,6 +422,7 @@ func nativeUpdaterDrain(t *testing.T, client *agentclient.Client, agentPID int, 
 			t.Fatal("owner exit leaked barrier", err)
 		}
 		lease.Close()
+		awaitReadiness(token, true)
 		// A completed real chat, not Health (which is exempt), proves admission opens.
 		resumed, err := client.StreamChat(ctx, fmt.Sprintf("resumed-%d", attempt), "Reply with native fixture response; do not use tools.", home)
 		if err != nil {
@@ -407,5 +451,5 @@ func nativeUpdaterDrain(t *testing.T, client *agentclient.Client, agentPID int, 
 		participants = []participant{{"agent", agent}, {"client", second.identity}}
 	}
 	quit(second)
-	t.Log("actual acquired old updater: cancellation and crash release barrier/admission, exact owned completion, unchanged selection/corrupt SQL; no stop/publication. Workers/runtime owner set, event ack and activation remain unconnected")
+	t.Log("actual acquired old updater: cancellation and crash release barrier/admission, exact owned completion, unchanged selection/corrupt SQL; no stop/publication. Workers/runtime owner set, initiating local action and activation remain unconnected")
 }
