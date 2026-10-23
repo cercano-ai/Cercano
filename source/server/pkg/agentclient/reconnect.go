@@ -13,7 +13,9 @@
 //     more than a brief blip.
 //  3. Client.reconnect: closes the dead conn, redials (may succeed if
 //     the server was just slow), and on dial failure spawns a new
-//     server via the existing autoLaunchServer helper.
+//     server via the existing autoLaunchServer helper. A client from
+//     DialProfile instead re-resolves the profile's host from its
+//     registry record on every attempt and launches one if needed.
 //
 // Two-phase retry: a fast burst (3 attempts, 1s / 2s / 4s backoff) for
 // transient blips, then an indefinite slow lane — redial every 10s until
@@ -249,7 +251,7 @@ func (c *Client) setState(next ConnState, attempt int, err error) {
 	}
 	ev := ConnStateChanged{State: next, Attempt: attempt, Err: err}
 	if prev == ConnStateConnected && next == ConnStateReconnecting {
-		ev.CrashSummary = crashlog.LatestSummary(DefaultCrashLogPath())
+		ev.CrashSummary = crashlog.LatestSummary(c.crashLogPath())
 	}
 	c.stateBroker.broadcast(ev)
 }
@@ -336,33 +338,70 @@ func (c *Client) reconnect(ctx context.Context) error {
 			_ = old.Close()
 		}
 
-		// Try a short redial first — the server may have simply been
-		// slow. If that fails, escalate to spawning on the throttle
-		// schedule.
-		fresh, err := connect(ctx, c.addr, 2*time.Second)
+		fresh, err := c.redial(ctx, attempt)
 		if err != nil {
-			if !shouldRespawn(attempt) {
-				continue
-			}
-			if _, _, launchErr := ensureServerLaunched(ctx, c.addr, 8*time.Second); launchErr != nil {
-				// Launch itself failed (missing binary, permission, slow
-				// bind, etc.) — the next scheduled attempt gets another
-				// shot in case the OLD server is coming back up.
-				continue
-			}
-			fresh, err = connect(ctx, c.addr, 3*time.Second)
-			if err != nil {
-				continue
-			}
+			// The next scheduled attempt gets another shot in case the
+			// old server is coming back up.
+			continue
 		}
 
 		// Swap the underlying conn + agent handle atomically so
 		// in-flight callers using c.agent see the new client on their
 		// next call.
-		c.writeConn(fresh.conn, fresh.agent)
+		c.writeConn(fresh.conn, fresh.agent, fresh.addr)
 		c.setState(ConnStateConnected, attempt, nil)
 		return nil
 	}
+}
+
+// redial makes one recovery attempt and returns a client holding the fresh
+// connection. A client from Dial tries a short redial of its address first —
+// the server may have simply been slow — and on the throttle schedule
+// escalates to spawning a server there. A profile client resolves the
+// profile's host again from its registry record, since a restarted host may
+// listen on a new port, and on the throttle schedule launches one.
+func (c *Client) redial(ctx context.Context, attempt int) (*Client, error) {
+	if c.profile != "" {
+		fresh, err := resolveProfileHost(ctx, c.profile)
+		if err == nil || !shouldRespawn(attempt) {
+			return fresh, err
+		}
+		fresh, _, err = launchProfileHost(ctx, c.profile)
+		return fresh, err
+	}
+	addr := c.currentAddr()
+	fresh, err := connect(ctx, addr, 2*time.Second)
+	if err != nil {
+		if !shouldRespawn(attempt) {
+			return nil, err
+		}
+		if _, _, err := ensureServerLaunched(ctx, addr, 8*time.Second); err != nil {
+			// Launch itself failed (missing binary, permission, slow
+			// bind, etc.).
+			return nil, err
+		}
+		if fresh, err = connect(ctx, addr, 3*time.Second); err != nil {
+			return nil, err
+		}
+	}
+	fresh.addr = addr
+	return fresh, nil
+}
+
+// crashLogPath is where the server this client talks to records crashes: its
+// own profile's crash.log for a profile client, else the active profile's.
+func (c *Client) crashLogPath() string {
+	if c.profile != "" && paths.CheckHome() == nil {
+		return filepath.Join(paths.ProfileDir(c.profile), "crash.log")
+	}
+	return DefaultCrashLogPath()
+}
+
+// currentAddr returns the address of the server the client is connected to.
+func (c *Client) currentAddr() string {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	return c.addr
 }
 
 // readConn returns the current gRPC conn under the connection lock.
@@ -376,11 +415,12 @@ func (c *Client) readConn() *grpcConn {
 // writeConn swaps the conn + agent under the connection lock. Used by
 // reconnect() to atomically install a fresh connection so subsequent
 // RPC calls hit the new server.
-func (c *Client) writeConn(conn *grpcConn, agent proto.AgentClient) {
+func (c *Client) writeConn(conn *grpcConn, agent proto.AgentClient, addr string) {
 	c.connMu.Lock()
 	defer c.connMu.Unlock()
 	c.conn = conn
 	c.agent = agent
+	c.addr = addr
 }
 
 // grpcConn is a package-local alias so the readConn/writeConn helpers
