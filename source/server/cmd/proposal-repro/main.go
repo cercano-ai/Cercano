@@ -52,7 +52,11 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	dbPath := os.ExpandEnv("$HOME/.config/cercano/conversations.db")
+	dbPath, err := conversation.DefaultPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "conversations path: %v\n", err)
+		os.Exit(1)
+	}
 	store, err := conversation.Open(dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open %s: %v\n", dbPath, err)

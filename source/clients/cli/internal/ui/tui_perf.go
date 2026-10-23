@@ -39,11 +39,7 @@ func tuiPerfLogPath() string {
 	if p := strings.TrimSpace(os.Getenv("CERCANO_TUI_PERF_LOG")); p != "" {
 		return p
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return "cercano-tui-perf.log"
-	}
-	return filepath.Join(home, ".config", "cercano", "tui-perf.log")
+	return filepath.Join(profileLogsDir(), "tui-perf.log")
 }
 
 func (m Model) logSlowUpdate(start time.Time, msg tea.Msg) {
@@ -72,7 +68,7 @@ func (m Model) logSlowRefreshViewport(start time.Time) {
 
 func (m Model) appendTUIPerf(op string, elapsed time.Duration, extra string) {
 	path := tuiPerfLogPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return
 	}
 

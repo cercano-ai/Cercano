@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"cercano/source/server/pkg/paths"
 )
 
 // Writer appends one structured routing event per line. It deliberately records
@@ -16,12 +18,9 @@ type Writer struct {
 	f  *os.File
 }
 
-// DefaultPath returns ~/.config/cercano/turn-routing.jsonl.
+// DefaultPath returns turn-routing.jsonl in the active profile's directory.
 func DefaultPath() string {
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, ".config", "cercano", "turn-routing.jsonl")
-	}
-	return "turn-routing.jsonl"
+	return filepath.Join(paths.ActiveProfileDir(), "turn-routing.jsonl")
 }
 
 // NewWriter opens path for append. Parent directories are created.
@@ -29,7 +28,7 @@ func NewWriter(path string) (*Writer, error) {
 	if path == "" {
 		path = DefaultPath()
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)

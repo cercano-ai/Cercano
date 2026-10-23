@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -35,16 +36,30 @@ func runExport(args []string) {
 	runExportTrajectory(args[1:])
 }
 
-func runExportTrajectory(args []string) {
+type exportTrajectoryFlags struct {
+	convID, out, redact                  *string
+	zipOut, includeLogs, overwrite, help *bool
+}
+
+// newExportTrajectoryFlags defines `cercano export trajectory` flags; the
+// startup check parses with the same definitions to recognize a help request.
+func newExportTrajectoryFlags(output io.Writer) (*flag.FlagSet, exportTrajectoryFlags) {
 	fs := flag.NewFlagSet("export trajectory", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	convID := fs.String("conversation", "", "conversation id to export")
-	out := fs.String("out", "", "output directory or .zip path")
-	zipOut := fs.Bool("zip", false, "force zip output")
-	redact := fs.String("redact", "default", "redaction mode: default or none")
-	includeLogs := fs.Bool("include-logs", false, "include logs (reserved)")
-	overwrite := fs.Bool("overwrite", false, "replace existing output")
-	help := fs.Bool("help", false, "show help")
+	fs.SetOutput(output)
+	var f exportTrajectoryFlags
+	f.convID = fs.String("conversation", "", "conversation id to export")
+	f.out = fs.String("out", "", "output directory or .zip path")
+	f.zipOut = fs.Bool("zip", false, "force zip output")
+	f.redact = fs.String("redact", "default", "redaction mode: default or none")
+	f.includeLogs = fs.Bool("include-logs", false, "include logs (reserved)")
+	f.overwrite = fs.Bool("overwrite", false, "replace existing output")
+	f.help = fs.Bool("help", false, "show help")
+	return fs, f
+}
+
+func runExportTrajectory(args []string) {
+	fs, f := newExportTrajectoryFlags(os.Stderr)
+	convID, out, zipOut, redact, includeLogs, overwrite, help := f.convID, f.out, f.zipOut, f.redact, f.includeLogs, f.overwrite, f.help
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}

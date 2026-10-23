@@ -81,7 +81,7 @@ func (s *Server) buildWatchdogFrom(wc config.WatchdogConfig, mc config.ModelsCon
 	if wc.Audit.Enabled {
 		path := wc.Audit.Path
 		if path == "" {
-			path = defaultWatchdogAuditPath()
+			path = DefaultWatchdogAuditPath()
 		}
 		auditLog, err := watchdog.OpenSQLiteAuditLog(path)
 		if err != nil {
@@ -101,7 +101,9 @@ func (s *Server) buildWatchdogFrom(wc config.WatchdogConfig, mc config.ModelsCon
 	}, checks, oneShot)
 }
 
-func defaultWatchdogAuditPath() string {
+// DefaultWatchdogAuditPath returns watchdog-audit.db beside the active
+// profile's config.yaml.
+func DefaultWatchdogAuditPath() string {
 	base := filepath.Dir(config.DefaultPath())
 	if base == "." || base == "" {
 		return "watchdog-audit.db"

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 
 	_ "embed"
+
+	"cercano/source/server/pkg/paths"
 )
 
 // The DuckDuckGo search script is embedded in the binary and materialized to
@@ -18,13 +20,13 @@ import (
 var ddgScriptSource []byte
 
 // DefaultScriptDir is where embedded runtime scripts are materialized:
-// ~/.config/cercano/scripts. Empty when the home directory is unresolvable.
+// scripts/ in the active profile's directory. Empty when the home directory
+// is unresolvable.
 func DefaultScriptDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	if paths.CheckHome() != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "cercano", "scripts")
+	return filepath.Join(paths.ActiveProfileDir(), "scripts")
 }
 
 // EnsureSearchScript writes the embedded search script into dir (defaulting
@@ -44,7 +46,7 @@ func EnsureSearchScript(dir string) (string, error) {
 	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, ddgScriptSource) {
 		return path, nil
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create script dir: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, ".ddg_search-*.py")

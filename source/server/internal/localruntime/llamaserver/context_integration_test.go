@@ -62,6 +62,7 @@ func TestAutomaticConfigToLaunchConfirmationAndBudget(t *testing.T) {
 
 func runContextIntegration(t *testing.T, override int) {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir()) // machine.yaml must not leak between runs
 	dir := t.TempDir()
 	path := writeIdentityGGUF(t, dir)
 	exe, err := os.Executable()

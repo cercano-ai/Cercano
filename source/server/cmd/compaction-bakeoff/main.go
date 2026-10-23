@@ -20,6 +20,7 @@ import (
 
 	"cercano/source/server/internal/compaction"
 	"cercano/source/server/internal/contextmeter"
+	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/pkg/agentclient"
 )
@@ -40,7 +41,8 @@ func main() {
 	anchors := flag.String("anchors", "", "for -transcript/-conv: comma-separated must-keep substrings to score retention")
 	statsDir := flag.String("statsdir", "", "analyze token/turn/tool distributions across all .jsonl transcripts under this dir (no model needed); prints stats and exits")
 	conv := flag.String("conv", "", "matrix mode: score every frame over this stored conversation id (talks to Ollama directly, no agent needed)")
-	dbPath := flag.String("db", os.ExpandEnv("$HOME/.config/cercano/conversations.db"), "for -conv: conversations database")
+	defaultDB, _ := conversation.DefaultPath()
+	dbPath := flag.String("db", defaultDB, "for -conv: conversations database")
 	aroundTurn := flag.String("aroundturn", "", "for -conv: slice a window around this turn id (default: whole conversation)")
 	before := flag.Int("before", 40, "for -conv with -aroundturn: turns of context before the target")
 	after := flag.Int("after", 10, "for -conv with -aroundturn: turns of context after the target")

@@ -132,7 +132,7 @@ Stdout carries the assistant's text response. Stderr carries progress diagnostic
 | `permissive` *(default)* | silent | silent | confirm |
 | `bypass` | silent | silent | silent |
 
-Switch with `/strict`, `/permissive`, `/bypass`, or `/mode <name>`. Persists to `~/.config/cercano/permissions.yaml`.
+Switch with `/strict`, `/permissive`, `/bypass`, or `/mode <name>`. Persists to the active profile's `~/.config/cercano/profiles/<name>/permissions.yaml`.
 
 ## Slash commands
 
@@ -180,7 +180,7 @@ The agent supports multiple cloud providers:
 If you have [Meridian](https://github.com/rynfar/meridian) running on `127.0.0.1:3456`, configure:
 
 ```yaml
-# ~/.config/cercano/config.yaml
+# ~/.config/cercano/profiles/<name>/config.yaml (the active profile)
 cloud_provider: anthropic
 cloud_model: claude-sonnet-4-6
 cloud_base_url: http://127.0.0.1:3456

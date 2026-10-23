@@ -126,7 +126,7 @@ func spawnWorker(ctx context.Context, conversationID string, gen uint64) (*worke
 	// Kill() / Shutdown() / idle-reap / startup orphan-sweep. The turn ctx still
 	// bounds STARTUP via waitForSocket(ctx, …) below, so a hung spawn during this
 	// turn is still abortable (and the partial handle is Killed on that path).
-	cmd := exec.Command(bin, "worker", "--socket", sockPath)
+	cmd := newWorkerCommand(bin, sockPath)
 	setProcessGroup(cmd)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
@@ -320,4 +320,11 @@ func forwardWorkerOutput(r io.ReadCloser, pid int, logf func(string, ...any)) {
 		}
 		return
 	}
+}
+
+// newWorkerCommand builds the worker process command. Env is deliberately left
+// nil so the child inherits the host environment, including CERCANO_PROFILE,
+// which keeps the worker on the host's profile (settings and keychain entries).
+func newWorkerCommand(bin, sockPath string) *exec.Cmd {
+	return exec.Command(bin, "worker", "--socket", sockPath)
 }

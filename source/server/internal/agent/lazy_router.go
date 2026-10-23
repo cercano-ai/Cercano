@@ -151,7 +151,7 @@ func wrapRouterInitError(err error) error {
 	switch {
 	case strings.Contains(lower, "not found, try pulling"):
 		return fmt.Errorf("agent-mode routing requires an embedding model that is not installed on Ollama. "+
-			"Run `ollama pull nomic-embed-text` (or whatever model is set as embedding_model in ~/.config/cercano/config.yaml) "+
+			"Run `ollama pull nomic-embed-text` (or whatever model is set as embedding_model in ~/.config/cercano/profiles/<profile>/config.yaml) "+
 			"and restart Cercano. MCP tools continue to work without this. (underlying: %w)", err)
 	case strings.Contains(lower, "connection refused"), strings.Contains(lower, "no such host"):
 		return fmt.Errorf("agent-mode routing requires a reachable Ollama instance. "+

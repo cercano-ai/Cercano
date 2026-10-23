@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"cercano/source/server/internal/hostregistry"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/setupresetcmd"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/proto"
 	"cercano/source/server/pkg/setupstate"
 	"google.golang.org/grpc"
@@ -18,7 +20,11 @@ import (
 )
 
 func TestSetupResetKeepsExistingRPCSession(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	s, _ := newTestServer()
+	s.SetHostIdentity(HostIdentity{Profile: "work", PID: os.Getpid(), InstanceID: "reset-test"})
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	c := config.Defaults()
 	c.CloudProfiles = []config.CloudProfile{{Name: "old", Flavor: "chat_completions", TierOverrides: map[config.CostTier]string{config.CostPremium: "old-model"}}}
@@ -48,6 +54,12 @@ func TestSetupResetKeepsExistingRPCSession(t *testing.T) {
 	proto.RegisterAgentServer(gs, s)
 	go gs.Serve(listener)
 	defer gs.Stop()
+	// The reset command finds the profile's agent through its registry record.
+	if err := hostregistry.Write(paths.ProfileDir("work"), hostregistry.Record{
+		Profile: "work", PID: os.Getpid(), Addr: listener.Addr().String(), InstanceID: "reset-test", StartedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +85,7 @@ func TestSetupResetKeepsExistingRPCSession(t *testing.T) {
 	wizardPath := filepath.Join(filepath.Dir(path), "wizard.yaml")
 	t.Setenv("CERCANO_WIZARD_STATE", wizardPath)
 	setupstate.Save(setupstate.State{Step: setupstate.StepDone, Baseline: &setupstate.Baseline{ActiveProfile: "old"}})
-	result, err := setupresetcmd.Perform(ctx, setupresetcmd.Dependencies{ConfigPath: path, WizardPath: wizardPath, TryAgent: setupresetcmd.TryExistingAgent, OpenStore: func() (secrets.Store, error) { t.Fatal("live command opened local keychain"); return nil, nil }})
+	result, err := setupresetcmd.Perform(ctx, setupresetcmd.Dependencies{ConfigPath: path, WizardPath: wizardPath, TryAgent: setupresetcmd.TryProfileAgent("work"), OpenStore: func() (secrets.Store, error) { t.Fatal("live command opened local keychain"); return nil, nil }})
 	if err != nil || !result.UsedAgent || !result.WizardWritten || !result.LiveApplied || !result.ConfigWritten || result.CredentialsRemoved != 2 {
 		t.Fatalf("reset=%+v err=%v", result, err)
 	}

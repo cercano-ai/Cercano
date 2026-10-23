@@ -22,10 +22,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/proto"
 
 	"github.com/fsnotify/fsnotify"
@@ -53,6 +55,16 @@ func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) erro
 		return err
 	}
 	target := filepath.Clean(configPath)
+	// machine.yaml holds the runtime sections shared by every profile; keep
+	// this agent's in-memory copy current when another profile or the user
+	// edits it. Failing to watch it is non-fatal.
+	machinePath := filepath.Clean(paths.MachineConfigPath())
+	watchMachine := false
+	if mdir := filepath.Dir(machinePath); mdir == filepath.Clean(dir) {
+		watchMachine = true
+	} else if err := os.MkdirAll(mdir, 0o700); err == nil && w.Add(mdir) == nil {
+		watchMachine = true
+	}
 	go func() {
 		defer w.Close()
 		for {
@@ -63,7 +75,11 @@ func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) erro
 				if !ok {
 					return
 				}
-				if filepath.Clean(ev.Name) != target {
+				name := filepath.Clean(ev.Name)
+				if watchMachine && name == machinePath {
+					s.reloadMachineFromDisk()
+				}
+				if name != target {
 					continue
 				}
 				s.reloadConfigFromDisk(ctx)
@@ -76,6 +92,23 @@ func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) erro
 		}
 	}()
 	return nil
+}
+
+// reloadMachineFromDisk refreshes the machine-wide runtime sections (and the
+// baseline Save diffs against) from machine.yaml. It restarts nothing; it only
+// keeps the in-memory copy current so the agent reports current values and its
+// next Save does not treat them as its own edits. A runtime edit made since
+// the last save keeps its value: the event may come from this agent's own
+// earlier save, and the pending Persist still has to write the edit.
+func (s *Server) reloadMachineFromDisk() {
+	mc, err := config.LoadMachine()
+	if err != nil {
+		fmt.Printf("ConfigWatcher: failed to reload machine config: %v\n", err)
+		return
+	}
+	if err := s.cfgSvc.Mutate(func(c *config.Config) { c.RefreshMachineSections(mc) }); err != nil {
+		fmt.Printf("ConfigWatcher: machine config rejected: %v\n", err)
+	}
 }
 
 // reloadConfigFromDisk reads the config path, diffs against the current

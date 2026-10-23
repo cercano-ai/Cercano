@@ -30,6 +30,37 @@ func RestartInstalled(ctx context.Context, newExecutable string, endpoint netip.
 	return coordinateRestart(ctx, nativeRestartOps(), newExecutable, uint32(os.Getuid()), endpoint)
 }
 
+// RestartInstalledReady is RestartInstalled for an agent that need not listen
+// on endpoint again once restarted, such as a profile agent on an ephemeral
+// port. endpoint identifies the running agent to stop. probe reports whether
+// the replacement, given by process ID, serves; it is polled until it does,
+// must return promptly once ctx ends, and is never relied on to notice a
+// crash: a replacement that exits during startup fails the restart at once.
+func RestartInstalledReady(ctx context.Context, newExecutable string, endpoint netip.AddrPort, probe func(ctx context.Context, pid int) bool) (bool, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return false, fmt.Errorf("restart requires a deadline")
+	}
+	return coordinateRestart(ctx, withReady(nativeRestartOps(), replacementAlive, probe), newExecutable, uint32(os.Getuid()), endpoint)
+}
+
+// replacementAlive returns errReplacementExited when the replacement has
+// exited (startReplacement reaps it) or its PID now names another process.
+// Transient inspection errors count as alive; the next poll checks again.
+func replacementAlive(id Identity) error {
+	now, err := Inspect(id.PID)
+	switch {
+	case errors.Is(err, syscall.ESRCH):
+		return errReplacementExited
+	case errors.Is(err, syscall.EBADF) || errors.Is(err, syscall.EAGAIN):
+		return nil
+	case err != nil:
+		return err
+	case !now.SameProcess(id):
+		return errReplacementExited
+	}
+	return nil
+}
+
 func nativeRestartOps() restartOps {
 	return restartOps{
 		source: kernelProcesses{}, capture: CaptureLaunchState, preflight: preflightRestart,

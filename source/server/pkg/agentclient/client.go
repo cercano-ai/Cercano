@@ -56,8 +56,17 @@ type Client struct {
 	ServerLog     string // path to the auto-launched server's log file, if any
 
 	// addr is the dial target — kept so reconnect() can redial after a
-	// crash without threading it through every callsite.
+	// crash without threading it through every callsite. For a profile
+	// client it is the host's current address and changes when reconnect
+	// finds the host on a new port; guarded by connMu.
 	addr string
+
+	// profile is set for clients from DialProfile; reconnect then resolves
+	// the profile's host again instead of redialing addr. Empty for Dial.
+	profile string
+	// noLaunch is set for clients from DialProfileExisting: reconnect only
+	// re-resolves the profile's running agent and never launches one.
+	noLaunch bool
 
 	// Connection-state observation (see reconnect.go).
 	stateMu     sync.Mutex
@@ -124,11 +133,13 @@ func DialExisting(ctx context.Context, addr string) (*Client, error) {
 	return connect(ctx, addr, 600*time.Millisecond)
 }
 
+// maxGRPCMsgBytes matches the server recv limit; 64 MiB also future-proofs
+// large responses.
+const maxGRPCMsgBytes = 64 << 20
+
 func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	// 64 MiB matches the server recv limit; also future-proofs large responses.
-	const maxGRPCMsgBytes = 64 << 20
 	conn, err := grpc.DialContext(dialCtx, addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),

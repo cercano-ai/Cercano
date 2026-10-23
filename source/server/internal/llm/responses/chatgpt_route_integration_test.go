@@ -31,7 +31,7 @@ func chatgptLiveClient(t *testing.T) *Client {
 	if os.Getenv("CHATGPT_INTEGRATION") != "1" {
 		t.Skip("set CHATGPT_INTEGRATION=1 to run live codex-backend tests")
 	}
-	store, err := secrets.OpenKeychain()
+	store, err := secrets.OpenKeychain("default")
 	if err != nil {
 		t.Skipf("keychain unavailable: %v", err)
 	}

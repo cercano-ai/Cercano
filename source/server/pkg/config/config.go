@@ -2,6 +2,7 @@ package config
 
 import (
 	"cercano/source/server/pkg/accountidentity"
+	"cercano/source/server/pkg/paths"
 	"fmt"
 	"log"
 	"net/url"
@@ -416,6 +417,12 @@ type Config struct {
 	// strips built-in vendor entries so user config does not pin moving cloud
 	// product defaults.
 	ModelProfiles ModelProfiles `yaml:"model_profiles,omitempty"`
+
+	// machineBase tracks the machine.yaml sections this config last saw, so
+	// Save writes back only fields this config changed. A value: every copy
+	// (Clone included) carries its own, so a snapshot compares only against
+	// what it saw.
+	machineBase machineBaseline
 }
 
 // Note: the former `catalog.backend` key selected one active catalog source.
@@ -755,13 +762,13 @@ func Defaults() Config {
 	}
 }
 
-// DefaultPath returns the default config file path (~/.config/cercano/config.yaml).
+// DefaultPath returns the active profile's config file:
+// ~/.config/cercano/profiles/<CERCANO_PROFILE or "default">/config.yaml.
+// When CERCANO_PROFILE is invalid it returns the default profile's path and
+// Load reports the invalid name. It panics if the home directory is unknown;
+// entry points call paths.CheckHome first.
 func DefaultPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".config", "cercano", "config.yaml")
+	return filepath.Join(paths.ActiveProfileDir(), "config.yaml")
 }
 
 // migrateCloudProfiles synthesizes a provider-named profile from the legacy
@@ -989,11 +996,19 @@ func finalizeModelTiers(cfg *Config) {
 func Load(path string) (Config, error) {
 	cfg := Defaults()
 
+	// An invalid CERCANO_PROFILE must not silently become the default
+	// profile: DefaultPath falls back so callers get an absolute path, and
+	// this reports the name.
+	if _, err := paths.Profile(); err != nil {
+		return cfg, err
+	}
+
 	if path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				// No config file — use defaults + env vars
+				overlayMachine(&cfg)
 				applyEnvOverrides(&cfg)
 				finalizeModelTiers(&cfg)
 				return cfg, nil
@@ -1032,6 +1047,10 @@ func Load(path string) (Config, error) {
 		applyMistralRSDefaults(&cfg.MistralRS, defaults.MistralRS)
 		applyToolLoopDefaults(&cfg.ToolLoop, defaults.ToolLoop)
 	}
+
+	// Local runtime settings are machine-wide: machine.yaml wins when it
+	// exists; otherwise values from an older profile file are kept.
+	overlayMachine(&cfg)
 
 	applyEnvOverrides(&cfg)
 	finalizeModelTiers(&cfg)
@@ -1187,6 +1206,9 @@ func applyEnvOverrides(cfg *Config) {
 // array.
 func (c Config) Clone() Config {
 	out := c
+	if c.machineBase.set {
+		out.machineBase = newBaseline(c.machineBase.mc)
+	}
 	if c.BackupCloudProfiles != nil {
 		out.BackupCloudProfiles = append([]string{}, c.BackupCloudProfiles...)
 	}
@@ -1270,12 +1292,12 @@ func (c Config) Clone() Config {
 }
 
 // VenvDir returns the path to Cercano's Python venv (~/.config/cercano/venv/).
+// The venv is machine-wide: every profile shares it.
 func VenvDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	if paths.CheckHome() != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "cercano", "venv")
+	return filepath.Join(paths.ConfigRoot(), "venv")
 }
 
 // VenvPython returns the path to the Python binary inside Cercano's venv.
@@ -1297,7 +1319,7 @@ func Save(cfg Config, path string) error {
 	// Stripping inherited and obsolete values must not mutate live snapshots.
 	cfg = cfg.Clone()
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory %q: %w", dir, err)
 	}
 
@@ -1313,11 +1335,18 @@ func Save(cfg Config, path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
+	// llama_server and mistralrs belong to machine.yaml, not the profile.
+	data, err = stripMachineKeys(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
 
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file %q: %w", path, err)
 	}
-	return nil
+	// Profile edits are on disk before the machine write, so a machine-lock
+	// timeout loses nothing from the profile file.
+	return cfg.saveMachineChanges()
 }
 
 // ContextOverride returns the explicit context override, or zero for automatic

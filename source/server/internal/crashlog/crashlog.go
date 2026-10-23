@@ -146,7 +146,7 @@ type Writer struct {
 // directories are created if missing. cercanoVersion is stamped on
 // every Entry so operators can tell whether a crash predates a fix.
 func NewWriter(path, cercanoVersion string) (*Writer, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("crashlog: mkdir %s: %w", filepath.Dir(path), err)
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)

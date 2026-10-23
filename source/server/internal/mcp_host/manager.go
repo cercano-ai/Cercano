@@ -375,7 +375,7 @@ func (m *Manager) writeYAML(c Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(m.dir, 0o755); err != nil {
+	if err := os.MkdirAll(m.dir, 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(m.dir, "mcp.yaml"), data, 0o644)

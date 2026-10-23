@@ -18,10 +18,7 @@ func TestLocalResetAndFreshWizard(t *testing.T) {
 	os.WriteFile(configPath, []byte("port: '54321'\nopen_model: old\ncustom_preference: keep\n"), 0600)
 	store := secrets.NewMemory()
 	store.Set("orphan", "fixture")
-	outcome, err := Perform(context.Background(), Dependencies{ConfigPath: configPath, WizardPath: wizardPath, OpenStore: func() (secrets.Store, error) { return store, nil }, TryAgent: func(_ context.Context, addr string) (Outcome, error) {
-		if addr != "127.0.0.1:54321" {
-			t.Fatal(addr)
-		}
+	outcome, err := Perform(context.Background(), Dependencies{ConfigPath: configPath, WizardPath: wizardPath, OpenStore: func() (secrets.Store, error) { return store, nil }, TryAgent: func(context.Context) (Outcome, error) {
 		return Outcome{}, ErrNoAgent
 	}})
 	if err != nil || !outcome.ConfigWritten || !outcome.WizardWritten || outcome.UsedAgent || outcome.CredentialsRemoved != 1 {
@@ -39,7 +36,7 @@ func TestReachableAgentNeverFallsBackToLocalStore(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "config.yaml")
 			wizardPath := filepath.Join(root, "wizard.yaml")
-			outcome, err := Perform(context.Background(), Dependencies{ConfigPath: path, WizardPath: wizardPath, OpenStore: func() (secrets.Store, error) { t.Fatal("local keychain touched with reachable agent"); return nil, nil }, TryAgent: func(context.Context, string) (Outcome, error) {
+			outcome, err := Perform(context.Background(), Dependencies{ConfigPath: path, WizardPath: wizardPath, OpenStore: func() (secrets.Store, error) { t.Fatal("local keychain touched with reachable agent"); return nil, nil }, TryAgent: func(context.Context) (Outcome, error) {
 				o := Outcome{UsedAgent: true, ConfigWritten: !failed, LiveApplied: !failed, CredentialsRemoved: 3}
 				if failed {
 					return o, errors.New("fixture partial error")
