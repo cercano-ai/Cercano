@@ -46,7 +46,13 @@ func NewHost(options HostOptions) (*Host, error) {
 		return nil, errors.New("enterprise state directory required")
 	}
 	if options.OpenStore == nil {
-		options.OpenStore = OpenCredentialStore
+		options.OpenStore = func() (CredentialStore, error) {
+			profile, err := paths.Profile()
+			if err != nil {
+				return nil, err
+			}
+			return OpenCredentialStore(profile)
+		}
 	}
 	if options.Manager.CachePath == "" {
 		options.Manager.CachePath = filepath.Join(options.Directory, "active-bundle.json")

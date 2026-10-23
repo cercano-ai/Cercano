@@ -3,6 +3,7 @@ package worker
 import (
 	"cercano/source/server/internal/chatroute"
 	"cercano/source/server/internal/reasoningexperiment"
+	"cercano/source/server/pkg/paths"
 	"context"
 	"fmt"
 	"log"
@@ -144,7 +145,11 @@ func buildWorkerToolSvcWithDiagnostic(
 // (deepinfra_infer). Nil on failure (headless systems): the capability reports
 // credentials unavailable rather than guessing.
 func openWorkerSecrets() capabilities.SecretStore {
-	st, err := secrets.OpenKeychain()
+	profile, err := paths.Profile()
+	if err != nil {
+		return nil
+	}
+	st, err := secrets.OpenKeychain(profile)
 	if err != nil {
 		return nil
 	}

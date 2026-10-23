@@ -64,6 +64,7 @@ import (
 	"cercano/source/server/internal/tools"
 	"cercano/source/server/internal/toolstack"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/proto"
 	"cercano/source/server/pkg/update"
 
@@ -535,7 +536,11 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 
 	// Open OS keychain and attach it so profile RPCs and rebuildCloud can
 	// read API keys. Failure is non-fatal: cloud stays absent.
-	if store, err := secrets.OpenKeychain(); err == nil {
+	profile, err := paths.Profile()
+	if err != nil {
+		return "", nil, err
+	}
+	if store, err := secrets.OpenKeychain(profile); err == nil {
 		srv.SetSecrets(store)
 	} else {
 		fmt.Fprintf(os.Stderr, "[WARN] keychain unavailable (%v) — cloud profiles can't load keys; fallback deferred.\n", err)
@@ -549,7 +554,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	//      keychain entry but failed to blank the yaml) → blank+save only.
 	// We NEVER blank the yaml unless the key is confirmed present in the keychain.
 	if cfg.CloudAPIKey != "" && cfg.ActiveCloudProfile != "" {
-		if store, err := secrets.OpenKeychain(); err == nil {
+		if store, err := secrets.OpenKeychain(profile); err == nil {
 			keySafe := false
 			if _, gerr := store.Get(cfg.ActiveCloudProfile); gerr == nil {
 				// Already in keychain.

@@ -2,4 +2,4 @@
 
 package enterprise
 
-func OpenCredentialStore() (CredentialStore, error) { return nil, ErrCredentialStore }
+func OpenCredentialStore(profile string) (CredentialStore, error) { return nil, ErrCredentialStore }
