@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { withCli, runCli, ready, exitCode } from "../helpers/cli.mjs";
 import { readAgentRecord, waitForAgentRecord } from "../helpers/agent.mjs";
-import { stopOwnedAgent } from "../helpers/owned-agent.mjs";
+import { stopOwnedProfileAgent } from "../helpers/owned-agent.mjs";
 
 const MESSAGE = "profile a keeps this conversation";
 const REPLY = "noted in profile a";
@@ -40,23 +40,21 @@ test("each profile runs its own agent and keeps its own conversations", async (t
     { profile: "a", args: ["--profile", "a"], agent: false, ollama: { reply: REPLY } },
     async ({ term, sandbox, defer }) => {
       sandbox.writeConfig("", { profile: "b" });
-      // Runs once every client is closed, so no client relaunches an agent.
-      const agents = [];
-      defer(async () => {
-        for (const [profile, pid] of agents) await stopOwnedAgent(pid, sandbox, { profile });
-      });
+      // Registered before any wait can fail, and run once every client is
+      // closed, so no client relaunches an agent. Each profile's agent is
+      // found through its agent.json and stopped only if it is verifiably
+      // this sandbox's.
+      for (const profile of ["a", "b"]) defer(() => stopOwnedProfileAgent(sandbox, profile));
       const terms = {};
       let ok = false;
       try {
         await ready(term);
         const recA = await waitForAgentRecord(sandbox, { profile: "a" });
-        agents.push(["a", recA.pid]);
         await term.submit(MESSAGE);
         await term.getByText(REPLY).expect({ timeout: 30_000 });
 
         terms.b = await runCli(t, sandbox, { label: "b", args: ["--profile", "b", "-r"] });
         const recB = await waitForAgentRecord(sandbox, { profile: "b" });
-        agents.push(["b", recB.pid]);
 
         assert.equal(recA.profile, "a");
         assert.equal(recB.profile, "b");
