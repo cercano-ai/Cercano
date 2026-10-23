@@ -87,13 +87,16 @@ func candidateChildFixture(t *testing.T) childFixture {
 	if _, err = privdir.Ensure(versionDir); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = privdir.Ensure(filepath.Join(versionDir, "bin")); err != nil {
+		t.Fatal(err)
+	}
 	data := []byte("inert verified child image")
 	members := []state.ManifestMember{}
 	for _, name := range []string{a, c} {
-		if err = os.WriteFile(filepath.Join(versionDir, name), data, 0700); err != nil {
+		if err = os.WriteFile(filepath.Join(versionDir, "bin", name), data, 0700); err != nil {
 			t.Fatal(err)
 		}
-		members = append(members, state.ManifestMember{Path: name, Length: int64(len(data)), SHA256: fmt.Sprintf("%x", sha256.Sum256(data))})
+		members = append(members, state.ManifestMember{Path: "bin/" + name, Length: int64(len(data)), SHA256: fmt.Sprintf("%x", sha256.Sum256(data))})
 	}
 	manifest := state.ActivationManifest{SchemaVersion: state.ActivationManifestSchemaVersion, InstallID: enrolled.InstallID, OpID: op.ID, TargetVersion: "1.0.0", StagedVersionDir: "v1", VerifiedArtifactSHA256: strings.Repeat("a", 64), Members: members}
 	if _, err = store.SaveActivationManifest(ctx, manifest); err != nil {
@@ -131,13 +134,13 @@ func candidateChildFixture(t *testing.T) childFixture {
 		locators:      installcontext.Locators{InstallRoot: root, InstallID: enrolled.InstallID},
 		record:        enrolled,
 		stateRoot:     stateRoot,
-		agentExe:      filepath.Join(versionDir, a),
-		clientExe:     filepath.Join(versionDir, c),
+		agentExe:      filepath.Join(versionDir, "bin", a),
+		clientExe:     filepath.Join(versionDir, "bin", c),
 		selectionPath: filepath.Join(store.Directory(), selection.FileName),
 	}
 }
 
-func TestVerifyChildFallsBackToSelectedCandidate(t *testing.T) {
+func TestVerifyChildSelectionIndependentOfOperationGeneration(t *testing.T) {
 	ctx := context.Background()
 	f := candidateChildFixture(t)
 
@@ -154,7 +157,7 @@ func TestVerifyChildFallsBackToSelectedCandidate(t *testing.T) {
 	if _, err := installcontext.VerifyChild(ctx, f.locators, f.stateRoot, f.agentExe, true); err == nil {
 		t.Fatal("agent executable accepted in client role via fallback")
 	}
-	// A mismatched selection generation is refused, not silently accepted.
+	// Selection is authoritative; an old operation generation cannot gate boot.
 	selected := activation.Selection{SchemaVersion: 1, InstallID: f.locators.InstallID, Generation: 2, SelectedVersion: "1.0.0", StagedVersionDir: "v1", VerifiedArtifactSHA256: strings.Repeat("a", 64)}
 	raw, err := json.Marshal(selected)
 	if err != nil {
@@ -163,7 +166,7 @@ func TestVerifyChildFallsBackToSelectedCandidate(t *testing.T) {
 	if err = os.WriteFile(f.selectionPath, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := installcontext.VerifyChild(ctx, f.locators, f.stateRoot, f.agentExe, false); err == nil {
-		t.Fatal("wrong selection generation accepted via fallback")
+	if _, err := installcontext.VerifyChild(ctx, f.locators, f.stateRoot, f.agentExe, false); err != nil {
+		t.Fatal("valid selection gated by operation generation", err)
 	}
 }

@@ -210,13 +210,16 @@ func build(t testing.TB, agentSource, clientSource string, candidate bool) *Inst
 	if _, err = privdir.Ensure(versionDir); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = privdir.Ensure(filepath.Join(versionDir, "bin")); err != nil {
+		t.Fatal(err)
+	}
 	members := []state.ManifestMember{}
 	for _, src := range []struct{ source, name string }{{agentSource, a}, {clientSource, c}} {
 		data, err := os.ReadFile(src.source)
 		if err != nil {
 			t.Fatalf("reading member source %s: %v", src.source, err)
 		}
-		dst := filepath.Join(versionDir, src.name)
+		dst := filepath.Join(versionDir, "bin", src.name)
 		if err = os.WriteFile(dst, data, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -224,7 +227,7 @@ func build(t testing.TB, agentSource, clientSource string, candidate bool) *Inst
 			t.Fatal(err)
 		}
 		members = append(members, state.ManifestMember{
-			Path:   src.name,
+			Path:   "bin/" + src.name,
 			Length: int64(len(data)),
 			SHA256: fmt.Sprintf("%x", sha256.Sum256(data)),
 		})
@@ -311,8 +314,8 @@ func build(t testing.TB, agentSource, clientSource string, candidate bool) *Inst
 		StateRoot:  stateRoot,
 		VersionDir: versionDir,
 		InstallID:  enrolled.InstallID,
-		AgentExe:   filepath.Join(versionDir, a),
-		ClientExe:  filepath.Join(versionDir, c),
+		AgentExe:   filepath.Join(versionDir, "bin", a),
+		ClientExe:  filepath.Join(versionDir, "bin", c),
 		AgentName:  a,
 		ClientName: c,
 	}

@@ -11,11 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"cercano/source/server/internal/updatecoord/activation"
 	"cercano/source/server/internal/updatecoord/enrollment"
 	"cercano/source/server/internal/updatecoord/exclusion"
-	"cercano/source/server/internal/updatecoord/selection"
-	"cercano/source/server/internal/updatecoord/state"
 	"cercano/source/server/pkg/installcontext"
 )
 
@@ -81,12 +78,8 @@ func prepare(ctx context.Context, executable, stateRoot string, args []string, c
 	if filepath.Base(executable) != name {
 		return nil, enrollment.ErrUnsafe
 	}
-	store, err := state.OpenExistingReadOnly(ctx, stateRoot, enrolled.InstallID)
-	if err != nil {
-		return nil, err
-	}
-	defer store.Close()
-	lock, err := exclusion.Acquire(ctx, store.Directory(), exclusion.Launch)
+	locators := installcontext.Locators{InstallRoot: enrolled.Root, InstallID: enrolled.InstallID}
+	checked, path, lock, err := installcontext.PrepareLaunch(ctx, locators, stateRoot, client)
 	if err != nil {
 		return nil, err
 	}
@@ -96,47 +89,7 @@ func prepare(ctx context.Context, executable, stateRoot string, args []string, c
 			_ = lock.Close()
 		}
 	}()
-	selectedPath := filepath.Join(store.Directory(), selection.FileName)
-	selected, err := activation.ReadSelection(selectedPath)
-	if err != nil {
-		return nil, err
-	}
-	if selected.InstallID != enrolled.InstallID {
-		return nil, enrollment.ErrUnsafe
-	}
-	target := state.SelectedVersion{Version: selected.SelectedVersion, Directory: selected.StagedVersionDir, ArtifactSHA256: selected.VerifiedArtifactSHA256, Generation: selected.Generation}
-	manifest, err := store.LoadCompletedSelectionManifest(ctx, target)
-	if errors.Is(err, state.ErrRecordNotFound) {
-		manifest, err = store.LoadCandidateSelectionManifest(ctx, target)
-	}
-	if err != nil {
-		return nil, err
-	}
-	path := ""
-	for _, member := range manifest.Members {
-		if filepath.Base(filepath.FromSlash(member.Path)) == name {
-			if path != "" {
-				return nil, enrollment.ErrUnsafe
-			}
-			path = filepath.Join(enrolled.Root, "versions", filepath.FromSlash(manifest.StagedVersionDir), filepath.FromSlash(member.Path))
-		}
-	}
-	if path == "" || path == executable {
-		return nil, enrollment.ErrUnsafe
-	}
-	locators := installcontext.Locators{InstallRoot: enrolled.Root, InstallID: enrolled.InstallID}
-	checked, err := installcontext.VerifyChild(ctx, locators, stateRoot, path, client)
-	if err != nil {
-		return nil, err
-	}
-	if checked != enrolled {
-		return nil, enrollment.ErrUnsafe
-	}
-	after, err := activation.ReadSelection(selectedPath)
-	if err != nil {
-		return nil, err
-	}
-	if after != selected {
+	if checked != enrolled || path == executable {
 		return nil, enrollment.ErrUnsafe
 	}
 	current, err := enrollment.DiscoverStableLauncher(ctx, executable)

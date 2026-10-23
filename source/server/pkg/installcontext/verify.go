@@ -2,10 +2,8 @@ package installcontext
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"cercano/source/server/internal/updatecoord/enrollment"
@@ -29,50 +27,24 @@ func DefaultStateRoot() (string, error) {
 	return root, nil
 }
 
-// VerifyChild verifies a versioned child process launched with the approved
-// locators against the installation's protected selection of record. It first
-// verifies the completed, health-selected installation exactly as before via
-// enrollment.VerifyInstalledChild (which is reused unchanged); fallback to the
-// selected-candidate verifier happens ONLY on that completed lookup's normal
-// not-found, and then only through enrollment.VerifySelectedChild's exact
-// gate: the current operation restarting or health-checking and its journal at
-// the selected checkpoint. Any other failure — corrupt or inconsistent state,
-// mismatched facts, wrong role or unverified image — is refused unchanged, and
-// a candidate whose lifecycle/checkpoint does not match is never accepted by
-// either path.
-//
-// The locators are only a pointer; the enrollment record, updater state and
-// selected manifest are read independently by the existing internal verifier,
-// which is reused unchanged and never weakened here. stateRoot must be the
-// trusted per-user derivation (DefaultStateRoot in production); the versions
-// root is fixed at <install root>/versions; executable must be os.Executable()
-// in production; client selects the fixed launcher role (agent vs cercano-cli).
-//
-// No files are provisioned or migrated and nothing is executed.
+// VerifyChild validates only protected enrollment, selection and exact layout.
+// Locators are not authority; updater bookkeeping is never opened.
 func VerifyChild(ctx context.Context, locators Locators, stateRoot, executable string, client bool) (enrollment.Record, error) {
-	if err := locators.Validate(); err != nil {
+	record, path, lock, err := PrepareLaunch(ctx, locators, stateRoot, client)
+	if err != nil {
 		return enrollment.Record{}, err
 	}
-	versionsDirectory := filepath.Join(locators.InstallRoot, "versions")
-	handoff := enrollment.ChildContext{Root: locators.InstallRoot, InstallID: locators.InstallID}
-	record, err := enrollment.VerifyInstalledChild(ctx, handoff, stateRoot, versionsDirectory, executable, client)
-	if err == nil {
-		return record, nil
+	defer lock.Close()
+	if executable != path {
+		return enrollment.Record{}, enrollment.ErrUnsafe
 	}
-	// Completed lookup says "no completed selection for this exact selection":
-	// a selected-but-unverified candidate may still be at its approved startup
-	// window. Only that normal not-found falls through to the candidate
-	// verifier; every other failure is refused unchanged.
-	if !errors.Is(err, state.ErrRecordNotFound) {
-		return enrollment.Record{}, err
-	}
-	return enrollment.VerifySelectedChild(ctx, handoff, stateRoot, versionsDirectory, executable, client)
+	return record, nil
 }
 
 // VerifyStartupVerified is the early main() gate for a child launched with
 // the approved locators: it validates the ACTUAL running executable
 // (os.Executable(), never a caller- or locator-supplied path) and the fixed
-// launcher role against the installation's protected completed selection,
+// launcher role against the installation's protected selection,
 // using the per-user state root derived from the environment. It must run
 // before any normal flag parsing, config load, DB open, provider or agent
 // start. It performs exactly ONE verification pass and returns the opaque

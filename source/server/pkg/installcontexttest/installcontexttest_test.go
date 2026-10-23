@@ -2,8 +2,8 @@ package installcontexttest_test
 
 // Self-tests for the shared enrolled-installation fixture: the members it
 // builds are real executable copies that pass installcontext.VerifyChild for
-// their roles, are refused for the wrong role / wrong install ID / same-size
-// tamper, and the child environment derives the exact state root the
+// their roles, are refused for the wrong role / wrong install ID / unsafe
+// permissions, and the child environment derives the exact state root the
 // fixture's store was opened with. These mirror
 // pkg/installcontext/verify_test.go but with real executable content.
 
@@ -68,11 +68,13 @@ func TestBuildChildEnvDerivesFixtureStateRoot(t *testing.T) {
 	}
 }
 
-func TestBuildRefusesSameSizeTamperInProcess(t *testing.T) {
+func TestBuildRefusesUnsafePermissionsInProcess(t *testing.T) {
 	f := installcontexttest.Build(t, mustExecutable(t), mustExecutable(t))
-	installcontexttest.TamperSameSize(t, f.AgentExe)
+	if err := os.Chmod(f.AgentExe, 0777); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := installcontext.VerifyChild(context.Background(), f.Locators(), f.StateRoot, f.AgentExe, false); err == nil {
-		t.Fatal("same-size tampered member accepted by content verification")
+		t.Fatal("unsafe-permission member accepted by layout verification")
 	}
 }
 

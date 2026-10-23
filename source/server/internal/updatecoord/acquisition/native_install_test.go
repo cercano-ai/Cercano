@@ -3,9 +3,14 @@ package acquisition
 import (
 	"archive/zip"
 	"bytes"
+	"cercano/source/server/internal/updatecoord/activation"
+	"cercano/source/server/internal/updatecoord/enrollment"
+	"cercano/source/server/internal/updatecoord/selection"
+	"cercano/source/server/pkg/installcontext"
 	"context"
 	"crypto/sha256"
 	"debug/macho"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -29,7 +34,10 @@ func TestNativeTemporaryInstall(t *testing.T) {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		t.Fatal("requires native macOS arm64")
 	}
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	mkdir := func(name string) string {
 		p := filepath.Join(root, name)
 		if err := os.MkdirAll(p, 0700); err != nil {
@@ -158,10 +166,81 @@ func TestNativeTemporaryInstall(t *testing.T) {
 			t.Fatalf("updater must refuse: %v %s", err, output)
 		}
 	}
+	// Install stable images from the acquired first release, not build outputs.
+	installRoot := filepath.Dir(versions)
+	for _, name := range []string{"cercano", "cercano-cli"} {
+		data, err := os.ReadFile(filepath.Join(stagedDirs[0], "bin", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(installRoot, name), data, 0500); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record, err := enrollment.Create(context.Background(), installRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateRoot := filepath.Join(home, "Library", "Application Support")
+	stateDir := filepath.Join(stateRoot, "Cercano", "updater", record.InstallID)
+	if err = os.MkdirAll(stateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	locators, err := installcontext.LocatorArgs(installRoot, record.InstallID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, dir := range stagedDirs {
+		selected := activation.Selection{SchemaVersion: 1, InstallID: record.InstallID, Generation: int64(i + 1), SelectedVersion: fixtureVersions[i], StagedVersionDir: filepath.Base(dir), VerifiedArtifactSHA256: strings.Repeat("a", 64)}
+		raw, err := json.Marshal(selected)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(stateDir, selection.FileName), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		for _, dbState := range []string{"missing", "corrupt", "inaccessible"} {
+			db := filepath.Join(stateDir, "state.db")
+			if dbState != "missing" {
+				if err = os.WriteFile(db, []byte("not SQL"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if dbState == "inaccessible" {
+					if err = os.Chmod(db, 0000); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			for _, name := range []string{"cercano", "cercano-cli"} {
+				arg := "version"
+				if name == "cercano-cli" {
+					arg = "--version"
+				}
+				for _, stable := range []bool{true, false} {
+					path, args := filepath.Join(installRoot, name), []string{arg}
+					if !stable {
+						path = filepath.Join(dir, "bin", name)
+						args = append(append([]string{}, locators...), arg)
+					}
+					output, err := run(path, args...)
+					want := name + " v" + fixtureVersions[i] + "\n"
+					if err != nil || output != want {
+						t.Fatalf("stable=%t DB=%s %s: %v got %q want %q", stable, dbState, name, err, output, want)
+					}
+					t.Logf("stable=%t DB=%s %s", stable, dbState, strings.TrimSpace(output))
+				}
+			}
+			if dbState != "missing" {
+				if err = os.Remove(db); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
 	for _, dir := range stagedDirs {
 		if _, err := os.Stat(dir); err != nil {
 			t.Fatal("old/candidate not retained", err)
 		}
 	}
-	t.Log("staged two complete current-source fixture releases; no compatibility proof, enrollment, normal launch, drain or publication. NEXT: independent protected layout/selection startup, then old-updater launch and bounded handoff.")
+	t.Log("staged two complete current-source fixture releases; protected stable and child offline version startup without SQL. No normal configuration/network/keychain startup, drain, publication or compatibility proof. NEXT: force local-control/CLI force-save startup and old-updater bounded handoff.")
 }

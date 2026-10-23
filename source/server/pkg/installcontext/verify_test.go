@@ -1,13 +1,7 @@
 package installcontext_test
 
-// Wrapper tests for installcontext.VerifyChild / VerifyStartup. The
-// existing internal enrollment tests cover the protected manifest rules in
-// depth; these tests prove the public wrapper builds the trusted
-// state/versions inputs correctly and injects executable and role without
-// weakening the verifier. The fixture mirrors
-// enrollment/installed_context_test.go: an enrolled root with a protected
-// completed activation and its selection file. No network, no live
-// installation, no migration.
+// Boot validation tests use historical completed fixtures, but boot authority
+// is exclusively protected enrollment, selection and the selected layout.
 
 import (
 	"context"
@@ -105,13 +99,16 @@ func verifiedChildFixture(t *testing.T) childFixture {
 	if _, err = privdir.Ensure(versionDir); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = privdir.Ensure(filepath.Join(versionDir, "bin")); err != nil {
+		t.Fatal(err)
+	}
 	data := []byte("inert verified child image")
 	members := []state.ManifestMember{}
 	for _, name := range []string{a, c} {
-		if err = os.WriteFile(filepath.Join(versionDir, name), data, 0700); err != nil {
+		if err = os.WriteFile(filepath.Join(versionDir, "bin", name), data, 0700); err != nil {
 			t.Fatal(err)
 		}
-		members = append(members, state.ManifestMember{Path: name, Length: int64(len(data)), SHA256: fmt.Sprintf("%x", sha256.Sum256(data))})
+		members = append(members, state.ManifestMember{Path: "bin/" + name, Length: int64(len(data)), SHA256: fmt.Sprintf("%x", sha256.Sum256(data))})
 	}
 	manifest := state.ActivationManifest{SchemaVersion: state.ActivationManifestSchemaVersion, InstallID: enrolled.InstallID, OpID: op.ID, TargetVersion: "1.0.0", StagedVersionDir: "v1", VerifiedArtifactSHA256: strings.Repeat("a", 64), Members: members}
 	if _, err = store.SaveActivationManifest(ctx, manifest); err != nil {
@@ -154,8 +151,8 @@ func verifiedChildFixture(t *testing.T) childFixture {
 		locators:  installcontext.Locators{InstallRoot: root, InstallID: enrolled.InstallID},
 		record:    enrolled,
 		stateRoot: stateRoot,
-		agentExe:  filepath.Join(versionDir, a),
-		clientExe: filepath.Join(versionDir, c),
+		agentExe:  filepath.Join(versionDir, "bin", a),
+		clientExe: filepath.Join(versionDir, "bin", c),
 	}
 }
 
@@ -220,5 +217,63 @@ func TestVerifyStartupRefusesUnverifiedRunningImage(t *testing.T) {
 	}
 	if _, err := installcontext.VerifyStartup(context.Background(), installcontext.Locators{}, false); err == nil {
 		t.Fatal("startup gate accepted absent locators")
+	}
+}
+
+func TestBootRefusesUnsafeSelectedPathsWithoutDatabase(t *testing.T) {
+	for _, kind := range []string{"missing", "symlink-image", "symlink-directory", "writable-directory", "traversal", "wrong-install"} {
+		t.Run(kind, func(t *testing.T) {
+			f := verifiedChildFixture(t)
+			dir, err := installcontext.BootDirectory(f.stateRoot, f.record.InstallID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = os.Remove(filepath.Join(dir, "state.db")); err != nil {
+				t.Fatal(err)
+			}
+			switch kind {
+			case "missing":
+				err = os.Remove(f.agentExe)
+			case "symlink-image":
+				err = os.Remove(f.agentExe)
+				if err == nil {
+					err = os.Symlink(f.clientExe, f.agentExe)
+				}
+			case "symlink-directory":
+				bin := filepath.Dir(f.agentExe)
+				err = os.Rename(bin, bin+"-moved")
+				if err == nil {
+					err = os.Symlink(bin+"-moved", bin)
+				}
+			case "writable-directory":
+				err = os.Chmod(filepath.Dir(f.agentExe), 0777)
+			default:
+				path := filepath.Join(dir, selection.FileName)
+				var selected activation.Selection
+				selected, err = activation.ReadSelection(path)
+				if err == nil {
+					if kind == "traversal" {
+						selected.StagedVersionDir = "../v1"
+					} else {
+						selected.InstallID = strings.Repeat("a", 32)
+					}
+					var raw []byte
+					raw, err = json.Marshal(selected)
+					if err == nil {
+						err = os.WriteFile(path, raw, 0600)
+					}
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, lock, err := installcontext.PrepareLaunch(context.Background(), f.locators, f.stateRoot, false); err == nil {
+				lock.Close()
+				t.Fatal("unsafe stable target accepted")
+			}
+			if _, err := installcontext.VerifyChild(context.Background(), f.locators, f.stateRoot, f.agentExe, false); err == nil {
+				t.Fatal("unsafe child accepted")
+			}
+		})
 	}
 }

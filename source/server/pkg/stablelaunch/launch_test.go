@@ -3,6 +3,7 @@ package stablelaunch
 import (
 	"bytes"
 	"context"
+"errors"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -170,22 +171,17 @@ func testForegroundHandoff(t *testing.T, candidate bool) {
 	}
 }
 
-func TestStableLauncherRefusesTamperedImageAndWrongRole(t *testing.T) {
+func TestStableLauncherRefusesUnsafeImageAndWrongRole(t *testing.T) {
 	f := fixture(t)
 	ctx := context.Background()
 	if _, err := prepare(ctx, filepath.Join(f.Root, f.AgentName), f.StateRoot, nil, true); err == nil {
 		t.Fatal("wrong role accepted")
 	}
-	data, err := os.ReadFile(f.AgentExe)
-	if err != nil {
+	if err := os.Chmod(f.AgentExe, 0777); err != nil {
 		t.Fatal(err)
 	}
-	data[len(data)-1] ^= 1
-	if err = os.WriteFile(f.AgentExe, data, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = prepare(ctx, filepath.Join(f.Root, f.AgentName), f.StateRoot, nil, false); err == nil {
-		t.Fatal("modified image accepted")
+	if _, err := prepare(ctx, filepath.Join(f.Root, f.AgentName), f.StateRoot, nil, false); err == nil {
+		t.Fatal("unsafe image accepted")
 	}
 }
 
@@ -200,6 +196,10 @@ func TestStableLauncherExcludesUpdateAndReleasesRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+ start := time.Now()
+ if _, err = prepare(context.Background(), filepath.Join(f.Root, f.AgentName), f.StateRoot, nil, false); !errors.Is(err, installcontext.ErrLaunchBusy) { t.Fatalf("want retryable busy: %v", err) }
+ if _, err = installcontext.VerifyChild(context.Background(), installcontext.Locators{InstallRoot:f.Root,InstallID:f.InstallID}, f.StateRoot, filepath.Join(f.Root, "versions", "v1", "bin", f.AgentName), false); !errors.Is(err, installcontext.ErrLaunchBusy) { t.Fatalf("child want retryable busy: %v", err) }
+ if time.Since(start) > 2*time.Second { t.Fatal("launch exclusion not bounded") }
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	_, err = prepare(ctx, filepath.Join(f.Root, f.AgentName), f.StateRoot, nil, false)
 	cancel()
@@ -285,5 +285,47 @@ func TestStableLauncherUnenrolledCopyDoesNotInitialize(t *testing.T) {
 	}
 	if _, e = os.Stat(home); !os.IsNotExist(e) {
 		t.Fatal("unenrolled startup created state", e)
+	}
+}
+
+func TestBootWithoutDatabase(t *testing.T) {
+	for _, mode := range []string{"missing", "corrupt", "inaccessible"} {
+		t.Run(mode, func(t *testing.T) {
+			f := fixture(t)
+			dir, err := installcontext.BootDirectory(f.StateRoot, f.InstallID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			db := filepath.Join(dir, "state.db")
+			if err = os.Remove(db); err != nil {
+				t.Fatal(err)
+			}
+			if mode != "missing" {
+				if err = os.WriteFile(db, []byte("not sqlite"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if mode == "inaccessible" {
+					if err = os.Chmod(db, 0000); err != nil {
+						t.Fatal(err)
+					}
+					defer os.Chmod(db, 0600)
+				}
+			}
+			for _, client := range []bool{false, true} {
+				name := f.AgentName
+				if client {
+					name = f.ClientName
+				}
+				p, err := prepare(context.Background(), filepath.Join(f.Root, name), f.StateRoot, nil, client)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p.lock.Close()
+				_, err = installcontext.VerifyChild(context.Background(), installcontext.Locators{InstallRoot: f.Root, InstallID: f.InstallID}, f.StateRoot, p.target, client)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
 	}
 }

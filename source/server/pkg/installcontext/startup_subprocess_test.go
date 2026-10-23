@@ -185,18 +185,18 @@ func TestStartupSubprocessRefusesWrongRole(t *testing.T) {
 	}
 }
 
-// TestStartupSubprocessRefusesSameSizeTampering proves a member whose
-// content was changed without changing its length is refused: on linux the
-// child exits with the refusal code after the hash check; on darwin the
-// OS may kill the tampered copy at exec (invalid ad-hoc signature) — either
-// way startup must never proceed.
-func TestStartupSubprocessRefusesSameSizeTampering(t *testing.T) {
+// TestStartupSubprocessRefusesUnsafePermissions proves writable selected images
+// cannot pass child admission. Content authenticity belongs to acquisition,
+// not a persisted updater-manifest boot dependency.
+func TestStartupSubprocessRefusesUnsafePermissions(t *testing.T) {
 	f := installcontexttest.Build(t, mustExecutable(t), mustExecutable(t))
-	installcontexttest.TamperSameSize(t, f.AgentExe)
+	if err := os.Chmod(f.AgentExe, 0777); err != nil {
+		t.Fatal(err)
+	}
 	args := append(f.LocatorArgs(), "version")
 	stdout, _, code := runStartup(t, f, f.AgentExe, "agent", args...)
 	if code == 0 {
-		t.Fatalf("same-size tampered member accepted: stdout %q", stdout)
+		t.Fatalf("unsafe-permission member accepted: stdout %q", stdout)
 	}
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("refused startup must not print a success payload: %q", stdout)
