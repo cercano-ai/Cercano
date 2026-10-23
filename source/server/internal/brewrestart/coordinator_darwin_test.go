@@ -4,6 +4,7 @@ package brewrestart
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -203,5 +204,34 @@ func TestNativeCoordinatorRestartsWithoutClients(t *testing.T) {
 	case <-oldDone:
 	case <-time.After(time.Second):
 		t.Fatal("old child not reaped")
+	}
+}
+
+// replacementAlive tells a running replacement from one that has exited (and
+// been reaped) or whose PID now names a different process.
+func TestReplacementAlive(t *testing.T) {
+	cmd := exec.Command("/bin/sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
+	id, err := Inspect(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := replacementAlive(id); err != nil {
+		t.Fatalf("running replacement: %v", err)
+	}
+	reused := id
+	reused.StartSeconds++
+	if err := replacementAlive(reused); !errors.Is(err, errReplacementExited) {
+		t.Fatalf("reused PID: err=%v, want errReplacementExited", err)
+	}
+	_ = cmd.Process.Kill()
+	<-done
+	if err := replacementAlive(id); !errors.Is(err, errReplacementExited) {
+		t.Fatalf("exited replacement: err=%v, want errReplacementExited", err)
 	}
 }

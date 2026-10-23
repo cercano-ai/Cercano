@@ -2,8 +2,10 @@ package brewrestart
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
+	"time"
 )
 
 // restartOps separates lifecycle effects so sequencing and refusal paths can
@@ -20,10 +22,39 @@ type restartOps struct {
 	ready     func(context.Context, Identity, netip.AddrPort) error
 }
 
-// withReady replaces ops' readiness check with ready, which is given the
-// replacement's process ID instead of watching the old endpoint.
-func withReady(ops restartOps, ready func(ctx context.Context, pid int) error) restartOps {
-	ops.ready = func(ctx context.Context, id Identity, _ netip.AddrPort) error { return ready(ctx, id.PID) }
+// errReplacementExited reports that the replacement process exited, or its
+// PID now names another process, before it became ready.
+var errReplacementExited = errors.New("replacement exited during startup")
+
+// readyPoll is how often withReady re-checks a starting replacement.
+const readyPoll = 100 * time.Millisecond
+
+// withReady replaces ops' readiness check: instead of watching the old
+// endpoint, it polls probe with the replacement's process ID until it reports
+// ready, failing at once when alive reports that the replacement (by its full
+// identity, so a reused PID does not count) is gone, and at ctx's deadline
+// otherwise.
+func withReady(ops restartOps, alive func(Identity) error, probe func(ctx context.Context, pid int) bool) restartOps {
+	ops.ready = func(ctx context.Context, id Identity, _ netip.AddrPort) error {
+		for {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := alive(id); err != nil {
+				return err
+			}
+			if probe(ctx, id.PID) {
+				return nil
+			}
+			timer := time.NewTimer(readyPoll)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
 	return ops
 }
 

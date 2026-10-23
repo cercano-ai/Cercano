@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -34,10 +35,6 @@ var upgradeLaunchLockWait = 30 * time.Second
 // profileLaunchLockName is the per-profile lock clients hold while they check
 // for and launch the profile's agent; it matches agentclient's.
 const profileLaunchLockName = "launch.lock"
-
-// profileReadyPoll is how often a restart re-checks whether a profile's
-// replacement agent has registered.
-const profileReadyPoll = 100 * time.Millisecond
 
 // profileAgent is a profile whose recorded agent answered as itself.
 type profileAgent struct {
@@ -89,7 +86,7 @@ func runUpgradeRestart(args []string) int {
 		},
 		profileAgents: runningProfileAgents,
 		restartProfile: func(ctx context.Context, executable string, a profileAgent, endpoint netip.AddrPort) (bool, error) {
-			return brewrestart.RestartInstalledReady(ctx, executable, endpoint, profileAgentReady(a.Profile, a.Dir))
+			return brewrestart.RestartInstalledReady(ctx, executable, endpoint, profileAgentRegistered(a.Profile, a.Dir))
 		},
 		restartAddress:    brewrestart.RestartInstalled,
 		relaunchModelHost: relaunch,
@@ -120,25 +117,21 @@ func runningProfileAgents() ([]profileAgent, error) {
 	return agents, nil
 }
 
-// profileAgentReady returns a readiness check for a restarted profile agent:
-// the replacement process pid has registered in the profile's agent.json and
-// answers there as the profile's agent. A profile agent other than default
+// profileAgentRegistered returns a readiness probe for a restarted profile
+// agent: the profile's agent.json names the replacement process pid, and the
+// agent at the recorded address answers GetHostIdentity as that profile,
+// instance and process, within ctx. A profile agent other than default
 // listens on a new ephemeral port after a restart, so the old address cannot
-// be watched instead.
-func profileAgentReady(profile, dir string) func(context.Context, int) error {
-	return func(ctx context.Context, pid int) error {
-		for {
-			if rec, err := hostregistry.Read(dir); err == nil && rec.PID == pid && rec.Profile == profile && agentAnswers(profile, rec) {
-				return nil
-			}
-			timer := time.NewTimer(profileReadyPoll)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return fmt.Errorf("replacement agent for profile %q did not register: %w", profile, ctx.Err())
-			case <-timer.C:
-			}
+// be watched instead. The coordinator polls it and separately fails the
+// restart at once if the replacement exits.
+func profileAgentRegistered(profile, dir string) func(context.Context, int) bool {
+	return func(ctx context.Context, pid int) bool {
+		rec, err := hostregistry.Read(dir)
+		if err != nil || rec.PID != pid || rec.Profile != profile || rec.InstanceID == "" {
+			return false
 		}
+		id, err := recordedHostIdentity(ctx, rec)
+		return err == nil && id.GetProfile() == profile && id.GetInstanceId() == rec.InstanceID && int(id.GetPid()) == pid
 	}
 }
 
@@ -307,8 +300,11 @@ func restartProfileAgent(deps upgradeRestartDeps, path string, a profileAgent, t
 	lockCtx, cancel := context.WithTimeout(context.Background(), upgradeLaunchLockWait)
 	release, err := filelock.Lock(lockCtx, filepath.Join(a.Dir, profileLaunchLockName))
 	cancel()
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false, fmt.Errorf("another client is still starting this profile's agent: %w", err)
+	}
 	if err != nil {
-		return false, fmt.Errorf("another client is starting this profile's agent: %w", err)
+		return false, fmt.Errorf("take the profile's launch lock: %w", err)
 	}
 	defer release()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

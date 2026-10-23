@@ -177,18 +177,24 @@ func lockHolder(profile, dir string) (pid int, healthy bool) {
 }
 
 func agentAnswers(profile string, rec hostregistry.Record) bool {
+	id, err := recordedHostIdentity(context.Background(), rec)
+	return err == nil && id.GetProfile() == profile && id.GetInstanceId() == rec.InstanceID
+}
+
+// recordedHostIdentity asks the agent at rec's address for its identity,
+// within agentProbeTimeout and ctx.
+func recordedHostIdentity(ctx context.Context, rec hostregistry.Record) (*proto.HostIdentity, error) {
 	if rec.Addr == "" {
-		return false
+		return nil, errors.New("record has no address")
 	}
 	conn, err := grpc.NewClient(rec.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return false
+		return nil, err
 	}
 	defer conn.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), agentProbeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, agentProbeTimeout)
 	defer cancel()
-	id, err := proto.NewAgentClient(conn).GetHostIdentity(ctx, &proto.GetHostIdentityRequest{})
-	return err == nil && id.GetProfile() == profile && id.GetInstanceId() == rec.InstanceID
+	return proto.NewAgentClient(conn).GetHostIdentity(ctx, &proto.GetHostIdentityRequest{})
 }
 
 func newInstanceID() (string, error) {

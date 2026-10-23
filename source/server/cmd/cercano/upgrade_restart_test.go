@@ -538,8 +538,28 @@ func TestUpgradeGivesUpOnBusyLaunchLock(t *testing.T) {
 	if got, want := log.String(), "restart:default,modelhost"; got != want {
 		t.Fatalf("events = %s, want %s", got, want)
 	}
-	if !strings.Contains(out.String(), `profile "work"`) {
-		t.Fatalf("output does not name the failed profile: %s", out.String())
+	if !strings.Contains(out.String(), `profile "work"`) || !strings.Contains(out.String(), "still starting") {
+		t.Fatalf("output does not name the failed profile and why: %s", out.String())
+	}
+}
+
+// A launch lock that cannot be taken at all (not a busy one) is reported as
+// such, without waiting and without touching the agent.
+func TestUpgradeReportsUnusableLaunchLock(t *testing.T) {
+	agents := []profileAgent{fakeProfileAgent(t, "work", "127.0.0.1:5002")}
+	if err := os.WriteFile(agents[0].Dir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var log eventLog
+	var out bytes.Buffer
+	if code := upgradeRestartCommand(nil, &out, profileDeps(t, &log, agents, restartOK)); code != 1 {
+		t.Fatalf("code=%d output=%s", code, out.String())
+	}
+	if log.String() != "" {
+		t.Fatalf("events = %s, want none", log.String())
+	}
+	if !strings.Contains(out.String(), "take the profile's launch lock") || strings.Contains(out.String(), "another client") {
+		t.Fatalf("output: %s", out.String())
 	}
 }
 
@@ -655,31 +675,62 @@ func TestUpgradeProfileListErrorRestartsNothing(t *testing.T) {
 	}
 }
 
-// profileAgentReady returns only once the profile's record names the
-// replacement process and that process answers as the profile's agent.
-func TestProfileAgentReadyWaitsForReplacementRecord(t *testing.T) {
+// profileAgentRegistered reports a replacement ready only once the profile's
+// record names that process and the agent there answers as the profile's
+// agent with that process ID.
+func TestProfileAgentRegistered(t *testing.T) {
 	tempHome(t)
-	writeAgentRecord(t, hostregistry.Record{Profile: "work", PID: 111, Addr: refusedAddr(t), InstanceID: "old"})
-	newAddr := serveHostIdentity(t, server.HostIdentity{Profile: "work", PID: 222, InstanceID: "new"})
-	ready := profileAgentReady("work", paths.ProfileDir("work"))
+	dir := paths.ProfileDir("work")
+	probe := profileAgentRegistered("work", dir)
+	ctx := context.Background()
 
-	short, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	if err := ready(short, 222); err == nil {
-		t.Fatal("ready before the replacement registered")
+	writeAgentRecord(t, hostregistry.Record{Profile: "work", PID: 111, Addr: refusedAddr(t), InstanceID: "old"})
+	if probe(ctx, 222) {
+		t.Fatal("ready while the record still names the old agent")
 	}
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		_ = hostregistry.Write(paths.ProfileDir("work"), hostregistry.Record{Profile: "work", PID: 222, Addr: newAddr, InstanceID: "new"})
-	}()
-	ctx, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel2()
-	if err := ready(ctx, 222); err != nil {
-		t.Fatalf("ready: %v", err)
+	newAddr := serveHostIdentity(t, server.HostIdentity{Profile: "work", PID: 222, InstanceID: "new"})
+	writeAgentRecord(t, hostregistry.Record{Profile: "work", PID: 222, Addr: newAddr, InstanceID: "new"})
+	if !probe(ctx, 222) {
+		t.Fatal("not ready once the replacement registered and answers")
 	}
-	other, cancel3 := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel3()
-	if err := ready(other, 333); err == nil {
+	if probe(ctx, 333) {
 		t.Fatal("ready for a process the record does not name")
+	}
+	// The record names the replacement, but the agent answering there is
+	// another process.
+	imposter := serveHostIdentity(t, server.HostIdentity{Profile: "work", PID: 999, InstanceID: "inst"})
+	writeAgentRecord(t, hostregistry.Record{Profile: "work", PID: 444, Addr: imposter, InstanceID: "inst"})
+	if probe(ctx, 444) {
+		t.Fatal("ready although the answering agent reports another PID")
+	}
+}
+
+// The identity probe stays within the caller's deadline even when the
+// recorded address accepts connections but never answers.
+func TestProfileAgentRegisteredHonorsDeadline(t *testing.T) {
+	tempHome(t)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lis.Close() })
+	go func() {
+		for {
+			conn, err := lis.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { conn.Close() })
+		}
+	}()
+	writeAgentRecord(t, hostregistry.Record{Profile: "work", PID: 555, Addr: lis.Addr().String(), InstanceID: "silent"})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if profileAgentRegistered("work", paths.ProfileDir("work"))(ctx, 555) {
+		t.Fatal("ready although the agent never answered")
+	}
+	if elapsed := time.Since(start); elapsed > 600*time.Millisecond {
+		t.Fatalf("probe took %s, past the caller's 100ms deadline", elapsed)
 	}
 }
