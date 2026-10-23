@@ -10,7 +10,10 @@ import (
 )
 
 // DrainForUpdate owns only admission, never local installation authority. The
-// caller must keep this stream alive even after IDLE. No token can adopt,
+// caller asserts it has validated local input, acquired the OS barrier and
+// independently captured initial native evidence before calling. The server
+// does not verify those assertions; it verifies token shape and admission only.
+// The caller must keep this stream alive even after IDLE. No token can adopt,
 // release, or replace another stream's ownership (including the same token).
 func (s *Server) DrainForUpdate(req *proto.DrainForUpdateRequest, stream proto.Agent_DrainForUpdateServer) error {
 	token := req.GetOperationToken()
@@ -20,7 +23,11 @@ func (s *Server) DrainForUpdate(req *proto.DrainForUpdateRequest, stream proto.A
 	send := func(phase proto.UpdateDrainState_Phase) error {
 		return stream.Send(&proto.UpdateDrainState{OperationToken: token, Phase: phase})
 	}
-	release, err := s.drainForUpdate(stream.Context(), func() error {
+	release, err := s.drainForUpdateObserved(stream.Context(), func(owner uint64, phase proto.UpdateReadiness_Phase) {
+		if s.events != nil {
+			s.events.setUpdateReadiness(owner, token, phase)
+		}
+	}, func() error {
 		if err := send(proto.UpdateDrainState_SEALED); err != nil {
 			return err
 		}

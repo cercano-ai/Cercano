@@ -62,7 +62,10 @@ func subscribeEventsCmd(ag *agentclient.Client) tea.Cmd {
 		wait = func() tea.Msg {
 			ev, ok := <-ch
 			if !ok || ev.Err != nil {
-				return nil // stream ended; stop draining
+				return updateReadinessMsg{} // withdraw live state; stop draining
+			}
+			if ev.UpdateReadiness != nil {
+				return updateReadinessMsg{notice: *ev.UpdateReadiness, next: wait}
 			}
 			if ev.TUIUpdate != nil {
 				return tuiUpdateNoticeMsg{version: ev.TUIUpdate.Version, operationID: ev.TUIUpdate.OperationID, next: wait}
@@ -127,4 +130,9 @@ type tuiUpdateNoticeMsg struct {
 	version     string
 	operationID int64
 	next        tea.Cmd
+}
+
+type updateReadinessMsg struct {
+	notice agentclient.UpdateReadiness
+	next   tea.Cmd
 }

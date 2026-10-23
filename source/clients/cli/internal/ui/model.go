@@ -113,6 +113,7 @@ type Model struct {
 	agent              *agentclient.Client
 	convID             string
 	tuiUpdateAvailable bool
+	updateReadiness    agentclient.UpdateReadiness
 	forceSaveSeen      string
 	// verifiedContext is the early-main verified installation context; it is
 	// absent when the TUI was not launched as a verified installed member
@@ -1045,6 +1046,21 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		}
 		return m.restartNotice("Cancel choice recorded. No force override was requested.")
 
+	case updateReadinessMsg:
+		n := msg.notice
+		if n.OperationToken == "" && n.Phase == "" {
+			m.updateReadiness = agentclient.UpdateReadiness{}
+		} else if len(n.OperationToken) == 32 && strings.Trim(n.OperationToken, "0123456789abcdef") == "" {
+			switch n.Phase {
+			case "DRAINING", "IDLE":
+				m.updateReadiness = n
+			case "RELEASED":
+				if m.updateReadiness.OperationToken == n.OperationToken {
+					m.updateReadiness = agentclient.UpdateReadiness{}
+				}
+			}
+		}
+		return m, msg.next
 	case tuiUpdateNoticeMsg:
 		next, cmd := m.applyTUIUpdateNotice(msg.version, msg.operationID)
 		return next, tea.Batch(cmd, msg.next)
@@ -5947,6 +5963,7 @@ func (m Model) renderStatus() string {
 		m.renderContextMeter(),
 		cloudPart,
 		m.renderConnStateChip(),
+		m.renderUpdateReadiness(),
 		m.renderPermissionModeChip(),
 		m.renderDevChip(),
 		m.statusDivider(),
@@ -6205,3 +6222,11 @@ func formatTokens(n int) string {
 // QuitAfter exposes a tea.Cmd for the main package to fire if it wants to wrap
 // startup with a confirmation. Currently unused; reserved for future.
 func QuitAfter() tea.Cmd { return tea.Quit }
+
+// No prompt or action: updater assertions are not server-verified local evidence.
+func (m Model) renderUpdateReadiness() string {
+	if m.updateReadiness.OperationToken == "" {
+		return ""
+	}
+	return m.statusDivider() + m.styles.Muted.Render("update: "+strings.ToLower(m.updateReadiness.Phase)+" (exit voluntary)")
+}

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"cercano/source/server/pkg/proto"
 )
 
 // This file is the bounded, internal core of update preparation: waiting for
@@ -151,10 +153,14 @@ func (s *Server) prepareUpdateIdle(ctx context.Context, ready func(release func(
 // integrated coordinator must pass its connection-lifetime context, not an
 // initiating client's context. No shutdown or force behavior is implied.
 func (s *Server) drainForUpdate(ctx context.Context, sealed ...func() error) (func(), error) {
+	return s.drainForUpdateObserved(ctx, nil, sealed...)
+}
+
+func (s *Server) drainForUpdateObserved(ctx context.Context, observe func(uint64, proto.UpdateReadiness_Phase), sealed ...func() error) (func(), error) {
 	if err := s.updateCoverageSnapshot().refusal(); err != nil {
 		return nil, err
 	}
-	release, err := s.updateWork.drain(ctx, sealed...)
+	release, err := s.updateWork.drainObserved(ctx, observe, sealed...)
 	if err != nil {
 		return nil, err
 	}

@@ -1465,11 +1465,19 @@ func (c *Client) StreamRuntimeLogs(ctx context.Context, tail int, source string)
 // event on this channel.
 type AgentEvent struct {
 	TUIUpdate         *TUIUpdateInstalled
+	UpdateReadiness   *UpdateReadiness
 	Mode              string                 // populated by PermissionModeChanged events
 	OpenRuntimeStatus *OpenRuntimeStatus     // populated by OpenRuntimeStatusChanged events
 	ConfigChanged     *ConfigChanged         // populated by ConfigChanged events
 	SessionProfile    *SessionProfileChanged // populated by SessionProfileChanged events
 	Err               error
+}
+
+// UpdateReadiness is metadata, not local evidence or exit authority. Empty means
+// stream lost: forget live state before reconnect/replay.
+type UpdateReadiness struct {
+	OperationToken string
+	Phase          string
 }
 
 // TUIUpdateInstalled is notification data only, never an executable path.
@@ -1566,6 +1574,13 @@ func (c *Client) drainSubscribeEvents(ctx context.Context, stream proto.Agent_Su
 			stream = s
 		}
 		ev, err := stream.Recv()
+		if err != nil {
+			select {
+			case out <- AgentEvent{UpdateReadiness: &UpdateReadiness{}}:
+			case <-ctx.Done():
+				return
+			}
+		}
 		if errors.Is(err, io.EOF) {
 			return
 		}
@@ -1585,6 +1600,10 @@ func (c *Client) drainSubscribeEvents(ctx context.Context, stream proto.Agent_Su
 			}
 			out <- AgentEvent{Err: err}
 			return
+		}
+		if ready := ev.GetUpdateReadiness(); ready != nil {
+			out <- AgentEvent{UpdateReadiness: &UpdateReadiness{OperationToken: ready.GetOperationToken(), Phase: ready.GetPhase().String()}}
+			continue
 		}
 		if update := ev.GetTuiUpdateInstalled(); update != nil {
 			out <- AgentEvent{TUIUpdate: &TUIUpdateInstalled{Version: update.GetVersion(), OperationID: update.GetOperationId()}}

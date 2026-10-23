@@ -1308,6 +1308,7 @@ message ClientEvent {
     OpenRuntimeStatusChanged open_runtime_status_changed = 4;
     SessionProfileChanged session_profile_changed = 5;
     TuiUpdateInstalled tui_update_installed = 6;
+    UpdateReadiness update_readiness = 7;
   }
 }
 
@@ -2485,6 +2486,22 @@ message UpdateDrainState {
     SEALED = 1;
     DRAINING = 2;
     IDLE = 3;
+  }
+  Phase phase = 2;
+}
+
+// Metadata only. Caller asserts local inputs, OS barrier and initial native
+// evidence precede DrainForUpdate; server verifies only token and admission.
+// Not authentication, filesystem authority, or authorization for client exit.
+// Live snapshots coalesce; RELEASED withdraws the exact owner. New subscribers
+// receive current live state only (no historical release); disconnect clears UI.
+message UpdateReadiness {
+  string operation_token = 1;
+  enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    DRAINING = 1;
+    IDLE = 2;
+    RELEASED = 3;
   }
   Phase phase = 2;
 }

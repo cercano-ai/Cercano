@@ -16,11 +16,12 @@ import (
 // updateAdmission counts actual admitted lifetimes, not broker generations or
 // connected observers. Its zero value is ready. The drain RPC checks background coverage before arming it.
 type updateAdmission struct {
-	mu       sync.Mutex
-	active   uint64
-	paused   bool
-	draining bool
-	changed  chan struct{}
+	mu              sync.Mutex
+	active          uint64
+	drainGeneration uint64
+	paused          bool
+	draining        bool
+	changed         chan struct{}
 }
 
 var errUpdateAdmissionPaused = errors.New("agent update preparation is active; retry shortly")
@@ -80,6 +81,10 @@ func (g *updateAdmission) enterContext(ctx context.Context) (context.Context, fu
 // Optional sealed notifications run after exclusion, before waiting, without
 // the mutex held. Notification failure releases this owner's seal.
 func (g *updateAdmission) drain(ctx context.Context, sealed ...func() error) (func(), error) {
+	return g.drainObserved(ctx, nil, sealed...)
+}
+
+func (g *updateAdmission) drainObserved(ctx context.Context, observe func(uint64, proto.UpdateReadiness_Phase), sealed ...func() error) (func(), error) {
 	g.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		g.mu.Unlock()
@@ -89,15 +94,30 @@ func (g *updateAdmission) drain(ctx context.Context, sealed ...func() error) (fu
 		g.mu.Unlock()
 		return nil, errUpdateAdmissionPaused
 	}
+	g.drainGeneration++
+	generation := g.drainGeneration
+	notice := func(phase proto.UpdateReadiness_Phase) {
+		if observe != nil {
+			observe(generation, phase)
+		}
+	}
 	g.paused = true
 	g.draining = true
 	g.notifyLocked()
 	g.mu.Unlock()
 	var once sync.Once
 	release := func() {
-		once.Do(func() { g.mu.Lock(); g.paused = false; g.draining = false; g.notifyLocked(); g.mu.Unlock() })
+		once.Do(func() {
+			g.mu.Lock()
+			g.paused = false
+			g.draining = false
+			g.notifyLocked()
+			g.mu.Unlock()
+			notice(proto.UpdateReadiness_RELEASED)
+		})
 	}
 	stop := context.AfterFunc(ctx, release)
+	notice(proto.UpdateReadiness_DRAINING)
 	ownedRelease := func() { stop(); release() }
 	for _, notify := range sealed {
 		if err := notify(); err != nil {
@@ -114,6 +134,7 @@ func (g *updateAdmission) drain(ctx context.Context, sealed ...func() error) (fu
 		}
 		if g.active == 0 {
 			g.mu.Unlock()
+			notice(proto.UpdateReadiness_IDLE)
 			return ownedRelease, nil
 		}
 		changed := g.changed

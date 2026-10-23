@@ -19,17 +19,22 @@ import (
 // eventHub fans server-originated ClientEvents out to all open subscriber
 // streams. Safe for concurrent Subscribe / broadcast / unsubscribe.
 type eventHub struct {
-	mu           sync.Mutex
-	next         int
-	subs         map[int]chan *proto.ClientEvent
-	onEmpty      func()
-	latestTUI    *proto.ClientEvent
-	tuiInstallID string
-	tuiChanged   chan struct{}
+	mu                sync.Mutex
+	readinessOwner    uint64
+	readinessPhase    proto.UpdateReadiness_Phase
+	readiness         *proto.ClientEvent
+	readinessRevision uint64
+	readinessChanged  chan struct{}
+	next              int
+	subs              map[int]chan *proto.ClientEvent
+	onEmpty           func()
+	latestTUI         *proto.ClientEvent
+	tuiInstallID      string
+	tuiChanged        chan struct{}
 }
 
 func newEventHub() *eventHub {
-	return &eventHub{subs: make(map[int]chan *proto.ClientEvent), tuiChanged: make(chan struct{})}
+	return &eventHub{subs: make(map[int]chan *proto.ClientEvent), tuiChanged: make(chan struct{}), readinessChanged: make(chan struct{})}
 }
 
 // subscribe registers a new subscriber and returns its event channel plus an
@@ -109,10 +114,34 @@ func (s *Server) SubscribeEvents(_ *proto.SubscribeEventsRequest, stream proto.A
 
 	ctx := stream.Context()
 	var lastTUI int64
+	var lastReadiness uint64
+	var lastLiveToken string
+	initial := true
 	for {
 		s.events.mu.Lock()
 		latest, changed := s.events.latestTUI, s.events.tuiChanged
+		ready, revision, readinessChanged := s.events.readiness, s.events.readinessRevision, s.events.readinessChanged
 		s.events.mu.Unlock()
+		if revision != lastReadiness {
+			if ready != nil && (!initial || ready.GetUpdateReadiness().GetPhase() != proto.UpdateReadiness_RELEASED) {
+				// Coalescing may skip an entire newer owner. Withdraw the last
+				// live owner this stream actually saw, not an unseen token that
+				// a token-fenced UI would (correctly) ignore.
+				if ready.GetUpdateReadiness().GetPhase() == proto.UpdateReadiness_RELEASED {
+					if lastLiveToken != "" {
+						ready = &proto.ClientEvent{Event: &proto.ClientEvent_UpdateReadiness{UpdateReadiness: &proto.UpdateReadiness{OperationToken: lastLiveToken, Phase: proto.UpdateReadiness_RELEASED}}}
+					}
+					lastLiveToken = ""
+				} else {
+					lastLiveToken = ready.GetUpdateReadiness().GetOperationToken()
+				}
+				if err := stream.Send(ready); err != nil {
+					return err
+				}
+			}
+			lastReadiness = revision
+		}
+		initial = false
 		if latest != nil && latest.GetTuiUpdateInstalled().GetOperationId() > lastTUI {
 			if err := stream.Send(latest); err != nil {
 				return err
@@ -120,6 +149,8 @@ func (s *Server) SubscribeEvents(_ *proto.SubscribeEventsRequest, stream proto.A
 			lastTUI = latest.GetTuiUpdateInstalled().GetOperationId()
 		}
 		select {
+		case <-readinessChanged:
+			continue
 		case <-changed:
 			continue
 		case <-ctx.Done():
@@ -230,4 +261,20 @@ func (s *Server) broadcastOpenRuntimeStatus(status *proto.OpenRuntimeStatus) {
 			},
 		},
 	})
+}
+
+// Generation comes from admission, never from the caller token. Release is
+// terminal for that generation, even if its delayed seal callback arrives later.
+// Separate live-state wakeups never consume/drop ordinary queued events.
+func (h *eventHub) setUpdateReadiness(owner uint64, token string, phase proto.UpdateReadiness_Phase) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if owner < h.readinessOwner || (owner == h.readinessOwner && phase <= h.readinessPhase) {
+		return
+	}
+	h.readinessOwner, h.readinessPhase = owner, phase
+	h.readiness = &proto.ClientEvent{Event: &proto.ClientEvent_UpdateReadiness{UpdateReadiness: &proto.UpdateReadiness{OperationToken: token, Phase: phase}}}
+	h.readinessRevision++
+	close(h.readinessChanged)
+	h.readinessChanged = make(chan struct{})
 }

@@ -39,6 +39,9 @@ func TestTUIUpdateEventDecodingKeepsOtherEvents(t *testing.T) {
 	if !ok || second.Mode != "strict" || second.TUIUpdate != nil {
 		t.Fatal("other event lost", second)
 	}
+	if cleared := <-out; cleared.UpdateReadiness == nil || cleared.UpdateReadiness.OperationToken != "" {
+		t.Fatal("missing live-state withdrawal")
+	}
 	if _, ok = <-out; ok {
 		t.Fatal("stream not closed")
 	}
