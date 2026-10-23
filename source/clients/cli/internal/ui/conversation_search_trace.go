@@ -74,11 +74,7 @@ func searchTracePath() string {
 	if path := os.Getenv("CERCANO_SEARCH_TRACE_LOG"); path != "" {
 		return path
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "cercano-search-perf.jsonl"
-	}
-	return filepath.Join(home, ".config", "cercano", "search-perf.jsonl")
+	return filepath.Join(profileLogsDir(), "search-perf.jsonl")
 }
 func enqueueSearchTrace(queue chan<- searchTraceEvent, event searchTraceEvent, dropped *atomic.Uint64) {
 	event.Dropped = dropped.Load()

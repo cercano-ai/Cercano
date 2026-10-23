@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/llm/openai"
 	"cercano/source/server/internal/localruntime"
+	"cercano/source/server/pkg/paths"
 )
 
 // LLMProvider adapts the llama-server runtime to the native inference.Provider
@@ -284,7 +284,7 @@ func compactRuntimeLogs(logs []localruntime.LogEntry, instanceID string) []map[s
 }
 
 func recentCrashlogRuntimeEvents(instanceID string) []map[string]any {
-	entries, err := crashlog.TailEntries(defaultCrashLogPath(), 40)
+	entries, err := crashlog.TailEntries(DefaultCrashLogPath(), 40)
 	if err != nil {
 		return nil
 	}
@@ -326,11 +326,14 @@ func recentCrashlogRuntimeEvents(instanceID string) []map[string]any {
 	return out
 }
 
-func defaultCrashLogPath() string {
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, ".config", "cercano", "crash.log")
+// DefaultCrashLogPath returns crash.log in the active profile's directory,
+// the log the agent host writes runtime events to. Empty when the home
+// directory is unknown.
+func DefaultCrashLogPath() string {
+	if paths.CheckHome() != nil {
+		return ""
 	}
-	return "crash.log"
+	return filepath.Join(paths.ActiveProfileDir(), "crash.log")
 }
 
 func fetchSlotsSnapshot(ctx context.Context, endpoint string) string {

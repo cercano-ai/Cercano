@@ -18,6 +18,7 @@ import (
 	cliui "cercano/source/clients/cli/internal/ui"
 	"cercano/source/server/pkg/agentclient"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/paths"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -36,6 +37,17 @@ func main() {
 	if *showVersion {
 		fmt.Printf("cercano-cli %s\n", buildversion.Display(version))
 		return
+	}
+
+	// Profile files (config, debug logs) need a home directory and a valid
+	// CERCANO_PROFILE; fail readably before any path is computed.
+	if err := paths.CheckHome(); err != nil {
+		fmt.Fprintln(os.Stderr, "cercano:", err)
+		os.Exit(1)
+	}
+	if _, err := paths.Profile(); err != nil {
+		fmt.Fprintln(os.Stderr, "cercano: CERCANO_PROFILE:", err)
+		os.Exit(1)
 	}
 
 	// Config is shared with the server (pkg/config); the CLI needs the port to

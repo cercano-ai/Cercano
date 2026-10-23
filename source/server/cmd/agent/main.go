@@ -30,6 +30,7 @@ import (
 	"cercano/source/server/internal/sysram"
 	"cercano/source/server/internal/tools"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/proto"
 
 	"google.golang.org/adk/session"
@@ -56,6 +57,16 @@ func checkOllama(ctx context.Context, baseURL string, models ...string) error {
 func main() {
 	const version = "0.3.0"
 	fmt.Printf("Starting Cercano AI Agent gRPC server (v%s)...\n", version)
+
+	// Profile paths need a home directory and a valid CERCANO_PROFILE.
+	if err := paths.CheckHome(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if _, err := paths.Profile(); err != nil {
+		fmt.Fprintln(os.Stderr, "CERCANO_PROFILE:", err)
+		os.Exit(1)
+	}
 
 	// Load config: file → env vars → defaults
 	cfg, err := config.Load(config.DefaultPath())

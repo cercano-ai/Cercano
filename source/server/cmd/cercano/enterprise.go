@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -28,11 +26,11 @@ import (
 )
 
 func newEnterpriseHost() (*enterprise.Host, error) {
-	home, err := os.UserHomeDir()
+	dir, err := enterprise.DefaultStateDir()
 	if err != nil {
 		return nil, err
 	}
-	return enterprise.NewHost(enterprise.HostOptions{Directory: filepath.Join(home, ".cercano", "enterprise"), Manager: enterprise.Options{ClientVersion: version}})
+	return enterprise.NewHost(enterprise.HostOptions{Directory: dir, Manager: enterprise.Options{ClientVersion: version}})
 }
 func openEnterpriseBrowser(ctx context.Context, target string) error {
 	if runtime.GOOS != "darwin" {

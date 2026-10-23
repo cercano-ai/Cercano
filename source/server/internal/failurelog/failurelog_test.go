@@ -10,9 +10,12 @@ import (
 )
 
 func TestDefaultPath(t *testing.T) {
-	path := DefaultPath()
-	if !strings.HasSuffix(path, filepath.Join(".config", "cercano", "failures.jsonl")) && path != "failures.jsonl" {
-		t.Fatalf("DefaultPath() = %q, want failures.jsonl under config dir", path)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CERCANO_PROFILE", "work")
+	if got, want := DefaultPath(), filepath.Join(home, ".config", "cercano", "profiles", "work", "failures.jsonl"); got != want {
+		t.Fatalf("DefaultPath() = %q, want %q", got, want)
 	}
 }
 

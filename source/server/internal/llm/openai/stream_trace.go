@@ -27,6 +27,9 @@ package openai
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+
+	"cercano/source/server/pkg/paths"
 
 	goopenai "github.com/sashabaranov/go-openai"
 )
@@ -38,11 +41,11 @@ func traceStreamEnabled() bool {
 	if traceStreamEnv {
 		return true
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	// A machine-wide debug switch: ~/.cercano/trace-openai-stream.
+	if paths.CheckHome() != nil {
 		return false
 	}
-	if _, err := os.Stat(home + "/.cercano/trace-openai-stream"); err == nil {
+	if _, err := os.Stat(filepath.Join(paths.StateRoot(), "trace-openai-stream")); err == nil {
 		return true
 	}
 	return false

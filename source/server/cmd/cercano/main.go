@@ -85,15 +85,15 @@ func init() {
 }
 
 // setupDispatchLogFile configures the standard library logger to tee output
-// to both stderr and ~/.cercano-dispatch.log with microsecond timestamps,
-// so dispatch diagnostics survive Claude Code's startup-only stderr capture.
+// to both stderr and the active profile's logs/dispatch.log with microsecond
+// timestamps, so dispatch diagnostics survive Claude Code's startup-only
+// stderr capture.
 func setupDispatchLogFile() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[diag] could not resolve home dir for log: %v\n", err)
+	path := dispatchLogPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "[diag] could not create dispatch log dir: %v\n", err)
 		return
 	}
-	path := home + "/.cercano-dispatch.log"
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[diag] could not open dispatch log %s: %v\n", path, err)
@@ -445,7 +445,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// catalog + files on disk). LoadCache is best-effort — a missing
 	// cache on first run just means the background refresher will
 	// populate it shortly. Start() is what kicks the periodic refresh.
-	catalogCachePath := filepath.Join(filepath.Dir(config.DefaultPath()), "catalog-cache.json")
+	catalogCachePath := profileFile("catalog-cache.json")
 	catalogManager := ollamacatalog.NewManager(&ollamacatalog.Fetcher{}, catalogCachePath)
 	if err := catalogManager.LoadCache(); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Could not load online-catalog cache at %s: %v (starting fresh)\n", catalogCachePath, err)
@@ -491,8 +491,8 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	orchestrator.SetLocusModeGetter(srv.LocusMode)
 
 	// Permission store + pending-decisions barrier for the native tool-calling
-	// loop. Path mirrors config.yaml: ~/.config/cercano/permissions.yaml.
-	permsPath := filepath.Join(filepath.Dir(config.DefaultPath()), "permissions.yaml")
+	// loop. Lives beside the active profile's config.yaml.
+	permsPath := profileFile("permissions.yaml")
 	permStore, err := agent.LoadPermissionStore(permsPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to load permission store at %s: %v — defaulting to permissive in-memory store.\n", permsPath, err)
@@ -518,7 +518,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// keeping the server's stored providers raw so the dispatch engine can wrap
 	// them per-dispatch without double-counting.
 	// agentCollector is hoisted so the coproc engine sink can reference it below.
-	agentTelemetryPath := filepath.Join(filepath.Dir(config.DefaultPath()), "telemetry.db")
+	agentTelemetryPath := profileFile("telemetry.db")
 	agentCollector, closeAgentTelemetry, err := startAgentTelemetry(agentTelemetryPath, generateSessionID())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to initialize agent telemetry: %v\n", err)
@@ -981,9 +981,10 @@ func openTurnModel(cfg config.Config) string {
 
 const setupUsage = `Usage: cercano setup [--install-engine]
 
-Interactive first-run setup. Detects AI engine backends, writes
-~/.config/cercano/config.yaml, installs the telemetry hook, creates the
-research virtualenv, and pulls the default + embedding models.
+Interactive first-run setup. Detects AI engine backends, writes the active
+profile's config.yaml (~/.config/cercano/profiles/<name>/config.yaml, where
+<name> is $CERCANO_PROFILE or "default"), installs the telemetry hook,
+creates the research virtualenv, and pulls the default + embedding models.
 
 Flags:
   --install-engine   Install a local inference engine (Ollama) if none is found.
@@ -991,6 +992,10 @@ Flags:
 `
 
 func main() {
+	// Every command that touches profile or machine state needs a home
+	// directory and a valid CERCANO_PROFILE before any path is computed.
+	requireStartupEnvironment(os.Args)
+
 	// Handle subcommands before flag parsing.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -1058,7 +1063,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
 				cfg = config.Defaults()
 			}
-			crashLogPath := filepath.Join(filepath.Dir(config.DefaultPath()), "crash.log")
+			crashLogPath := profileFile("crash.log")
 			crashWriter, cwErr := crashlog.NewWriter(crashLogPath, version)
 			if cwErr != nil {
 				fmt.Fprintf(os.Stderr, "[WARN] Failed to open crash log at %s: %v\n", crashLogPath, cwErr)
@@ -1185,8 +1190,7 @@ func runSetup(installEngine bool) {
 	fmt.Printf("Cercano Setup (v%s)\n", version)
 
 	// Check for updates (cached, non-blocking)
-	configDir := filepath.Dir(config.DefaultPath())
-	if info := update.CheckCached(version, configDir); info != nil && info.UpdateAvailable {
+	if info := update.CheckCached(version, updateCacheDir()); info != nil && info.UpdateAvailable {
 		fmt.Printf("\n  Note: A newer version is available (v%s).\n", info.LatestVersion)
 		fmt.Printf("  Run `%s` after setup to get the latest features.\n", info.UpgradeCommand())
 	}
@@ -1849,7 +1853,7 @@ func runLogs(args []string) {
 		fmt.Fprintln(os.Stderr, "usage: cercano logs --crashes [--tail N]")
 		os.Exit(2)
 	}
-	path := filepath.Join(filepath.Dir(config.DefaultPath()), "crash.log")
+	path := profileFile("crash.log")
 	entries, err := crashlog.TailEntries(path, *tail)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "logs: read %s: %v\n", path, err)
@@ -1891,7 +1895,7 @@ func runLogs(args []string) {
 
 // runStats prints cumulative usage statistics and exits.
 func runStats() {
-	telemetryPath := filepath.Join(filepath.Dir(config.DefaultPath()), "telemetry.db")
+	telemetryPath := profileFile("telemetry.db")
 	store, err := telemetry.NewSQLiteStore(telemetryPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open telemetry database: %v\n", err)
@@ -1919,7 +1923,7 @@ func generateSessionID() string {
 
 // runServerMode starts the gRPC server in standalone mode (for IDE clients).
 func runServerMode(cfg config.Config) {
-	// Tee log.Printf diagnostics to ~/.cercano-dispatch.log so they survive
+	// Tee log.Printf diagnostics to the profile's logs/dispatch.log so they survive
 	// when the CLI auto-launches this agent and swallows its stderr. Without
 	// this, subsystem logs (e.g. [mcphost] connection failures) are lost.
 	setupDispatchLogFile()
@@ -1927,7 +1931,7 @@ func runServerMode(cfg config.Config) {
 	// Persistent crash log. Sits alongside config.yaml so operators can
 	// find it after the fact. Failure to open the log is non-fatal —
 	// crash recording is nice-to-have; the server should still start.
-	crashLogPath := filepath.Join(filepath.Dir(config.DefaultPath()), "crash.log")
+	crashLogPath := profileFile("crash.log")
 	crashWriter, cwErr := crashlog.NewWriter(crashLogPath, version)
 	if cwErr != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to open crash log at %s: %v (server continues without crash capture)\n", crashLogPath, cwErr)
@@ -2054,7 +2058,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 	s := mcpserver.NewServer(grpcClient)
 
 	// Initialize telemetry
-	telemetryPath := filepath.Join(filepath.Dir(config.DefaultPath()), "telemetry.db")
+	telemetryPath := profileFile("telemetry.db")
 	telemetryStore, err := telemetry.NewSQLiteStore(telemetryPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to initialize telemetry: %v\n", err)
@@ -2073,8 +2077,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 	}
 
 	// Check for updates (cached, non-blocking)
-	configDir := filepath.Dir(config.DefaultPath())
-	if info := update.CheckCached(version, configDir); info != nil && info.UpdateAvailable {
+	if info := update.CheckCached(version, updateCacheDir()); info != nil && info.UpdateAvailable {
 		fmt.Fprintf(os.Stderr, "[UPDATE] A newer version is available: v%s. Run: %s\n", info.LatestVersion, info.UpgradeCommand())
 		s.SetUpdateInfo(info.LatestVersion, info.UpgradeCommand())
 	}

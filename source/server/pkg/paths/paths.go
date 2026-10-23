@@ -93,6 +93,19 @@ func CurrentProfileDir() (string, error) {
 	return ProfileDir(name), nil
 }
 
+// ActiveProfileDir is CurrentProfileDir for callers that cannot return an
+// error. When CERCANO_PROFILE is invalid it returns the default profile's
+// directory; process entry points reject an invalid name before any profile
+// file is opened, and config.Load reports it, so the fallback only keeps a
+// helper from returning a relative path. It panics if the home directory is
+// unknown; see CheckHome.
+func ActiveProfileDir() string {
+	if dir, err := CurrentProfileDir(); err == nil {
+		return dir
+	}
+	return ProfileDir(DefaultProfile)
+}
+
 // MachineConfigPath is the machine-wide config file.
 // It panics if the home directory is unknown; see CheckHome.
 func MachineConfigPath() string { return filepath.Join(ConfigRoot(), "machine.yaml") }

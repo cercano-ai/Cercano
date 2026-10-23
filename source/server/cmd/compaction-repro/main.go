@@ -40,7 +40,7 @@ import (
 )
 
 func main() {
-	convID := flag.String("conv", "80109e871fba4e18", "conversation id from ~/.config/cercano/conversations.db")
+	convID := flag.String("conv", "80109e871fba4e18", "conversation id from the active profile's conversations.db")
 	model := flag.String("model", "qwen3-coder", "Ollama model tag to use for the summarizer")
 	ollamaURL := flag.String("ollama", "http://localhost:11434", "Ollama base URL")
 	floor := flag.Int("floor", 1000, "activation floor tokens (lowered so short conversations still trigger)")
@@ -54,7 +54,8 @@ func main() {
 	aroundTurn := flag.String("aroundturn", "", "slice a window around this turn id (default: whole conversation)")
 	before := flag.Int("before", 40, "with -aroundturn: turns of context before the target")
 	after := flag.Int("after", 10, "with -aroundturn: turns of context after the target")
-	dbFlag := flag.String("db", os.ExpandEnv("$HOME/.config/cercano/conversations.db"), "conversations database to read (any sliced copy works — nothing is written)")
+	defaultDB, _ := conversation.DefaultPath()
+	dbFlag := flag.String("db", defaultDB, "conversations database to read (any sliced copy works — nothing is written)")
 	jsonOut := flag.Bool("json", false, "emit one machine-readable JSON result object on stdout (human output moves to stderr)")
 	flag.Parse()
 

@@ -29,7 +29,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -39,19 +38,21 @@ import (
 	"google.golang.org/grpc/status"
 
 	"cercano/source/server/internal/crashlog"
+	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/proto"
 )
 
-// defaultCrashLogPath returns the standard crash-log location for
-// Cercano — matches what runServerMode writes to. Reproduced here so
-// agentclient doesn't need to depend on the config package (which
-// would enlarge the SDK's dependency footprint for embedders).
-func defaultCrashLogPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+// DefaultCrashLogPath returns the standard crash-log location for
+// Cercano: crash.log in the active profile's directory, matching what
+// runServerMode writes to. Computed from pkg/paths so agentclient doesn't
+// need to depend on the config package (which would enlarge the SDK's
+// dependency footprint for embedders). Empty when the home directory is
+// unknown.
+func DefaultCrashLogPath() string {
+	if paths.CheckHome() != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "cercano", "crash.log")
+	return filepath.Join(paths.ActiveProfileDir(), "crash.log")
 }
 
 // ConnState is the coarse-grained connection health that observers care
@@ -248,7 +249,7 @@ func (c *Client) setState(next ConnState, attempt int, err error) {
 	}
 	ev := ConnStateChanged{State: next, Attempt: attempt, Err: err}
 	if prev == ConnStateConnected && next == ConnStateReconnecting {
-		ev.CrashSummary = crashlog.LatestSummary(defaultCrashLogPath())
+		ev.CrashSummary = crashlog.LatestSummary(DefaultCrashLogPath())
 	}
 	c.stateBroker.broadcast(ev)
 }

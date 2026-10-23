@@ -2,6 +2,7 @@ package config
 
 import (
 	"cercano/source/server/pkg/accountidentity"
+	"cercano/source/server/pkg/paths"
 	"fmt"
 	"log"
 	"net/url"
@@ -755,13 +756,13 @@ func Defaults() Config {
 	}
 }
 
-// DefaultPath returns the default config file path (~/.config/cercano/config.yaml).
+// DefaultPath returns the active profile's config file:
+// ~/.config/cercano/profiles/<CERCANO_PROFILE or "default">/config.yaml.
+// When CERCANO_PROFILE is invalid it returns the default profile's path and
+// Load reports the invalid name. It panics if the home directory is unknown;
+// entry points call paths.CheckHome first.
 func DefaultPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".config", "cercano", "config.yaml")
+	return filepath.Join(paths.ActiveProfileDir(), "config.yaml")
 }
 
 // migrateCloudProfiles synthesizes a provider-named profile from the legacy
@@ -988,6 +989,13 @@ func finalizeModelTiers(cfg *Config) {
 // environment variable overrides. Returns defaults if the file doesn't exist.
 func Load(path string) (Config, error) {
 	cfg := Defaults()
+
+	// An invalid CERCANO_PROFILE must not silently become the default
+	// profile: DefaultPath falls back so callers get an absolute path, and
+	// this reports the name.
+	if _, err := paths.Profile(); err != nil {
+		return cfg, err
+	}
 
 	if path != "" {
 		data, err := os.ReadFile(path)
@@ -1270,12 +1278,12 @@ func (c Config) Clone() Config {
 }
 
 // VenvDir returns the path to Cercano's Python venv (~/.config/cercano/venv/).
+// The venv is machine-wide: every profile shares it.
 func VenvDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	if paths.CheckHome() != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "cercano", "venv")
+	return filepath.Join(paths.ConfigRoot(), "venv")
 }
 
 // VenvPython returns the path to the Python binary inside Cercano's venv.

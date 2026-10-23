@@ -136,3 +136,16 @@ func TestPathsPanicWhenHomeUnknown(t *testing.T) {
 		}()
 	}
 }
+
+func TestActiveProfileDirFallsBackToDefault(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	t.Setenv("CERCANO_PROFILE", "work")
+	if got, want := ActiveProfileDir(), filepath.Join(home, ".config", "cercano", "profiles", "work"); got != want {
+		t.Errorf("ActiveProfileDir() = %q, want %q", got, want)
+	}
+	t.Setenv("CERCANO_PROFILE", "../x")
+	if got, want := ActiveProfileDir(), filepath.Join(home, ".config", "cercano", "profiles", "default"); got != want {
+		t.Errorf("invalid profile: ActiveProfileDir() = %q, want %q", got, want)
+	}
+}

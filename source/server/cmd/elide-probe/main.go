@@ -13,7 +13,11 @@ import (
 )
 
 func main() {
-	path := os.ExpandEnv("$HOME/.config/cercano/conversations.db")
+	path, err := conversation.DefaultPath()
+	if err != nil {
+		fmt.Println("conversations path:", err)
+		return
+	}
 	store, err := conversation.Open(path)
 	if err != nil {
 		fmt.Println("open:", err)
