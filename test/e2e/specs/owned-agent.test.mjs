@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AGENT_BIN } from "../helpers/paths.mjs";
-import { ownedAgentIdentity, stopOwnedListener } from "../helpers/owned-agent.mjs";
+import { ownedAgentIdentity, stopOwnedAgent, stopOwnedListener } from "../helpers/owned-agent.mjs";
 import { createSandbox } from "../helpers/sandbox.mjs";
 import { startAgent, waitForPort, portOpen } from "../helpers/agent.mjs";
 
@@ -51,6 +51,23 @@ test("cleanup revalidates identity before escalation", async () => {
     delay: async () => {},
   });
   assert.deepEqual(signals, [[123, "SIGTERM"]]);
+});
+
+test("profile cleanup signals only that profile's agent", async () => {
+  const profiled = { home: sandbox.home, tmp: sandbox.tmp, port: null };
+  const env = `${AGENT_BIN} agent HOME=${sandbox.home} TMPDIR=${sandbox.tmp} CERCANO_PORT= CERCANO_PROFILE=a CERCANO_AUTOLAUNCHED=1`;
+  for (const [profile, options] of [
+    ["b", { env }],
+    ["a", { env: env.replace("CERCANO_PORT=", "CERCANO_PORT=12345") }],
+    ["a", { env: env.replace("CERCANO_PROFILE=a", "") }],
+  ]) {
+    const signals = [];
+    await stopOwnedAgent(123, profiled, { profile, exec: probe(options), kill: (...args) => signals.push(args), delay: async () => {} });
+    assert.deepEqual(signals, [], `profile ${profile} with ${options.env}`);
+  }
+  const signals = [];
+  await stopOwnedAgent(123, profiled, { profile: "a", exec: probe({ env }), kill: (...args) => signals.push(args), delay: async () => {} });
+  assert.deepEqual(signals, [[123, "SIGTERM"], [123, "SIGKILL"]]);
 });
 
 test("ownership probes recognize and stop a real sandbox agent", async () => {

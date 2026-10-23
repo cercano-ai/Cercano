@@ -4,7 +4,7 @@ import { copyFileSync, readFileSync, rmSync } from "node:fs";
 import { stopOwnedListener } from "../helpers/owned-agent.mjs";
 import { join } from "node:path";
 import { withCli, exitCode, ready } from "../helpers/cli.mjs";
-import { waitForPort, portOpen } from "../helpers/agent.mjs";
+import { waitForPort, portOpen, readAgentRecord } from "../helpers/agent.mjs";
 import { CLI_BIN } from "../helpers/paths.mjs";
 
 test("without a reachable or launchable agent the CLI explains and exits 1", async (t) => {
@@ -22,12 +22,13 @@ test("without a reachable or launchable agent the CLI explains and exits 1", asy
 });
 
 test("the CLI auto-launches its sibling agent, which exits after the last client", async (t) => {
-  await withCli(t, { agent: false }, async ({ term, sandbox }) => {
-    t.after(() => stopOwnedListener(sandbox));
+  await withCli(t, { agent: false }, async ({ term, sandbox, defer }) => {
+    defer(() => stopOwnedListener(sandbox));
     await ready(term);
     assert.equal(await portOpen(sandbox.port), true, "auto-launched agent should be listening");
-    const log = readFileSync(join(sandbox.tmp, "cercano-server.log"), "utf8");
+    const log = readFileSync(join(sandbox.profileDir(), "logs", "agent.log"), "utf8");
     assert.match(log, /Server listening/);
+    assert.equal(readAgentRecord(sandbox)?.addr, `127.0.0.1:${sandbox.port}`, "the default profile's agent.json should name its port");
 
     await term.press("Ctrl+C");
     await term.press("Ctrl+C");

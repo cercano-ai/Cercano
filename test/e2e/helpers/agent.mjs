@@ -26,6 +26,30 @@ export async function waitForPort(port, { open = true, timeout = 15_000 } = {}) 
   throw new Error(`port ${port} still ${open ? "closed" : "open"} after ${timeout}ms`);
 }
 
+// readAgentRecord returns a profile's agent.json, or null while there is none.
+export function readAgentRecord(sandbox, profile = sandbox.profile) {
+  try {
+    return JSON.parse(readFileSync(join(sandbox.profileDir(profile), "agent.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+// waitForAgentRecord waits until the profile's agent.json names a listening
+// agent (and, when pid is given, that process) and returns the record.
+export async function waitForAgentRecord(sandbox, { profile = sandbox.profile, pid, timeout = 15_000 } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const rec = readAgentRecord(sandbox, profile);
+    if (rec && (pid === undefined || rec.pid === pid)) {
+      const port = Number(rec.addr?.split(":").at(-1));
+      if (port && (await portOpen(port))) return rec;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`no listening agent recorded for profile ${profile} after ${timeout}ms`);
+}
+
 export async function startAgent(sandbox) {
   const logPath = join(sandbox.root, "agent.log");
   const fd = openSync(logPath, "a");
@@ -48,11 +72,15 @@ export async function startAgent(sandbox) {
     }
   };
 
+  // A default-profile sandbox has a fixed port; a named profile's agent
+  // takes an ephemeral one and publishes it in agent.json.
   try {
-    await waitForPort(sandbox.port);
+    if (sandbox.port) await waitForPort(sandbox.port);
+    else await waitForAgentRecord(sandbox, { pid: child.pid });
   } catch (err) {
     stopGroup(child.pid, "SIGKILL");
-    throw new Error(`agent did not listen on ${sandbox.port} (exit=${JSON.stringify(exited)}):\n${log()}`, { cause: err });
+    const where = sandbox.port ? `on ${sandbox.port}` : `for profile ${sandbox.profile}`;
+    throw new Error(`agent did not listen ${where} (exit=${JSON.stringify(exited)}):\n${log()}`, { cause: err });
   }
 
   return {
