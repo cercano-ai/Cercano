@@ -7,7 +7,27 @@
 > for supported behavior. Dated external tests are not fresh provider verification.
 
 
-## Status
+## Current implementation (2026-10-22)
+
+Grant enforcement is implemented in
+`source/server/internal/hostsvc/tools/tools.go` (`GrantedRegistry` and
+`RunAgenticDispatch`), with `internal/server/agentic_dispatch.go` now a wrapper.
+Explicit grants resolve registered names, report unknown names, and reject an
+empty resulting catalog; omitted grants default to registered read-only tools.
+The narrowed registry is the enforcement boundary. One exception to an exact
+explicit list is the assigned managed shared-skill reader: `get_shared_skill`
+is added when managed skills are present. Write/execute grants are approved as
+a set at dispatch (or allowed by bypass mode), not re-prompted for every child
+call.
+
+Child identity is minted even without persistence; persistence is best-effort,
+and the result's persisted sub-conversation ID is conditional. Started, tool
+progress, error and final done events are implemented, not merely future design.
+Public launch remains an immediate receipt, not a final result. The proposed UI
+layout and open questions below are historical design context, not UI acceptance
+certification. Routing classes remain independent of grants.
+
+## Historical status
 
 Draft design spec. This captures the current direction for agentic sub-agents: keep explicit, dynamic tool grants and reuse the unified tool catalog as the source of truth for the skills a parent agent may grant.
 

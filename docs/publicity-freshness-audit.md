@@ -24,6 +24,11 @@ reports supersede initial inventory-only labels for their explicitly scoped file
 - [Agent feature audit](audit-agent-features.md): all 11 feature documents,
   including the index, completed bounded full-file source audits and focused tests.
 
+- [Core-specialist follow-up](audit-core-specialists.md): six additional guides'
+  maintained repo-verifiable claims reviewed; current implementation limits
+  supersede historical Responses/locus/sub-agent/export proposals. No external
+  provider or ATIF certification. This does not close the partial core-guide audit.
+
 - [Core-guide follow-up](audit-core-guides.md): **PARTIAL** coverage of five core
   guides; completed targeted corrections only, not full-file certification.
   Self-dev and cloud routing remain incomplete; the report lists remaining
@@ -70,7 +75,8 @@ All source paths above are under `source/server/` unless otherwise qualified.
   external URLs or templated paths. 11 preexisting missing targets remained in the initial pass;
   the follow-up below resolves them.
 - No full product integration suite, agent installation/restart, or live paid
-  inference. No pushes or landing.
+  inference. No pushes or landing in the initial pass; branch publication of the
+  six-guide follow-up is recorded separately below.
 
 ## Independent review
 
@@ -708,19 +714,25 @@ Final local checks:
   dependency advisories remain. No full server suite, live call, installation
   or service restart was run.
 
-Exact remaining targeted-only semantic coverage (not known broken documentation):
+Remaining targeted-only semantic coverage after the six-guide follow-up (not
+known broken documentation):
 - `docs/agent/README.md`
 - `docs/agent/agent-isolation/architecture.md`
-- `docs/agent/cloud-responses.md`
 - `docs/agent/compaction-decision-fidelity.md`
-- `docs/agent/locus-coproc.md`
-- `docs/agent/locus-mode.md`
-- `docs/agent/per-backend-quirks.md`
 - `docs/agent/self-dev.md`
-- `docs/agent/sub_agents/README.md`
-- `docs/agent/trajectory-export.md`
 - `docs/cloud-routing.md`
 
-These 11 paths retain bounded comparisons rather than full-file certification.
-Historical bodies are intentionally preserved; external publication and unrun
+These five paths retain bounded comparisons rather than full-file certification.
+The six guides removed from this list have completed maintained-claim review,
+not certification of their historical proposals. External publication and unrun
 runtime acceptance remain separate from these local coverage limits.
+
+## Six-guide publication follow-up — 2026-10-22
+
+See [core-specialist evidence](audit-core-specialists.md) for corrections, checks
+and unrun acceptance. Only documentation is changed. Publication targets
+`origin/docs/publicity-refresh`, without merge, main changes or force push.
+The core-guide audit remains partial; neither publication nor scoped checks
+certify the entire repository. Remote SHA confirmation is reported after push,
+not inferred from this pre-push report. The worktree is retained for the remaining
+core-guide coverage and review; it is not deleted as part of publication.

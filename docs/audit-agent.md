@@ -51,6 +51,12 @@ semantic audit. Self-dev and cloud routing receive no new full-file certificatio
 Its focused test result is attributed to that audit; publication review spot-checks
 do not close the remaining coverage.
 
+The [six-guide core-specialist report](audit-core-specialists.md) completes the
+maintained repo-verifiable claim review for Responses, both locus guides,
+backend quirks, sub-agents and trajectory export. Historical proposal bodies are
+explicitly superseded, not retrospectively certified. The five-file core-guide
+audit above remains **PARTIAL**.
+
 ## Coverage limits and acceptance boundaries
 
 - Full-file feature and specialist source audits are complete within their stated
@@ -86,7 +92,7 @@ do not close the remaining coverage.
 | `docs/agent/cloud-profiles-plan.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
 | `docs/agent/cloud-profiles.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
 | `docs/agent/cloud-responses-plan.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
-| `docs/agent/cloud-responses.md` | Targeted semantic correction / source comparison; historical boundary also added |
+| `docs/agent/cloud-responses.md` | Completed bounded maintained-claim audit; historical proposals preserved; see [evidence and limits](audit-core-specialists.md) |
 | `docs/agent/compaction-decision-fidelity.md` | **PARTIAL** core-guide follow-up; targeted comparisons only; see [remaining coverage](audit-core-guides.md) |
 | `docs/agent/compaction-routing.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md) |
 | `docs/agent/compaction-working-memory.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md) |
@@ -139,18 +145,18 @@ do not close the remaining coverage.
 | `docs/agent/independent-tasks.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md) |
 | `docs/agent/llm-backend-notes.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
 | `docs/agent/locus-coproc-plan.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
-| `docs/agent/locus-coproc.md` | Targeted semantic correction / source comparison; historical boundary also added |
+| `docs/agent/locus-coproc.md` | Completed bounded maintained-claim audit; historical proposals preserved; see [evidence and limits](audit-core-specialists.md) |
 | `docs/agent/locus-mode-plan.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
-| `docs/agent/locus-mode.md` | Targeted semantic correction / source comparison; historical boundary also added |
+| `docs/agent/locus-mode.md` | Completed bounded maintained-claim audit; historical proposals preserved; see [evidence and limits](audit-core-specialists.md) |
 | `docs/agent/meridian-opencode-route.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
 | `docs/agent/mistral.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md) |
 | `docs/agent/per-backend-quirks-plan.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
-| `docs/agent/per-backend-quirks.md` | Targeted semantic correction / source comparison |
+| `docs/agent/per-backend-quirks.md` | Completed bounded maintained-claim audit; historical proposals preserved; see [evidence and limits](audit-core-specialists.md) |
 | `docs/agent/proto-regen.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md) |
 | `docs/agent/runtime-agnostic-model-lifecycle-plan.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
 | `docs/agent/self-dev.md` | **PARTIAL** core-guide follow-up; targeted comparisons only; see [remaining coverage](audit-core-guides.md) |
-| `docs/agent/sub_agents/README.md` | Targeted semantic correction / source comparison; historical boundary also added |
-| `docs/agent/trajectory-export.md` | Targeted semantic correction / source comparison |
+| `docs/agent/sub_agents/README.md` | Completed bounded maintained-claim audit; historical proposals preserved; see [evidence and limits](audit-core-specialists.md) |
+| `docs/agent/trajectory-export.md` | Completed bounded maintained-claim audit; historical proposals preserved; see [evidence and limits](audit-core-specialists.md) |
 | `docs/agent/vision-input.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md); maintained guidance plus historical design |
 | `docs/cloud-routing.md` | **PARTIAL** core-guide follow-up; targeted comparisons only; see [remaining coverage](audit-core-guides.md) |
 

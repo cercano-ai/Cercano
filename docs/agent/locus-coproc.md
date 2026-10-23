@@ -13,7 +13,21 @@
 > routing contract. See [cloud routing](../cloud-routing.md).
 
 
-**Status:** Scoped 2026-06-27. Not yet planned/implemented. Follow-on to
+## Current compatibility boundary (2026-10-22)
+
+The four-mode tables, proposed APIs, CLI/UI affordances, and SmartRouter claims
+below are historical, not instructions for current routing. Saved task
+assignments and redirects govern current placement; tool names do not promise
+local or free inference. Legacy `locus_mode` remains in configuration with
+`cloud_primary` as its default; old `local_primary` / `local_only` values normalize
+to `open_primary` / `open_only`. It is not the current task-routing authority.
+See `source/server/pkg/config/config.go` and `routing.go` and the
+[current routing guide](../cloud-routing.md). No historical “nothing leaves the
+machine” statement here certifies network isolation.
+
+## Historical proposal
+
+**Status at proposal time:** Scoped 2026-06-27. Not yet planned/implemented. Follow-on to
 [locus-mode.md](./locus-mode.md), which shipped the **main-LLM** tier and
 deferred this.
 

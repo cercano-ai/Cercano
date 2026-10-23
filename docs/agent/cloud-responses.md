@@ -17,6 +17,30 @@ its going-forward default) and **reasoning-model quality** — Responses lets a
 reasoning model keep its internal reasoning across tool-call turns, which Chat
 Completions discards each turn.
 
+## Current implementation (2026-10-22; supersedes the design below)
+
+The maintained contract is `inference.Provider`, not the original `llm.Provider`
+location. The hand-written adapter supports API-key Responses and the `chatgpt`
+subscription route. The latter pins the Codex backend, uses refreshing bearer
+credentials, forces streaming (aggregated for `Chat`), and omits
+`max_output_tokens`. Vision capability is affirmative model evidence supplied by
+the factory, not unconditionally true.
+
+Requests still send full history with `store:false` and encrypted-reasoning
+inclusion. Assistant text replays as `output_text`; user text as `input_text`.
+Reasoning replay requires a nonempty Responses reasoning ID and includes an empty
+summary array. The current request builder does **not** forward `ToolChoice`.
+Streaming failures (`response.failed`, `response.error`, `error`) are returned as
+normalized errors, not the proposed `EventError` mapping. HTTP errors also accept
+Codex `detail` bodies and include a bounded body snippet for unknown shapes.
+General retry/failover remains above the adapter; the adapter separately retries
+an unsupported-temperature rejection once without temperature and remembers it.
+
+Source: `source/server/internal/llm/responses/{client,adapter,stream}.go` and
+`source/server/internal/cloudfactory/factory.go`. These are repository-verified
+behaviors, not fresh OpenAI/Azure compatibility, SDK feature, retention, or model
+quality verification. The original design and test plan below remain historical.
+
 ## Core decisions
 
 - **Hand-rolled client.** `go-openai` (our Chat Completions library) has **no**
