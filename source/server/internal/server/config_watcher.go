@@ -97,14 +97,16 @@ func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) erro
 // reloadMachineFromDisk refreshes the machine-wide runtime sections (and the
 // baseline Save diffs against) from machine.yaml. It restarts nothing; it only
 // keeps the in-memory copy current so the agent reports current values and its
-// next Save does not treat them as its own edits.
+// next Save does not treat them as its own edits. A runtime edit made since
+// the last save keeps its value: the event may come from this agent's own
+// earlier save, and the pending Persist still has to write the edit.
 func (s *Server) reloadMachineFromDisk() {
 	mc, err := config.LoadMachine()
 	if err != nil {
 		fmt.Printf("ConfigWatcher: failed to reload machine config: %v\n", err)
 		return
 	}
-	if err := s.cfgSvc.Mutate(func(c *config.Config) { c.SetMachineSections(mc) }); err != nil {
+	if err := s.cfgSvc.Mutate(func(c *config.Config) { c.RefreshMachineSections(mc) }); err != nil {
 		fmt.Printf("ConfigWatcher: machine config rejected: %v\n", err)
 	}
 }

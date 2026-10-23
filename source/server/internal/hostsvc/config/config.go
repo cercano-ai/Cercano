@@ -57,7 +57,10 @@ type Service interface {
 }
 
 type svc struct {
-	mu          sync.RWMutex
+	mu sync.RWMutex
+	// persistMu serializes Persist from snapshot to baseline advance, so an
+	// older snapshot is never written after a newer one.
+	persistMu   sync.Mutex
 	current     cfg.Config
 	path        string
 	store       secrets.Store
@@ -253,6 +256,8 @@ func (s *svc) SetCloudModel(model string) {
 }
 
 func (s *svc) Persist() {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 	s.mu.RLock()
 	c := s.current.Clone()
 	p := s.path
@@ -260,7 +265,7 @@ func (s *svc) Persist() {
 	if p == "" {
 		return
 	}
-	if err := cfg.Save(c, p); err != nil {
+	if err := saveConfig(c, p); err != nil {
 		return
 	}
 	// Advance the live config's machine baseline to what was just written so
@@ -272,6 +277,10 @@ func (s *svc) Persist() {
 	s.current.MarkMachineSaved(saved)
 	s.mu.Unlock()
 }
+
+// saveConfig writes a config snapshot; tests replace it to hold a Persist
+// part way through.
+var saveConfig = cfg.Save
 
 func profileByName(profiles []cfg.CloudProfile, name string) (cfg.CloudProfile, bool) {
 	for _, p := range profiles {

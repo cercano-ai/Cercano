@@ -163,6 +163,23 @@ func (c *Config) SetMachineSections(mc MachineConfig) {
 	c.machineBase = newBaseline(mc)
 }
 
+// RefreshMachineSections takes mc (freshly read from machine.yaml) as the
+// baseline and as the value of every runtime field this config has not
+// changed since its own baseline. Fields with an unsaved local edit keep it,
+// so the next Save still writes them: a refresh triggered by this config's
+// own earlier save must not revert a newer edit. With no unsaved edits it is
+// SetMachineSections.
+func (c *Config) RefreshMachineSections(mc MachineConfig) {
+	base := c.machineBase.get()
+	cur := c.MachineSections()
+	next := cloneMachine(mc)
+	mergeChangedFields(&next.LlamaServer, &cur.LlamaServer, &base.LlamaServer)
+	mergeChangedFields(&next.MistralRS, &cur.MistralRS, &base.MistralRS)
+	c.LlamaServer = next.LlamaServer
+	c.MistralRS = next.MistralRS
+	c.machineBase = newBaseline(mc)
+}
+
 // MachineSectionsEqual reports whether the runtime sections equal mc.
 func (c Config) MachineSectionsEqual(mc MachineConfig) bool {
 	return reflect.DeepEqual(MachineConfig{LlamaServer: c.LlamaServer, MistralRS: c.MistralRS}, mc)

@@ -238,3 +238,57 @@ func TestStartConfigWatcher_RefreshesMachineSections(t *testing.T) {
 		t.Errorf("persist wrote stale machine section back: ISQ=%q", got.MistralRS.ISQ)
 	}
 }
+
+// The machine.yaml event from this agent's own earlier save can arrive after
+// a newer runtime edit was made in memory but before it was persisted. The
+// refresh must not revert that edit; fields the edit did not touch still take
+// the file's values.
+func TestReloadMachineKeepsUnsavedRuntimeEdit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := config.DefaultPath()
+	if err := config.Save(config.Defaults(), path); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	srv := newConfigWatcherTestServer(t)
+	srv.SetConfigPersistence(path, cfg)
+
+	setISQ := func(v string) {
+		if err := srv.cfgSvc.Mutate(func(c *config.Config) { c.MistralRS.ISQ = v }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setISQ("Q4K")
+	srv.cfgSvc.Persist() // machine.yaml now has Q4K; its event is still in flight
+	setISQ("Q8_0")       // newer edit, not yet persisted
+
+	// Another profile changed an unrelated field meanwhile.
+	mc, err := config.LoadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc.LlamaServer.Threads = 7
+	if err := config.SaveMachine(mc); err != nil {
+		t.Fatal(err)
+	}
+
+	srv.reloadMachineFromDisk() // the delayed event
+	live := srv.cfgSvc.Get()
+	if live.MistralRS.ISQ != "Q8_0" {
+		t.Fatalf("refresh reverted the unsaved edit: ISQ=%q, want Q8_0", live.MistralRS.ISQ)
+	}
+	if live.LlamaServer.Threads != 7 {
+		t.Errorf("refresh dropped the other profile's change: threads=%d, want 7", live.LlamaServer.Threads)
+	}
+	srv.cfgSvc.Persist()
+	got, err := config.LoadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MistralRS.ISQ != "Q8_0" || got.LlamaServer.Threads != 7 {
+		t.Errorf("machine.yaml after persist: ISQ=%q threads=%d, want Q8_0 and 7", got.MistralRS.ISQ, got.LlamaServer.Threads)
+	}
+}

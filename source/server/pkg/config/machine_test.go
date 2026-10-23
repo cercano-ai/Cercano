@@ -345,3 +345,39 @@ func TestMalformedMachineFileKeepsProfileSettings(t *testing.T) {
 		t.Errorf("machine.yaml rewritten by a runtime edit: %q", got)
 	}
 }
+
+func TestRefreshMachineSectionsKeepsUnsavedEdits(t *testing.T) {
+	machineTestHome(t)
+	c := Defaults()
+	c.SetMachineSections(c.MachineSections()) // baseline = defaults
+	c.MistralRS.ISQ = "Q8_0"                  // unsaved local edit
+	disk := c.MachineSections()
+	disk.MistralRS.ISQ = "Q4K"
+	disk.LlamaServer.Threads = 7
+	c.RefreshMachineSections(disk)
+	if c.MistralRS.ISQ != "Q8_0" || c.LlamaServer.Threads != 7 {
+		t.Fatalf("after refresh ISQ=%q threads=%d, want Q8_0 and 7", c.MistralRS.ISQ, c.LlamaServer.Threads)
+	}
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	if err := SaveMachine(disk); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(c, path); err != nil {
+		t.Fatal(err)
+	}
+	mc, err := LoadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mc.MistralRS.ISQ != "Q8_0" || mc.LlamaServer.Threads != 7 {
+		t.Errorf("machine.yaml ISQ=%q threads=%d, want Q8_0 and 7", mc.MistralRS.ISQ, mc.LlamaServer.Threads)
+	}
+
+	// Without unsaved edits a refresh takes the file as is.
+	clean := Defaults()
+	clean.SetMachineSections(clean.MachineSections())
+	clean.RefreshMachineSections(disk)
+	if !clean.MachineSectionsEqual(disk) {
+		t.Error("refresh without local edits did not take the file's values")
+	}
+}
