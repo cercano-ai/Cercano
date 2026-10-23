@@ -246,3 +246,19 @@ func TestGetAgentHealthOldServerUnimplemented(t *testing.T) {
 		t.Fatalf("status = %v; want Unimplemented", err)
 	}
 }
+
+func TestGetAgentHealthCredentialPolicy(t *testing.T) {
+	for _, value := range []string{"0", "1", "", "malformed"} {
+		t.Run("policy_"+value, func(t *testing.T) {
+			t.Setenv("CERCANO_DISABLE_CREDENTIALS", value)
+			s := &Server{}
+			response, err := s.GetAgentHealth(context.Background(), &proto.GetAgentHealthRequest{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.GetCredentialsDisabled() != (value != "0") {
+				t.Fatalf("incorrect explicit policy: %+v", response)
+			}
+		})
+	}
+}

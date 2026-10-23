@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/proto"
 )
 
@@ -92,6 +93,8 @@ func Dial(ctx context.Context, addr string) (*Client, error) {
 		c.stopWatch = make(chan struct{})
 		go c.watchConn(context.Background())
 		return c, nil
+	} else if errors.Is(err, ErrCredentialIsolation) {
+		return nil, err
 	}
 
 	logPath, launched, err := ensureServerLaunched(ctx, addr, 8*time.Second)
@@ -122,6 +125,8 @@ func DialExisting(ctx context.Context, addr string) (*Client, error) {
 	return connect(ctx, addr, 600*time.Millisecond)
 }
 
+var ErrCredentialIsolation = errors.New("agent credential isolation could not be verified")
+
 func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -138,7 +143,21 @@ func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, 
 	if err != nil {
 		return nil, err
 	}
-	return &Client{conn: conn, agent: proto.NewAgentClient(conn)}, nil
+	agent := proto.NewAgentClient(conn)
+	// Startup connection policy, not runtime revocation. Unknown/old agents
+	// cannot attest to isolation. Never expose a connection before this probe.
+	if secrets.CheckAllowed() != nil {
+		health, err := agent.GetAgentHealth(dialCtx, &proto.GetAgentHealthRequest{})
+		if err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("%w: %w", ErrCredentialIsolation, err)
+		}
+		if !health.GetCredentialsDisabled() {
+			_ = conn.Close()
+			return nil, fmt.Errorf("%w: server must explicitly disable credentials", ErrCredentialIsolation)
+		}
+	}
+	return &Client{conn: conn, agent: agent}, nil
 }
 
 func ensureServerLaunched(ctx context.Context, addr string, timeout time.Duration) (string, bool, error) {
@@ -153,6 +172,8 @@ func ensureServerLaunched(ctx context.Context, addr string, timeout time.Duratio
 	if c, err := connect(ctx, addr, 600*time.Millisecond); err == nil {
 		_ = c.Close()
 		return "", false, nil
+	} else if errors.Is(err, ErrCredentialIsolation) {
+		return "", false, err
 	}
 
 	logPath, err := autoLaunchServer(addr)

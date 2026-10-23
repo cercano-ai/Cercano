@@ -11,6 +11,7 @@ import (
 	"os"
 	"sync"
 
+	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/proto"
 )
 
@@ -99,9 +100,13 @@ func (s *Server) GetAgentHealth(ctx context.Context, req *proto.GetAgentHealthRe
 		reasons = append(reasons, HealthReasonShutdownBegun)
 	}
 	return &proto.GetAgentHealthResponse{
-		Version:         version,
-		Pid:             int32(os.Getpid()),
-		Ready:           len(reasons) == 0,
-		NotReadyReasons: reasons,
+		// CheckAllowed also fails closed for malformed settings. Normal startup
+		// refuses those via config.Load/ValidateEnvironment before serving.
+		// This is an explicit process policy, not a runtime revocation protocol.
+		CredentialsDisabled: secrets.CheckAllowed() != nil,
+		Version:             version,
+		Pid:                 int32(os.Getpid()),
+		Ready:               len(reasons) == 0,
+		NotReadyReasons:     reasons,
 	}, nil
 }

@@ -577,6 +577,9 @@ message GetAgentHealthResponse {
   int32 pid = 2;                 // observational identity guard only
   bool ready = 3;                // honest lifecycle readiness
   repeated string not_ready_reasons = 4;
+  // Explicit credential policy only; not inferred from missing keys/readiness.
+  // False (including older servers) is not an isolation attestation.
+  bool credentials_disabled = 5;
 }
 
 // The response message for ProcessRequest.

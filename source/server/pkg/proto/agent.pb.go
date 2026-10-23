@@ -2058,8 +2058,11 @@ type GetAgentHealthResponse struct {
 	Pid             int32                  `protobuf:"varint,2,opt,name=pid,proto3" json:"pid,omitempty"`        // observational identity guard only
 	Ready           bool                   `protobuf:"varint,3,opt,name=ready,proto3" json:"ready,omitempty"`    // honest lifecycle readiness
 	NotReadyReasons []string               `protobuf:"bytes,4,rep,name=not_ready_reasons,json=notReadyReasons,proto3" json:"not_ready_reasons,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Explicit credential policy only; not inferred from missing keys/readiness.
+	// False (including older servers) is not an isolation attestation.
+	CredentialsDisabled bool `protobuf:"varint,5,opt,name=credentials_disabled,json=credentialsDisabled,proto3" json:"credentials_disabled,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *GetAgentHealthResponse) Reset() {
@@ -2118,6 +2121,13 @@ func (x *GetAgentHealthResponse) GetNotReadyReasons() []string {
 		return x.NotReadyReasons
 	}
 	return nil
+}
+
+func (x *GetAgentHealthResponse) GetCredentialsDisabled() bool {
+	if x != nil {
+		return x.CredentialsDisabled
+	}
+	return false
 }
 
 // The response message for ProcessRequest.
@@ -18896,12 +18906,13 @@ const file_agent_proto_rawDesc = "" +
 	"\x1dShutdownAgentWhenIdleResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x17\n" +
-	"\x15GetAgentHealthRequest\"\x86\x01\n" +
+	"\x15GetAgentHealthRequest\"\xb9\x01\n" +
 	"\x16GetAgentHealthResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x10\n" +
 	"\x03pid\x18\x02 \x01(\x05R\x03pid\x12\x14\n" +
 	"\x05ready\x18\x03 \x01(\bR\x05ready\x12*\n" +
-	"\x11not_ready_reasons\x18\x04 \x03(\tR\x0fnotReadyReasons\"\xb6\x02\n" +
+	"\x11not_ready_reasons\x18\x04 \x03(\tR\x0fnotReadyReasons\x121\n" +
+	"\x14credentials_disabled\x18\x05 \x01(\bR\x13credentialsDisabled\"\xb6\x02\n" +
 	"\x16ProcessRequestResponse\x12\x16\n" +
 	"\x06output\x18\x01 \x01(\tR\x06output\x124\n" +
 	"\ffile_changes\x18\x02 \x03(\v2\x11.agent.FileChangeR\vfileChanges\x12A\n" +

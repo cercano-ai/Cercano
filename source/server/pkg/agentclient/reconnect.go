@@ -19,10 +19,10 @@
 // transient blips, then an indefinite slow lane — redial every 10s until
 // the server comes back or the client shuts down. Respawn attempts are
 // throttled in the slow lane (every 3rd try) so a genuinely broken
-// binary doesn't fork-bomb. The client never gives up on its own:
-// ConnStateFailed is reserved for client shutdown mid-recovery, not
-// retry exhaustion — a healthy server appearing minutes later is
-// always picked up. Recovery is single-flighted across callers.
+// binary doesn't fork-bomb. Transient failures never exhaust retries; shutdown
+// or a credential-isolation policy refusal terminates recovery. A healthy,
+// policy-compatible server appearing later is otherwise picked up. Recovery
+// is single-flighted across callers.
 package agentclient
 
 import (
@@ -301,9 +301,9 @@ func (c *Client) watchConn(ctx context.Context) {
 // the dead conn, redial (short timeout), and — on the throttle
 // schedule — spawn a replacement server via autoLaunchServer. Fast
 // burst first, then the indefinite slow lane (see the package comment).
-// Returns nil once a fresh conn is installed. It errors only when the
-// client is shutting down (ctx cancelled / Close called), which is also
-// the only path that emits ConnStateFailed.
+// Returns nil once a verified fresh conn is installed. Shutdown/cancellation
+// and credential-isolation refusal terminate recovery with ConnStateFailed;
+// policy refusal must never trigger spawning or install an unverified conn.
 func (c *Client) reconnect(ctx context.Context) error {
 	// Single-flight: watchConn and the SubscribeEvents drain can both
 	// detect the dead transport and call here concurrently. Whoever
@@ -340,10 +340,18 @@ func (c *Client) reconnect(ctx context.Context) error {
 		// schedule.
 		fresh, err := connect(ctx, c.addr, 2*time.Second)
 		if err != nil {
+			if errors.Is(err, ErrCredentialIsolation) {
+				c.setState(ConnStateFailed, attempt, err)
+				return err
+			}
 			if !shouldRespawn(attempt) {
 				continue
 			}
 			if _, _, launchErr := ensureServerLaunched(ctx, c.addr, 8*time.Second); launchErr != nil {
+				if errors.Is(launchErr, ErrCredentialIsolation) {
+					c.setState(ConnStateFailed, attempt, launchErr)
+					return launchErr
+				}
 				// Launch itself failed (missing binary, permission, slow
 				// bind, etc.) — the next scheduled attempt gets another
 				// shot in case the OLD server is coming back up.
@@ -351,6 +359,10 @@ func (c *Client) reconnect(ctx context.Context) error {
 			}
 			fresh, err = connect(ctx, c.addr, 3*time.Second)
 			if err != nil {
+				if errors.Is(err, ErrCredentialIsolation) {
+					c.setState(ConnStateFailed, attempt, err)
+					return err
+				}
 				continue
 			}
 		}

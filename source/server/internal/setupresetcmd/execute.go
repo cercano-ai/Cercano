@@ -12,10 +12,9 @@ import (
 
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/setupreset"
+	"cercano/source/server/pkg/agentclient"
 	"cercano/source/server/pkg/proto"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -90,14 +89,14 @@ func TryExistingAgent(ctx context.Context, addr string) (Outcome, error) {
 	}
 	probe.Close()
 	outcome.UsedAgent = true
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := agentclient.DialExisting(ctx, addr)
 	if err != nil {
 		return outcome, err
 	}
 	defer conn.Close()
 	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	result, err := proto.NewAgentClient(conn).ResetSetup(callCtx, &proto.ResetSetupRequest{Confirmed: true})
+	result, err := conn.ResetSetup(callCtx, &proto.ResetSetupRequest{Confirmed: true})
 	if err != nil {
 		if status.Code(err) == codes.Unimplemented {
 			return outcome, fmt.Errorf("the running agent does not support setup reset; update/restart that agent and let sessions reconnect before retrying")
