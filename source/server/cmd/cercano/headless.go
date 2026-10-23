@@ -80,21 +80,26 @@ Output:
 // the response to stdout (assistant text) and stderr (diagnostics). Used for
 // scripting and CI — no TTY required.
 func runHeadless(args []string) {
+	os.Exit(runHeadlessCommand(args))
+}
+
+// runHeadlessCommand is runHeadless returning the exit code.
+func runHeadlessCommand(args []string) int {
 	parsed := parseHeadlessArgs(args)
 	if parsed.help {
 		fmt.Fprintln(os.Stderr, headlessUsage)
-		os.Exit(0)
+		return 0
 	}
 	if parsed.missingConv {
 		fmt.Fprintln(os.Stderr, "cercano run: --conv requires an ID")
-		os.Exit(2)
+		return 2
 	}
 	autoAllow, convID, positional := parsed.autoAllow, parsed.convID, parsed.positional
 
 	prompt := strings.Join(positional, " ")
 	if prompt == "" {
 		fmt.Fprintln(os.Stderr, `usage: cercano run [--auto-allow] [--conv ID] "prompt"`)
-		os.Exit(2)
+		return 2
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -102,6 +107,7 @@ func runHeadless(args []string) {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
+	defer signal.Stop(sigCh)
 	go func() {
 		<-sigCh
 		fmt.Fprintln(os.Stderr, "\n[interrupt] cancelling…")
@@ -111,9 +117,12 @@ func runHeadless(args []string) {
 	client, err := dialActiveProfile(ctx, os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
-		os.Exit(1)
+		return 1
 	}
 	defer client.Close()
+	// Count as the agent's client for the whole run (released before the
+	// client closes), so an agent this run auto-launched exits after it.
+	defer holdAgent(ctx, client.SubscribeEvents)()
 
 	convID = resolveHeadlessConvID(convID)
 
@@ -122,7 +131,7 @@ func runHeadless(args []string) {
 	events, err := client.StreamChat(ctx, convID, prompt, workDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
-		os.Exit(1)
+		return 1
 	}
 
 	exitCode := 0
@@ -180,7 +189,7 @@ func runHeadless(args []string) {
 	if sawText {
 		fmt.Println()
 	}
-	os.Exit(finalizeHeadlessExit(exitCode, sawText, os.Stderr))
+	return finalizeHeadlessExit(exitCode, sawText, os.Stderr)
 }
 
 func finalizeHeadlessExit(exitCode int, sawText bool, stderr io.Writer) int {

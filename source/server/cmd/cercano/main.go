@@ -2167,17 +2167,30 @@ func connectMCPAgent(ctx context.Context) (agent proto.AgentClient, closeAgent f
 	if err != nil {
 		return nil, nil, err
 	}
+	release := holdAgent(ctx, client.SubscribeEvents)
+	return proto.NewAgentClient(client.Conn()), func() {
+		release()
+		_ = client.Close()
+	}, nil
+}
+
+// holdAgent holds the agent's event stream (see holdAgentEvents) in the
+// background until the returned release is called. A command that may have
+// auto-launched the agent holds it for as long as it uses the agent, so the
+// agent counts it as a client and, once the command releases it and no other
+// client remains, idle-exits. release waits for the stream to close; call it
+// before closing the client.
+func holdAgent(ctx context.Context, subscribe func(context.Context) (<-chan agentclient.AgentEvent, error)) (release func()) {
 	subCtx, cancel := context.WithCancel(ctx)
 	held := make(chan struct{})
 	go func() {
 		defer close(held)
-		holdAgentEvents(subCtx, client.SubscribeEvents)
+		holdAgentEvents(subCtx, subscribe)
 	}()
-	return proto.NewAgentClient(client.Conn()), func() {
+	return func() {
 		cancel()
 		<-held
-		_ = client.Close()
-	}, nil
+	}
 }
 
 // Bounds of the wait before MCP opens the agent's event stream again.

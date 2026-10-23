@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -37,6 +38,10 @@ func openEnterpriseBrowser(ctx context.Context, target string) error {
 	}
 	return exec.CommandContext(ctx, "open", target).Run()
 }
+
+// enterpriseNotices receives connection and auto-launch notices, which stay
+// off stdout so --json output remains machine-readable.
+var enterpriseNotices io.Writer = os.Stderr
 
 // Connection changes run in the host. This CLI never opens Keychain, rotates a
 // refresh token, or treats a downloaded bundle as proof of host enforcement.
@@ -85,11 +90,14 @@ func enterpriseCommand(ctx context.Context, args []string, out io.Writer) error 
 		defer cc.Close()
 		conn = cc
 	} else {
-		agent, err := dialActiveProfile(ctx, io.Discard)
+		agent, err := dialActiveProfile(ctx, enterpriseNotices)
 		if err != nil {
 			return err
 		}
 		defer agent.Close()
+		// Count as the agent's client until done (released before the
+		// client closes), so an agent this command auto-launched exits after.
+		defer holdAgent(ctx, agent.SubscribeEvents)()
 		conn = agent.Conn()
 	}
 	timeout := 90 * time.Second
