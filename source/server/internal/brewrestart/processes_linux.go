@@ -10,10 +10,11 @@ import (
 )
 
 // ListUserProcesses lists the current user's processes with their parent
-// and executable from /proc. For those whose executable details accepts it
-// also reads the arguments and HOME. Processes that exit while being read
-// are skipped.
-func ListUserProcesses(details func(executable string) bool) ([]UserProcess, error) {
+// and executable from /proc. For those details accepts it also reads the
+// arguments and HOME. Processes that exit while being read are skipped.
+// Name, ExecutableGone and Started are left unset: /proc/<pid>/exe still
+// gives a removed or replaced executable's path, with " (deleted)" appended.
+func ListUserProcesses(details func(UserProcess) bool) ([]UserProcess, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
@@ -43,7 +44,7 @@ func ListUserProcesses(details func(executable string) bool) ([]UserProcess, err
 		}
 		exe, _ := os.Readlink(filepath.Join(dir, "exe"))
 		p := UserProcess{PID: pid, PPID: ppid, Executable: exe}
-		if exe != "" && details != nil && details(exe) {
+		if exe != "" && details != nil && details(p) {
 			if cmdline, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil {
 				p.Args = splitNUL(cmdline)
 			}

@@ -37,6 +37,9 @@ func TestMain(m *testing.M) {
 	if os.Getenv("CERCANO_COORD_FIXTURE") == "1" && len(os.Args) == 2 && os.Args[1] == "agent" {
 		os.Exit(runRestartFixture())
 	}
+	if os.Getenv("CERCANO_GONE_FIXTURE") == "1" {
+		os.Exit(runGoneFixture())
+	}
 	os.Exit(m.Run())
 }
 

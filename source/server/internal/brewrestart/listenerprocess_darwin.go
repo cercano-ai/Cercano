@@ -11,7 +11,8 @@ import (
 )
 
 // ListenerProcess scans same-user processes with libproc for the holder of
-// a listener accepting connections to endpoint.
+// a listener accepting connections to endpoint. A holder whose executable
+// was removed is returned with ExecutableGone and its Name.
 func ListenerProcess(endpoint netip.AddrPort) (Identity, bool, error) {
 	pids, err := ListCandidates()
 	if err != nil {
@@ -21,7 +22,7 @@ func ListenerProcess(endpoint netip.AddrPort) (Identity, bool, error) {
 		if pid <= 0 {
 			continue
 		}
-		id, err := Inspect(pid)
+		id, err := inspectProcess(pid, true)
 		if err != nil {
 			continue // exited meanwhile, or not inspectable
 		}
@@ -42,7 +43,7 @@ const sZomb = 5
 func ProcessExited(id Identity) (bool, error) {
 	kp, err := unix.SysctlKinfoProc("kern.proc.pid", id.PID)
 	if err != nil {
-		if _, ierr := Inspect(id.PID); errors.Is(ierr, syscall.ESRCH) {
+		if _, ierr := inspectProcess(id.PID, true); errors.Is(ierr, syscall.ESRCH) {
 			return true, nil
 		}
 		return false, err

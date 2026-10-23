@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // UserProcess is one of the current user's processes as the kernel reports
@@ -14,8 +15,19 @@ type UserProcess struct {
 	// Executable is the kernel's path of the program, "" when unreadable. On
 	// Linux it ends in " (deleted)" once the file was replaced or removed.
 	Executable string
-	// Args, Home and HomeKnown are read only for processes whose executable
-	// the caller asked details for. Home is HOME from the environment;
+	// ExecutableGone is true on macOS when the process runs but the kernel
+	// no longer gives its executable's path, as happens once the file or its
+	// directory was removed (Homebrew's cleanup deletes old kegs). Executable
+	// is then "" and only Name identifies the program.
+	ExecutableGone bool
+	// Name is the kernel's name for the process on macOS: the file name the
+	// program was started from, truncated to 32 bytes.
+	Name string
+	// Started is when the process started (on macOS when it was forked); zero
+	// when unknown, as on Linux.
+	Started time.Time
+	// Args, Home and HomeKnown are read only for processes the caller asked
+	// details for. Home is HOME from the environment;
 	// HomeKnown is false when the environment could not be read (and true,
 	// with Home empty, when it was read and has no HOME). Nothing else from
 	// the environment is kept: it can hold credentials.

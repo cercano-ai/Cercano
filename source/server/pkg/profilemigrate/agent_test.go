@@ -246,6 +246,12 @@ func holderWithExe(exe string) func(netip.AddrPort) (brewrestart.Identity, bool,
 	}
 }
 
+func holderGone(name string) func(netip.AddrPort) (brewrestart.Identity, bool, error) {
+	return func(netip.AddrPort) (brewrestart.Identity, bool, error) {
+		return brewrestart.Identity{PID: 4242, ExecutableGone: true, Name: name, StartSeconds: 1}, true, nil
+	}
+}
+
 func neverCalledExit(t *testing.T) func(brewrestart.Identity) (bool, error) {
 	return func(brewrestart.Identity) (bool, error) {
 		t.Error("exit check called")
@@ -271,6 +277,8 @@ func TestLegacyAgentAliveOutcomes(t *testing.T) {
 		{"silent cercano process", []probeOutcome{probeAmbiguous}, holderWithExe("/opt/homebrew/Cellar/cercano/0.9/bin/cercano"), true, false},
 		{"silent cercano.exe", []probeOutcome{probeAmbiguous}, holderWithExe(`C:\\Cercano\\cercano.exe`), true, false},
 		{"silent other process", []probeOutcome{probeAmbiguous}, holderWithExe("/usr/local/bin/some-grpc-server"), false, false},
+		{"silent cercano whose keg was deleted", []probeOutcome{probeAmbiguous}, holderGone("cercano"), true, false},
+		{"silent other process whose executable was deleted", []probeOutcome{probeAmbiguous}, holderGone("some-grpc-server"), false, false},
 		{"silent, holder unresolvable", []probeOutcome{probeAmbiguous}, unsupported, false, true},
 		{"silent, listener gone on recheck", []probeOutcome{probeAmbiguous, probeNoListener},
 			func(netip.AddrPort) (brewrestart.Identity, bool, error) { return brewrestart.Identity{}, false, nil }, false, false},

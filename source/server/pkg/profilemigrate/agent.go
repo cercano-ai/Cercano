@@ -134,8 +134,9 @@ var probeIdentity = func(ctx context.Context, addr string) probeOutcome {
 
 // legacyAgentAlive decides whether a pre-profile agent holds addr. A clear
 // probe answer decides directly. Otherwise the listening process decides:
-// a cercano executable is treated as a (possibly frozen) agent, another
-// executable is not one, and an unresolvable holder fails closed.
+// a cercano executable (or, once its keg was deleted, a process named
+// cercano) is treated as a (possibly frozen) agent, another executable is
+// not one, and an unresolvable holder fails closed.
 func legacyAgentAlive(ctx context.Context, addr string) (bool, error) {
 	switch probeIdentity(ctx, addr) {
 	case probeNoListener, probeNotAgent:
@@ -150,7 +151,7 @@ func legacyAgentAlive(ctx context.Context, addr string) (bool, error) {
 	if err != nil || !found {
 		return false, fmt.Errorf("%w (something listens on %s without answering, and its process cannot be identified)", errAgentRunning, addr)
 	}
-	return isCercanoExecutable(holder.Executable), nil
+	return isCercanoImage(holder.Executable, holder.ExecutableGone, holder.Name), nil
 }
 
 func lookupHolder(addr string) (brewrestart.Identity, bool, error) {

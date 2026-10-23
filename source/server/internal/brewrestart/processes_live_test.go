@@ -16,9 +16,9 @@ func TestListUserProcessesFindsThisProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	asked := map[string]bool{}
-	procs, err := ListUserProcesses(func(executable string) bool {
-		asked[executable] = true
-		return filepath.Base(executable) == filepath.Base(exe)
+	procs, err := ListUserProcesses(func(p UserProcess) bool {
+		asked[p.Executable] = true
+		return filepath.Base(p.Executable) == filepath.Base(exe)
 	})
 	if err != nil {
 		t.Fatalf("ListUserProcesses: %v", err)
@@ -45,7 +45,7 @@ func TestListUserProcessesFindsThisProcess(t *testing.T) {
 }
 
 func TestListUserProcessesReadsDetailsOnlyWhenAsked(t *testing.T) {
-	procs, err := ListUserProcesses(func(string) bool { return false })
+	procs, err := ListUserProcesses(func(UserProcess) bool { return false })
 	if err != nil {
 		t.Fatalf("ListUserProcesses: %v", err)
 	}

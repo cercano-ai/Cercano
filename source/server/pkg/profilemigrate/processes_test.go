@@ -30,6 +30,8 @@ func TestOtherCercanoPIDsExclusions(t *testing.T) {
 	home := "/Users/someone"
 	self := os.Getpid()
 	newExe := "/opt/homebrew/Cellar/cercano/1.0.0/bin/cercano"
+	built := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	cur := program{Path: newExe, ModTime: built}
 	procs := []Process{
 		{PID: self, PPID: 99, Executable: newExe, Args: []string{"cercano", "agent"}, Home: home, HomeKnown: true},
 		{PID: 99, PPID: 50, Executable: "/opt/homebrew/Cellar/cercano/0.9.0/bin/cercano", Args: []string{"cercano"}, Home: home, HomeKnown: true}, // parent
@@ -39,14 +41,88 @@ func TestOtherCercanoPIDsExclusions(t *testing.T) {
 		{PID: 62, PPID: 1, Executable: "/x/cercano", Args: []string{"cercano", "worker", "--socket", "s"}, Home: home, HomeKnown: true},
 		oldMCP(63, "/Users/other"), // another home
 		{PID: 64, PPID: 1, Executable: "/usr/local/bin/node", Args: []string{"node"}, Home: home, HomeKnown: true},
-		{PID: 65, PPID: 1, Executable: newExe, Args: []string{"cercano", "--mcp"}, Home: home, HomeKnown: true}, // this build, waiting to migrate
-		{PID: 66, PPID: 1, Executable: `C:\cercano\cercano.exe`, Args: []string{"cercano.exe", "--mcp"}},        // environment unreadable: included
-		{PID: 67, PPID: 1, Executable: "/x/cercano", Args: []string{"cercano", "--mcp"}, HomeKnown: true},       // no HOME: uses no home
+		{PID: 65, PPID: 1, Executable: newExe, Started: built.Add(time.Second), Args: []string{"cercano", "--mcp"}, Home: home, HomeKnown: true}, // this build, waiting to migrate
+		{PID: 66, PPID: 1, Executable: `C:\cercano\cercano.exe`, Args: []string{"cercano.exe", "--mcp"}},                                         // environment unreadable: included
+		{PID: 67, PPID: 1, Executable: "/x/cercano", Args: []string{"cercano", "--mcp"}, HomeKnown: true},                                        // no HOME: uses no home
 		{PID: 68, PPID: 1, Executable: "/x/cercano (deleted)", Args: []string{"cercano", "--mcp"}, Home: home + "/", HomeKnown: true},
+		{PID: 69, PPID: 1, Executable: newExe, Started: built.Add(-time.Hour), Args: []string{"cercano", "--mcp"}, Home: home, HomeKnown: true}, // older build replaced in place
+		{PID: 70, PPID: 1, ExecutableGone: true, Name: "cercano", Args: []string{"cercano", "--mcp"}, Home: home, HomeKnown: true},              // keg deleted
+		{PID: 71, PPID: 1, ExecutableGone: true, Name: "cercano-cli", Args: []string{"cercano-cli"}, Home: home, HomeKnown: true},
+		{PID: 72, PPID: 1, ExecutableGone: true, Name: "cercano", Args: []string{"cercano", "model-host"}, Home: home, HomeKnown: true},
+		{PID: 73, PPID: 1, ExecutableGone: true, Name: "cercano"}, // environment unreadable: included
 	}
-	got := otherCercanoPIDs(procs, self, home)
-	if want := []int{60, 66, 68}; !reflect.DeepEqual(got, want) {
+	got := otherCercanoPIDs(procs, self, home, cur)
+	if want := []int{60, 66, 68, 69, 70, 73}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("otherCercanoPIDs = %v, want %v", got, want)
+	}
+}
+
+func TestSameBuild(t *testing.T) {
+	exe := "/usr/local/bin/cercano"
+	built := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	cur := program{Path: exe, ModTime: built}
+	for _, tt := range []struct {
+		name string
+		p    Process
+		cur  program
+		want bool
+	}{
+		{"started after the file was written", Process{Executable: exe, Started: built.Add(time.Millisecond)}, cur, true},
+		{"started as the file was written", Process{Executable: exe, Started: built}, cur, true},
+		{"started before: older build replaced in place", Process{Executable: exe, Started: built.Add(-time.Millisecond)}, cur, false},
+		{"another path", Process{Executable: "/opt/homebrew/Cellar/cercano/0.9/bin/cercano", Started: built.Add(time.Hour)}, cur, false},
+		{"executable gone", Process{ExecutableGone: true, Name: "cercano", Started: built.Add(time.Hour)}, cur, false},
+		{"executable gone, this build's path unknown", Process{ExecutableGone: true, Name: "cercano"}, program{}, false},
+		{"executable gone, with a stale path", Process{Executable: exe, ExecutableGone: true, Started: built.Add(time.Hour)}, cur, false},
+		{"start unknown (Linux)", Process{Executable: exe}, cur, true},
+		{"modification time unknown", Process{Executable: exe, Started: built}, program{Path: exe}, true},
+		{"this build's path unknown", Process{Executable: exe, Started: built}, program{}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sameBuild(tt.p, tt.cur); got != tt.want {
+				t.Fatalf("sameBuild(%+v, %+v) = %v, want %v", tt.p, tt.cur, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCurrentProgramReadsModificationTime(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "cercano")
+	writeFile(t, exe, "binary")
+	built := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(exe, built, built); err != nil {
+		t.Fatal(err)
+	}
+	self := 4242
+	if got := currentProgram([]Process{{PID: 1}, {PID: self, Executable: exe}}, self); got.Path != exe || !got.ModTime.Equal(built) {
+		t.Errorf("currentProgram = %+v, want %s modified %v", got, exe, built)
+	}
+	if got := currentProgram([]Process{{PID: self, ExecutableGone: true, Name: "cercano"}}, self); got != (program{}) {
+		t.Errorf("currentProgram with this executable gone = %+v, want none", got)
+	}
+	missing := exe + ".missing"
+	if got := currentProgram([]Process{{PID: self, Executable: missing}}, self); got.Path != missing || !got.ModTime.IsZero() {
+		t.Errorf("currentProgram for an unreadable file = %+v, want the path without a time", got)
+	}
+}
+
+func TestIsCercanoProcess(t *testing.T) {
+	for _, tt := range []struct {
+		p    Process
+		want bool
+	}{
+		{Process{Executable: "/opt/homebrew/Cellar/cercano/1.0/bin/cercano"}, true},
+		{Process{Executable: "/x/cercano (deleted)"}, true},
+		{Process{Executable: `C:\Cercano\CERCANO.EXE`}, true},
+		{Process{Executable: "/x/cercano-cli"}, false},
+		{Process{ExecutableGone: true, Name: "cercano"}, true},
+		{Process{ExecutableGone: true, Name: "cercano-cli"}, false},
+		{Process{ExecutableGone: true, Name: "Cercano"}, false},
+		{Process{Name: "cercano"}, false}, // path unknown for another reason
+	} {
+		if got := isCercanoProcess(tt.p); got != tt.want {
+			t.Errorf("isCercanoProcess(%+v) = %v, want %v", tt.p, got, tt.want)
+		}
 	}
 }
 
