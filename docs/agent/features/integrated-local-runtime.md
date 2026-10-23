@@ -36,7 +36,9 @@ downloads to finish, then assign a suitable task to Local in **Routing**.
 
 - Runtime integration does not eliminate model downloads, disk requirements,
   or CPU/GPU and memory constraints. Larger models need more resources.
-- Runtime preparation and the active backend are separate choices; do not
+- Managed runtime restarts reload on-disk configuration when the config loader
+  and provider support it; a reload failure retains the previous configuration.
+  Runtime preparation and the active backend are separate choices; do not
   assume installation alone switches every route to llama-server.
 - Model support for tools and its ability to follow instructions matter for
   agent work. Quality and speed vary by model, quantization, and hardware.

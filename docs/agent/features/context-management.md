@@ -5,7 +5,8 @@
 Rolling background compaction digests older conversation turns into layered
 summaries while retaining recent working context. The agent sends a compacted
 view rather than replaying an ever-growing transcript on every request.
-Compaction runs asynchronously, so requests do not wait for a summarizer.
+Automatic compaction runs asynchronously, so request assembly does not wait
+for a summarizer; explicitly requested regeneration reports progress until done.
 The stored conversation history remains separate from that compacted view.
 
 Cercano's compaction algorithms include **map-reduce**: summarize bounded
@@ -28,7 +29,8 @@ answer quality at arbitrary conversation lengths.
 
 ## Try it
 
-- `/context` — inspect active context usage.
+- `/c` — open the active-conversation context viewer (also in `/config` → **Context**).
+- `/context` — read the project’s `.cercano/context.md`, not the active context meter.
 - `/compact` — start incremental background compaction.
 - `/context-regen` — rebuild compacted context from stored turns.
 - `/clear-compacted-context` — remove summaries and rehydrate from stored turns.
@@ -38,7 +40,8 @@ Use the live context meter to follow a long session's working context.
 
 ## Controls and limitations
 
-- Background work can fall behind. At the hard limit, request assembly schedules
+- Background work can fall behind. When compaction and its hard-limit override
+  are enabled and a positive context window is available, request assembly schedules
   compaction and reduces the outgoing view with tool-output elision and, if
   necessary, removal of oldest messages—not a blocking summarizer call.
 - Summaries are lossy. A manageable context is not a guarantee that every old
@@ -46,6 +49,8 @@ Use the live context meter to follow a long session's working context.
   are different things.
 - Compaction thresholds and retention behavior are configurable. Clearing a
   summary does not make an arbitrarily large raw history fit the model window.
+  Regeneration can only use remaining stored turns; it cannot recover bodies
+  already removed by [retention aging](automatic-session-retention.md).
 - `/elide-context` affects the in-memory send view, not stored raw turns; its
   effect resets on agent restart.
 

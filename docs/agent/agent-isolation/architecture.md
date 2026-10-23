@@ -1,6 +1,10 @@
 # Agent execution isolation — architecture (as-built)
 
-**Status:** as-built through Phase 4 (landed) + Phase 5 (worker, in progress).
+**Status:** Architecture snapshot with historical phase notes. Production configuration
+defaults to `worker`; embedded/test construction can use `in_process`.
+The phase checklist below is not a current implementation backlog.
+`worker_idle_timeout_seconds` defaults to a five-minute idle window (zero selects
+the default; negative disables idle reaping). See `pkg/config/config.go`.
 This is the AS-BUILT complement to `design.md` (the forward-looking design) and
 the per-phase plans (`plan-phase{2,3,4,5}.md`). Where the design describes intent,
 this describes the code as it stands: which types exist, what they own, and how a
@@ -267,7 +271,7 @@ proxies. §5 details the transport.
 The host turn handler (`streamProcessRequestWithToolLoop`) is identical either
 way. The only difference is which `TurnRunner` `RunTurn` runs behind the interface.
 
-### 4.1 IN-PROCESS mode (embedded / test / current default)
+### 4.1 IN-PROCESS mode (embedded / test / explicit opt-in)
 
 1. **Front door.** Client calls `StreamProcessRequest`. The handler calls
    `beginTurn(stream.Context(), convID)` → `broker.BeginTurn`, which supersedes

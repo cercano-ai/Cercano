@@ -1,5 +1,12 @@
 # OpenAI Chat Completions Provider — Design
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 **Status:** Implemented 2026-06-27 (foundation-level).
 
 Sub-project 2 of the multi-cloud effort (foundation = [cloud-profiles.md](./cloud-profiles.md)).

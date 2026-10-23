@@ -1,5 +1,12 @@
 # Compaction 2a (part 1) — Foundation + Bake-off Harness Implementation Plan
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../../features/README.md) and [routing guide](../../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the deterministic compaction substrate — the `Compactor` interface, token-budgeted segmentation, mechanical tool-result dedup/elision, structured summaries, pairing-valid send-view assembly — plus a documented fixture corpus and a metrics harness, proven end-to-end with an elision-only baseline compactor.

@@ -105,8 +105,9 @@ then the task defaults, ordered fallbacks and whether each choice is locked.
 `skills` lists enterprise assignments with their source, namespaced IDs and exact
 versions. Pass one of those IDs with `--skill` to read its text. These commands
 read the running host's verified bundle; they do not fetch credentials or start
-model requests. Personal and repository skills remain available through the
-ordinary skill catalog.
+model requests. The ordinary host skill catalog combines built-in tool skills,
+built-in workflow protocols, and enterprise assignments from the managed settings
+snapshot. It does not discover personal or repository skill directories.
 
 Append `--json` to get structured output. Policy and assigned skill inspection
 require a usable managed bundle. If access is blocked or expired, use `status`

@@ -1,5 +1,11 @@
 # Chat View Migration — Step 3 Design & Forks
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 **Status:** Inventory only. This document ENUMERATES the architectural forks and
 quantifies the options. It does NOT pick winners — the controller decides each
 fork against `khalkulo/workflow/design_decisions.md` (cost · risk · reward · side

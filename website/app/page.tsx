@@ -58,7 +58,7 @@ const features = [
     code: "06 / LOCAL",
     title: "Put local models to work.",
     lead: "Open-weight models belong inside the workflow, not beside it.",
-    body: "Cercano manages a local runtime and makes local inference a first-class destination for delegated work, private tasks, and zero-cost iteration.",
+    body: "Cercano manages a local runtime and makes local inference a first-class destination for delegated work, tasks kept on-device by their selected route, and iteration without per-token provider charges for local execution.",
     doc: "integrated-local-runtime.md",
   },
   {

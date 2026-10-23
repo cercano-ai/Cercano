@@ -17,7 +17,7 @@ to local or hosted open-weight models—or use those models on their own.
 Subscription sign-in is not a universal replacement for API credentials. Account
 eligibility, usage limits, provider terms, and third-party-client support apply;
 availability can change. An implemented sign-in path is not a promise of provider
-endorsement or unlimited access. Check the options presented in `/cloud` and the
+endorsement or unlimited access. Check the options presented in `/config` → **Cloud** and the
 [current provider reference](../README.md).
 
 ## Why it matters
@@ -31,9 +31,11 @@ from it instead of using the same inference route for every task.
 
 ## Try it
 
-Open `/cloud`. Configure a Chat Completions profile with your provider's base URL,
+Open `/config` → **Cloud**. Configure a Chat Completions profile with your provider's base URL,
 credentials, and a tool-capable model. Assign the profile to the desired cloud
-destination, save the settings, and test a small read-only task.
+destination in **Routing**, save the settings, and test a small read-only task.
+`/cloud` lists profiles; `/cloud use <name>` selects the active profile and
+`/cloud key <name> <api-key>` updates a key. It is not the profile editor.
 
 See the [OpenAI-compatible setup guide](../cloud-openai.md) and
 [cloud routing guide](../../cloud-routing.md) for configuration details.
@@ -42,6 +44,8 @@ See the [OpenAI-compatible setup guide](../cloud-openai.md) and
 
 - Compatibility is not universal certification. Providers differ in tool
   calling, streaming, context limits, image support, and usage reporting.
+- Image input for compatible Chat Completions/Responses models requires
+  confirmed model vision capability; a compatible wire format alone is not enough.
 - A model that handles plain chat may still be unsuitable for an agent's tool loop.
 - Hosted endpoints receive the content routed to them and have their own
   pricing and data policies. An open-weight model does not imply local inference.

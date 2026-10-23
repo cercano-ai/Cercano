@@ -1,5 +1,12 @@
 # Locus Mode Implementation Plan (Core)
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Locus Mode (`cloud_only`|`cloud_primary`|`local_primary`|`local_only`) the single source of truth for whether the agent's **main LLM** runs on cloud or local, with bidirectional fallback for `*_primary`, hard-fail for `*_only`, and always-visible routing (no silent degradation).

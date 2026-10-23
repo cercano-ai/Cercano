@@ -1,5 +1,11 @@
 # Native Tool Calling
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 > Status: Planned — design approved, implementation not started.
 
 ## Overview / Goal

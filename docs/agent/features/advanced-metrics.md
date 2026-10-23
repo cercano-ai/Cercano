@@ -20,7 +20,7 @@ Open `/config` and select **Token Metrics**. Choose a date range and inspect the
 provider, model, and source breakdowns. Check coverage warnings before using
 those totals to compare workflows.
 
-Use `/context` for the separate question of how much context the current
+Use `/c` (or `/config` → **Context**) for the separate question of how much context the current
 conversation occupies; context size is not cumulative billed usage.
 
 ## Controls and limitations

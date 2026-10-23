@@ -59,7 +59,7 @@ running. To run the agent server by hand, use `cercano agent`.
 ### 4. Point it at a model
 
 - **Local:** open `/config` → Runtime / Local Models, select a backend and compatible model, and configure Local task routes. Runtime installation and routing are separate settings.
-- **Cloud:** open `/config` (or `/cloud`) and add a provider profile — Anthropic, an OpenAI-compatible endpoint, or a ChatGPT subscription sign-in. Use **Add another account** to save independent sign-ins for the same provider. In **Routing → Primary**, select the preferred account and an ordered list of backups. Quota exhaustion advances through that list and stays on the next account, with no cooldown or automatic return; exhausting every account stops the request. Authentication errors retain their existing recovery prompts. See [Cloud setup](#cloud-setup) below for the details and config-file examples.
+- **Cloud:** open `/config` → **Cloud** and add a provider profile — Anthropic, an OpenAI-compatible endpoint, or a ChatGPT subscription sign-in. Use **Add another account** to save independent sign-ins for the same provider. In **Routing → Primary**, select the preferred account and an ordered list of backups. Quota exhaustion advances through that list and stays on the next account, with no cooldown or automatic return; exhausting every account stops the request. Authentication errors retain their existing recovery prompts. See [Cloud setup](#cloud-setup) below for the details and config-file examples.
 
 ### 5. Talk to it
 
@@ -140,23 +140,24 @@ Switch with `/strict`, `/permissive`, `/bypass`, or `/mode <name>`. Persists to 
 |---|---|
 | `/d [repo-path]` (alias `/dev`) | Development mode — point the session at the Cercano repo and prime the agent to work on itself |
 | `/tools` | List the agent's registered tools |
-| `/tool <name> <json>` | Invoke a tool directly (W/X requires `/bypass`) |
+| `/tool <name> <json>` | Invoke a tool directly; known W/X calls queue confirmation, and the RPC may reject calls requiring streaming approval |
 | `/strict` `/permissive` `/bypass` `/mode <m>` | Change permission mode |
 | `/history` | Pick a past conversation to resume |
 | `/resume <id>` | Resume by conversation id |
 | `/rename <title>` | Rename the current conversation |
-| `/clear` | Wipe in-memory state for this session |
+| `/clear` | Clear displayed messages and start a new conversation ID; retain the old stored conversation |
 | `/color <name|hex>` | Change the prompt border accent color |
 | `/config` | Open the settings page (or `/config <key> <value>` to set one value directly; `/config show` to print current config) |
 | `/s` `/settings` | Open the settings page (sectioned: local model, cloud, routing, permissions, UI/theme) |
 | `/theme` | Open settings to switch/edit the color theme |
-| `/cloud` | Cloud provider settings shortcut |
-| `/context` | Inspect the current context window usage |
+| `/cloud` | List saved cloud profiles; edit profiles in `/config` → **Cloud** |
+| `/context` | Read the project’s `.cercano/context.md` |
+| `/c` | Open the active conversation context viewer |
 | `/compact` | Compact the conversation's context incrementally (digest the backlog, keep existing summaries) |
 | `/context-regen` | Rebuild the conversation's context from raw turns (clears state, re-runs compaction) |
 | `/clear-compacted-context` | Drop the compacted summaries and rehydrate the context from raw turns — no re-summarization (recovery when a broken summarizer produced a bad/empty compacted layer) |
 | `/elide-context` | Stub all tool outputs in the context so far — LLM-free token reclaim. In-memory and send-view only: raw turns untouched, resets on agent restart; tool results after the command stay intact |
-| `/mcp` | List/add/remove/restart hosted MCP servers |
+| `/mcp` | Open MCP configuration; subcommands add/remove/restart hosted servers |
 | `/help` | Show keymap and command list |
 | `/quit` | Quit (or press Ctrl+C twice) |
 
@@ -252,6 +253,14 @@ Layered abstraction. The shared `Provider` interface exposes `Chat`, `StreamChat
 
 - `internal/llm/anthropic/` — uses `github.com/anthropics/anthropic-sdk-go` v1.51. Custom User-Agent RoundTripper for Meridian fingerprint compatibility.
 - `internal/llm/ollama/` — uses `github.com/ollama/ollama/api`.
+- `internal/llm/openai/` — Chat Completions, including backend-specific Mistral content normalization.
+- `internal/llm/responses/` — Responses API and the ChatGPT subscription route.
+- `internal/llm/bedrock/` — Bedrock Converse with AWS credentials.
+
+`internal/cloudfactory` constructs all four cloud wire flavors (`messages`,
+`chat_completions`, `responses`, `bedrock`). Subscription routes require the
+host credential service; protocol support is not a live availability or account
+eligibility guarantee.
 
 The internal `Block` type carries text / `tool_use` / `tool_result` / `image` and is the lingua franca. Each adapter translates SDK types ↔ `Block`. Image translation is plumbed at the provider layer ([vision-input.md](vision-input.md)); live attachments can also be inspected through `inspect_image`.
 

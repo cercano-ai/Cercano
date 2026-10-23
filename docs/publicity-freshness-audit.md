@@ -4,17 +4,32 @@ Baseline: `d93f490490f6b46693d6493868ae4d85871f2396`. Branch: `docs/publicity-re
 
 ## Scope and coverage status
 
-**Partial claim audit, not a release sign-off.** The inventory below covers all
-tracked Markdown/MDX/RST/AsciiDoc plus website TSX/HTML at the baseline (521
-files). Every tracked Markdown file received the bounded local-link scan described
-below; inventory inclusion does not mean every sentence was source-verified.
-Untracked efforts and user work were excluded. Historical/design records remain
-unchanged except contextual notices where a current landing page pointed at stale
-claims. Path-based classifications are provisional; mixed directories require
-individual status reading. This pass does not establish freshness of every
-maintained guide. In particular, plugin skill mirrors, all feature details,
-installation signing guarantees, enterprise acceptance, and every CLI help entry
-still need exhaustive claim-by-claim review.
+**Cumulative source-backed documentation audit, not a release sign-off or
+all-claims certification.** The baseline inventory covers 521 tracked
+Markdown/MDX/RST/AsciiDoc and website TSX/HTML files. Inventory inclusion and
+bounded link scans are not sentence-by-sentence source verification. Subsequent
+reports supersede initial inventory-only labels for their explicitly scoped files:
+
+- [Agent audit and cumulative ledger](audit-agent.md): 83 agent documents plus
+  cloud routing; targeted source corrections and historical boundaries.
+- [CLI audit](audit-cli.md): three current guides, 34 nested historical records
+  and the preserved roadmap (38 documents after the update); registered command
+  families, configuration, model selection and platform boundaries source-checked.
+- [Reference/distribution audit](audit-reference.md): reference, enterprise,
+  release/platform and website guidance, canonical skills and generated mirrors,
+  plus explicit current-reference versus historical feature dispositions.
+- [Agent specialist audit](audit-agent-specialists.md): eight formerly outstanding
+  specialist guides source-audited, with deterministic tests and protobuf output
+  comparison; vision now has maintained guidance above its historical design.
+- [Agent feature audit](audit-agent-features.md): all 11 feature documents,
+  including the index, completed bounded full-file source audits and focused tests.
+
+Progression: the initial targeted correction/link-scan pass was partial; the
+follow-up fixed the classify example and 11 missing relative targets; scoped
+CLI, reference, agent and specialist reports then expanded coverage. Historical
+bodies remain records, not current acceptance checklists. Counts overlap and
+must not be summed as independently verified files. Remaining local gaps and
+external publication checks are separated below.
 
 ## Corrections and source evidence
 
@@ -54,29 +69,67 @@ All source paths above are under `source/server/` unless otherwise qualified.
 
 ## Independent review
 
-Read-only adversarial review of the diff and source found no concrete false claim
-in the targeted corrections. It confirmed that this report explicitly remains a
-partial audit. Review is not certification of all 521 inventoried files.
+The initial read-only review covered only the targeted corrections. Subsequent
+independent-review findings were corrected by the responsible documentation tasks:
+retired `cloud_model` examples now explain rejection and current routing;
+enterprise catalog discovery describes built-in tools, protocols and managed
+assignments rather than personal/repository directory scanning; protobuf guidance
+uses the canonical script with a verified temporary-output comparison; the
+unfinished workflow reference now documents skill regeneration and module-specific
+build/test commands. See the [reference report](audit-reference.md) and
+[specialist report](audit-agent-specialists.md) for evidence and limits. Review
+is not certification of all baseline inventory entries.
 
-## Unverified external claims and remaining work
+## Remaining local documentation coverage limits
 
-- Homebrew availability/version, signed/notarized release assets, deployment
-  targets on actual machines, and Linux/Windows release availability.
-- Provider subscription eligibility/terms, exact model availability, latency,
-  cost savings and current pricing; hosted Mistral live acceptance remains unverified.
-- Enterprise external repository PR/acceptance status, deployed services and
-  organization-specific security guarantees.
-- Skill copies still need comparison with MCP/native adapters; no blanket
-  assertion that all plugin tools execute locally or have zero cost.
-- Full command/help parity and remaining feature/reference claims are not certified.
-- Source tests passing do not validate claims of privacy for arbitrary network
-  tools or credential exports. Local inference does not imply offline operation.
+- No feature-group source audit remains pending. Agent ledger entries labeled
+  **Targeted semantic correction / source comparison** have not received the same
+  full-file claim-by-claim audit as the feature and specialist groups. The exact
+  paths are retained in the [agent ledger](audit-agent.md#exact-file-coverage-ledger);
+  this pass does not claim all repository documentation is exhaustively verified.
+- Historical bodies remain deliberately unreconciled records, not current guides.
+  Source paths in historical prose and templated links are not runnable contracts.
+- CLI help/handler discrepancies for `/clear`, direct `/tool` confirmation and
+  model-tier key shapes, optimistic permission chips, and MCP schema/empty-result
+  legacy terminology remain **implementation advisories**, not missing doc edits.
+  Current guides describe the handlers rather than repeat those stale strings.
+
+## Unrun runtime acceptance (not documentation source-audit prerequisites)
+
+Account identity refresh, UI draft persistence, task notification presentation,
+permission-mode end-to-end behavior, interactive setup, PTY/UI acceptance, full
+product integration, local-runtime hardware smoke and installation/restart were
+not exercised. Specialist image/cache/task and feature source audits are complete
+within their stated scopes; they do not certify deployed behavior. Full runtime
+certification is not required to finish these bounded documentation audits.
+
+## External publication validation still required
+
+- Live release URLs/digests, Homebrew availability/install/upgrade, publisher
+  signing/notarization, native platform support and live Pages configuration.
+- Provider eligibility/terms, models, pricing, latency, cost savings and live
+  Mistral capabilities; web search and external skill-host interoperability.
+- Enterprise PR/acceptance/deployment status, organization login/Keychain UX and
+  organization-specific security guarantees. Wire contracts are not deployment proof.
+- No blanket privacy/offline or zero-cost guarantee follows from local inference,
+  passing tests or generated skill parity; arbitrary network tools and credential
+  exports require their own validation.
+
+## Preexisting lint and dependency advisories
+
+The initial website checks reported 29 dependency vulnerabilities (2 low,
+2 moderate, 24 high, 1 critical) and a lint failure at `app/page.tsx:121`
+(`react-hooks/set-state-in-effect`, `setTheme(active)`). These preexisting
+advisories were not remediated; successful static-export tests do not clear them.
+The verification results above and in linked reports are attributed to those
+passes, not new tests run during this report reconciliation.
 
 ## Follow-up: skill example and preexisting local-link targets
 
-This follow-up is **not completion of the maintained-document semantic audit**.
-The remaining CLI, specialist, enterprise, plugin, release, and platform groups
-still require source comparisons; they are local work, not external-only blockers.
+Historical progression: this follow-up did not complete the maintained-document
+semantic audit. CLI, specialist, enterprise, skill-mirror, release and platform
+source comparisons were subsequently recorded in the linked reports above;
+the current remaining gaps are listed separately, not inherited from this stage.
 
 | Document | Disposition and source evidence |
 | --- | --- |
@@ -92,8 +145,12 @@ anchors or external destinations. Website files were not changed.
 
 ## Tracked inventory
 
-`corrected` means targeted corrections above, not exhaustive verification.
-`inventory/link scan only` explicitly marks outstanding semantic audit work.
+This is the **initial-pass baseline ledger**, retained for inventory provenance,
+not a cumulative per-file completion table. `corrected` means targeted initial
+corrections, not exhaustive verification. `inventory/link scan only` records that
+initial stage; linked scoped reports above supersede it where they name a file.
+Use the cumulative agent ledger for specialist/feature status, rather than
+interpreting these historical labels as new outstanding work.
 
 | Path | Classification | Coverage |
 | --- | --- | --- |
@@ -618,3 +675,47 @@ anchors or external destinations. Website files were not changed.
 | `website/README.md` | guide/instructions/website (candidate maintained) | inventory; website build/render tested |
 | `website/app/layout.tsx` | guide/instructions/website (candidate maintained) | inventory; website build/render tested |
 | `website/app/page.tsx` | guide/instructions/website (candidate maintained) | copy corrected; build/render tested |
+
+## Final integration review (2026-10-22)
+
+Reconciled the completed feature report with both ledgers. Independently compared
+feature navigation/routing/task lifetime with CLI and agent guidance; corrected
+remaining agent-index contradictions for `/cloud`, `/context` versus `/c`,
+`/clear`, direct `/tool` confirmation, and `/mcp`. Confirmed independent-review
+fixes remain: retired `cloud_model`, enterprise catalog discovery, temporary
+protobuf comparison, and module-specific workflow/skill regeneration guidance.
+
+Final local checks:
+
+- Scanned all 526 tracked/untracked Markdown/MDX files: 529 relative link targets,
+  including inline images and reference definitions, and 17 Markdown fragments;
+  zero missing files or approximate heading-anchor misses. Fenced examples,
+  external/root-relative URLs and templated targets were excluded. This is a
+  syntax-based check, not browser-rendered anchor or remote URL certification.
+- `GOPROXY=off GOTOOLCHAIN=local go test ./internal/skills -count=1` passed,
+  including generated `.agents`/`.claude` renderer parity. All 14 canonical
+  catalog skills also match their plugin copies byte-for-byte.
+- `git diff --check` passed. Baseline scope is Markdown plus the two website
+  copy substitutions only; no application logic, dependencies or generated
+  binaries/bindings are included. Skill Markdown mirrors are intentionally included.
+- Website build/render/static-export results above were not rerun: integration
+  changed only Markdown, not website copy or build inputs. Existing lint and
+  dependency advisories remain. No full server suite, live call, installation
+  or service restart was run.
+
+Exact remaining targeted-only semantic coverage (not known broken documentation):
+- `docs/agent/README.md`
+- `docs/agent/agent-isolation/architecture.md`
+- `docs/agent/cloud-responses.md`
+- `docs/agent/compaction-decision-fidelity.md`
+- `docs/agent/locus-coproc.md`
+- `docs/agent/locus-mode.md`
+- `docs/agent/per-backend-quirks.md`
+- `docs/agent/self-dev.md`
+- `docs/agent/sub_agents/README.md`
+- `docs/agent/trajectory-export.md`
+- `docs/cloud-routing.md`
+
+These 11 paths retain bounded comparisons rather than full-file certification.
+Historical bodies are intentionally preserved; external publication and unrun
+runtime acceptance remain separate from these local coverage limits.

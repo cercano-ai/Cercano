@@ -1,5 +1,12 @@
 # Sub-agent Tool Grants and UI Representation
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../features/README.md) and [routing guide](../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 ## Status
 
 Draft design spec. This captures the current direction for agentic sub-agents: keep explicit, dynamic tool grants and reuse the unified tool catalog as the source of truth for the skills a parent agent may grant.
@@ -25,7 +32,7 @@ In short:
 
 ## Routing class is not a tool grant
 
-The optional dispatch `class` selects saved destination and quality, not a predefined set of tools. Pass `reconnaissance`, `mechanical_development`, `investigation`, `implementation`, `review`, `research`, or `git_land` at the semantic entry point. Watchdog uses `watchdog` (Local/Standard). Omission uses Default dispatch (Secondary/Premium). Explicit difficulty overrides only quality. Redirects change effective placement without changing grants; see [routing](../../cloud-routing.md).
+The optional dispatch `class` selects saved destination and quality, not a predefined set of tools. Pass `reconnaissance`, `mechanical_development`, `investigation`, `implementation`, `review`, `research`, or `git_land` at the semantic entry point. Watchdog uses `watchdog` (Local/Standard). Omission uses Default dispatch (Secondary/Standard). Explicit difficulty overrides only quality. Redirects change effective placement without changing grants; see [routing](../../cloud-routing.md).
 
 ```json
 {"class":"mechanical_development","task":"Apply the specified rename and run its tests","tools":["Read","Grep","Edit","Bash"]}

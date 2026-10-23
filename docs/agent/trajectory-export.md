@@ -1,5 +1,16 @@
 # Trajectory Export
 
+## Implementation status
+
+Export is implemented by `internal/server/trajectory_export.go` and
+`internal/trajectory`, not merely a planned client feature. The server reads
+conversation persistence, maps ATIF, gathers artifacts, applies best-effort
+redaction, validates and packages the bundle. `ExportTrajectory` streams progress,
+warnings and completion or a failure (`no_store` / `export_failed`). Clients pass
+options; they do not reconstruct the database. The specification below records
+the design contract, not proof of external ATIF consumer interoperability or
+complete secret removal.
+
 ## Goal
 
 Add first-party export of a complete Cercano conversation as an agent trajectory bundle. The export should be useful for debugging, sharing, evaluation, supervised fine-tuning, and reinforcement-learning pipelines while preserving Cercano-specific artifacts that do not fit cleanly into a single interchange document.

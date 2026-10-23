@@ -17,6 +17,7 @@ folder path, so a feature's folder never moves when it ships. Reorg history is i
 - [Enterprise connection](enterprise-connection.md), [managed routing](enterprise-managed-routing.md),
   and [shared skills](enterprise-shared-skills.md).
 - [Contributor build/debug guide](agent/self-dev.md).
+- [Reference, distribution and skill audit](audit-reference.md).
 - [Publicity freshness audit and coverage limitations](publicity-freshness-audit.md).
 
 ## Current guides versus historical records
@@ -64,12 +65,12 @@ The active build. One sub-folder per piece:
 - `refactor-cleanup.md` — server/client restructure (shipped)
 - `ide-fixes.md` — VS Code extension bug fixes (shipped)
 
-## `reference/` — evergreen project-level
+## `reference/` — project-level guides and historical context
 
-- `product.md` — product vision / concept
-- `tech-stack.md` — technology stack
+- `product.md` — historical product vision / concept
+- `tech-stack.md` — historical technology overview
 - `workflow.md` — development workflow / process
-- `roadmap.md` — master project plan (links into `features/`)
+- `roadmap.md` — historical master project plan (links into `features/`)
 - `agent-skills-guide.md` — guide to writing SKILL.md files
 - `code-styleguides/` — `general.md`, `go.md`
 

@@ -1,5 +1,12 @@
 # OpenAI Responses API Provider — Design
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 **Status:** Implemented 2026-06-29. Sub-project 3 of the multi-cloud effort
 (foundation = [cloud-profiles.md](./cloud-profiles.md); SP2 = [cloud-openai.md](./cloud-openai.md)).
 
@@ -22,11 +29,12 @@ Completions discards each turn.
   like every other backend — each turn sends the full conversation. We do **not**
   use `previous_response_id`/server-side state. Reasoning is preserved by carrying
   the model's reasoning items in **our own** conversation history and handing them
-  back each turn. `store=false` means OpenAI retains nothing (fits local-first).
-- **Reasoning quality is unaffected by going stateless.** The model behaves
-  identically whether OpenAI holds the reasoning (`previous_response_id`) or we
-  resend it — what matters is that the prior reasoning items are present in the
-  input. With `store=false` OpenAI returns the reasoning as an **opaque encrypted
+  back each turn. `store=false` requests that the response not be stored for later API retrieval.
+  It is not a guarantee of zero provider retention; provider logging, abuse
+  monitoring, account policy, and applicable terms remain external constraints.
+- **Reasoning quality is unaffected by going stateless.** The adapter resends prior reasoning items rather than relying on
+  `previous_response_id`. This preserves protocol continuity; identical model
+  quality across those modes is not established by adapter code. With `store=false` OpenAI returns the reasoning as an **opaque encrypted
   blob** (requested via `include:["reasoning.encrypted_content"]`); we store it and
   hand it back verbatim, the model decrypts it server-side. We never read it.
 - **OpenAI-native, not a compat fanout.** Unlike the `chat_completions` provider
@@ -35,7 +43,7 @@ Completions discards each turn.
   `base_url` override is still supported (Azure / a local proxy). Responses error
   bodies are object-shaped, so the array-error normalization from
   [per-backend-quirks.md](./per-backend-quirks.md) is unnecessary; only the
-  transient-retry behavior is reused (see §6).
+  retry/failover policy is applied above adapters (see §6).
 
 ## 1. Package structure
 
@@ -169,18 +177,9 @@ cloud_profiles:
 
 ## 6. Transport, retries, errors
 
-- **Retry (decided — shared `internal/llm/httpx`).** Reuse transient-failure retry
-  (429/500/502/503, exponential backoff) so Responses gets the same resilience as
-  the chat provider. The chat retry currently lives in `internal/llm/openai`'s
-  `normalizingDoer` (unexported), entangled with array-error normalization. Extract
-  the retry round-tripper into a new neutral `internal/llm/httpx` package (a plain
-  `Do`/`http.RoundTripper` wrapper parameterized by a `RetryPolicy`), and have BOTH
-  providers depend on it rather than on each other: the Responses client uses it
-  directly; `openai`'s `normalizingDoer` is refactored to **compose**
-  `httpx.RetryTransport` + keep its own error normalization. The existing
-  `internal/llm/openai/transport_test.go` (six tests) guards that refactor. The
-  Responses client needs **only** retry — not array-error normalization (that is
-  Chat-Completions-error-shape specific).
+- **Current retry ownership.** `internal/inference/resilience` owns narrated,
+  class-driven retry/failover above adapters. The proposed shared `httpx` retry
+  transport was removed; see [backend quirks](per-backend-quirks.md).
 - **Errors.** Responses returns object-shaped errors (`{"error":{...}}`). The
   hand-rolled client decodes that into a Go error carrying status + message — no
   array normalization needed. A non-2xx with an unparseable body yields a generic
@@ -202,7 +201,7 @@ cloud_profiles:
   event → `EventError`.
 - **client** against an `httptest` server returning a recorded Responses JSON body:
   one non-stream tool round-trip and one streamed round-trip; a 500 retried then
-  succeeding (via the shared retry transport).
+  succeeding belongs in resilience-layer tests, not a hidden retry transport.
 - **factory**: `responses` flavor → a `*responses.Client` with `Name()=="openai-responses"`
   and the expected capabilities.
 - **messages**: `BlockReasoning` round-trips through JSON marshal/unmarshal; confirm

@@ -1,5 +1,11 @@
 # Development Mode (`/d`) + Launcher Generator — Implementation Plan
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A `/d` slash command that points a cercano-cli session at the Cercano repo and primes the agent to work on its own codebase, plus a generator script that installs the dev launcher with the clone's repo path baked in.

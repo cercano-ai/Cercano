@@ -1,5 +1,11 @@
 # MCP Host
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 > Status: Built — phases 6 + 15. **Validated end-to-end** against a live
 > third-party stdio server (`rekolektion-viz`): `AddMcpServer` connected it, 22
 > tools registered under `mcp__rekolektion-viz__*` and reached `ready`, and

@@ -1,5 +1,9 @@
 # Agent Capabilities
 
+> Historical concept/planning record, not a current functionality or release-support
+> guide. Status and architecture statements below describe the original effort.
+> Use the root README and maintained guides in `docs/README.md` for current behavior.
+
 A multi-part upgrade to Cercano's standalone agent behaviors and capabilities. Most
 of these capabilities are designed to be usable **both** when Cercano runs as a
 standalone agent **and** when it runs as a plugin (MCP co-processor) inside a host

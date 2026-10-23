@@ -48,5 +48,6 @@ binary as a sibling next to its own executable. The dev launcher
 - `source/server/scripts/` — Python scripts (ddg_search.py) + the dev launcher
 - `source/clients/cli/` — Go module `cercano/source/clients/cli`: the standalone terminal client (TUI). Subpackages under `internal/`: `ui`, `render`, `slash`, `theme`, `banner`, `overlay`
 - `source/clients/{vscode,zed}/` — IDE extensions
-- `.agents/skills/` — Agent Skill definitions (SKILL.md files)
+- `source/server/internal/skills/catalog/` — canonical Cercano tool skill instructions
+- `.agents/skills/` and `.claude/skills/` — generated tool-skill mirrors (`cercano skills sync`); keep `plugins/skills/` distribution copies aligned
 - `docs/` — Specs, plans, research, and project documentation

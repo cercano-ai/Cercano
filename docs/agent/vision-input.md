@@ -1,11 +1,76 @@
-# Vision (Image Input) — Provider-Layer Plumbing — Design
+# Vision input and image inspection
 
-> Historical provider-layer design. Its “inbound path deferred” statements below
-> describe the original scope, not current availability. Current code includes
-> attachment inheritance (`internal/server/image_inheritance_test.go`) and
-> `inspect_image` (`internal/capabilities/builtins/inspect_image.go`). See the
-> [CLI image-input documentation](../features/cli/image-input/) and
-> [native inference guide](../features/deepinfra-infer.md).
+## Current inspection behavior (source-audited 2026-10-22)
+
+This file is not wholly historical: provider plumbing is implemented and images
+now enter through attachments, including inherited child-conversation images.
+The original design is preserved below, but its deferred inbound-path statements
+are not current limitations. See [CLI image input](../features/cli/image-input/)
+and [native inference](../features/deepinfra-infer.md).
+
+The reasoning loop receives stable image-ID placeholders. Use `inspect_image`
+with `image_id` and a focused `question`; it is an agent-only tool, not an
+external MCP attachment lookup. The vision model receives pixels and the
+question in a tool-less leaf request (default 90-second timeout per inspector
+call, 512 output tokens). The answer envelope includes image ID, question,
+answer and available source/confidence; it is not proof beyond what the image
+shows. Missing attachments require reattachment; unavailable vision and provider
+failures return explanatory tool text rather than aborting the reasoning turn.
+
+### Routing and fallback
+
+`toolstack.BuildVision` wraps the shared attachment store with a locus-aware
+inspector and answer cache. Cloud image capability must be affirmatively known
+for the selected model; adapter `SupportsVision` alone only proves transport
+support. The cloud profile chain can resolve a confirmed backup without sending
+an image to an unconfirmed preferred model.
+
+| Locus | Inspection preference | Fallback |
+| --- | --- | --- |
+| `cloud_only` | Cloud | No local calls |
+| `cloud_primary` | Cloud | Local if configured |
+| `open_primary` | Cloud (even though reasoning is local-first) | Local if configured |
+| `open_only` | Local | No cloud calls |
+
+Fallback occurs both when the preferred service is unavailable and when its
+request fails. Configure a confirmed image model under Cloud → Model tiers, or
+local vision for local-only use; if neither permitted lane works, ask for a text
+description rather than inventing image contents. The source label reflects the
+answering route/model. A local fallback is a separate bounded inspector call,
+not a promise that the whole fallback sequence takes at most 90 seconds.
+
+### Cache and attachment limits
+
+Successful answers are cached in memory per conversation, keyed by image ID and
+question after trimming, whitespace collapse and lowercasing. Repeating only
+casing/spacing changes normally reuses the answer rather than making a fresh
+inference. Errors are not cached. Availability and image-presence checks still
+pass through to the underlying service. Attachments and answers are not durable;
+a resumed session may need the image reattached. Image bytes live in private OS
+temporary files, with only metadata/IDs in memory; missing files are lookup
+misses. Identical bytes deduplicate within a conversation, and reattachment can
+restore a removed temporary file. There are no cumulative conversation image
+count/byte caps in this store. Owners close it for cleanup; a crash can leave
+files for OS cleanup. This is not durable attachment persistence.
+
+The cache key does **not** include provider, model or locus, and there is no TTL
+or concurrent-request coalescing in this wrapper. A routing change alone does
+not force a new answer to an identical question; cached source labels describe
+the original inspection. `Clear(conversationID)` exists for lifecycle callers,
+not as an `inspect_image` argument. No production invocation of this cache
+clear method was found in the audit; do not promise eviction on tab dismissal. Do not treat a repeated cached answer as
+independent verification.
+
+Source: `source/server/internal/toolstack/vision.go`,
+`internal/visioninspect/{visioninspect,locus,cache}.go`, and
+`internal/capabilities/builtins/inspect_image.go` (the latter paths relative to
+`source/server`). Targeted tests and limitations are recorded in the
+[audit report](../audit-agent-specialists.md). No live image inference was run.
+
+## Historical provider-layer design — 2026-06-27
+
+The remaining text records the original implementation scope, not current
+capability or URL-fetch security guarantees.
 
 **Status:** Provider-layer plumbing implemented 2026-06-27. Inbound path still deferred. Built together with
 [cloud-openai.md](./cloud-openai.md) (the OpenAI provider's adapter consumes the

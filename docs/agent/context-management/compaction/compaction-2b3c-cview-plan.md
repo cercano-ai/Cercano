@@ -1,5 +1,12 @@
 # Compaction 2b-3c — `/c` Page Visibility Implementation Plan
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../../features/README.md) and [routing guide](../../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Surface compaction in the `/c` page: a header showing sent/raw/savings + frozen/live counts, the consolidated summary block above the live turns (with frozen turns collapsed behind it), a `Ctrl+O` toggle to the full original, and a `Ctrl+E` export of the full uncapped context to a JSON file.

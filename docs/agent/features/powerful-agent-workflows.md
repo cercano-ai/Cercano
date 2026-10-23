@@ -45,6 +45,21 @@ For a consequential change that needs a written plan, explicitly request one.
 For a clear, bounded fix, ask the agent to implement and verify it directly;
 formal planning is not a prerequisite for every edit.
 
+## Planning and autonomous entry
+
+Formal planning uses `suggest_plan`; `request_plan_approval` hands an accepted
+plan back to execution. In a Git worktree, that handoff checkpoints the effort’s
+`spec.md` and `plan.md`; a commit failure keeps planning active. A non-Git
+work directory can leave planning with a warning that the docs were not committed.
+`plan_exit` abandons planning instead.
+
+Autonomous work can start from a lightweight approved brief via
+`suggest_autonomous`, or from an accepted plan via `request_autonomous_execution`.
+The brief records the goal, completion criteria, constraints, and review points
+in a persisted run ledger. These mode-change handoffs retain confirmation even
+in Bypass mode; ordinary tool permissions and a plan outline are not substitutes
+for that approval.
+
 ## Controls and limitations
 
 - Protocols guide model behavior; they do not guarantee correct reasoning or

@@ -1,5 +1,12 @@
 # Compaction Bake-off — Findings
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../../features/README.md) and [routing guide](../../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 Running log of the compaction algorithm bake-off (2a). Records metrics and
 **qualitative verdicts only** — never the raw session content (real sessions
 carry private project detail). Reproduce with `cmd/compaction-bakeoff`.

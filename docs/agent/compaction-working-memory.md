@@ -21,8 +21,10 @@ against a 1,024-token allowance, so truncation alone does not explain it.
    supplies an *assigned* task to the summarizer as reference data for selecting
    relevant facts. The protected task itself is still never compaction input and
    is not rewritten. The reference is JSON-encoded, explicitly marked as data,
-   and explicitly not evidence of approval, execution, or completion. It counts
+   and explicitly not evidence of approval, execution, or completion. The local capacity-aware path counts it
    toward the summary request budget and defers rather than silently overflowing.
+   The cloud path builds the task-aware prompt directly; it does not use the
+   local chunk-packing/deferral gate.
 
    A main conversation has **no assigned task**, and one is never inferred.
    Its trailing user message is typically conversational — real examples from
@@ -86,7 +88,7 @@ observed in a sub-agent dispatch but the same summarizer serves main turns:
 
 - **Sub-agent / in-loop** (`loopcompact.Compactor`, per dispatch, synchronous):
   `agent.RunToolLoop` stamps `spec.Task` via `WithTaskReference`, and each
-  `Compactor` is built with its own `SummaryGuard`. This is the only path that sets
+  dispatch receives a fresh compactor with independent frozen-segment state. This is the only path that sets
   `LoopCompactor`, so the stamp is unambiguously an assigned task.
 - **Main thread** (`compactiongen.Generator`, store-backed, background):
   `runCompaction` and `Regenerate` derive an *intent hint* from the latest real
@@ -98,8 +100,9 @@ background, dispatches compact in-loop. `runner/core.go` therefore sets no
 remains its only non-test caller — if that ever changes, the in-loop task stamp
 would need revisiting, so the test fails rather than letting it pass silently.
 
-Rejection degrades safely rather than failing a turn: the compactor returns the
-quality error, and `agent.compactLoopHistory` converts that into unchanged
+Summarizer failures preserve history rather than failing the turn. There is no
+`SummaryGuard` quality-rejection gate in the current implementation.
+
 ## Verification
 
 `internal/compaction/intent_scope_test.go` pins the task/intent split using real
@@ -110,10 +113,12 @@ the prompt, and an assigned dispatch task still must.
 dispatch path may set a LoopCompactor, and the in-loop summarizer receives the
 assigned task reference.
 
-Verified with `go test ./internal/compaction ./internal/compactiongen
+Historical implementation verification reported `go test ./internal/compaction ./internal/compactiongen
 ./internal/loopcompact ./internal/agent ./internal/hostsvc/tools
 ./internal/compactor`, then a full `go test ./...`: 103 packages pass, no
 failures. Changed files are gofmt-clean; unrelated pre-existing gofmt dirt
 elsewhere in the repository is untouched.
 
-No live model comparison was run for this change.
+The 2026-10-22 source audit reran targeted offline tests; see
+[coverage and results](../audit-agent-specialists.md). No live model comparison
+was run in this audit.

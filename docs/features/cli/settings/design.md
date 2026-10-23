@@ -1,5 +1,11 @@
 # Settings Page
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 ## Overview / Goal
 
 A richer, sectioned **settings page** for the cercano-cli TUI, in the same league as the model runtime dashboard (`/m`) and the context viewer (`/c`). It **replaces** the current flat `/config` editor.

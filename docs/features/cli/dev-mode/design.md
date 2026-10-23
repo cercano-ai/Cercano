@@ -1,5 +1,11 @@
 # Development Mode (`/d`) — Design
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 **Status:** Implemented 2026-07-03. See plan.md for the task breakdown.
 
 Cercano should be able to work on itself. Today, starting a "work on Cercano"

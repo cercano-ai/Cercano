@@ -1,5 +1,11 @@
 # Image Input (drop / paste images into the CLI) Implementation Plan
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a user attach images to a prompt in `cercano-cli` by dropping an image file onto the terminal or pasting a copied image (Cmd+V); the image shows as an atomic `[image N]` chip and travels with the turn to the model, interleaved at the chip's position.

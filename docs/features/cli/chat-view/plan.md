@@ -1,5 +1,11 @@
 # Chat View — Step 1 (Extract Transcript View) Implementation Plan
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move the main page's transcript rendering and viewport out of the root `Model` into a new `chatView` component that `Model` delegates to, with **zero behavior change** proven by byte-identical golden tests.

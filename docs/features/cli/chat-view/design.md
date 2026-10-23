@@ -1,5 +1,11 @@
 # Chat View Migration — Design
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 **Status:** Design approved 2026-06-24 (roadmap + step 1). Steps 2–4 get their own specs.
 
 The `/c` context manager runs on a reusable chat control (`chatPane` + a pluggable

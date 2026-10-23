@@ -34,6 +34,9 @@ the reported route to confirm the resulting placement.
   different mechanisms, and not every route has an implicit fallback.
 - A route configured as Local can be redirected. Check the final destination
   rather than inferring privacy or cost from a task's default setting.
+- Delegated quality also sets a cumulative input-plus-output token cap across
+  model calls: Economy uses 1 million tokens, Standard and Premium 10 million.
+  This is not a dollar budget; the main conversation has no cumulative dispatch cap.
 - Model quality and savings are workload-dependent, not guaranteed by a tier name.
 
 See the [routing reference](../../cloud-routing.md) for defaults, model bindings,

@@ -7,8 +7,10 @@ and dispatch summarization through the shared summarizer wiring.
 
 ## Summary contract
 
-The existing `GOAL / DECISIONS / PROPOSALS / FILES / OPEN / STATE` format is
-unchanged. Status qualifiers live inside its existing string fields:
+The structured format now includes `FINDINGS` alongside
+`GOAL / DECISIONS / PROPOSALS / FILES / OPEN / STATE` (see
+[working memory](compaction-working-memory.md)). Status qualifiers live inside
+its string fields:
 
 - `DECISIONS`: `[instruction]` constraints and `[approved]` decisions, including
   scope, conditions, prohibitions, and stopping rules.

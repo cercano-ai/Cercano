@@ -1,5 +1,12 @@
 # Compaction 2a (part 2) — Summarizer + Algorithms + Bake-off — Design
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../../features/README.md) and [routing guide](../../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 **Status:** Design approved. Implementation not started.
 
 The second half of compaction 2a. Part 1 built the deterministic foundation

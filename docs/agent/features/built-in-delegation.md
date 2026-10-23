@@ -37,8 +37,15 @@ the reported route and granted tools to see where the work actually runs.
   write-capable grants interact with the permission/approval policy.
 - Not every task is automatically delegated, and delegation is not necessarily
   local. Saved routes and placement restrictions determine execution.
-- Dispatch returns the subagent's result when it completes. Live tab updates
-  should not be confused with a fire-and-forget background job.
+- Public `dispatch` and `workflow` return a durable acceptance receipt immediately
+  (`task_id`, `child_id`, `status: accepted`), not the completed result. Use
+  `task_list`, `task_inspect`, or `task_wait` to retrieve progress/results and
+  `task_stop` to cancel execution. Canceling a wait or dismissing a tab does not
+  stop the task. Host restart interrupts unfinished tasks; it does not replay them.
+  Tasks are independent of the launching turn, not of the host process; an
+  auto-launched host may exit after its last client disconnects. A wait can
+  also yield when another task in the same conversation completes.
+  See [independent tasks](../independent-tasks.md).
 - Subagents can fail or return incorrect results. Their conclusions still need
   review; additional inference and verification can outweigh savings on small tasks.
 - Separate context is not a filesystem sandbox. Granted edits affect real files.

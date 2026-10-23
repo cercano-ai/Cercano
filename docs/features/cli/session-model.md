@@ -30,7 +30,15 @@ These commands do not require a working chat model:
 /model models <profile>              # list provider model IDs, where supported
 /model set <profile> <exact-model-id> # use this account/model next message
 /model clear                         # restore normal routing next message
+/escalate                            # select configured Premium model
+/ultrathink                          # same Premium shortcut, no arguments
 ```
+
+The cloud model chip also opens a session tier picker for Premium, Standard and
+Economy on the effective account. This changes the session pin, not global task
+routing. `/model status` is an explicit alias for bare `/model`. Direct user
+controls use the SessionModel RPC; the tool-confirmation rule above concerns
+agent-initiated `session_model` mutations.
 
 Wait for the command's success notice before submitting the next message.
 The chat displays the selected account/model and explicitly marks that fallback
@@ -45,6 +53,10 @@ is disabled. Resuming a conversation displays its saved override as well.
 - No profile backup chain or cross-tier fallback for pinned chat. An unavailable
   account/model produces an error rather than silently choosing another model.
   Same-provider retries may still occur under the normal retry policy.
+- Managed routing policy validates the full account/model identity and rejects
+  forbidden pins rather than silently substituting another route. An explicit
+  per-request model override can take precedence over the saved model; the
+  combined identity is still checked.
 - Local-only locus restrictions still apply. A cloud pin cannot bypass that
   privacy boundary.
 - Removing or renaming the saved account makes the pin fail visibly. Use
@@ -62,4 +74,4 @@ is disabled. Resuming a conversation displays its saved override as well.
 - `internal/runner`: per-turn selection and fallback suppression.
 - `internal/worker/session_model.go`: acknowledged host/worker control bridge.
 - CLI `internal/slash/model.go` and `internal/ui/session_model.go`: direct controls
-  and notices.
+  and notices; `internal/ui/session_tier_picker.go` implements the chip picker.

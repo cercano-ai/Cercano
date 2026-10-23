@@ -8,7 +8,7 @@ users, verify signed policies, or enforce model restrictions.
 Run `go test ./...` from this directory. The module deliberately has no agent
 dependencies. The enterprise repository and client pin a published commit of this module in
 their go.mod files. A development Go workspace can substitute a local checkout.
-The source changes remain in open Cercano PRs for Bryan's review.
+This README describes the checked-in contract, not remote PR or deployment status.
 
 ## Service operations
 
@@ -82,7 +82,9 @@ validation, not SSRF protection or proof of a provider's actual destination.
 Skills are text only, have organization-namespaced IDs and exact versions, and
 include SHA-256 digests of the UTF-8 content bytes. Maximum sizes are 256 KiB per
 skill, 2 MiB per assigned bundle, and 256 KiB per policy. Download integrity,
-atomic activation, signed trust, and runtime skill discovery follow later.
+atomic activation, signed trust, and runtime skill discovery are host responsibilities,
+implemented separately in `source/server/internal/enterprise/`; they are not provided
+by this contract module.
 
 ### Membership shown with a policy
 

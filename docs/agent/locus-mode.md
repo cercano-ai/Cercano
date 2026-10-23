@@ -1,5 +1,18 @@
 # Locus Mode
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+> **Superseded routing:** Current routing uses task destination and quality,
+> with defaults in `source/server/pkg/config/routing.go`. Default dispatch is
+> Secondary/Standard, Compaction Secondary/Light, and Watchdog Local/Standard.
+> The original local-first / co-processor policy below is not the current task
+> routing contract. See [cloud routing](../cloud-routing.md).
+
+
 **Status:** Design approved 2026-06-23. Not yet implemented.
 
 Locus Mode is a single setting that controls how much of Cercano's work runs on

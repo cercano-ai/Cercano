@@ -1,5 +1,12 @@
 # Compaction Lifecycle — Budget, Erosion, and Session Rollover — Design
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../../features/README.md) and [routing guide](../../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 **Status:** Implemented on `fix/compaction-budget` (A+B+C+D). See "As-built" at
 the end for what shipped, field names, and one carried caveat.
 

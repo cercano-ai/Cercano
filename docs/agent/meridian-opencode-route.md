@@ -1,5 +1,12 @@
 # Meridian / OpenCode-impersonation cloud route — diagnosis
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 **Status:** diagnosis captured 2026-07-06; cross-session incident root-caused
 and Cercano-side fixes shipped 2026-07-07 (see below). Remaining defect
 (within-conversation turn lag) needs the Meridian-side fix: fork + PR.

@@ -1,5 +1,10 @@
 # Model tiers, cloud profiles, and model quality
 
+> **Verification boundary:** Routing defaults and adapter selection are repository-code
+> behavior, not live certification of provider availability, subscription eligibility,
+> model quality, pricing or retention. See [agent audit evidence](audit-agent.md) for
+> the checks run and remaining coverage limits.
+
 ## Two separate choices
 
 A **model tier** (called a `destination` in configuration and APIs) chooses where a task runs. A **quality** chooses a model within that destination. Neither is a tool permission level.

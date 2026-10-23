@@ -1,5 +1,12 @@
 # OpenAI Provider + Vision Plumbing — Implementation Plan
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add image content to the `llm` message model + every provider adapter (vision plumbing), and add an OpenAI Chat-Completions `llm.Provider` (text + tools + images) wired in via the `chat_completions` flavor.

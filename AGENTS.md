@@ -31,5 +31,6 @@ cd source/server && go test ./... -count=1
 - `source/server/internal/mcp/` — MCP tool handlers (all cercano_* tools)
 - `source/server/internal/web/` — URL fetching, HTML extraction, DDG search, research pipeline
 - `source/server/scripts/` — Python scripts (ddg_search.py)
-- `.agents/skills/` — Agent Skill definitions (SKILL.md files)
+- `source/server/internal/skills/catalog/` — canonical Cercano tool skill instructions
+- `.agents/skills/` and `.claude/skills/` — generated tool-skill mirrors (`cercano skills sync`); keep `plugins/skills/` distribution copies aligned
 - `docs/` — Specs, plans, research, and project documentation

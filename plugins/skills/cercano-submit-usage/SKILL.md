@@ -1,6 +1,6 @@
 ---
 name: cercano-submit-usage
-description: Use when the user wants to submit cloud token usage data to Cercano for tracking. This sends data, not a report — use cercano_stats to view usage. Opt-in telemetry for local-vs-cloud comparison.
+description: Submit cloud token usage data to Cercano (opt-in). This sends data, not a report — use cercano_stats to view usage. Helps track cloud tokens alongside local inference for accurate local-vs-cloud comparison.
 compatibility: Requires Cercano server running with telemetry enabled.
 ---
 
@@ -8,7 +8,7 @@ compatibility: Requires Cercano server running with telemetry enabled.
 
 Submit cloud token usage data to Cercano for local-vs-cloud comparison. This tool *sends* data — to *view* usage reports, use `cercano_stats` instead.
 
-In most setups, the PostToolUse hook handles this automatically. This tool is for manual or programmatic submission.
+Hosts with a configured compatible PostToolUse hook can submit this automatically; do not assume every integration installs one. This tool is for manual or programmatic submission.
 
 ## MCP Tool
 

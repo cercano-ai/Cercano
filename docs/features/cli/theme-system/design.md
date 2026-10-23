@@ -1,5 +1,11 @@
 # Theme System
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 ## Overview / Goal
 
 Give the cercano-cli a real theme system: several named built-in themes, the ability to switch between them live, and a way to create, edit, save, delete, and import **custom** themes — all from within the settings page. Today there is exactly one theme (`cracker`), hardcoded at startup, with no persistence and no switching.

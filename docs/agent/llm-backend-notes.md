@@ -1,5 +1,12 @@
 # LLM Backend Notes & Conformance
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 The `chat_completions` provider (`internal/llm/openai/`, wrapping `sashabaranov/go-openai`)
 serves many backends through one client, selected by `base_url`. Those backends
 diverge in real ways. This doc records what's been verified per backend and the

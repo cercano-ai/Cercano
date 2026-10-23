@@ -1,6 +1,6 @@
 ---
 name: cercano-stats
-description: Use when the user asks about Cercano usage, token savings, or local vs cloud inference stats. Shows total requests, tokens processed locally, and breakdowns by tool, model, and day.
+description: View Cercano usage statistics and cloud token savings. Shows total requests, tokens processed locally, cloud tokens reported by the host, percentage kept local, and breakdowns by tool, model, and day.
 compatibility: Requires Cercano server running with telemetry enabled.
 ---
 

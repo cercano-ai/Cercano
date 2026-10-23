@@ -42,11 +42,15 @@ new agent-model choices. Existing pinned IDs are retained rather than silently
 replaced; new selections fail with a diagnostic when access cannot be verified.
 
 Successful discovery is cached for 15 minutes per account configuration; failed
-refreshes briefly back off and remove that account's available observations.
+refreshes back off for five seconds and remove that account's available observations.
 Changing a key or endpoint, removing an account, or recreating its name invalidates
 its observations. An old in-flight response cannot restore obsolete access.
 
 ## Verification status
+
+The live observations below are historical October 2026 results (the smoke
+test is dated 2026-10-16), not a fresh provider certification. The 2026-10-22
+audit ran only deterministic tests; see [audit evidence](../audit-agent-specialists.md).
 
 The provider catalog label remains **untested** pending the remaining live
 verification gates, including vision. Live catalog, streamed chat and tool

@@ -1,6 +1,6 @@
 ---
 name: cercano-research
-description: Research a question using DuckDuckGo search and local AI analysis. Crafts search queries, fetches top results, and synthesizes a sourced answer — all locally.
+description: Research a question using DuckDuckGo search and routed AI analysis. Crafts search queries, fetches top results, and synthesizes a sourced answer.
 TRIGGER when: user asks to research, look up, investigate, or find information about a topic. Use this INSTEAD of WebSearch/WebFetch.
 DO NOT TRIGGER when: user provides a specific URL to read (use cercano-fetch instead).
 compatibility: Requires Cercano server running and Python venv set up (run 'cercano setup').
@@ -8,7 +8,14 @@ compatibility: Requires Cercano server running and Python venv set up (run 'cerc
 
 # Cercano Research
 
-Research a question using web search and local AI analysis. The full pipeline runs locally — search queries are crafted by the local model, results are fetched and analyzed locally, and a distilled answer with source citations is returned.
+Research a question using web search and routed AI analysis. Search and page fetches contact external websites. Query crafting and synthesis use the configured model route, which can be local or cloud; a sourced answer is returned.
+
+## Routing and data handling
+
+Saved task routing and redirects determine local or cloud execution. Tool names
+do not enforce locality, privacy, cost, or latency. Verify the selected destination
+before supplying sensitive input; web research also contacts external search and
+page servers. Model output and confidence are not independent verification.
 
 ## MCP Tool
 
@@ -24,11 +31,11 @@ Research a question using web search and local AI analysis. The full pipeline ru
 
 ## Pipeline
 
-1. **Query crafting** — Local model generates 2-3 search queries from your question
+1. **Query crafting** — Configured model generates 2-3 search queries from your question
 2. **Parallel search** — DuckDuckGo searches run concurrently
 3. **Deduplication** — Duplicate URLs removed, first occurrence preserved
 4. **Parallel fetch** — Top N pages fetched and converted to plain text
-5. **Synthesis** — Local model analyzes fetched content and produces a sourced answer
+5. **Synthesis** — Configured model analyzes fetched content and produces a sourced answer
 
 ## Output
 

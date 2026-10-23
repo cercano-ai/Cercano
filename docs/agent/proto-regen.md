@@ -1,50 +1,58 @@
 # Regenerating the gRPC bindings
 
-The proto surface lives in `source/proto/agent.proto`; the generated Go
-bindings are committed at `source/server/pkg/proto/agent.pb.go` and
-`agent_grpc.pb.go`. There is **no Makefile target and no `go:generate`
-directive** for regeneration — this document is the recorded procedure.
+The schema is `source/proto/agent.proto`; committed Go output lives in
+`source/server/pkg/proto/agent.pb.go` and `agent_grpc.pb.go`.
+**`source/proto/generate.sh` is the canonical, location-independent procedure.**
+It adds `$(go env GOPATH)/bin` to PATH and installs missing Go plugins at pinned
+versions. It does not replace an already-present plugin with the pinned version.
+Do not run it in a no-install audit unless prerequisites are already present.
 
-## The command
+## Versions and normal regeneration
 
-From the repo root:
-
-```sh
-PATH="$HOME/go/bin:$PATH" protoc \
-  --proto_path=source/proto \
-  --go_out=source/server/pkg/proto --go_opt=paths=source_relative \
-  --go-grpc_out=source/server/pkg/proto --go-grpc_opt=paths=source_relative \
-  agent.proto
-```
-
-The `protoc-gen-go` and `protoc-gen-go-grpc` plugins live in `~/go/bin`,
-which is typically not on PATH — hence the prefix. The generated file
-headers record the exact plugin versions that produced the committed
-bindings; keep new output consistent with them.
-
-## Verify before you edit
-
-Before touching `agent.proto`, run the command above against the
-**unmodified** proto and confirm the working tree stays clean:
+The current headers record protoc `v7.34.1` (the executable reports
+`libprotoc 34.1`), protoc-gen-go `v1.36.11`, and protoc-gen-go-grpc `v1.6.2`.
+Check the headers and script again when regenerating; these versions can change.
 
 ```sh
-git diff --stat -- source/server/pkg/proto/   # must be empty
+source/proto/generate.sh
 ```
 
-A zero diff proves your protoc and plugin versions match whatever generated
-the committed bindings. If it isn't empty, stop — regenerating after your
-edit would mix a version-skew diff into your change.
+Before changing the schema, establish a baseline: generation from the existing
+schema should reproduce the existing bindings. A zero diff demonstrates output
+equivalence, not necessarily identical executable versions. In a dirty worktree,
+compare with the preexisting files, not just `git diff` against HEAD.
 
-## Two traps that recur
+## Non-mutating, no-install check
 
-1. **Adding an RPC breaks the mcp mock.** `internal/mcp/server_test.go`'s
-   `mockAgentClient` implements `proto.AgentClient`; every new RPC needs a
-   stub added there (mirror the existing ones — return an empty response).
-   `go build` will NOT catch this; `go vet ./...` and the test build will.
+From the repository root, with all three executables already installed:
 
-2. **Never trust a rebase's auto-merge of generated files.** When both sides
-   of a rebase regenerated `agent.pb.go`, git may textually merge the two —
-   including the serialized file-descriptor byte blob, which can be silently
-   corrupted even when the merge "succeeds". After any rebase that touched
-   the proto: regenerate from the merged `agent.proto` and require a zero
-   diff. If there is a diff, the regenerated output is the truth; commit it.
+```sh
+export PATH="$PATH:$(go env GOPATH)/bin"
+protoc --version
+protoc-gen-go --version
+protoc-gen-go-grpc --version
+out=$(mktemp -d)
+protoc --proto_path=source/proto \
+  --go_out="$out" --go_opt=paths=source_relative \
+  --go-grpc_out="$out" --go-grpc_opt=paths=source_relative agent.proto
+cmp "$out/agent.pb.go" source/server/pkg/proto/agent.pb.go
+cmp "$out/agent_grpc.pb.go" source/server/pkg/proto/agent_grpc.pb.go
+rm -r "$out"
+```
+
+Stop and explain any baseline difference before mixing regeneration with a schema
+change. This check does not run the install-capable script or modify bindings.
+
+## Two recurring traps
+
+1. Adding an RPC changes `proto.AgentClient`. Update implementations such as
+   `internal/mcp/server_test.go`'s `mockAgentClient` with the matching stub.
+   Production `go build` does not compile test mocks. From `source/server`, run
+   `go test ./internal/mcp` and the relevant server/worker tests; `go vet ./...`
+   is an additional broader check.
+2. Do not trust a textual merge of generated files, especially the serialized
+   descriptor. After merging schema changes, regenerate from the merged proto
+   and compare. Generated output, not a hand-merged descriptor, is authoritative.
+
+The 2026-10-22 audit performed the temporary-output comparison and test builds;
+see [coverage and evidence](../audit-agent-specialists.md).

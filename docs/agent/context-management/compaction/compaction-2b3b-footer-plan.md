@@ -1,5 +1,12 @@
 # Compaction 2b-3b — Footer Visibility Implementation Plan
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../../features/README.md) and [routing guide](../../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make compaction visible in the always-on footer meter: an honest sent/raw size with a savings badge, and a live "compacting…" animation while a background pass runs. Plus a server perf fix so the now-polled `raw` size is cheap.

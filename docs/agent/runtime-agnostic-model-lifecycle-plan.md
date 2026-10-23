@@ -1,5 +1,12 @@
 # Runtime-agnostic model lifecycle — plan
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 Status: proposed (grounded in code as of `main` @ `78e5a5e5`)
 Author intent: the runtime is a swappable backend. Download-on-switch,
 readiness, the status chip, and open-model resolution for EVERY consumer

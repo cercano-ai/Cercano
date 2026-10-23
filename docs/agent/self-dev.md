@@ -178,7 +178,8 @@ cloud provider), `permissions.yaml` (permission mode + allowlist), `ui.yaml`
 - `README.md` (repo root) — Feature TODOs: new features and existing
   improvements across the whole project.
 - `docs/features/` and `docs/agent/` — per-feature `design.md` / `plan.md`
-  pairs; a plan's unchecked boxes are its remaining work.
+  pairs; historical unchecked boxes are not a reliable current backlog. Confirm
+  implementation and current tracking before treating a plan step as outstanding.
 
 ## Troubleshooting local models & the agent lifecycle
 
@@ -233,7 +234,8 @@ A build-tagged tracer dumps every raw tool-call fragment to stderr. It is
 `os.Stat`/env cost on the hot path), so it must be compiled in explicitly:
 
 ```bash
-go build -tags cercano_streamtrace -o ~/bin/.cercano-libexec/cercano ./source/server/cmd/cercano
+cd source/server
+go build -tags cercano_streamtrace -o ~/bin/.cercano-libexec/cercano ./cmd/cercano
 # codesign as usual, then restart the agent
 ```
 
@@ -280,10 +282,14 @@ show a real tool-grounded run (`called=[Read]`). It is skipped unless
 `CERCANO_LIVE_OPEN_MODEL_TEST=1` is set, so CI and normal development never
 require a local model.
 
-Model-resolution wiring (all resolved once at agent startup in
-`cmd/cercano/main.go`): compaction summarizer ← `fast_light.open`;
-recap and watchdog ← `fast_light_text.open`; interactive local chat ←
-`open_model`. A broken `open_model` no longer breaks background jobs.
+Model resolution is task-specific, not one startup-only local-model mapping.
+Compaction uses shared `internal/loopcompact` routing (default Secondary/Light);
+`compaction.summarizer_model` applies only to explicitly Local, resolved-local
+execution. Watchdog uses its saved task assignment (default Local/Standard).
+The recap generator is wired at startup with `fast_light_text.open`; local chat
+uses `open_model`. Diagnose the effective route and selected model rather than
+assuming every background job uses the local fast/light model. See
+[compaction routing](compaction-routing.md) and [routing](../cloud-routing.md).
 
 Agent-bounce pitfalls:
 

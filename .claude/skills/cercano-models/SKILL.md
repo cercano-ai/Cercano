@@ -1,12 +1,12 @@
 ---
 name: cercano-models
-description: List AI models available on the Ollama instance connected to Cercano. Returns model names, sizes, and modification dates. Use this to discover what local models are available before choosing one for inference or switching the active model.
-compatibility: Requires Cercano server running and connected to an Ollama instance.
+description: List AI models available on the active local runtime configured in Cercano. Returns model names, sizes, and modification dates. Use this to discover what local models are available before choosing one for inference or switching the active model.
+compatibility: Requires Cercano server running and configured with a local runtime.
 ---
 
 # Cercano Models
 
-List all models available on the active Ollama instance.
+List all models available on the active local runtime.
 
 ## Important: Display the result
 

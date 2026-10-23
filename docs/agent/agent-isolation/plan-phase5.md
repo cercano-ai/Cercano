@@ -1,5 +1,12 @@
 # Agent Execution Isolation — Phase 5 Implementation Plan (Worker Process)
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../features/README.md) and [routing guide](../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Run one conversation's turn execution (`internal/runner.TurnRunner`) in a dedicated child process so a turn that hangs, panics, or wedges a tool takes down only that conversation's worker — never the host or any other conversation. The host stays the single owner of all durable/shared state (config, the conversation store, keychain credentials, the broker); the worker is stateless compute that proxies state operations back to the host over a bidi gRPC stream.
