@@ -237,20 +237,34 @@ func TestNativeTemporaryInstall(t *testing.T) {
 					t.Logf("stable=%t DB=%s %s", stable, dbState, strings.TrimSpace(output))
 				}
 			}
-			if os.Getenv("CERCANO_NATIVE_NORMAL_START_TEST") == "1" && i == 0 && dbState != "inaccessible" {
+			if os.Getenv("CERCANO_NATIVE_NORMAL_START_TEST") == "1" {
 				for _, stable := range []bool{true, false} {
 					path, args := filepath.Join(installRoot, "cercano"), []string{"agent"}
 					if !stable {
 						path = filepath.Join(dir, "bin/cercano")
 						args = append(append([]string{}, locators...), "agent")
 					}
-					t.Run(fmt.Sprintf("normal/%s/stable=%t", dbState, stable), func(t *testing.T) {
-						nativeNormalInteraction(t, path, args, fixtureVersions[i], env, home, profile)
+					t.Run(fmt.Sprintf("normal/%s/%s/stable=%t", fixtureVersions[i], dbState, stable), func(t *testing.T) {
+						cliPath, cliArgs := filepath.Join(installRoot, "cercano-cli"), []string{}
+						if !stable {
+							cliPath, cliArgs = filepath.Join(dir, "bin/cercano-cli"), locators
+						}
+						nativeNormalInteraction(t, path, args, cliPath, cliArgs, fixtureVersions[i], env, home, profile)
 						if dbState == "missing" {
 							if _, err := os.Stat(db); !os.IsNotExist(err) {
 								t.Fatalf("normal startup created bookkeeping: %v", err)
 							}
 						} else {
+							if dbState == "inaccessible" {
+								info, err := os.Stat(db)
+								if err != nil || info.Mode().Perm() != 0 {
+									t.Fatalf("inaccessible bookkeeping permissions changed: %v", err)
+								}
+								if err := os.Chmod(db, 0600); err != nil {
+									t.Fatal(err)
+								}
+								defer os.Chmod(db, 0000)
+							}
 							b, err := os.ReadFile(db)
 							if err != nil || string(b) != "not SQL" {
 								t.Fatalf("normal startup changed corrupt bookkeeping: %q %v", b, err)
@@ -271,13 +285,12 @@ func TestNativeTemporaryInstall(t *testing.T) {
 			t.Fatal("old/candidate not retained", err)
 		}
 	}
-	t.Log("staged two complete current-source fixture releases; protected stable and child offline version startup without SQL. Normal agent RPC evidence is reported only by enabled normal subtests. No CLI interaction, drain, publication or compatibility proof.")
+	t.Log("staged two complete current-source fixture releases; protected stable and child offline version startup without SQL. Normal agent RPC evidence is reported only by enabled normal subtests. CLI PTY evidence is reported only by enabled cli-pty subtests. No updater drain, publication or compatibility proof.")
 }
 
-// nativeNormalInteraction is deliberately separately gated. Compile-only until
-// credential and executable sandbox review is complete. No auto-launch client:
+// nativeNormalInteraction is deliberately separately gated. No auto-launch RPC client:
 // every RPC targets the allocated endpoint and must prove this exact child PID.
-func nativeNormalInteraction(t *testing.T, image string, args []string, version string, baseEnv []string, home, denyProfile string) {
+func nativeNormalInteraction(t *testing.T, image string, args []string, cliImage string, cliArgs []string, version string, baseEnv []string, home, denyProfile string) {
 	// Exercise the client's no-credential attestation/transport policy as well
 	// as the explicit child setting; never merely trust a reachable endpoint.
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
@@ -460,6 +473,9 @@ func nativeNormalInteraction(t *testing.T, image string, args []string, version 
 	if !userSaved || !assistantSaved {
 		t.Fatalf("interaction not persisted: %+v", turns)
 	}
+	t.Run("cli-pty", func(t *testing.T) {
+		nativeCLIInteraction(t, client, cmd.Process.Pid, version, cliImage, cliArgs, env, home, denyProfile, port)
+	})
 	stop, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	err = client.ShutdownAgent(stop, "bounded native harness complete")
 	stopCancel()
@@ -476,4 +492,108 @@ func nativeNormalInteraction(t *testing.T, image string, args []string, version 
 		t.Fatal("graceful shutdown deadline exceeded")
 	}
 	t.Logf("normal startup PID=%d version=%s; local RPC chat persisted; graceful child exit/reap", cmd.Process.Pid, version)
+}
+
+// The CLI has no endpoint/no-auto-launch flags: it reads cfg.Port from the
+// shared config. Verify the owned endpoint immediately before and after use;
+// deny every agent executable by basename in the CLI sandbox, so a failed
+// connection cannot turn this slice into an auto-launch test.
+func nativeCLIInteraction(t *testing.T, client *agentclient.Client, pid int, version, image string, args, env []string, home, denyProfile, port string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+	defer cancel()
+	verify := func() {
+		probe, stop := context.WithTimeout(ctx, 3*time.Second)
+		defer stop()
+		h, err := client.Health(probe)
+		if err != nil || h.Pid != int32(pid) || h.Version != version || !h.Ready {
+			t.Fatalf("CLI endpoint ownership: %+v %v", h, err)
+		}
+	}
+	verify()
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Fatalf("normal opt-in requires Python 3 stdlib PTY: %v", err)
+	}
+	prompt := fmt.Sprintf("Inert native PTY check %d; do not use tools.", time.Now().UnixNano())
+	// No network-bind allowance; only the verified agent can be reached.
+	profile := denyProfile + fmt.Sprintf(`(allow network-outbound (remote ip "localhost:%s"))(deny process-exec (regex #"/cercano$"))`, port)
+	const helper = `
+import os, pty, fcntl, termios, struct, select, subprocess, sys, time, re
+prompt = sys.argv[1]
+master, slave = pty.openpty()
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 45, 160, 0, 0))
+p = None
+output = bytearray()
+try:
+    p = subprocess.Popen(sys.argv[2:], stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    os.close(slave)
+    start = time.monotonic()
+    sent = False
+    quit_at = None
+    while time.monotonic() - start < 55:
+        if select.select([master], [], [], 0.1)[0]:
+            try: chunk = os.read(master, 65536)
+            except OSError: chunk = b''
+            output.extend(chunk)
+            # Answer terminal capability queries without a terminal emulator.
+            if b'\x1b[6n' in chunk: os.write(master, b'\x1b[1;1R')
+            if b'\x1b]11;?' in chunk: os.write(master, b'\x1b]11;rgb:0000/0000/0000\x1b\\')
+        plain = re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]', b'', bytes(output))
+        if not sent and time.monotonic() - start > 3:
+            os.write(master, prompt.encode() + b'\r')
+            sent = True
+        if sent and quit_at is None and b'native fixture response' in plain:
+            # Allow the completed stream to settle before voluntary slash exit.
+            quit_at = time.monotonic() + 1
+        if quit_at is not None and time.monotonic() >= quit_at:
+            os.write(master, b'/quit\r')
+            quit_at = float('inf')
+        if p.poll() is not None:
+            assert p.returncode == 0, ('CLI exit', p.returncode)
+            assert quit_at is not None, 'CLI exited without rendering fixture answer'
+            assert b'auto-launched' not in plain, 'unexpected auto-launch'
+            print('PTY voluntarily exited and reaped PID=%d' % p.pid)
+            break
+    else:
+        raise RuntimeError('PTY interaction deadline exceeded')
+finally:
+    if p is not None and p.poll() is None:
+        p.kill()
+        p.wait(timeout=5)
+    os.close(master)
+    sys.stdout.buffer.write(output)
+`
+	argv := []string{"-c", helper, prompt, "/usr/bin/sandbox-exec", "-p", profile, image}
+	argv = append(argv, args...)
+	cmd := exec.CommandContext(ctx, python, argv...)
+	cmd.Env, cmd.Dir = append(append([]string{}, env...), "TERM=xterm-256color"), home
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("PTY prerequisite/interaction failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "cercano: connecting to localhost:"+port) || !strings.Contains(string(output), "PTY voluntarily exited and reaped PID=") {
+		t.Fatalf("missing terminal connection/exit evidence: %s", output)
+	}
+	verify()
+	conversations, err := client.ListConversations(ctx, "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range conversations {
+		turns, err := client.ResumeConversation(ctx, c.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		user, assistant := false, false
+		for _, turn := range turns {
+			user = user || (turn.Role == "user" && strings.Contains(turn.Content, prompt))
+			assistant = assistant || (turn.Role == "assistant" && strings.Contains(turn.Content, "native fixture response"))
+		}
+		if user && assistant {
+			t.Logf("CLI image=%s agent PID=%d version=%s conversation=%s: PTY answer/connection notice, parent RPC stored prompt/answer, voluntary /quit and exact reap", image, pid, version, c.ID)
+			return
+		}
+	}
+	t.Fatal("PTY prompt and response not found in parent RPC persisted history")
 }
