@@ -10,8 +10,9 @@
 //  2. DrainThenStop lets in-flight turns finish, with a hard-stop backstop so
 //     a wedged handler can't keep a zombie agent alive.
 //
-// GracefulStop closes the listener immediately, so the port frees for a
-// replacement agent while the old process drains.
+// GracefulStop closes the listener immediately, so no new connection reaches
+// the draining process. The profile's agent lock stays held until the process
+// exits, so a replacement agent for the same profile starts only after that.
 package server
 
 import (

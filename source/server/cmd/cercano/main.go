@@ -198,8 +198,10 @@ const drainGrace = 10 * time.Minute
 // startGRPCServer initializes all providers and starts the gRPC server.
 // Returns the listener address and a cleanup function.
 // events may be nil (MCP embedded mode opens no log); a nil writer makes
-// durable runtime-event recording a no-op rather than a crash.
-func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer) (string, func(), error) {
+// durable runtime-event recording a no-op rather than a crash. identity is
+// what GetHostIdentity reports. The returned address is the one actually
+// bound, so a port of 0 comes back as the port the system chose.
+func startGRPCServer(cfg config.Config, bindAddr string, identity server.HostIdentity, events *crashlog.Writer) (string, func(), error) {
 	enterpriseHost, err := newEnterpriseHost()
 	if err != nil {
 		return "", nil, err
@@ -416,7 +418,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 
 	lis, err := net.Listen("tcp", bindAddr)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to listen on %s: %v", bindAddr, err)
+		return "", nil, listenFailure(bindAddr, err)
 	}
 
 	// 64 MiB comfortably fits multiple 20 MiB images (the per-image client cap).
@@ -431,6 +433,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	srv := server.NewServer(orchestrator, lazyRouter, coordinator, cloudFactory, registry)
 	srv.SetBackgroundWorkAdmission(enterpriseHost.Begin)
 	srv.SetBuildVersion(version)
+	srv.SetHostIdentity(identity)
 	compactionCandidates = srv.DispatchCandidates
 	srv.SetRuntimeManager(runtimeManager)
 	if os.Getenv("CERCANO_AUTOLAUNCHED") == "1" && cfg.Agent.ShutdownOnLastClient {
@@ -871,20 +874,25 @@ func newModelHostRemote(ctx context.Context) (*modelhost.Remote, error) {
 	}
 	bctx, cancel := context.WithTimeout(ctx, modelHostConnectBudget)
 	defer cancel()
-	remote, err := modelhost.NewRemote(bctx, modelhost.RemoteOptions{
+	remote, err := modelhost.NewRemote(bctx, modelHostRemoteOptions(runDir))
+	if err != nil && ctx.Err() == nil && bctx.Err() != nil {
+		return nil, fmt.Errorf("model host not connected within %s: %w", modelHostConnectBudget, err)
+	}
+	return remote, err
+}
+
+// modelHostRemoteOptions connects to the model host in runDir as an agent for
+// the active profile.
+func modelHostRemoteOptions(runDir string) modelhost.RemoteOptions {
+	return modelhost.RemoteOptions{
 		Ensure: modelhost.EnsureOptions{
 			RunDir:        runDir,
 			ClientVersion: version,
 			Launch:        launchModelHost(runDir),
 			Timeout:       modelHostEnsureTimeout,
 		},
-		// The active profile is reported once profiles reach the agent host.
-		Profile: "",
-	})
-	if err != nil && ctx.Err() == nil && bctx.Err() != nil {
-		return nil, fmt.Errorf("model host not connected within %s: %w", modelHostConnectBudget, err)
+		Profile: activeProfile(),
 	}
-	return remote, err
 }
 
 // startDefaultRuntimeAsync warms the llama-server default model in the
@@ -1957,8 +1965,20 @@ func generateSessionID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
 }
 
-// runServerMode starts the gRPC server in standalone mode (for IDE clients).
+// runServerMode runs this profile's agent host until signaled. It holds the
+// profile's agent lock for the whole process lifetime, so a second agent for
+// the same profile exits with status 1, and publishes the address it listens
+// on in the profile's agent.json. The record is removed and the lock released
+// on every exit path.
 func runServerMode(cfg config.Config) {
+	profile := activeProfile()
+	host, err := acquireAgentHost(profile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cercano: %v\n", err)
+		os.Exit(1)
+	}
+	defer host.close()
+
 	// Tee log.Printf diagnostics to the profile's logs/dispatch.log so they survive
 	// when the CLI auto-launches this agent and swallows its stderr. Without
 	// this, subsystem logs (e.g. [mcphost] connection failures) are lost.
@@ -1985,24 +2005,36 @@ func runServerMode(cfg config.Config) {
 				})
 				_ = crashWriter.Close()
 			}
+			host.close()
 			panic(r)
 		}
 	}()
 
-	fmt.Printf("Starting Cercano gRPC server (v%s)...\n", version)
+	fmt.Printf("Starting Cercano gRPC server (v%s) for profile %q...\n", version, profile)
 	fmt.Printf("Local model: %s\n", openChatModel(cfg))
 	fmt.Printf("Ollama URL: %s\n", cfg.OllamaURL)
 	if crashWriter != nil {
 		fmt.Printf("Crash log: %s\n", crashLogPath)
 	}
 
-	addr, cleanup, err := startGRPCServer(cfg, ":"+cfg.Port, crashWriter)
+	addr, cleanup, err := startGRPCServer(cfg, agentBindAddr(profile, cfg), host.identity(), crashWriter)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\n[ERROR] %v\n", err)
 		if crashWriter != nil {
 			crashWriter.LogPanic("server startup failed: "+err.Error(), nil, map[string]any{"stage": "startGRPCServer"})
 			_ = crashWriter.Close()
 		}
+		host.close()
+		os.Exit(1)
+	}
+	if err := host.register(addr); err != nil {
+		fmt.Fprintf(os.Stderr, "\n[ERROR] %v\n", err)
+		cleanup()
+		if crashWriter != nil {
+			crashWriter.LogPanic("server startup failed: "+err.Error(), nil, map[string]any{"stage": "registerAgent"})
+			_ = crashWriter.Close()
+		}
+		host.close()
 		os.Exit(1)
 	}
 
@@ -2028,12 +2060,15 @@ func runServerMode(cfg config.Config) {
 			_ = crashWriter.Close()
 		}
 		fmt.Fprintln(os.Stderr, "Second signal — exiting immediately")
+		host.close()
 		os.Exit(1)
 	}()
 	cleanup()
 	if crashWriter != nil {
 		_ = crashWriter.Close()
 	}
+	// Last: remove the record, then release the profile lock.
+	host.close()
 	fmt.Println("Shutdown complete")
 }
 
@@ -2066,7 +2101,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 
 		// MCP embedded mode opens no crash log; runtime events are a
 		// no-op here rather than a second writer on the same file.
-		addr, _, err := startGRPCServer(cfg, "localhost:0", nil)
+		addr, _, err := startGRPCServer(cfg, embeddedGRPCBindAddr, embeddedHostIdentity(), nil)
 		if err != nil {
 			// Start in degraded mode so the MCP pipe stays alive and
 			// the client gets a clear error instead of "Failed to reconnect".
