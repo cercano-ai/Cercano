@@ -15,7 +15,7 @@ Cercano today is consumed via MCP (Claude Code, Cursor) and IDE extensions (VS C
 - New CLI client under `source/clients/cli/` (Go, Bubble Tea).
 - Agent surface additions under `source/server/internal/` (conversation persistence, MCP host runtime, context meter, built-in tool suite, slash RPCs).
 - New gRPC service methods.
-- New config files: `~/.config/cercano/config.yaml` (server), `ui.yaml` (CLI), `permissions.yaml`, `mcp.yaml`, per-project `.cercano/mcp.yaml`, `conversations.db`.
+- Config files: per profile in `~/.config/cercano/profiles/<name>/` — `config.yaml` (server), `permissions.yaml`, `mcp.yaml`, `conversations.db`; machine-wide `~/.config/cercano/machine.yaml` (local runtimes) and `~/.config/cercano/ui.yaml` (CLI); per-project `.cercano/mcp.yaml`.
 
 **What does NOT change:** existing MCP server mode (`cercano --mcp`), VS Code / Zed extensions, existing SmartRouter / Coordinator / engine layer / Ollama (enriched, not replaced).
 

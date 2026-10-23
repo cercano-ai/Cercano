@@ -114,14 +114,17 @@ update itself.
 
 ## Logs
 
+Per-profile files live in `~/.config/cercano/profiles/<name>/` (`<profile>`
+below; the profile is `default` unless `--profile` or `CERCANO_PROFILE` picks
+another).
+
 | Path | What it is |
 |---|---|
-| `$TMPDIR/cercano-server.log` | stdout/stderr of an auto-launched agent |
-| `~/.config/cercano/crash.log` | agent crash reports |
-| `~/.config/cercano/meridian.log` | Meridian proxy diagnostics |
-| `~/.cercano-dispatch.log` | MCP dispatch-mode diagnostics |
+| `<profile>/logs/agent.log` | stdout/stderr of an auto-launched agent |
+| `<profile>/crash.log` | agent crash reports |
+| `<profile>/logs/dispatch.log` | MCP dispatch-mode diagnostics |
 
-The auto-launch log path comes from `pkg/agentclient/client.go` (it prints as
+The auto-launch log path comes from `pkg/agentclient/profile_dial.go` (it prints as
 "auto-launched agent server (log: …)" on CLI startup). When debugging agent
 behavior, check the server log first — tool-loop iterations, provider errors,
 and permission decisions all land there.
@@ -132,7 +135,7 @@ SQLite in WAL mode. Query in place with `sqlite3`; if you must copy a
 database, take its `-wal` and `-shm` siblings too or you'll read a stale
 snapshot. Timestamps are integer unix **seconds**.
 
-### `~/.config/cercano/conversations.db`
+### `<profile>/conversations.db`
 
 Override with `$CERCANO_CONVERSATIONS_DB`. Schema source of truth:
 `source/server/internal/conversation/schema.sql`. Tables: `conversations`
@@ -143,22 +146,22 @@ Tool-calling turns carry an ordered Anthropic-wire-shape block array in the
 
 ```bash
 # Ten most recent conversations
-sqlite3 ~/.config/cercano/conversations.db \
+sqlite3 ~/.config/cercano/profiles/default/conversations.db \
   "SELECT id, title, datetime(last_turn_at,'unixepoch') FROM conversations \
    ORDER BY last_turn_at DESC LIMIT 10;"
 
 # A conversation's turns, in order (truncate long bodies)
-sqlite3 ~/.config/cercano/conversations.db \
+sqlite3 ~/.config/cercano/profiles/default/conversations.db \
   "SELECT role, substr(coalesce(nullif(content,''), content_json),1,120) \
    FROM turns WHERE conversation_id='<id>' ORDER BY created_at;"
 
 # Turns whose tool calls mention a given tool
-sqlite3 ~/.config/cercano/conversations.db \
+sqlite3 ~/.config/cercano/profiles/default/conversations.db \
   "SELECT conversation_id, datetime(created_at,'unixepoch') FROM turns \
    WHERE content_json LIKE '%\"name\":\"Edit\"%' ORDER BY created_at DESC LIMIT 20;"
 ```
 
-### `~/.config/cercano/telemetry.db`
+### `<profile>/telemetry.db`
 
 Usage metrics: local/cloud requests, token counts, per-tool and per-day
 breakdowns. Read via the `cercano_stats` MCP tool or `cercano stats` CLI
@@ -166,10 +169,11 @@ command; raw SQL works too (`.tables` to explore — the schema is small).
 
 ## Config surfaces
 
-All under `~/.config/cercano/`: `config.yaml` (server: models, endpoints,
-cloud provider), `permissions.yaml` (permission mode + allowlist), `ui.yaml`
-(CLI), `mcp.yaml` (hosted MCP servers; per-project override in
-`.cercano/mcp.yaml`).
+Per profile, in `<profile>/`: `config.yaml` (server: models, endpoints,
+cloud provider), `permissions.yaml` (permission mode + allowlist), `mcp.yaml`
+(hosted MCP servers; per-project override in `.cercano/mcp.yaml`).
+Machine-wide, in `~/.config/cercano/`: `machine.yaml` (local runtime settings:
+`llama_server`, `mistralrs`) and `ui.yaml` (CLI).
 
 ## Where outstanding work is tracked
 
