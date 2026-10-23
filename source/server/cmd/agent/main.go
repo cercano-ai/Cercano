@@ -194,7 +194,7 @@ func main() {
 		return agent.InferenceTurnRunner(p, model), nil
 	}
 
-	lis, err := net.Listen("tcp", ":"+cfg.Port)
+	lis, err := net.Listen("tcp", listenAddr(cfg.Port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -220,6 +220,10 @@ func main() {
 		log.Fatalf("failed to serve: %v", err)
 	}
 }
+
+// listenAddr is the loopback address the agent serves on: it must never be
+// reachable from other machines.
+func listenAddr(port string) string { return net.JoinHostPort("127.0.0.1", port) }
 
 func buildRuntimeManager(cfg config.Config, events *crashlog.Writer) localruntime.Manager {
 	manager := localruntime.NewManager(localruntime.WithEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg))))
