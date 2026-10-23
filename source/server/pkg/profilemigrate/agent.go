@@ -2,12 +2,12 @@ package profilemigrate
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,10 +20,6 @@ import (
 	"google.golang.org/grpc/status"
 	"gopkg.in/yaml.v3"
 )
-
-// ErrNotAgent means the listener on the legacy port is not a Cercano agent.
-// Run then migrates without stopping anything.
-var ErrNotAgent = errors.New("the listener on the legacy port is not a Cercano agent")
 
 var (
 	// findListener and processExited resolve and watch the process holding
@@ -51,7 +47,7 @@ func DefaultOptions() Options {
 	}
 	return Options{
 		LegacyAgentAlive: func(ctx context.Context) (bool, error) {
-			return agentAnswering(ctx, resolve()), nil
+			return legacyAgentAlive(ctx, resolve())
 		},
 		StopLegacyAgent: func(ctx context.Context) error {
 			return stopAgent(ctx, resolve())
@@ -96,58 +92,114 @@ func configPort(path string) (string, bool) {
 	return port, port != ""
 }
 
-// agentAnswering reports whether a Cercano agent answers at addr: the port
-// accepts a connection, speaks gRPC, and serves the agent's GetConfig RPC. A
-// closed port, a listener that is not gRPC, or another gRPC service is not
-// one.
-func agentAnswering(ctx context.Context, addr string) bool {
+// probeOutcome is what the identity probe learned about the legacy port.
+type probeOutcome int
+
+const (
+	probeNoListener probeOutcome = iota // connection refused
+	probeAgent                          // GetConfig answered: a Cercano agent
+	probeNotAgent                       // GetConfig unimplemented: another gRPC service
+	probeAmbiguous                      // accepted, but no clear answer
+)
+
+// probeIdentity asks whatever listens at addr whether it is a Cercano
+// agent; tests replace it.
+var probeIdentity = func(ctx context.Context, addr string) probeOutcome {
 	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 	if err != nil {
-		return false
+		if isConnRefused(err) {
+			return probeNoListener
+		}
+		return probeAmbiguous
 	}
 	conn.Close()
 	c, err := agentclient.DialExisting(ctx, addr)
 	if err != nil {
-		return false
+		return probeAmbiguous // no gRPC handshake: not speaking gRPC, or frozen
 	}
 	defer c.Close()
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	_, err = c.GetConfig(rctx)
-	return err == nil
+	switch {
+	case err == nil:
+		return probeAgent
+	case status.Code(err) == codes.Unimplemented:
+		return probeNotAgent
+	}
+	return probeAmbiguous
 }
 
-// stopAgent resolves the process holding addr, asks the agent to shut down,
-// and waits for that process to exit, so no file is moved while the agent
-// still has it open. Where the process cannot be resolved it returns after
-// the shutdown request and Run falls back to waiting for the port to close.
-func stopAgent(ctx context.Context, addr string) error {
-	var holder brewrestart.Identity
-	found := false
-	if endpoint, err := netip.ParseAddrPort(addr); err == nil {
-		if id, ok, err := findListener(endpoint); err == nil && ok {
-			holder, found = id, true
-		}
+// legacyAgentAlive decides whether a pre-profile agent holds addr. A clear
+// probe answer decides directly. Otherwise the listening process decides:
+// a cercano executable is treated as a (possibly frozen) agent, another
+// executable is not one, and an unresolvable holder fails closed.
+func legacyAgentAlive(ctx context.Context, addr string) (bool, error) {
+	switch probeIdentity(ctx, addr) {
+	case probeNoListener, probeNotAgent:
+		return false, nil
+	case probeAgent:
+		return true, nil
 	}
+	holder, found, err := lookupHolder(addr)
+	if err == nil && !found && probeIdentity(ctx, addr) == probeNoListener {
+		return false, nil // the listener went away meanwhile
+	}
+	if err != nil || !found {
+		return false, fmt.Errorf("%w (something listens on %s without answering, and its process cannot be identified)", errAgentRunning, addr)
+	}
+	return isCercanoExecutable(holder.Executable), nil
+}
 
+func lookupHolder(addr string) (brewrestart.Identity, bool, error) {
+	endpoint, err := netip.ParseAddrPort(addr)
+	if err != nil {
+		return brewrestart.Identity{}, false, err
+	}
+	return findListener(endpoint)
+}
+
+// isCercanoExecutable reports whether a process image is a cercano binary.
+// Both separators are accepted so a Windows path is read the same anywhere.
+func isCercanoExecutable(path string) bool {
+	path = strings.TrimSuffix(path, " (deleted)") // Linux, after an upgrade replaced it
+	if i := strings.LastIndexAny(path, `/\`); i >= 0 {
+		path = path[i+1:]
+	}
+	return path == "cercano" || strings.EqualFold(path, "cercano.exe")
+}
+
+// stopAgent resolves the process holding addr, asks the agent to shut down
+// (best effort: a frozen agent cannot answer), and, when the process is
+// known, requires it to exit so no file moves while it has it open. When the
+// process cannot be resolved the shutdown request must succeed, and Run then
+// waits for the port to close.
+func stopAgent(ctx context.Context, addr string) error {
+	holder, found, err := lookupHolder(addr)
+	found = found && err == nil
+
+	shutdownErr := requestShutdown(ctx, addr)
+	if found {
+		if err := waitExit(ctx, holder); err != nil {
+			return fmt.Errorf("%w (%v)", errAgentRunning, err)
+		}
+		return nil
+	}
+	if shutdownErr != nil {
+		return fmt.Errorf("%w (shutdown request: %v)", errAgentRunning, shutdownErr)
+	}
+	return nil
+}
+
+func requestShutdown(ctx context.Context, addr string) error {
 	c, err := agentclient.DialExisting(ctx, addr)
 	if err != nil {
 		return err
 	}
+	defer c.Close()
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	err = c.ShutdownAgent(rctx, "Cercano is moving its data into the default profile")
-	cancel()
-	c.Close()
-	if status.Code(err) == codes.Unimplemented {
-		return fmt.Errorf("%w: %v", ErrNotAgent, err)
-	}
-	if err != nil {
-		return err
-	}
-	if !found {
-		return nil
-	}
-	return waitExit(ctx, holder)
+	defer cancel()
+	return c.ShutdownAgent(rctx, "Cercano is moving its data into the default profile")
 }
 
 // waitExit polls until the process exits, saying once that it is waiting

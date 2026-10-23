@@ -166,14 +166,16 @@ func Run(ctx context.Context, opts Options) error {
 
 // stopLegacyAgent shuts down a pre-profile agent so no file is moved while it
 // has it open. Any agent answering here is pre-profile: newer agents migrate
-// before they listen. A listener that turns out not to be a Cercano agent
-// (ErrNotAgent) is left alone.
+// before they listen.
 func stopLegacyAgent(ctx context.Context, opts Options) error {
 	if opts.LegacyAgentAlive == nil {
 		return nil
 	}
 	alive, err := opts.LegacyAgentAlive(ctx)
 	if err != nil {
+		if errors.Is(err, errAgentRunning) {
+			return err
+		}
 		return fmt.Errorf("check for a running Cercano agent: %w", err)
 	}
 	if !alive {
@@ -183,8 +185,8 @@ func stopLegacyAgent(ctx context.Context, opts Options) error {
 		return errAgentRunning
 	}
 	if err := opts.StopLegacyAgent(ctx); err != nil {
-		if errors.Is(err, ErrNotAgent) {
-			return nil
+		if errors.Is(err, errAgentRunning) {
+			return err
 		}
 		return fmt.Errorf("%w (%v)", errAgentRunning, err)
 	}

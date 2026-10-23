@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -622,24 +621,6 @@ func TestMigrateSkipsProbeWithoutLegacyData(t *testing.T) {
 	}
 	if !exists(markerPath()) {
 		t.Fatal("marker not written")
-	}
-}
-
-func TestMigrateProceedsWhenListenerIsNotAnAgent(t *testing.T) {
-	home, _ := setHome(t)
-	writeFile(t, filepath.Join(paths.ConfigRoot(), "config.yaml"), "port: \"50052\"\n")
-	opts := Options{
-		Home:             home,
-		LegacyAgentAlive: func(context.Context) (bool, error) { return true, nil },
-		StopLegacyAgent: func(context.Context) error {
-			return fmt.Errorf("shutdown: %w", ErrNotAgent)
-		},
-	}
-	if err := Run(context.Background(), opts); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if !exists(filepath.Join(paths.ProfileDir("default"), "config.yaml")) || !exists(markerPath()) {
-		t.Fatal("migration did not complete")
 	}
 }
 

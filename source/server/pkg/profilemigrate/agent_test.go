@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -225,29 +226,166 @@ func TestStopFallsBackWithoutPIDLookup(t *testing.T) {
 	}
 }
 
-func TestShutdownUnimplementedIsNotAnAgent(t *testing.T) {
-	setHome(t)
-	serveOnPort(t, func(s *grpc.Server) { proto.RegisterAgentServer(s, configOnlyAgent{}) })
-	stubProcess(t, agentIdentity, func(brewrestart.Identity) (bool, error) { return false, nil })
-	err := DefaultOptions().StopLegacyAgent(context.Background())
-	if !errors.Is(err, ErrNotAgent) {
-		t.Fatalf("err = %v, want ErrNotAgent", err)
+// stubProbe replaces the identity probe for one test.
+func stubProbe(t *testing.T, outcomes ...probeOutcome) *int {
+	t.Helper()
+	calls := 0
+	prev := probeIdentity
+	probeIdentity = func(context.Context, string) probeOutcome {
+		o := outcomes[min(calls, len(outcomes)-1)]
+		calls++
+		return o
+	}
+	t.Cleanup(func() { probeIdentity = prev })
+	return &calls
+}
+
+func holderWithExe(exe string) func(netip.AddrPort) (brewrestart.Identity, bool, error) {
+	return func(netip.AddrPort) (brewrestart.Identity, bool, error) {
+		return brewrestart.Identity{PID: 4242, Executable: exe, StartSeconds: 1}, true, nil
 	}
 }
 
-func TestDefaultOptionsIgnoreNonAgents(t *testing.T) {
-	t.Run("closed port", func(t *testing.T) {
+func neverCalledExit(t *testing.T) func(brewrestart.Identity) (bool, error) {
+	return func(brewrestart.Identity) (bool, error) {
+		t.Error("exit check called")
+		return true, nil
+	}
+}
+
+// Each probe outcome maps to one decision.
+func TestLegacyAgentAliveOutcomes(t *testing.T) {
+	unsupported := func(netip.AddrPort) (brewrestart.Identity, bool, error) {
+		return brewrestart.Identity{}, false, errors.ErrUnsupported
+	}
+	for _, tt := range []struct {
+		name      string
+		probes    []probeOutcome
+		find      func(netip.AddrPort) (brewrestart.Identity, bool, error)
+		wantAlive bool
+		wantErr   bool
+	}{
+		{"connection refused", []probeOutcome{probeNoListener}, nil, false, false},
+		{"answers GetConfig", []probeOutcome{probeAgent}, nil, true, false},
+		{"GetConfig unimplemented", []probeOutcome{probeNotAgent}, nil, false, false},
+		{"silent cercano process", []probeOutcome{probeAmbiguous}, holderWithExe("/opt/homebrew/Cellar/cercano/0.9/bin/cercano"), true, false},
+		{"silent cercano.exe", []probeOutcome{probeAmbiguous}, holderWithExe(`C:\\Cercano\\cercano.exe`), true, false},
+		{"silent other process", []probeOutcome{probeAmbiguous}, holderWithExe("/usr/local/bin/some-grpc-server"), false, false},
+		{"silent, holder unresolvable", []probeOutcome{probeAmbiguous}, unsupported, false, true},
+		{"silent, listener gone on recheck", []probeOutcome{probeAmbiguous, probeNoListener},
+			func(netip.AddrPort) (brewrestart.Identity, bool, error) { return brewrestart.Identity{}, false, nil }, false, false},
+		{"silent, holder not found but still listening", []probeOutcome{probeAmbiguous, probeAmbiguous},
+			func(netip.AddrPort) (brewrestart.Identity, bool, error) { return brewrestart.Identity{}, false, nil }, false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			setHome(t)
+			stubProbe(t, tt.probes...)
+			find := tt.find
+			if find == nil {
+				find = func(netip.AddrPort) (brewrestart.Identity, bool, error) {
+					t.Error("holder looked up although the probe was conclusive")
+					return brewrestart.Identity{}, false, nil
+				}
+			}
+			stubProcess(t, find, neverCalledExit(t))
+			alive, err := DefaultOptions().LegacyAgentAlive(context.Background())
+			if alive != tt.wantAlive || (err != nil) != tt.wantErr {
+				t.Fatalf("alive = %v, err = %v; want %v, err %v", alive, err, tt.wantAlive, tt.wantErr)
+			}
+			if err != nil && !errors.Is(err, errAgentRunning) {
+				t.Errorf("err = %v, want errAgentRunning", err)
+			}
+		})
+	}
+}
+
+// A frozen agent: the port accepts but nothing answers. It is a cercano
+// process, so the stop is best effort and its exit is required; files never
+// move under it.
+func TestFrozenCercanoAgentBlocksMigration(t *testing.T) {
+	home, _ := setHome(t)
+	ln, port := listenLoopback(t) // accepts, never speaks gRPC
+	defer ln.Close()
+	t.Setenv("CERCANO_PORT", port)
+	stubProbe(t, probeAmbiguous)
+	stubProcess(t, holderWithExe("/Applications/Cercano/cercano"), func(brewrestart.Identity) (bool, error) { return false, nil })
+	exitWait = 300 * time.Millisecond
+	legacy := filepath.Join(paths.ConfigRoot(), "config.yaml")
+	writeFile(t, legacy, "port: \"1\"\n")
+
+	opts := DefaultOptions()
+	opts.Home = home
+	err := Run(context.Background(), opts)
+	if !errors.Is(err, errAgentRunning) {
+		t.Fatalf("Run err = %v, want errAgentRunning", err)
+	}
+	if !exists(legacy) || exists(markerPath()) {
+		t.Error("migrated under a frozen agent")
+	}
+}
+
+func TestFrozenCercanoAgentMigratesOnceItExits(t *testing.T) {
+	home, _ := setHome(t)
+	ln, port := listenLoopback(t)
+	t.Setenv("CERCANO_PORT", port)
+	stubProbe(t, probeAmbiguous, probeNoListener)
+	polls := 0
+	stubProcess(t, holderWithExe("/Applications/Cercano/cercano"), func(brewrestart.Identity) (bool, error) {
+		polls++
+		if polls == 3 {
+			ln.Close() // the process exits and its listener goes with it
+			return true, nil
+		}
+		return false, nil
+	})
+	writeFile(t, filepath.Join(paths.ConfigRoot(), "config.yaml"), "port: \"1\"\n")
+	opts := DefaultOptions()
+	opts.Home = home
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !exists(markerPath()) {
+		t.Fatal("marker not written")
+	}
+}
+
+// ShutdownAgent unimplemented after GetConfig answered means an older or
+// skewed Cercano agent, not a stranger: it must still exit before files move.
+func TestShutdownUnimplementedStillRequiresExit(t *testing.T) {
+	t.Run("PID resolved", func(t *testing.T) {
 		setHome(t)
+		serveOnPort(t, func(s *grpc.Server) { proto.RegisterAgentServer(s, configOnlyAgent{}) })
+		stubProcess(t, agentIdentity, func(brewrestart.Identity) (bool, error) { return false, nil })
+		exitWait = 200 * time.Millisecond
+		err := DefaultOptions().StopLegacyAgent(context.Background())
+		if !errors.Is(err, errAgentRunning) {
+			t.Fatalf("err = %v, want errAgentRunning", err)
+		}
+	})
+	t.Run("PID unresolvable", func(t *testing.T) {
+		setHome(t)
+		serveOnPort(t, func(s *grpc.Server) { proto.RegisterAgentServer(s, configOnlyAgent{}) })
+		stubProcess(t, func(netip.AddrPort) (brewrestart.Identity, bool, error) {
+			return brewrestart.Identity{}, false, errors.ErrUnsupported
+		}, neverCalledExit(t))
+		err := DefaultOptions().StopLegacyAgent(context.Background())
+		if !errors.Is(err, errAgentRunning) {
+			t.Fatalf("err = %v, want errAgentRunning", err)
+		}
+	})
+}
+
+// The real probe against real listeners.
+func TestProbeIdentity(t *testing.T) {
+	ctx := context.Background()
+	t.Run("closed port", func(t *testing.T) {
 		ln, port := listenLoopback(t)
 		ln.Close()
-		t.Setenv("CERCANO_PORT", port)
-		alive, err := DefaultOptions().LegacyAgentAlive(context.Background())
-		if err != nil || alive {
-			t.Fatalf("alive = %v, %v; want false", alive, err)
+		if got := probeIdentity(ctx, net.JoinHostPort("127.0.0.1", port)); got != probeNoListener {
+			t.Errorf("probe = %v, want probeNoListener", got)
 		}
 	})
 	t.Run("not gRPC", func(t *testing.T) {
-		setHome(t)
 		ln, port := listenLoopback(t)
 		defer ln.Close()
 		go func() {
@@ -260,12 +398,27 @@ func TestDefaultOptionsIgnoreNonAgents(t *testing.T) {
 				c.Close()
 			}
 		}()
-		t.Setenv("CERCANO_PORT", port)
-		alive, err := DefaultOptions().LegacyAgentAlive(context.Background())
-		if err != nil || alive {
-			t.Fatalf("alive = %v, %v; want false", alive, err)
+		if got := probeIdentity(ctx, net.JoinHostPort("127.0.0.1", port)); got != probeAmbiguous {
+			t.Errorf("probe = %v, want probeAmbiguous", got)
 		}
 	})
+	t.Run("other gRPC service", func(t *testing.T) {
+		setHome(t)
+		serveOnPort(t, func(*grpc.Server) {})
+		if got := probeIdentity(ctx, net.JoinHostPort("127.0.0.1", os.Getenv("CERCANO_PORT"))); got != probeNotAgent {
+			t.Errorf("probe = %v, want probeNotAgent", got)
+		}
+	})
+	t.Run("agent", func(t *testing.T) {
+		setHome(t)
+		serveOnPort(t, func(s *grpc.Server) { proto.RegisterAgentServer(s, configOnlyAgent{}) })
+		if got := probeIdentity(ctx, net.JoinHostPort("127.0.0.1", os.Getenv("CERCANO_PORT"))); got != probeAgent {
+			t.Errorf("probe = %v, want probeAgent", got)
+		}
+	})
+}
+
+func TestDefaultOptionsIgnoreNonAgents(t *testing.T) {
 	t.Run("other gRPC service", func(t *testing.T) {
 		home, _ := setHome(t)
 		serveOnPort(t, func(*grpc.Server) {}) // speaks gRPC, has no Agent service

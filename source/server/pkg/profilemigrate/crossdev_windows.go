@@ -12,3 +12,10 @@ import (
 var errCrossDevice error = syscall.Errno(17)
 
 func isCrossDevice(err error) bool { return errors.Is(err, errCrossDevice) }
+
+// wsaeConnRefused is WSAECONNREFUSED.
+const wsaeConnRefused = syscall.Errno(10061)
+
+func isConnRefused(err error) bool {
+	return errors.Is(err, wsaeConnRefused) || errors.Is(err, syscall.ECONNREFUSED)
+}
