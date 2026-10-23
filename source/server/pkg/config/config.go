@@ -1008,9 +1008,7 @@ func Load(path string) (Config, error) {
 		if err != nil {
 			if os.IsNotExist(err) {
 				// No config file — use defaults + env vars
-				if err := overlayMachine(&cfg); err != nil {
-					return cfg, err
-				}
+				overlayMachine(&cfg)
 				applyEnvOverrides(&cfg)
 				finalizeModelTiers(&cfg)
 				return cfg, nil
@@ -1052,9 +1050,7 @@ func Load(path string) (Config, error) {
 
 	// Local runtime settings are machine-wide: machine.yaml wins when it
 	// exists; otherwise values from an older profile file are kept.
-	if err := overlayMachine(&cfg); err != nil {
-		return cfg, err
-	}
+	overlayMachine(&cfg)
 
 	applyEnvOverrides(&cfg)
 	finalizeModelTiers(&cfg)

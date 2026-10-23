@@ -8,6 +8,7 @@ import (
 	"cercano/source/server/internal/filelock"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -129,19 +130,27 @@ func cloneMachine(mc MachineConfig) MachineConfig {
 // whatever the profile file held (an older version wrote these sections
 // there) so nothing is lost before migration; the baseline is then the
 // defaults, so the first Save writes those legacy values to machine.yaml.
-func overlayMachine(cfg *Config) error {
+//
+// An unreadable or malformed machine.yaml is logged, not returned: callers
+// fall back to Defaults() on a Load error, and their next save would replace
+// the profile's settings. cfg keeps the profile's values, and they become
+// the baseline, so a save without runtime edits leaves machine.yaml alone;
+// a runtime edit re-reads machine.yaml under the lock and fails until the
+// file is fixed.
+func overlayMachine(cfg *Config) {
 	if !machineFileExists() {
 		cfg.machineBase = newBaseline(machineDefaults())
-		return nil
+		return
 	}
 	mc, err := LoadMachine()
 	if err != nil {
-		return err
+		log.Printf("[config] ignoring the machine config: %v; using this profile's local runtime settings until it is fixed", err)
+		cfg.machineBase = newBaseline(cfg.MachineSections())
+		return
 	}
 	cfg.LlamaServer = mc.LlamaServer
 	cfg.MistralRS = mc.MistralRS
 	cfg.machineBase = newBaseline(mc)
-	return nil
 }
 
 // SetMachineSections replaces the runtime sections with mc (typically freshly

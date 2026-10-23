@@ -295,3 +295,53 @@ func TestSnapshotTakenBeforeRefreshDoesNotRevertOtherProfile(t *testing.T) {
 		t.Errorf("ISQ = %q, want Q4K", got.MistralRS.ISQ)
 	}
 }
+
+// A machine.yaml that does not parse must not cost the profile its settings:
+// callers treat a Load error as "use Defaults()", and the next Persist would
+// then overwrite config.yaml. Load keeps the profile's values, and saving
+// leaves the unreadable machine.yaml alone.
+func TestMalformedMachineFileKeepsProfileSettings(t *testing.T) {
+	machineTestHome(t)
+	bad := "llama_server: [unclosed\n"
+	if err := os.MkdirAll(filepath.Dir(paths.MachineConfigPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.MachineConfigPath(), []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	profile := "locus_mode: cloud_only\nllama_server:\n    port: 8099\n"
+	if err := os.WriteFile(path, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load with a malformed machine.yaml: %v", err)
+	}
+	if cfg.LocusMode != "cloud_only" {
+		t.Errorf("LocusMode = %q, want the profile's cloud_only", cfg.LocusMode)
+	}
+	if cfg.LlamaServer.Port != 8099 {
+		t.Errorf("LlamaServer.Port = %d, want the profile's 8099", cfg.LlamaServer.Port)
+	}
+
+	if err := Save(cfg, path); err != nil {
+		t.Fatalf("Save without runtime edits: %v", err)
+	}
+	if got, _ := os.ReadFile(paths.MachineConfigPath()); string(got) != bad {
+		t.Errorf("machine.yaml rewritten: %q", got)
+	}
+	again, err := Load(path)
+	if err != nil || again.LocusMode != "cloud_only" {
+		t.Errorf("profile settings after save: locus=%q err=%v", again.LocusMode, err)
+	}
+
+	cfg.LlamaServer.Port = 8100
+	if err := Save(cfg, path); err == nil {
+		t.Error("Save of a runtime edit over an unreadable machine.yaml succeeded")
+	}
+	if got, _ := os.ReadFile(paths.MachineConfigPath()); string(got) != bad {
+		t.Errorf("machine.yaml rewritten by a runtime edit: %q", got)
+	}
+}
