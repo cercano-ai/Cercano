@@ -40,9 +40,38 @@ func TestMain(m *testing.M) {
 }
 func TestProbeDocumentStrict(t *testing.T) {
 	valid := `{"component":"cercano","protocol":1,"execution_ready":false}`
-	if d, e := parseProbeDocument([]byte(valid)); e != nil || d.executionReady {
+	if d, e := parseProbeDocument([]byte(valid)); e != nil || d.executionReady || d.offlinePreflight {
 		t.Fatal(d, e)
 	}
+	for _, ready := range []bool{false, true} {
+		for _, preflight := range []bool{false, true} {
+			data := fmt.Sprintf(`{"component":"cercano","protocol":1,"execution_ready":%t,"offline_preflight":%t}`, ready, preflight)
+			d, err := parseProbeDocument([]byte(data))
+			if err != nil || d.executionReady != ready || d.offlinePreflight != preflight {
+				t.Fatalf("independent capabilities %s: %+v %v", data, d, err)
+			}
+		}
+	}
+	withPreflight := strings.TrimSuffix(valid, "}") + `,"offline_preflight":true}`
+	for _, value := range []string{`null`, `"true"`, `1`, `0`, `[]`, `{}`} {
+		bad := strings.Replace(withPreflight, `"offline_preflight":true`, `"offline_preflight":`+value, 1)
+		if _, err := parseProbeDocument([]byte(bad)); !errors.Is(err, ErrProbeRefused) {
+			t.Errorf("accepted invalid preflight type %s: %v", bad, err)
+		}
+	}
+	for _, bad := range []string{
+		strings.Replace(withPreflight, `"offline_preflight":true`, `"offline_preflight":true,"offline_preflight":false`, 1),
+		strings.Replace(withPreflight, `"offline_preflight"`, `"Offline_preflight"`, 1),
+		strings.Replace(withPreflight, `"protocol":1,`, "", 1),
+		strings.Replace(withPreflight, `"component":"cercano",`, "", 1),
+		strings.Replace(withPreflight, `"execution_ready":false,`, "", 1),
+		strings.Replace(withPreflight, `"offline_preflight":true`, `"offline_preflight":true,"extra":false`, 1),
+	} {
+		if _, err := parseProbeDocument([]byte(bad)); !errors.Is(err, ErrProbeRefused) {
+			t.Errorf("accepted invalid extended document %s: %v", bad, err)
+		}
+	}
+
 	for _, bad := range []string{
 		`{}`, `null`, valid + ` {}`, valid + `secret`,
 		strings.Replace(valid, `false`, `null`, 1), strings.Replace(valid, `false`, `"false"`, 1),

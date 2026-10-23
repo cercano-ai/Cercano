@@ -31,7 +31,9 @@ type ProbeResult struct {
 	Status         ProbeStatus
 	Protocol       int
 	ExecutionReady bool
-	Pid            int
+	// OfflinePreflight is independent of execution readiness; absent means false.
+	OfflinePreflight bool
+	Pid              int
 }
 
 // Env is a complete child environment, empty when nil. Windows Go may supply
@@ -74,9 +76,10 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 type probeDocument struct {
-	component      string
-	protocol       int
-	executionReady bool
+	component        string
+	protocol         int
+	executionReady   bool
+	offlinePreflight bool
 }
 
 func parseProbeDocument(data []byte) (probeDocument, error) {
@@ -111,6 +114,8 @@ func parseProbeDocument(data []byte) (probeDocument, error) {
 			err = json.Unmarshal(value, &doc.protocol)
 		case "execution_ready":
 			err = json.Unmarshal(value, &doc.executionReady)
+		case "offline_preflight":
+			err = json.Unmarshal(value, &doc.offlinePreflight)
 		default:
 			return doc, ErrProbeRefused
 		}
@@ -119,7 +124,7 @@ func parseProbeDocument(data []byte) (probeDocument, error) {
 		}
 	}
 	tok, err = d.Token()
-	if err != nil || tok != json.Delim('}') || len(seen) != 3 {
+	if err != nil || tok != json.Delim('}') || !seen["component"] || !seen["protocol"] || !seen["execution_ready"] {
 		return doc, ErrProbeRefused
 	}
 	if _, err = d.Token(); !errors.Is(err, io.EOF) {
@@ -198,6 +203,7 @@ func Probe(ctx context.Context, image *PreparedImage, opts ProbeOptions) (ProbeR
 		return result, err
 	}
 	result.Protocol, result.ExecutionReady = doc.protocol, doc.executionReady
+	result.OfflinePreflight = doc.offlinePreflight
 	result.Status = ProbeProtocolNotReady
 	if doc.executionReady {
 		result.Status = ProbeExecutionReady
