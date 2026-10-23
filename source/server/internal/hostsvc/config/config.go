@@ -257,9 +257,20 @@ func (s *svc) Persist() {
 	c := s.current.Clone()
 	p := s.path
 	s.mu.RUnlock()
-	if p != "" {
-		_ = cfg.Save(c, p)
+	if p == "" {
+		return
 	}
+	if err := cfg.Save(c, p); err != nil {
+		return
+	}
+	// Advance the live config's machine baseline to what was just written so
+	// later persists do not re-send these values over another profile's newer
+	// ones. Skipped inside MarkMachineSaved if the live sections changed
+	// since the snapshot.
+	saved := c.MachineSections()
+	s.mu.Lock()
+	s.current.MarkMachineSaved(saved)
+	s.mu.Unlock()
 }
 
 func profileByName(profiles []cfg.CloudProfile, name string) (cfg.CloudProfile, bool) {

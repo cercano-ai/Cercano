@@ -228,3 +228,21 @@ func stripMachineKeys(data []byte) ([]byte, error) {
 	m.Content = kept
 	return yaml.Marshal(&doc)
 }
+
+// MachineSections returns a copy of the machine-wide runtime sections.
+func (c Config) MachineSections() MachineConfig {
+	return cloneMachine(MachineConfig{LlamaServer: c.LlamaServer, MistralRS: c.MistralRS})
+}
+
+// MarkMachineSaved advances the baseline to saved, the sections a successful
+// Save of a copy of c just wrote, so later saves of c do not re-send them over
+// another profile's newer values. It does nothing and returns false unless c's
+// sections still equal saved: a newer edit or a refresh happened since the
+// copy was taken and must not be lost.
+func (c *Config) MarkMachineSaved(saved MachineConfig) bool {
+	if !c.MachineSectionsEqual(saved) {
+		return false
+	}
+	c.machineBase = newBaseline(saved)
+	return true
+}

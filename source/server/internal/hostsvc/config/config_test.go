@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -250,5 +251,64 @@ func TestServiceSetBackupProfile(t *testing.T) {
 	// Clearing (empty string) always ok.
 	if !svc.SetBackupProfile("") {
 		t.Error("SetBackupProfile with empty string should return true")
+	}
+}
+
+func persistTestPair(t *testing.T) (a, b cfgsvc.Service) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	var svcs [2]cfgsvc.Service
+	for i, name := range []string{"a.yaml", "b.yaml"} {
+		path := filepath.Join(t.TempDir(), name)
+		if err := cfg.Save(cfg.Defaults(), path); err != nil {
+			t.Fatal(err)
+		}
+		c, err := cfg.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		svcs[i] = cfgsvc.New(path, c, nil)
+	}
+	return svcs[0], svcs[1]
+}
+
+func TestPersistDoesNotResendSameFieldOverNewerValue(t *testing.T) {
+	a, b := persistTestPair(t)
+	setISQ := func(s cfgsvc.Service, v string) {
+		if err := s.Mutate(func(c *cfg.Config) { c.MistralRS.ISQ = v }); err != nil {
+			t.Fatal(err)
+		}
+		s.Persist()
+	}
+	setISQ(a, "Q4K")
+	setISQ(b, "Q8_0")
+	// a changes only an unrelated field.
+	if err := a.Mutate(func(c *cfg.Config) { c.Port = "50111" }); err != nil {
+		t.Fatal(err)
+	}
+	a.Persist()
+	mc, _ := cfg.LoadMachine()
+	if mc.MistralRS.ISQ != "Q8_0" {
+		t.Errorf("ISQ = %q, want Q8_0 (a re-sent its old edit)", mc.MistralRS.ISQ)
+	}
+}
+
+func TestMarkMachineSavedSkippedWhenLiveSectionsChanged(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	c := cfg.Defaults()
+	saved := c.MachineSections()
+	saved.MistralRS.ISQ = "Q4K" // what a stale copy wrote
+	c.MistralRS.ISQ = "Q2K"     // live config edited again since
+	if c.MarkMachineSaved(saved) {
+		t.Fatal("baseline advanced although live sections changed")
+	}
+	// The newer edit is still unsaved relative to the baseline, so it is sent.
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	if err := cfg.Save(c, path); err != nil {
+		t.Fatal(err)
+	}
+	mc, _ := cfg.LoadMachine()
+	if mc.MistralRS.ISQ != "Q2K" {
+		t.Errorf("ISQ = %q, want Q2K (edit lost)", mc.MistralRS.ISQ)
 	}
 }
