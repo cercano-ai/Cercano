@@ -34,6 +34,7 @@ type instanceUpdater interface {
 }
 
 type Provider struct {
+	localruntime.ProcessOwner
 	cfg     config.MistralRSConfig
 	client  *http.Client
 	mu      sync.RWMutex
@@ -309,6 +310,7 @@ func (p *Provider) adoptLiveSibling(ctx context.Context, model localruntime.Mode
 			ReadyAt:   time.Now(),
 		},
 	}
+	p.UncertainOwnership()
 	p.mu.Lock()
 	if existing := p.liveInstanceForLocked(model.Path); existing != nil {
 		record := existing.record
@@ -333,20 +335,11 @@ func (p *Provider) Stop(_ context.Context, instanceID string) error {
 	instance.stopping = true
 	cmd := instance.cmd
 	adopted := instance.adopted
-	ownerPID := instance.ownerPID
-	pid := instance.record.PID
 	instance.record.State = localruntime.InstanceStopped
 	if adopted {
-		// An adopted sidecar is normally owned by a *sibling* agent, so we must
-		// not kill it out from under that owner. But if the recorded owner is no
-		// longer alive — or is this very process (the last owner, shutting down)
-		// — there is no sibling to protect, and leaving it running leaks the
-		// model's (potentially huge) wired GPU memory. In that case, reclaim it.
+		// Adopted commands belong to an external owner, never this owner.
 		delete(p.running, instanceID)
 		p.mu.Unlock()
-		if pid > 0 && !siblingOwnerAlive(ownerPID) {
-			terminateGroup(pid)
-		}
 		return nil
 	}
 	p.mu.Unlock()
@@ -356,6 +349,7 @@ func (p *Provider) Stop(_ context.Context, instanceID string) error {
 	// Use the escalating group terminator (SIGTERM group -> grace -> SIGKILL):
 	// a mistral.rs wedged mid-Metal-allocation can ignore a bare SIGTERM, so a
 	// single non-escalating signal is unreliable ("hard to kill").
+	p.RetireOwned(cmd)
 	terminateGroup(cmd.Process.Pid)
 	return nil
 }
@@ -503,7 +497,7 @@ func (p *Provider) startProcess(instanceID, binary string, sink localruntime.Log
 	if err != nil {
 		return err
 	}
-	if err := cmd.Start(); err != nil {
+	if err := p.StartOwned(cmd); err != nil {
 		return err
 	}
 	// On the books before anything else: if this process dies without
@@ -873,6 +867,7 @@ func (p *Provider) watch(instanceID, binary string, sink localruntime.LogSink) {
 		p.mu.RUnlock()
 
 		err := cmd.Wait()
+		p.ExitedOwned(cmd)
 		exitCode := exitCode(err)
 		// The process is gone — it can't be orphaned anymore, so take it
 		// off the books before deciding whether to restart (a restart
@@ -940,11 +935,14 @@ func (p *Provider) watch(instanceID, binary string, sink localruntime.LogSink) {
 func (p *Provider) kill(instanceID string) error {
 	p.mu.RLock()
 	instance, ok := p.running[instanceID]
-	p.mu.RUnlock()
-	if !ok || instance.cmd == nil || instance.cmd.Process == nil {
+	if !ok || instance.adopted || instance.cmd == nil || instance.cmd.Process == nil {
+		p.mu.RUnlock()
 		return nil
 	}
-	return killProcess(instance.cmd.Process)
+	cmd := instance.cmd
+	p.mu.RUnlock()
+	p.RetireOwned(cmd)
+	return killProcess(cmd.Process)
 }
 
 func (p *Provider) updateRecord(instanceID string, sink localruntime.LogSink, fn func(*localruntime.InstanceRecord)) {

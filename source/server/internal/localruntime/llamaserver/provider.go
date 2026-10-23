@@ -42,6 +42,7 @@ type instanceUpdater interface {
 }
 
 type Provider struct {
+	localruntime.ProcessOwner
 	cfg    config.LlamaServerConfig
 	client *http.Client
 
@@ -454,6 +455,7 @@ func (p *Provider) adoptLiveSibling(ctx context.Context, model localruntime.Mode
 			ReadyAt:   time.Now(),
 		},
 	}
+	p.UncertainOwnership()
 	p.mu.Lock()
 	if existing := p.liveInstanceForLocked(model); existing != nil {
 		record := existing.record
@@ -517,6 +519,7 @@ func (p *Provider) Stop(_ context.Context, instanceID string) error {
 		return nil
 	}
 	pid := cmd.Process.Pid
+	p.RetireOwned(cmd)
 	res, err := killProcessWithResult(cmd.Process)
 	extra := map[string]any{
 		"wait_ms":        res.Wait.Milliseconds(),
@@ -870,7 +873,7 @@ func (p *Provider) startProcess(instanceID, binary string, sink localruntime.Log
 	if err != nil {
 		return err
 	}
-	if err := cmd.Start(); err != nil {
+	if err := p.StartOwned(cmd); err != nil {
 		return err
 	}
 	// On the books before anything else: if this process dies without
@@ -1119,6 +1122,7 @@ func (p *Provider) watch(instanceID, binary string, sink localruntime.LogSink) {
 		p.mu.RUnlock()
 
 		err := cmd.Wait()
+		p.ExitedOwned(cmd)
 		exitCode := exitCode(err)
 		// The process is gone — it can't be orphaned anymore, so take it
 		// off the books before deciding whether to restart (a restart
@@ -1191,11 +1195,14 @@ func (p *Provider) watch(instanceID, binary string, sink localruntime.LogSink) {
 func (p *Provider) kill(instanceID string) error {
 	p.mu.RLock()
 	instance, ok := p.running[instanceID]
-	p.mu.RUnlock()
-	if !ok || instance.cmd == nil || instance.cmd.Process == nil {
+	if !ok || instance.adopted || instance.cmd == nil || instance.cmd.Process == nil {
+		p.mu.RUnlock()
 		return nil
 	}
-	return killProcess(instance.cmd.Process)
+	cmd := instance.cmd
+	p.mu.RUnlock()
+	p.RetireOwned(cmd)
+	return killProcess(cmd.Process)
 }
 
 func (p *Provider) updateRecord(instanceID string, sink localruntime.LogSink, fn func(*localruntime.InstanceRecord)) {
