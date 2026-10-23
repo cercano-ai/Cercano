@@ -15,7 +15,9 @@ import (
 	"cercano/source/server/internal/updatecoord/state"
 )
 
-func TestForceLocalObserverUsesProtectedRequestWithoutNetworkCommand(t *testing.T) {
+// Test the explicit legacy force-control path, not ordinary TUI observation.
+// Ordinary observer startup must remain free of force registration and polling.
+func TestLegacyForceLocalPollUsesProtectedRequestWithoutNetworkCommand(t *testing.T) {
 	parent, e := filepath.EvalSymlinks(t.TempDir())
 	if e != nil {
 		t.Fatal(e)
@@ -42,35 +44,17 @@ func TestForceLocalObserverUsesProtectedRequestWithoutNetworkCommand(t *testing.
 	s := &Server{events: newEventHub()}
 	var stops atomic.Int32
 	s.SetProcessForceStopRequester(func(string) { stops.Add(1) })
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		s.watchEnrolledTUIUpdates(ctx, filepath.Join(root, agent), stateRoot, 10*time.Millisecond, nil)
-	}()
-	defer func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-			t.Error("observer leaked")
-		}
-	}()
-	deadline := time.Now().Add(3 * time.Second)
-	var session state.ForceAgent
-	for {
-		a, found, e := store.ReadForceAgent(ctx)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if found {
-			session = a
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("agent presence missing")
-		}
-		time.Sleep(time.Millisecond)
+	ctx := context.Background()
+	owner, e := s.newForceLocalOwner()
+	if e != nil || owner == nil {
+		t.Fatal("create legacy force owner", owner, e)
+	}
+	if stopped, e := owner.poll(ctx, s, stateRoot, record.InstallID); e != nil || stopped {
+		t.Fatal("registration poll", stopped, e)
+	}
+	session, found, e := store.ReadForceAgent(ctx)
+	if e != nil || !found {
+		t.Fatal("agent presence missing", e)
 	}
 	if stops.Load() != 0 {
 		t.Fatal("registration interrupted agent")
@@ -80,10 +64,8 @@ func TestForceLocalObserverUsesProtectedRequestWithoutNetworkCommand(t *testing.
 	if e = store.SubmitForceIntent(ctx, intent, true, time.Now); e != nil {
 		t.Fatal(e)
 	}
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("authorized force request not consumed")
+	if stopped, e := owner.poll(ctx, s, stateRoot, record.InstallID); e != nil || !stopped {
+		t.Fatal("authorized force request not consumed", stopped, e)
 	}
 	if stops.Load() != 1 {
 		t.Fatal("wrong stop count", stops.Load())
