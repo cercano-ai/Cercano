@@ -141,7 +141,7 @@ type SQLiteStore struct {
 
 // NewSQLiteStore creates a new SQLite-backed telemetry store.
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create telemetry directory: %w", err)
 	}
 

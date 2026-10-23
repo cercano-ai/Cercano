@@ -1319,7 +1319,7 @@ func Save(cfg Config, path string) error {
 	// Stripping inherited and obsolete values must not mutate live snapshots.
 	cfg = cfg.Clone()
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory %q: %w", dir, err)
 	}
 

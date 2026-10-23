@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDebugLogsLiveInProfileLogsDir(t *testing.T) {
@@ -44,6 +46,29 @@ func TestDebugLogEnvOverridesStillWin(t *testing.T) {
 		t.Setenv(r.env, want)
 		if got := r.fn(); got != want {
 			t.Errorf("%s set: got %q, want %q", r.env, got, want)
+		}
+	}
+}
+
+// The debug logs create the profile's logs/ directory private, like every
+// other profile directory.
+func TestDebugLogCreatesPrivateLogsDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CERCANO_PROFILE", "work")
+	t.Setenv("CERCANO_TUI_PERF_LOG", "")
+	New(nil, false).appendTUIPerf("update", time.Second, "")
+	for _, dir := range []string{
+		filepath.Join(home, ".config", "cercano", "profiles", "work"),
+		filepath.Join(home, ".config", "cercano", "profiles", "work", "logs"),
+	} {
+		fi, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o700 {
+			t.Errorf("%s mode = %v, want 0700", dir, fi.Mode().Perm())
 		}
 	}
 }

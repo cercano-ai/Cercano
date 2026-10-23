@@ -105,7 +105,7 @@ func Load() (s State, ok bool) {
 // Save persists the run for resume. Called after every transition.
 func Save(s State) error {
 	path := StatePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	data, err := yaml.Marshal(s)

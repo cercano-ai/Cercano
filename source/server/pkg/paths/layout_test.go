@@ -14,12 +14,14 @@ import (
 	"testing"
 
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/internal/crashlog"
 	llamaengine "cercano/source/server/internal/engine/llamaserver"
 	"cercano/source/server/internal/enterprise"
 	"cercano/source/server/internal/failurelog"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/routinglog"
 	"cercano/source/server/internal/server"
+	"cercano/source/server/internal/telemetry"
 	"cercano/source/server/internal/web"
 	"cercano/source/server/pkg/agentclient"
 	"cercano/source/server/pkg/config"
@@ -274,5 +276,66 @@ func TestNoHardcodedConfigPaths(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(sourceRoot, "server", "pkg", "paths", "paths.go")); err != nil {
 		t.Fatalf("source root %s looks wrong: %v", sourceRoot, err)
+	}
+}
+
+// Profile directories hold conversations, credentials state and logs; every
+// creator makes them private (0700), as the agent registry does.
+func TestProfileDirCreatorsUsePrivateMode(t *testing.T) {
+	creators := map[string]func(t *testing.T, profileDir string) error{
+		"config.Save": func(t *testing.T, _ string) error { return config.Save(config.Defaults(), config.DefaultPath()) },
+		"conversation.DefaultPath": func(t *testing.T, _ string) error {
+			_, err := conversation.DefaultPath()
+			return err
+		},
+		"failurelog.NewWriter": func(t *testing.T, _ string) error {
+			w, err := failurelog.NewWriter("")
+			if w != nil {
+				w.Close()
+			}
+			return err
+		},
+		"routinglog.NewWriter": func(t *testing.T, _ string) error {
+			w, err := routinglog.NewWriter("")
+			if w != nil {
+				w.Close()
+			}
+			return err
+		},
+		"setupstate.Save": func(t *testing.T, _ string) error { return setupstate.Save(setupstate.State{}) },
+		"crashlog.NewWriter": func(t *testing.T, dir string) error {
+			w, err := crashlog.NewWriter(filepath.Join(dir, "crash.log"), "test")
+			if w != nil {
+				w.Close()
+			}
+			return err
+		},
+		"telemetry.NewSQLiteStore": func(t *testing.T, dir string) error {
+			s, err := telemetry.NewSQLiteStore(filepath.Join(dir, "telemetry.db"))
+			if s != nil {
+				s.Close()
+			}
+			return err
+		},
+		"web.EnsureSearchScript": func(t *testing.T, _ string) error {
+			_, err := web.EnsureSearchScript("")
+			return err
+		},
+	}
+	for name, create := range creators {
+		t.Run(name, func(t *testing.T) {
+			home := isolate(t, "work")
+			profileDir := filepath.Join(home, ".config", "cercano", "profiles", "work")
+			if err := create(t, profileDir); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			fi, err := os.Stat(profileDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fi.Mode().Perm() != 0o700 {
+				t.Errorf("%s created the profile directory with mode %v, want 0700", name, fi.Mode().Perm())
+			}
+		})
 	}
 }

@@ -46,7 +46,7 @@ func EnsureSearchScript(dir string) (string, error) {
 	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, ddgScriptSource) {
 		return path, nil
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create script dir: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, ".ddg_search-*.py")

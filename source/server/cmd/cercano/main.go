@@ -92,7 +92,7 @@ func init() {
 // stderr capture.
 func setupDispatchLogFile() {
 	path := dispatchLogPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		fmt.Fprintf(os.Stderr, "[diag] could not create dispatch log dir: %v\n", err)
 		return
 	}
