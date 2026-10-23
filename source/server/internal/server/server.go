@@ -718,6 +718,12 @@ func (s *Server) stopRuntimeInstances() {
 	if rm == nil {
 		return
 	}
+	// Instances of a shared manager may be in use by other agents. Closing
+	// the manager (after Shutdown) releases exactly this agent's holds, and
+	// the model host stops whatever is left unheld.
+	if _, shared := rm.(localruntime.SharedManager); shared {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	instances, err := rm.Instances(ctx)
@@ -2127,9 +2133,12 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	// mistral.rs launch flags (paged_attn / isq / pa_memory_fraction) are baked
 	// into the process command line at Start (argsFor), so a running sidecar
 	// won't pick them up until it is restarted. Reconfigure above only re-points
-	// in-process routing. Bounce the active mistral.rs sidecar so the new flags
-	// take effect — Stop+Start (not Restart) so a simultaneous model change
-	// comes up on the resolved model rather than the instance's pinned old one.
+	// in-process routing. Restart the active mistral.rs sidecar so the new
+	// flags take effect, naming the resolved model so a simultaneous model
+	// change comes up on it rather than the instance's pinned old one. Restart
+	// (not Stop+Start) because on the shared model host Stop only releases this
+	// agent's hold and Start would re-take it on the unchanged process; Restart
+	// relaunches it for every holder.
 	// Option (a): if no sidecar is running, do nothing — the flags apply
 	// whenever the runtime is next started; we don't eagerly spin one up.
 	if mistralLaunchFlagsChanged && strings.EqualFold(c.OpenRuntime, "mistralrs") {
@@ -2139,11 +2148,10 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 				if m := strings.TrimSpace(c.MistralRS.DefaultModel); m != "" {
 					model = m
 				}
-				if err := rm.Stop(ctx, localruntime.StopRequest{InstanceID: inst.ID}); err != nil {
-					fmt.Printf("UpdateConfig: mistralrs sidecar stop for flag-restart failed: %v\n", err)
-				} else if _, err := rm.Start(ctx, localruntime.StartRequest{
-					Runtime: "mistralrs",
-					ModelID: model,
+				if _, err := rm.Restart(ctx, localruntime.RestartRequest{
+					InstanceID: inst.ID,
+					Runtime:    "mistralrs",
+					ModelID:    model,
 				}); err != nil {
 					fmt.Printf("UpdateConfig: mistralrs sidecar restart failed: %v\n", err)
 				} else {
@@ -2998,11 +3006,12 @@ func (s *Server) DownloadRuntimeModel(ctx context.Context, req *proto.DownloadRu
 		if err != nil {
 			return &proto.DownloadRuntimeModelResponse{Ok: false, Error: err.Error()}, nil
 		}
-		// Only the concrete InMemoryManager supports enrolment; an
-		// alternative implementation makes this a no-op and DownloadModel
+		// Managers that accept catalog entries (the in-process manager, and
+		// the model-host client, which forwards it) implement
+		// DownloadEnroller; any other makes this a no-op and DownloadModel
 		// fails cleanly with "not found".
-		if imm, ok := rm.(*localruntime.InMemoryManager); ok {
-			imm.EnrollDownload(rec)
+		if enroller, ok := rm.(localruntime.DownloadEnroller); ok {
+			enroller.EnrollDownload(rec)
 		}
 	}
 	model, err := rm.DownloadModel(ctx, localruntime.DownloadRequest{

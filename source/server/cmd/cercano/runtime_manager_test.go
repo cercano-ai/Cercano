@@ -114,3 +114,53 @@ func TestBuildRuntimeManagerRegistersManagedRuntimeCatalogsWhenOllamaActive(t *t
 		t.Fatalf("expected no auto-started instances, got %#v", instances)
 	}
 }
+
+func TestWarmActiveRuntimeStartsEffectiveChatModel(t *testing.T) {
+	for _, tc := range []struct {
+		runtime string
+		set     func(*config.Config)
+	}{
+		{"llama_server", func(c *config.Config) { c.OpenRuntime = "llama_server"; c.LlamaServer.Enabled = true }},
+		{"mistralrs", func(c *config.Config) { c.OpenRuntime = "mistralrs"; c.MistralRS.Enabled = true }},
+	} {
+		t.Run(tc.runtime, func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.LlamaServer.Enabled = false
+			cfg.MistralRS.Enabled = false
+			tc.set(&cfg)
+			cfg.Models.SetOverride(tc.runtime, config.TierEveryday, "warm-me")
+			m := &slowStartManager{
+				started: make(chan localruntime.StartRequest, 1),
+				release: make(chan struct{}),
+				logged:  make(chan localruntime.LogEntry, 1),
+			}
+			close(m.release)
+			warmActiveRuntime(m, cfg)
+			select {
+			case req := <-m.started:
+				if req.Runtime != tc.runtime || req.ModelID != "warm-me" {
+					t.Fatalf("wrong start request: %+v", req)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("Start was never called")
+			}
+			select {
+			case e := <-m.logged:
+				if e.Level != "info" || e.Message != warmedMessage(tc.runtime, "warm-me") {
+					t.Fatalf("wrong warm log entry: %+v", e)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("successful warm-up was never logged")
+			}
+		})
+	}
+}
+
+func TestWarmActiveRuntimeSkipsOllama(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.OpenRuntime = "ollama"
+	cfg.LlamaServer.Enabled = false
+	cfg.MistralRS.Enabled = false
+	// A nil embedded Manager panics on any call, so this proves no warm-up.
+	warmActiveRuntime(&slowStartManager{}, cfg)
+}

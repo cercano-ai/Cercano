@@ -88,6 +88,10 @@ const (
 	// EventRefused is a spawn declined by the memory guard. Extra should
 	// carry the projection figures that motivated the refusal.
 	EventRefused = "refused"
+	// EventModelHostUnavailable is an agent failing to reach or launch the
+	// shared model host and hosting its local models in-process instead.
+	// Reason carries the connection error.
+	EventModelHostUnavailable = "model_host_unavailable"
 )
 
 // RuntimeInfo is the structured payload of a KindRuntimeEvent. It is

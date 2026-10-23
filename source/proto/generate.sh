@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Regenerate the Go bindings from source/proto/agent.proto.
+# Regenerate the Go bindings from source/proto/*.proto.
 #
 # This is the single source of truth for how the *.pb.go files under
 # source/server/pkg/proto/ are produced. There is deliberately no separate
@@ -56,6 +56,7 @@ protoc \
 	--proto_path="$proto_dir" \
 	--go_out="$out_dir" --go_opt=paths=source_relative \
 	--go-grpc_out="$out_dir" --go-grpc_opt=paths=source_relative \
-	"$proto_dir/agent.proto"
+	"$proto_dir/agent.proto" \
+	"$proto_dir/modelhost.proto"
 
 echo "regenerated Go bindings in $out_dir"

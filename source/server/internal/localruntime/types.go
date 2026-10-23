@@ -229,3 +229,10 @@ type StatusSnapshot struct {
 	Endpoints []EndpointRecord
 	Logs      []LogEntry
 }
+
+// DownloadEnroller is implemented by managers that accept online-catalog
+// entries to download. It is separate from Manager because only the in-process
+// manager needs it; the model host forwards it as the "EnrollDownload" call.
+type DownloadEnroller interface {
+	EnrollDownload(ModelRecord)
+}

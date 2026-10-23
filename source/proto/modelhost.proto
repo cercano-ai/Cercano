@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package agent;
+
+option go_package = "cercano/source/server/pkg/proto";
+
+// ModelHost is the shared local-model host: one `cercano model-host` process
+// owns the local runtimes and agent hosts reach it over gRPC.
+//
+// Request and response bodies are the localruntime Go records serialized as JSON
+// in payload_json. Both ends are the same binary version, gated by the
+// internal/modelhost APIVersion handshake, so mirroring every record field here
+// would only add drift. Bump APIVersion whenever a method's payload shape
+// changes.
+service ModelHost {
+  // Hello is the version handshake; clients compare api_version first.
+  rpc Hello (HelloRequest) returns (HelloResponse) {}
+
+  // Attach registers a client and streams manager events (download progress,
+  // instance state changes) until the client disconnects.
+  rpc Attach (AttachRequest) returns (stream ManagerEvent) {}
+
+  // Call invokes a localruntime.Manager method by name (e.g. "Start", "Logs").
+  rpc Call (CallRequest) returns (CallResponse) {}
+
+  // Shutdown asks the host to stop its instances and exit.
+  rpc Shutdown (ShutdownRequest) returns (ShutdownResponse) {}
+}
+
+message HelloRequest {
+  string client_version = 1;
+  // nonce is a fresh random value; the host proves knowledge of the token by
+  // returning HMAC-SHA256(token, nonce). Hello itself needs no token.
+  bytes nonce = 2;
+}
+
+message HelloResponse {
+  int32 api_version = 1;
+  string version = 2;
+  int32 pid = 3;
+  bytes proof = 4;
+}
+
+message AttachRequest {
+  string client_id = 1;
+  string profile = 2;
+  int32 pid = 3;
+}
+
+message ManagerEvent {
+  oneof event {
+    string download_event_json = 1;
+    string instance_event_json = 2;
+  }
+}
+
+message CallRequest {
+  string client_id = 1;
+  // localruntime.Manager method name, for example "Start".
+  string method = 2;
+  string payload_json = 3;
+}
+
+message CallResponse {
+  string payload_json = 1;
+}
+
+message ShutdownRequest {}
+
+message ShutdownResponse {}

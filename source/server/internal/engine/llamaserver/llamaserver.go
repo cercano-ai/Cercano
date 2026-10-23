@@ -31,6 +31,10 @@ type Engine struct {
 
 	mu         sync.RWMutex
 	failureLog *failurelog.Writer
+
+	// holds remembers which shared instances this process already holds, so
+	// reusing one takes a hold once rather than per request.
+	holds localruntime.HoldTracker
 }
 
 func NewEngine(manager localruntime.Manager) *Engine {
@@ -280,7 +284,7 @@ func (e *Engine) endpointFor(ctx context.Context, requested string) (endpoint st
 	if err != nil {
 		return "", "", false, err
 	}
-	startingID := ""
+	var starting *localruntime.InstanceRecord
 	for _, instance := range instances {
 		if instance.Runtime != runtimeName || instance.Endpoint == "" {
 			continue
@@ -293,16 +297,30 @@ func (e *Engine) endpointFor(ctx context.Context, requested string) (endpoint st
 			if !confirmedInstance(instance) {
 				return "", "", false, &llm.LocalStartupError{Provider: runtimeName, Model: requested, Err: errors.New("serving capacity is unconfirmed")}
 			}
+			// A shared instance may belong to another process; hold it so
+			// that process cannot stop it while this one uses it.
+			held, err := e.holds.Hold(ctx, e.Manager, instance)
+			if err != nil {
+				return "", "", false, &llm.LocalStartupError{Provider: runtimeName, Model: requested, Err: err}
+			}
+			if held.ID != instance.ID {
+				return e.startedEndpoint(ctx, held, selected, requested)
+			}
 			return instance.Endpoint, modelNameForRequest(selected, requested), selected.SupportsVision, nil
 		case localruntime.InstanceStarting:
 			// Still loading the model — its port isn't open yet, so a
 			// request now would get connection-refused. Wait for it below
 			// instead of racing it (or worse, spawning a second copy).
-			startingID = instance.ID
+			instance := instance
+			starting = &instance
 		}
 	}
-	if startingID != "" {
-		endpoint, err := e.awaitInstanceReady(ctx, startingID)
+	if starting != nil {
+		held, err := e.holds.Hold(ctx, e.Manager, *starting)
+		if err != nil {
+			return "", "", false, &llm.LocalStartupError{Provider: runtimeName, Model: requested, Err: err}
+		}
+		endpoint, err := e.awaitInstanceReady(ctx, held.ID)
 		if err != nil {
 			return "", "", false, &llm.LocalStartupError{Provider: runtimeName, Model: requested, Err: err}
 		}
@@ -327,11 +345,18 @@ func (e *Engine) endpointFor(ctx context.Context, requested string) (endpoint st
 	if start == nil {
 		return "", "", false, errors.New("runtime returned no instance")
 	}
+	e.holds.Held(e.Manager, start.ID)
+	return e.startedEndpoint(ctx, *start, selected, requested)
+}
+
+// startedEndpoint returns the endpoint of an instance Start returned, waiting
+// for it if it is still loading.
+func (e *Engine) startedEndpoint(ctx context.Context, start localruntime.InstanceRecord, selected localruntime.ModelRecord, requested string) (string, string, bool, error) {
 	if start.State == localruntime.InstanceStarting {
 		endpoint, err := e.awaitInstanceReady(ctx, start.ID)
 		return endpoint, modelNameForRequest(selected, requested), selected.SupportsVision, err
 	}
-	if !confirmedInstance(*start) {
+	if !confirmedInstance(start) {
 		return "", "", false, &llm.LocalStartupError{Provider: runtimeName, Model: requested, Err: errors.New("started runtime has no confirmed capacity")}
 	}
 	if start.Endpoint == "" {

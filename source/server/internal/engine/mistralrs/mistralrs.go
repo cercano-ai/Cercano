@@ -25,6 +25,10 @@ const runtimeName = "mistralrs"
 type Engine struct {
 	Client  *http.Client
 	Manager localruntime.Manager
+
+	// holds remembers which shared instances this process already holds, so
+	// reusing one takes a hold once rather than per request.
+	holds localruntime.HoldTracker
 }
 
 func NewEngine(manager localruntime.Manager) *Engine {
@@ -188,7 +192,7 @@ func (e *Engine) endpointFor(ctx context.Context, requested string) (endpoint st
 	if err != nil {
 		return "", "", err
 	}
-	startingID := ""
+	var starting *localruntime.InstanceRecord
 	for _, instance := range instances {
 		if instance.Runtime != runtimeName || instance.Endpoint == "" {
 			continue
@@ -198,16 +202,30 @@ func (e *Engine) endpointFor(ctx context.Context, requested string) (endpoint st
 		}
 		switch instance.State {
 		case localruntime.InstanceRunning, localruntime.InstanceHealthy:
+			// A shared instance may belong to another process; hold it so
+			// that process cannot stop it while this one uses it.
+			held, err := e.holds.Hold(ctx, e.Manager, instance)
+			if err != nil {
+				return "", "", err
+			}
+			if held.ID != instance.ID {
+				return e.startedEndpoint(ctx, held, selected, requested)
+			}
 			return instance.Endpoint, modelNameForRequest(selected, requested), nil
 		case localruntime.InstanceStarting:
 			// Still loading the model — its port isn't open yet, so a
 			// request now would get connection-refused. Wait for it below
 			// instead of racing it (or worse, spawning a second copy).
-			startingID = instance.ID
+			instance := instance
+			starting = &instance
 		}
 	}
-	if startingID != "" {
-		endpoint, err := e.awaitInstanceReady(ctx, startingID)
+	if starting != nil {
+		held, err := e.holds.Hold(ctx, e.Manager, *starting)
+		if err != nil {
+			return "", "", err
+		}
+		endpoint, err := e.awaitInstanceReady(ctx, held.ID)
 		if err != nil {
 			return "", "", err
 		}
@@ -220,6 +238,15 @@ func (e *Engine) endpointFor(ctx context.Context, requested string) (endpoint st
 	if err != nil {
 		return "", "", err
 	}
+	if start == nil {
+		return "", "", errors.New("runtime returned no instance")
+	}
+	e.holds.Held(e.Manager, start.ID)
+	return e.startedEndpoint(ctx, *start, selected, requested)
+}
+
+// startedEndpoint returns the endpoint of an instance Start returned.
+func (e *Engine) startedEndpoint(_ context.Context, start localruntime.InstanceRecord, selected localruntime.ModelRecord, requested string) (string, string, error) {
 	if start.Endpoint == "" {
 		return "", "", errors.New("mistral.rs started without an endpoint")
 	}

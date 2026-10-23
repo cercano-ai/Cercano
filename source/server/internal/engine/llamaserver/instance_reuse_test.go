@@ -2,6 +2,7 @@ package llamaserver
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,5 +56,60 @@ func TestChat_OllamaStyleNameReusesWarmInstance(t *testing.T) {
 	}
 	if manager.startCount != 0 {
 		t.Fatalf("engine started %d new llama-server(s) for a model that already had a running instance — every spawn wires the full model into RAM", manager.startCount)
+	}
+}
+
+// sharedRuntimeManager is a fakeRuntimeManager shared with other processes.
+type sharedRuntimeManager struct {
+	*fakeRuntimeManager
+	epoch uint64
+}
+
+func (m *sharedRuntimeManager) HoldEpoch() uint64 { return m.epoch }
+
+// Start returns the running instance for the model, as the shared model host
+// does when it records a hold on an instance another process launched.
+func (m *sharedRuntimeManager) Start(_ context.Context, req localruntime.StartRequest) (*localruntime.InstanceRecord, error) {
+	m.startCount++
+	for _, inst := range m.instances {
+		if inst.ModelID == req.ModelID {
+			inst := inst
+			return &inst, nil
+		}
+	}
+	return nil, errors.New("no instance")
+}
+
+// TestChat_SharedInstanceHeldOnce: reusing a running instance of a shared
+// manager takes a hold through Start, once per instance and epoch rather
+// than on every request.
+func TestChat_SharedInstanceHeldOnce(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices": [{"message": {"role": "assistant", "content": "ok"}}]}`))
+	}))
+	defer server.Close()
+	manager := &sharedRuntimeManager{epoch: 1, fakeRuntimeManager: &fakeRuntimeManager{
+		models: []localruntime.ModelRecord{{ID: "llama_server:m", DisplayName: "m", Runtime: runtimeName, Path: "/models/m.gguf"}},
+		instances: []localruntime.InstanceRecord{{
+			ID: "inst", Runtime: runtimeName, ModelID: "llama_server:m",
+			State: localruntime.InstanceRunning, Context: confirmedTestCapacity(), Endpoint: server.URL,
+		}},
+	}}
+	eng := NewEngine(manager)
+	for i := 0; i < 3; i++ {
+		if _, err := eng.Complete(context.Background(), "m", "hi", "", engine.GenOptions{}); err != nil {
+			t.Fatalf("Complete: %v", err)
+		}
+	}
+	if manager.startCount != 1 {
+		t.Fatalf("Start calls = %d, want 1 hold for the reused instance", manager.startCount)
+	}
+	manager.epoch++
+	if _, err := eng.Complete(context.Background(), "m", "hi", "", engine.GenOptions{}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if manager.startCount != 2 {
+		t.Fatalf("Start calls after a new epoch = %d, want 2", manager.startCount)
 	}
 }

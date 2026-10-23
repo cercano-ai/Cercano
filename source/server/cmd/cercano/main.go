@@ -49,6 +49,7 @@ import (
 	mcpserver "cercano/source/server/internal/mcp"
 	mcphost "cercano/source/server/internal/mcp_host"
 	"cercano/source/server/internal/modelcatalog"
+	"cercano/source/server/internal/modelhost"
 	"cercano/source/server/internal/modelpolicy"
 	"cercano/source/server/internal/ollamacatalog"
 	"cercano/source/server/internal/openmodels"
@@ -221,7 +222,18 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	registry.RegisterEmbedder(ollamaEng)
 	// llamaEng registers below once constructed — see RegisterEmbedder there.
 
-	runtimeManager := buildRuntimeManager(cfg, events)
+	// Local models live in the shared model host (or in-process as a
+	// fallback). The close function runs at shutdown after Server.Shutdown,
+	// or here if startup fails.
+	runtimeManager, closeRuntime, err := connectRuntimeManager(context.Background(), cfg, events)
+	if err != nil {
+		return "", nil, fmt.Errorf("connect runtime manager: %w", err)
+	}
+	defer func() {
+		if !started {
+			closeRuntime()
+		}
+	}()
 	llamaEng := llamaengine.NewEngine(runtimeManager)
 	registry.RegisterEngine(llamaEng)
 	registry.RegisterEmbedder(llamaEng)
@@ -656,6 +668,10 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	cleanup := func() {
 		defer restorePolicy()
 		defer enterpriseHost.Close()
+		// Runs after the body: srv.Shutdown has stopped in-process runtime
+		// instances and the producers that use them. For the shared model
+		// host, closing releases this agent's holds.
+		defer closeRuntime()
 		// Drain before teardown: in-flight turns still need the MCP manager
 		// and providers, so those stop only after the streams finish. The
 		// standing SubscribeEvents streams must end first or GracefulStop
@@ -699,7 +715,10 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	return lis.Addr().String(), cleanup, nil
 }
 
-func buildRuntimeManager(cfg config.Config, events *crashlog.Writer) localruntime.Manager {
+// newLocalRuntimeManager builds the in-process runtime manager: endpoints,
+// stale-partial and orphan sweeps, provider registration and interrupted
+// download resumption. It does not warm any runtime.
+func newLocalRuntimeManager(cfg config.Config, events *crashlog.Writer) *localruntime.InMemoryManager {
 	manager := localruntime.NewManager(
 		localruntime.WithEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg))),
 		// Re-read config from disk on restart so a runtime relaunch picks up
@@ -739,18 +758,108 @@ func buildRuntimeManager(cfg config.Config, events *crashlog.Writer) localruntim
 	// survives on disk) — recovers from a sleep or process kill that outlived
 	// the in-memory download job. Background so startup isn't blocked.
 	go resumeInterruptedDownloads(cfg, manager, provider)
+	return manager
+}
 
-	// Warm the active runtime's EFFECTIVE chat model (override else catalog
-	// default), not the legacy per-runtime default_model field. Otherwise the
-	// runtime can keep serving a stale model while config reports a newer
-	// effective tier model.
+// buildRuntimeManager is newLocalRuntimeManager plus warming of the active
+// runtime's default model.
+func buildRuntimeManager(cfg config.Config, events *crashlog.Writer) localruntime.Manager {
+	manager := newLocalRuntimeManager(cfg, events)
+	warmActiveRuntime(manager, cfg)
+	return manager
+}
+
+// warmActiveRuntime warms the active managed runtime's EFFECTIVE chat model
+// (override else catalog default), not the legacy per-runtime default_model
+// field. Otherwise the runtime can keep serving a stale model while config
+// reports a newer effective tier model. Ollama has nothing to warm.
+func warmActiveRuntime(manager localruntime.Manager, cfg config.Config) {
 	switch {
 	case mistralRSEnabled(cfg):
 		warmDefaultRuntime(manager, "mistralrs", openTurnModel(cfg))
 	case llamaServerEnabled(cfg):
 		warmDefaultRuntime(manager, "llama_server", openTurnModel(cfg))
 	}
-	return manager
+}
+
+// modelHostEnv selects where this agent hosts local models. The value
+// "inprocess" keeps the runtime manager inside the agent process (tests and
+// an escape hatch); anything else uses the shared model host.
+const modelHostEnv = "CERCANO_MODEL_HOST"
+
+// The agent binds its gRPC port only after the runtime manager is ready, and
+// the CLI gives an auto-launched agent 8s to answer. Connecting to the model
+// host therefore gets a fixed budget, after which the agent falls back to
+// in-process models. Variables so tests can shorten them.
+var (
+	// modelHostEnsureTimeout bounds the wait for a launched host to publish
+	// its record (EnsureOptions.Timeout).
+	modelHostEnsureTimeout = 3 * time.Second
+	// modelHostConnectBudget bounds the whole connect: lock waits, launch,
+	// verification, Attach and retries.
+	modelHostConnectBudget = 4 * time.Second
+)
+
+// connectRuntimeManager returns the runtime manager the agent uses and a
+// function that closes it. By default that is a client of the shared model
+// host, launched on demand, so several agents share one copy of each local
+// model. With CERCANO_MODEL_HOST=inprocess, or when the model host cannot be
+// reached or launched, it builds the in-process manager instead so local
+// models keep working. Either way the active runtime is warmed.
+//
+// The close function must run after Server.Shutdown, once nothing in this
+// agent uses local models any more: closing ends this client's attachment,
+// which releases this agent's holds. Server.Shutdown stops no shared
+// instances itself, since other agents may be using them.
+func connectRuntimeManager(ctx context.Context, cfg config.Config, events *crashlog.Writer) (localruntime.Manager, func(), error) {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(modelHostEnv)), "inprocess") {
+		return buildRuntimeManager(cfg, events), func() {}, nil
+	}
+	remote, err := newModelHostRemote(ctx)
+	if err != nil {
+		// Only the caller giving up is fatal. The connect budget expiring,
+		// like any other failure, falls back to in-process models.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, fmt.Errorf("connecting to model host: %w", ctxErr)
+		}
+		log.Printf("[WARN] shared model host unavailable (%v); hosting local models in this process", err)
+		events.LogRuntimeEvent(crashlog.EventModelHostUnavailable, err.Error(), crashlog.RuntimeInfo{}, map[string]any{"fallback": "inprocess"})
+		return buildRuntimeManager(cfg, events), func() {}, nil
+	}
+	remote.SetEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg)))
+	warmActiveRuntime(remote, cfg)
+	return remote, func() {
+		if err := remote.Close(); err != nil {
+			log.Printf("[WARN] closing model host connection: %v", err)
+		}
+	}, nil
+}
+
+// newModelHostRemote connects to the shared model host in the default run
+// directory, launching this binary as the host when none is running. The
+// whole connect is bounded by modelHostConnectBudget. A failed NewRemote has
+// already closed its client, so nothing keeps retrying in the background.
+func newModelHostRemote(ctx context.Context) (*modelhost.Remote, error) {
+	runDir, err := modelhost.RunDir()
+	if err != nil {
+		return nil, err
+	}
+	bctx, cancel := context.WithTimeout(ctx, modelHostConnectBudget)
+	defer cancel()
+	remote, err := modelhost.NewRemote(bctx, modelhost.RemoteOptions{
+		Ensure: modelhost.EnsureOptions{
+			RunDir:        runDir,
+			ClientVersion: version,
+			Launch:        launchModelHost(runDir),
+			Timeout:       modelHostEnsureTimeout,
+		},
+		// The active profile is reported once profiles reach the agent host.
+		Profile: "",
+	})
+	if err != nil && ctx.Err() == nil && bctx.Err() != nil {
+		return nil, fmt.Errorf("model host not connected within %s: %w", modelHostConnectBudget, err)
+	}
+	return remote, err
 }
 
 // startDefaultRuntimeAsync warms the llama-server default model in the
@@ -773,8 +882,22 @@ func startDefaultRuntimeAsync(manager localruntime.Manager, runtime, modelID str
 				Level:   "error",
 				Message: "failed to start " + runtime + ": " + err.Error(),
 			})
+			return
 		}
+		manager.WriteLog(localruntime.LogEntry{
+			Source:  "cercano.runtime." + runtime,
+			Level:   "info",
+			ModelID: modelID,
+			Message: warmedMessage(runtime, modelID),
+		})
 	}()
+}
+
+// warmedMessage is the runtime log line recorded when a warm-up's Start
+// succeeds. With a shared model host it is written once per agent, including
+// agents whose Start reused an instance another agent launched.
+func warmedMessage(runtime, modelID string) string {
+	return "warmed " + runtime + " model " + modelID
 }
 
 // warmDefaultRuntime warms a runtime's configured default model in the
@@ -925,6 +1048,28 @@ func main() {
 				cfg = config.Defaults()
 			}
 			runServerMode(cfg)
+			return
+		case "model-host":
+			// Shared local model host: one process per user owns the local
+			// runtime instances and serves every agent over loopback gRPC.
+			// Normally launched by agents, not by hand.
+			cfg, err := config.Load(config.DefaultPath())
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
+				cfg = config.Defaults()
+			}
+			crashLogPath := filepath.Join(filepath.Dir(config.DefaultPath()), "crash.log")
+			crashWriter, cwErr := crashlog.NewWriter(crashLogPath, version)
+			if cwErr != nil {
+				fmt.Fprintf(os.Stderr, "[WARN] Failed to open crash log at %s: %v\n", crashLogPath, cwErr)
+			}
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			err = runModelHost(ctx, modelHostOptions{Config: cfg, Events: crashWriter})
+			cancel()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "model-host:", err)
+				os.Exit(1)
+			}
 			return
 		case "worker":
 			// Isolated turn-execution worker: serves the Worker gRPC service on a
