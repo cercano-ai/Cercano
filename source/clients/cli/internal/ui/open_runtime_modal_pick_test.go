@@ -231,3 +231,16 @@ func TestOpenRuntimeModal_MistralMissingModelWithoutDefaultBrowsesModels(t *test
 		t.Fatalf("modal should point mistral no-default users at model selection, got:\n%s", out)
 	}
 }
+
+// default_model is a machine-wide setting: the hint points at machine.yaml,
+// not a profile's config.yaml.
+func TestOpenRuntimeModal_NeedsModelHintNamesMachineConfig(t *testing.T) {
+	styles := theme.NewStyles(theme.Cracker())
+	for _, runtime := range []string{"llama_server", "mistralrs"} {
+		mo := &openRuntimeInstallModal{status: agentclient.OpenRuntimeStatus{Runtime: runtime}, state: runtimeModalNeedsModel}
+		got := mo.renderActions(styles, 100)
+		if !strings.Contains(got, "~/.config/cercano/machine.yaml") || strings.Contains(got, "cercano/config.yaml") {
+			t.Errorf("%s hint = %q, want it to point at ~/.config/cercano/machine.yaml", runtime, got)
+		}
+	}
+}
