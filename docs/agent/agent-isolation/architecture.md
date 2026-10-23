@@ -178,8 +178,7 @@ The `Broker` owns three per-conversation concerns, all under one `mu`. It is
 - **Replay buffer.** `Publish` also appends to the current turn's buffer.
   `Attach` atomically snapshots that buffer (replay) *and* registers a live
   channel under the same lock, so every event is **either** in replay (published
-  before Attach) **or** on the channel (published after) — never both, never
-  neither. This is the mid-turn-join guarantee.
+  before Attach) **or** eligible for live delivery (published after), without an attach-boundary race. Passive live delivery can still drop on overflow.
 - **Lossy vs lossless subscribers.** `Attach` returns a cap-64 **drop-on-full**
   channel — correct for a passive observer that must never stall the turn.
   `AttachLossless` returns a channel backed by an unbounded queue drained by a
@@ -232,7 +231,7 @@ turn in isolation and holds **no durable state**. Worker-side files:
   runs the **unchanged** `runner.New(deps).RunTurn(...)` with stream-backed
   sink/requester/persist. It builds providers via `buildWorkerProviders`
   (a minimal `workerResolver`) and tools via `buildWorkerTools` (the full
-  built-in registry; **MCP tools excluded** — MCP servers run host-side only).
+  built-in registry plus proxies for advertised host MCP tools; MCP servers themselves remain host-side).
   Panics in the turn are recovered into a `TurnError`.
 - **`proxies.go`** — the stream-backed `Deps`/callback proxies: a single
   serialized `sender` goroutine (gRPC `Send` is not concurrency-safe);
@@ -259,7 +258,7 @@ turn in isolation and holds **no durable state**. Worker-side files:
 `workerRunner` implements `runner.TurnRunner`, so the host turn handler is
 **unchanged** — only the concrete `turnRunner` type differs. Its `RunTurn`:
 pre-assembles history + project context (it owns the store), builds the
-`ConfigSnapshot` + permission mode, spawns the worker (or uses an injected dial
+`ConfigSnapshot` + permission mode, acquires a pooled worker (or uses an injected dial
 in tests), sends `StartTurn`, then runs a **drain loop** mapping worker→host
 messages onto the host callbacks it was handed. It is the mirror of the worker's
 proxies. §5 details the transport.
@@ -299,8 +298,7 @@ callbacks. Only step 3 changes: `turnRunner` is a `workerRunner`, and
    `projectCtx := persist.LoadProjectContext(workDir)` — the host owns the store.
 2. **Snapshot.** `snap := SnapshotConfig(cfg, "")` (no credential in the snapshot —
    the worker fetches on demand); `permMode := perms.Mode()`.
-3. **Spawn.** `spawnWorker(ctx, convID, gen)` → `cercano worker --socket …`,
-   Setpgid + pidfile, poll-to-ready, gRPC-dial. (Test path: injected `dial`.)
+3. **Acquire.** The per-conversation pool reuses a healthy idle worker with matching managed-policy mode, or spawns `cercano worker --socket …` with Setpgid, pidfile, socket readiness and gRPC dial. (Test path: injected `dial`.)
 4. **Start.** Open `client.RunTurn(ctx)` bidi stream; `Send(StartTurn{input,
    images, workDir, gen, config, history, projectContext, permissionMode})`.
 5. **Drain loop.** For each `WorkerToHost` message:
@@ -316,8 +314,7 @@ callbacks. Only step 3 changes: `turnRunner` is a `workerRunner`, and
    **same `runner.Core`** with stream-backed proxies. Its events, permission asks,
    persist calls, and credential asks all go back over the stream — exactly what
    the host drain loop consumes.
-7. **Teardown.** `defer cleanupFn()` (`workerHandle.Kill()`) always fires:
-   process group killed, socket + pidfile removed.
+7. **Release.** Deferred cleanup releases the acquired handle to the pool. `TurnDone` followed by stream closure marks it healthy for warm reuse; cancellation observed before completion or stream failure before `TurnDone` leaves it unhealthy and evicts/kills it. The current receive loop treats any receive error after `TurnDone` as completion, not only EOF. A displaced handle cannot release or evict a newer turn’s worker.
 
 The payoff: identical client-visible behavior, but the entire tool loop + tool
 execution + LLM streaming ran in a process the host can kill without harm.
@@ -334,9 +331,10 @@ service Worker {
   rpc RunTurn (stream HostToWorker) returns (stream WorkerToHost) {}
 }
 
-HostToWorker { oneof: StartTurn | PermissionResponse | Cancel | CredentialResponse }
+// Core lifecycle subset, not the complete protocol:
+HostToWorker { oneof: StartTurn | PermissionResponse | Cancel | CredentialResponse | ... }
 WorkerToHost { oneof: WorkerEvent | PermissionRequest | PersistTurn
-                    | TurnDone | TurnError | CredentialRequest }
+                    | TurnDone | TurnError | CredentialRequest | ... }
 ```
 
 `StartTurn` carries `conversation_id`, `input`, `images`, `work_dir`, `gen`,
@@ -393,7 +391,7 @@ The broker fan-out is what makes one conversation watchable from several surface
 
 Because `Attach` snapshots the replay buffer and registers the channel under one
 lock, a second surface that attaches **mid-turn** sees the turn so far (replay)
-then the rest live, with no duplicate and no gap. The runner never knows two
+then live events without an attach-boundary duplicate or gap. The bounded passive channel can still drop subsequent events when full. The runner never knows two
 surfaces exist — attachment is purely a host concern. A surface can attach whether
 or not a runner is currently live; the durable thing is the conversation (store +
 broker), the runner is a transient engine behind it.
@@ -406,13 +404,13 @@ broker), the runner is a transient engine behind it.
   EOF or an error. If `TurnDone` was already seen, that's the normal close →
   return the captured `Result`. If **not** (crash mid-turn: panic that killed the
   process, OOM, kill), the worker died before completing → the host returns
-  `status.Errorf(codes.Unavailable, "worker turn failed: %v", …)`.
-- **Containment.** `defer cleanupFn()` (`workerHandle.Kill()`) kills the worker's
-  process group and cleans up. The error flows back through the *same* host turn
+  `status.Errorf(codes.Unavailable, "worker turn failed: %v", …)`. Cancellation/deadline errors are preserved; unsupported required enterprise-policy or authentication-recovery protocols fail with `FailedPrecondition`.
+- **Containment.** Deferred pool release kills/evicts an unhealthy worker's
+  process group and cleans up. Healthy completion instead retains it warm. The error flows back through the *same* host turn
   handler as an in-process error would: the handler's `defer release()` retires
   the broker turn, the generation fence guarantees any late/racing event from the
   dead worker is dropped (`Publish` checks `gen`), and attached surfaces see the
-  turn end (`codes.Unavailable` surfaced like any transport loss).
+  turn end. Do not equate passive broker-channel closure with receiving the initiating RPC’s gRPC status.
 - **Blast radius = one conversation.** The host process does not exit. Other
   conversations — their own workers, their own broker turns — are untouched. The
   next submit on the crashed conversation spawns a fresh worker. This is the
@@ -491,10 +489,7 @@ default:
   including the everyday-open fallback so a sparse taxonomy never fails supervision
   open.
 - **MCP tools** — MCP servers live host-side, so a conversation carrying MCP tools
-  auto-falls-back to the in-process runner. Selection is **per-turn**
-  (`Server.pickTurnRunner` consults `hasMCPTools()`), not a one-time startup check,
-  because MCP loads asynchronously after `SelectExecutionMode`. Built-in/capability
-  turns run in the worker; MCP turns run in-process, transparently.
+  uses worker-side proxies advertised at turn start. `Server.pickTurnRunner` selects the worker whenever configured; `hasMCPTools()` does not change runner selection. MCP calls execute on the host while the turn retains worker isolation.
 
 **Phase 6 as-built — lifecycle (Part B).** Workers are pooled per conversation
 (`internal/worker/pool.go`):

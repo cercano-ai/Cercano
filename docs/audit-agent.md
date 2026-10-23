@@ -45,6 +45,12 @@ are documentation source checks, not live-provider or full runtime certification
 See the [central report](publicity-freshness-audit.md) for CLI/reference coverage
 and publication and implementation advisories.
 
+The [core-guide follow-up](audit-core-guides.md) is **PARTIAL** across all five
+guides: it publishes completed targeted corrections, not a completed five-file
+semantic audit. Self-dev and cloud routing receive no new full-file certification.
+Its focused test result is attributed to that audit; publication review spot-checks
+do not close the remaining coverage.
+
 ## Coverage limits and acceptance boundaries
 
 - Full-file feature and specialist source audits are complete within their stated
@@ -63,8 +69,8 @@ and publication and implementation advisories.
 
 | File | Cumulative coverage (original pass plus reported follow-up) |
 | --- | --- |
-| `docs/agent/README.md` | Targeted semantic correction / source comparison |
-| `docs/agent/agent-isolation/architecture.md` | Targeted semantic correction / source comparison |
+| `docs/agent/README.md` | **PARTIAL** core-guide follow-up; targeted comparisons only; see [remaining coverage](audit-core-guides.md) |
+| `docs/agent/agent-isolation/architecture.md` | **PARTIAL** core-guide follow-up; targeted comparisons only; see [remaining coverage](audit-core-guides.md) |
 | `docs/agent/agent-isolation/design.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
 | `docs/agent/agent-isolation/plan-phase2.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
 | `docs/agent/agent-isolation/plan-phase3.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
@@ -81,7 +87,7 @@ and publication and implementation advisories.
 | `docs/agent/cloud-profiles.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
 | `docs/agent/cloud-responses-plan.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
 | `docs/agent/cloud-responses.md` | Targeted semantic correction / source comparison; historical boundary also added |
-| `docs/agent/compaction-decision-fidelity.md` | Targeted semantic correction / source comparison |
+| `docs/agent/compaction-decision-fidelity.md` | **PARTIAL** core-guide follow-up; targeted comparisons only; see [remaining coverage](audit-core-guides.md) |
 | `docs/agent/compaction-routing.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md) |
 | `docs/agent/compaction-working-memory.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md) |
 | `docs/agent/context-management/compaction/compaction-2a-algorithms-design.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
@@ -142,11 +148,11 @@ and publication and implementation advisories.
 | `docs/agent/per-backend-quirks.md` | Targeted semantic correction / source comparison |
 | `docs/agent/proto-regen.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md) |
 | `docs/agent/runtime-agnostic-model-lifecycle-plan.md` | Historical boundary reviewed/added; original design body retained (not fully revalidated) |
-| `docs/agent/self-dev.md` | Targeted semantic correction / source comparison |
+| `docs/agent/self-dev.md` | **PARTIAL** core-guide follow-up; targeted comparisons only; see [remaining coverage](audit-core-guides.md) |
 | `docs/agent/sub_agents/README.md` | Targeted semantic correction / source comparison; historical boundary also added |
 | `docs/agent/trajectory-export.md` | Targeted semantic correction / source comparison |
 | `docs/agent/vision-input.md` | Completed bounded specialist source audit; see [evidence and validation limits](audit-agent-specialists.md); maintained guidance plus historical design |
-| `docs/cloud-routing.md` | Targeted semantic correction / source comparison |
+| `docs/cloud-routing.md` | **PARTIAL** core-guide follow-up; targeted comparisons only; see [remaining coverage](audit-core-guides.md) |
 
 ## Local Markdown target scan
 

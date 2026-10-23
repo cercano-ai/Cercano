@@ -52,6 +52,8 @@ correction/supersession, unsupported deployment claims, failed and successful
 checks, pending proposals, and interruptions.
 
 These are deterministic pipeline tests, **not live-model semantic evaluations**.
+`BuildSummaryPromptWithTask` can include a JSON-encoded, read-only task reference for relevance, explicitly not evidence of approval or execution. `ParseSummary` is lenient: it ignores leading prose, leaves missing sections empty, and never rejects a summary; repeated `FILES` paths overwrite earlier entries.
+
 The model can still misclassify facts, omit qualifications, or invent citations;
 there is no new output validator or durable decision ledger. Existing chunk
 merging and retention policies are unchanged and can still retain conflicting

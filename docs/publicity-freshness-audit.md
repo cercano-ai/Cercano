@@ -24,6 +24,11 @@ reports supersede initial inventory-only labels for their explicitly scoped file
 - [Agent feature audit](audit-agent-features.md): all 11 feature documents,
   including the index, completed bounded full-file source audits and focused tests.
 
+- [Core-guide follow-up](audit-core-guides.md): **PARTIAL** coverage of five core
+  guides; completed targeted corrections only, not full-file certification.
+  Self-dev and cloud routing remain incomplete; the report lists remaining
+  comparisons for each guide.
+
 Progression: the initial targeted correction/link-scan pass was partial; the
 follow-up fixed the classify example and 11 missing relative targets; scoped
 CLI, reference, agent and specialist reports then expanded coverage. Historical
@@ -83,7 +88,7 @@ is not certification of all baseline inventory entries.
 ## Remaining local documentation coverage limits
 
 - No feature-group source audit remains pending. Agent ledger entries labeled
-  **Targeted semantic correction / source comparison** have not received the same
+  **Targeted semantic correction / source comparison** or **PARTIAL** have not received the same
   full-file claim-by-claim audit as the feature and specialist groups. The exact
   paths are retained in the [agent ledger](audit-agent.md#exact-file-coverage-ledger);
   this pass does not claim all repository documentation is exhaustively verified.

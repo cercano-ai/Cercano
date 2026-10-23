@@ -140,7 +140,7 @@ Switch with `/strict`, `/permissive`, `/bypass`, or `/mode <name>`. Persists to 
 |---|---|
 | `/d [repo-path]` (alias `/dev`) | Development mode — point the session at the Cercano repo and prime the agent to work on itself |
 | `/tools` | List the agent's registered tools |
-| `/tool <name> <json>` | Invoke a tool directly; known W/X calls queue confirmation, and the RPC may reject calls requiring streaming approval |
+| `/tool <name> <json>` | Invoke a tool directly; cached W/X calls queue CLI-local confirmation in every mode (including bypass); approval calls unary `InvokeTool` |
 | `/strict` `/permissive` `/bypass` `/mode <m>` | Change permission mode |
 | `/history` | Pick a past conversation to resume |
 | `/resume <id>` | Resume by conversation id |
@@ -278,7 +278,7 @@ Bounded autonomous loop. Per iteration:
    - W/X-tier serializes through the permission gate
 5. For each W/X call requiring confirmation, emit a `PermissionRequired` streaming event; wait for the client's `AllowToolCall` or `DenyToolCall` reply via the `PendingDecisions` map.
 6. Execute the allowed tools. Each result becomes a `tool_result` block, fed back as a user message.
-7. Track guards: 3 consecutive iterations of all-errored calls aborts; the configured tool-loop iteration limit caps round-trips (see `pkg/config` defaults); user denial of any confirm is a hard turn-end.
+7. Track guards: 3 consecutive iterations of all-errored calls aborts; the configured tool-loop iteration limit caps round-trips (see `pkg/config` defaults); ordinary permission denial ends the turn. A “chat about this” redirect continues for ordinary tools but ends session-control transitions; watchdog escalation denial blocks the action without this immediate turn-end.
 
 ### Autonomous run completion
 
@@ -324,7 +324,9 @@ SQLite via `modernc.org/sqlite` (pure Go). Each turn is a row in `turns`. Tool-c
 
 ### Permission gating
 
-The decision is **agent-side**. The CLI just renders the `PermissionRequired` streaming event and forwards user input via `AllowToolCall` / `DenyToolCall` RPCs. Every client (CLI, VS Code, Zed, future) sees consistent behavior under the same mode.
+For **model-driven calls**, the decision is agent-side. Clients render `PermissionRequired` and forward `AllowToolCall` / `DenyToolCall`. Delegated preauthorization can skip ordinary mode gates; WIP-consuming `git stash` adds a forced confirmation independent of mode/grants. A prior human-approved watchdog escalation avoids a duplicate prompt. Session-model changes and explicit human handoffs have additional gates.
+
+Direct `/tool` is different: the CLI checks its cached tier, runs R-tier (and unknown-tier) calls directly, and queues local confirmation for W/X even in bypass. Approval invokes the unary RPC; denial does not invoke it. `InvokeTool` itself directly executes the registry tool without the tool-loop permission gate. Tool-specific validation can still fail; this RPC is not a server-enforced approval boundary.
 
 ## Detailed design docs
 
@@ -336,7 +338,7 @@ The decision is **agent-side**. The CLI just renders the `PermissionRequired` st
 
 ## Known limitations
 
-- **`/tool` invoking W/X-tier** requires `/bypass` mode. The unary `InvokeTool` RPC can't stream a confirm prompt back to the CLI. Model-driven tool calls in normal chat flow always go through the gate correctly.
+- **Direct tool invocation:** `/tool` uses CLI-local confirmation, not the model-driven permission protocol; `/bypass` is not required. Use `y` to approve local MCP calls: the current local `[a]lways` callback neither invokes the tool nor persists an allowlist rule (persistence is wired only for stream-origin calls).
 - **Inline tool-call expand/collapse keybind** isn't implemented yet. Tool entries render folded; scroll your terminal to see args/results.
 - **Image attachment storage:** `inspect_image` uses private temporary files under the operating system's temporary directory (Go `os.TempDir()`, not a hard-coded Unix or Windows path). The store retains only metadata and reads image bytes on demand; it has no cumulative per-conversation image-count or byte cap. `Store.Clear` removes a conversation’s files; server shutdown and worker-turn completion close their owned stores. Missing/unreadable files produce lookup misses, and failed writes produce an omitted-image placeholder. Reattaching identical bytes restores a missing file under the same live ID.
 - **Image lifetime:** attachment IDs are indexed in memory and do not survive agent restarts. Temporary storage is not durable history: OS cleanup can remove files, and crashes may leave orphan files for OS cleanup. Payloads still occupy memory while being ingested or inspected; this change removes long-lived payload retention in the attachment store, not provider/request limits or other copies elsewhere in the message pipeline.
