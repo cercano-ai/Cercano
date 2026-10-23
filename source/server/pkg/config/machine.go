@@ -1,6 +1,12 @@
 package config
 
 import (
+	"context"
+	"reflect"
+	"sync"
+	"time"
+
+	"cercano/source/server/internal/filelock"
 	"errors"
 	"fmt"
 	"os"
@@ -94,12 +100,26 @@ func machineFileExists() bool {
 	return err == nil
 }
 
-// overlayMachine replaces the runtime sections of cfg with machine.yaml's.
-// When machine.yaml does not exist, cfg keeps whatever the profile file held
-// (an older version wrote these sections there) so nothing is lost before
-// migration.
+// machineBaseline records the machine sections a config last read from, or
+// wrote to, machine.yaml.
+type machineBaseline struct {
+	mu sync.Mutex
+	mc MachineConfig
+}
+
+func cloneMachine(mc MachineConfig) MachineConfig {
+	c := Config{LlamaServer: mc.LlamaServer, MistralRS: mc.MistralRS}.Clone()
+	return MachineConfig{LlamaServer: c.LlamaServer, MistralRS: c.MistralRS}
+}
+
+// overlayMachine replaces the runtime sections of cfg with machine.yaml's and
+// records them as the baseline. When machine.yaml does not exist, cfg keeps
+// whatever the profile file held (an older version wrote these sections
+// there) so nothing is lost before migration; the baseline is then the
+// defaults, so the first Save writes those legacy values to machine.yaml.
 func overlayMachine(cfg *Config) error {
 	if !machineFileExists() {
+		cfg.machineBase = &machineBaseline{mc: machineDefaults()}
 		return nil
 	}
 	mc, err := LoadMachine()
@@ -108,6 +128,85 @@ func overlayMachine(cfg *Config) error {
 	}
 	cfg.LlamaServer = mc.LlamaServer
 	cfg.MistralRS = mc.MistralRS
+	cfg.machineBase = &machineBaseline{mc: cloneMachine(mc)}
+	return nil
+}
+
+// SetMachineSections replaces the runtime sections with mc (typically freshly
+// read from machine.yaml) and makes them the baseline, so the next Save does
+// not treat them as this config's own edits.
+func (c *Config) SetMachineSections(mc MachineConfig) {
+	mc = cloneMachine(mc)
+	c.LlamaServer = mc.LlamaServer
+	c.MistralRS = mc.MistralRS
+	if c.machineBase == nil {
+		c.machineBase = &machineBaseline{}
+	}
+	c.machineBase.mu.Lock()
+	c.machineBase.mc = cloneMachine(mc)
+	c.machineBase.mu.Unlock()
+}
+
+// MachineSectionsEqual reports whether the runtime sections equal mc.
+func (c Config) MachineSectionsEqual(mc MachineConfig) bool {
+	return reflect.DeepEqual(MachineConfig{LlamaServer: c.LlamaServer, MistralRS: c.MistralRS}, mc)
+}
+
+// mergeChangedFields copies into dst every field of cur that differs from
+// base. All three are pointers to the same struct type. Fields compare as
+// whole values, so slices and nested structs are replaced, not merged.
+func mergeChangedFields(dst, cur, base any) {
+	d := reflect.ValueOf(dst).Elem()
+	c := reflect.ValueOf(cur).Elem()
+	b := reflect.ValueOf(base).Elem()
+	for i := 0; i < d.NumField(); i++ {
+		if !d.Field(i).CanSet() {
+			continue
+		}
+		if !reflect.DeepEqual(c.Field(i).Interface(), b.Field(i).Interface()) {
+			d.Field(i).Set(c.Field(i))
+		}
+	}
+}
+
+// saveMachineChanges writes to machine.yaml only the fields this config
+// changed relative to its baseline, merged onto the file's current content
+// under a cross-process lock, so another profile's concurrent edits to other
+// fields survive.
+func (c *Config) saveMachineChanges() error {
+	cur := MachineConfig{LlamaServer: c.LlamaServer, MistralRS: c.MistralRS}
+	base := c.machineBase
+	if base == nil {
+		// Built without Load: compare against the defaults and leave no
+		// baseline behind.
+		base = &machineBaseline{mc: machineDefaults()}
+	}
+	base.mu.Lock()
+	defer base.mu.Unlock()
+	if reflect.DeepEqual(cur, base.mc) {
+		return nil
+	}
+	lockPath := filepath.Join(filepath.Dir(paths.MachineConfigPath()), "machine.lock")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0700); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	release, err := filelock.Lock(ctx, lockPath)
+	if err != nil {
+		return fmt.Errorf("failed to lock machine config: %w", err)
+	}
+	defer release()
+	merged, err := LoadMachine()
+	if err != nil {
+		return err
+	}
+	mergeChangedFields(&merged.LlamaServer, &cur.LlamaServer, &base.mc.LlamaServer)
+	mergeChangedFields(&merged.MistralRS, &cur.MistralRS, &base.mc.MistralRS)
+	if err := SaveMachine(merged); err != nil {
+		return err
+	}
+	base.mc = cloneMachine(merged)
 	return nil
 }
 

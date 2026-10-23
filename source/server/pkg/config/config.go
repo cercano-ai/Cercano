@@ -409,6 +409,10 @@ type Config struct {
 	Agent                    AgentConfig       `yaml:"agent"`
 	LlamaServer              LlamaServerConfig `yaml:"llama_server"`
 	MistralRS                MistralRSConfig   `yaml:"mistralrs"`
+	// machineBase tracks the machine.yaml sections this config last saw, so
+	// Save writes back only fields this config changed. Shared (not deep
+	// copied) by Clone so every copy of one live config shares one baseline.
+	machineBase *machineBaseline
 	Compaction               CompactionConfig  `yaml:"compaction"`
 	Watchdog                 WatchdogConfig    `yaml:"watchdog"`
 	ToolLoop                 ToolLoopConfig    `yaml:"tool_loop"`
@@ -1002,6 +1006,9 @@ func Load(path string) (Config, error) {
 		if err != nil {
 			if os.IsNotExist(err) {
 				// No config file — use defaults + env vars
+				if err := overlayMachine(&cfg); err != nil {
+					return cfg, err
+				}
 				applyEnvOverrides(&cfg)
 				finalizeModelTiers(&cfg)
 				return cfg, nil
@@ -1308,7 +1315,6 @@ func Save(cfg Config, path string) error {
 	if err := cfg.LlamaServer.Validate(); err != nil {
 		return err
 	}
-	machine := MachineConfig{LlamaServer: cfg.LlamaServer, MistralRS: cfg.MistralRS}
 	// Stripping inherited and obsolete values must not mutate live snapshots.
 	cfg = cfg.Clone()
 	dir := filepath.Dir(path)
@@ -1333,7 +1339,7 @@ func Save(cfg Config, path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	if err := SaveMachine(machine); err != nil {
+	if err := cfg.saveMachineChanges(); err != nil {
 		return err
 	}
 

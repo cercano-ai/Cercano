@@ -263,16 +263,31 @@ func TestModelHostConfigIgnoresProfileConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(config.DefaultPath()), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(config.DefaultPath(), []byte("llama_server:\n  extra_args: [\"--from-profile\"]\n"), 0o644); err != nil {
+	// machine.yaml is absent; the profile file carries a legacy runtime
+	// section and a profile-only field. The host must see neither.
+	body := "port: \"59999\"\nllama_server:\n  extra_args: [\"--from-profile\"]\n"
+	if err := os.WriteFile(config.DefaultPath(), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mc := config.Defaults()
-	mach := config.MachineConfig{LlamaServer: mc.LlamaServer, MistralRS: mc.MistralRS}
+	cfg, err := machineRuntimeConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := config.Defaults()
+	if len(cfg.LlamaServer.ExtraArgs) != len(def.LlamaServer.ExtraArgs) {
+		t.Errorf("ExtraArgs = %v, want defaults %v", cfg.LlamaServer.ExtraArgs, def.LlamaServer.ExtraArgs)
+	}
+	if cfg.Port != def.Port {
+		t.Errorf("Port = %q, want default %q", cfg.Port, def.Port)
+	}
+
+	// With machine.yaml present, its sections are used.
+	mach := config.MachineConfig{LlamaServer: def.LlamaServer, MistralRS: def.MistralRS}
 	mach.LlamaServer.ExtraArgs = []string{"--from-machine"}
 	if err := config.SaveMachine(mach); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := machineRuntimeConfig()
+	cfg, err = machineRuntimeConfig()
 	if err != nil {
 		t.Fatal(err)
 	}

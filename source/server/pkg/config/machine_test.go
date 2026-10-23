@@ -125,3 +125,134 @@ func TestSaveMachineCreatesPrivateDirAndNoTempLeft(t *testing.T) {
 		}
 	}
 }
+
+func loadPair(t *testing.T) (a, b Config, pa, pb string) {
+	t.Helper()
+	machineTestHome(t)
+	pa = filepath.Join(t.TempDir(), "a.yaml")
+	pb = filepath.Join(t.TempDir(), "b.yaml")
+	if err := Save(Defaults(), pa); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(Defaults(), pb); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	if a, err = Load(pa); err != nil {
+		t.Fatal(err)
+	}
+	if b, err = Load(pb); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+func TestStaleSaveDoesNotRevertOtherProfilesMachineSettings(t *testing.T) {
+	a, b, pa, pb := loadPair(t)
+	a.MistralRS.ISQ = "Q4K"
+	if err := Save(a, pa); err != nil {
+		t.Fatal(err)
+	}
+	// b was loaded before a's change and edits an unrelated field.
+	b.Port = "50099"
+	if err := Save(b, pb); err != nil {
+		t.Fatal(err)
+	}
+	mc, err := LoadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mc.MistralRS.ISQ != "Q4K" {
+		t.Errorf("ISQ = %q after stale save, want Q4K", mc.MistralRS.ISQ)
+	}
+}
+
+func TestDifferentMachineFieldsFromTwoProfilesBothSurvive(t *testing.T) {
+	a, b, pa, pb := loadPair(t)
+	a.MistralRS.ISQ = "Q4K"
+	b.LlamaServer.ExtraArgs = []string{"--from-b"}
+	if err := Save(a, pa); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(b, pb); err != nil {
+		t.Fatal(err)
+	}
+	// a saves again without changes: must not revert b's field.
+	if err := Save(a, pa); err != nil {
+		t.Fatal(err)
+	}
+	mc, _ := LoadMachine()
+	if mc.MistralRS.ISQ != "Q4K" || len(mc.LlamaServer.ExtraArgs) != 1 || mc.LlamaServer.ExtraArgs[0] != "--from-b" {
+		t.Errorf("machine = ISQ %q extra %v, want Q4K and [--from-b]", mc.MistralRS.ISQ, mc.LlamaServer.ExtraArgs)
+	}
+}
+
+func TestSaveWithoutChangesDoesNotCreateMachineFile(t *testing.T) {
+	machineTestHome(t)
+	if err := Save(Defaults(), filepath.Join(t.TempDir(), "c.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(paths.MachineConfigPath()); !os.IsNotExist(err) {
+		t.Errorf("machine.yaml exists after an unchanged save: %v", err)
+	}
+}
+
+func TestLegacyValuesMigrateOnFirstSave(t *testing.T) {
+	machineTestHome(t)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(path, []byte("mistralrs:\n  isq: Q8_0\n"), 0644)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Port = "50077"
+	if err := Save(cfg, path); err != nil {
+		t.Fatal(err)
+	}
+	mc, _ := LoadMachine()
+	if mc.MistralRS.ISQ != "Q8_0" {
+		t.Errorf("legacy ISQ lost: %q", mc.MistralRS.ISQ)
+	}
+}
+
+func TestSetMachineSectionsResetsBaseline(t *testing.T) {
+	a, _, pa, _ := loadPair(t)
+	mc := machineDefaults()
+	mc.MistralRS.ISQ = "Q2K"
+	if err := SaveMachine(mc); err != nil {
+		t.Fatal(err)
+	}
+	a.SetMachineSections(mc)
+	if a.MistralRS.ISQ != "Q2K" {
+		t.Fatal("sections not applied")
+	}
+	// Machine moves on; a saves an unrelated change and must not write Q2K back.
+	mc.MistralRS.ISQ = "Q4K"
+	if err := SaveMachine(mc); err != nil {
+		t.Fatal(err)
+	}
+	a.Port = "50088"
+	if err := Save(a, pa); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadMachine()
+	if got.MistralRS.ISQ != "Q4K" {
+		t.Errorf("ISQ = %q, want Q4K", got.MistralRS.ISQ)
+	}
+}
+
+func TestLoadUsesMachineFileWhenProfileFileMissing(t *testing.T) {
+	machineTestHome(t)
+	mc := machineDefaults()
+	mc.MistralRS.ISQ = "Q4K"
+	if err := SaveMachine(mc); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(filepath.Join(t.TempDir(), "absent.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MistralRS.ISQ != "Q4K" {
+		t.Errorf("ISQ = %q, want Q4K", cfg.MistralRS.ISQ)
+	}
+}
