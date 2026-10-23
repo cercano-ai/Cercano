@@ -21,10 +21,23 @@ type Outcome struct {
 	Warning            string
 }
 
-func Run(ctx context.Context, args []string, in io.Reader, out, errout io.Writer, interactive bool, execute func(context.Context) (Outcome, error)) int {
+// newFlags defines the command's flags. HelpRequested parses with the same
+// definitions, so the two cannot disagree.
+func newFlags(errout io.Writer) (*flag.FlagSet, *bool) {
 	flags := flag.NewFlagSet("cercano reset", flag.ContinueOnError)
 	flags.SetOutput(errout)
 	scope := flags.Bool("setup", false, "reset setup/model settings and Cercano credentials; preserve history and downloaded models")
+	return flags, scope
+}
+
+// HelpRequested reports whether Run would only print its usage for args.
+func HelpRequested(args []string) bool {
+	flags, _ := newFlags(io.Discard)
+	return errors.Is(flags.Parse(args), flag.ErrHelp)
+}
+
+func Run(ctx context.Context, args []string, in io.Reader, out, errout io.Writer, interactive bool, execute func(context.Context) (Outcome, error)) int {
+	flags, scope := newFlags(errout)
 	flags.Usage = func() {
 		fmt.Fprintln(errout, "Usage: cercano reset --setup\n\nDeveloper reset. Other sessions may remain open. You control their lifecycle.\nClears setup/model settings, routing, cloud profiles, stored Cercano credentials and wizard answers.\nPreserves conversations, history, preferences, installed runtimes and downloaded models.\nRequires terminal confirmation; does not stop or drain sessions.")
 	}

@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
 
+	"cercano/source/server/internal/setupresetcmd"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/profilemigrate"
@@ -80,25 +84,82 @@ var migrationOptions = profilemigrate.DefaultOptions
 //   - model-host: machine-wide;
 //   - restart-after-upgrade: the Homebrew coordinator stops the pre-profile
 //     agent and relaunches the new binary, which migrates on startup;
-//   - help requests (-h, -help, --help anywhere), which change nothing;
+//   - a help request that the command handles before touching any data,
+//     recognized with the command's own argument parsing;
 //   - commands that skip the startup check, which touch no profile data.
+//
+// agent and stats ignore help flags, so they always migrate.
 func needsProfileMigration(args []string) bool {
 	if !needsStartupCheck(args) {
 		return false
 	}
-	if len(args) >= 2 {
-		switch args[1] {
-		case "worker", "model-host", "restart-after-upgrade":
-			return false
-		}
+	if len(args) < 2 {
+		return true
 	}
-	for _, arg := range args[1:] {
+	rest := args[2:]
+	switch args[1] {
+	case "worker", "model-host", "restart-after-upgrade":
+		return false
+	case "agent", "stats":
+		return true
+	case "setup":
+		_, help := parseSetupArgs(rest)
+		return !help
+	case "run":
+		return !parseHeadlessArgs(rest).help
+	case "reset":
+		return !setupresetcmd.HelpRequested(rest)
+	case "logs":
+		fs, _, _ := newLogsFlags(flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		return !errors.Is(fs.Parse(rest), flag.ErrHelp)
+	case "export":
+		if len(rest) == 0 || rest[0] != "trajectory" {
+			return true
+		}
+		fs, f := newExportTrajectoryFlags(io.Discard)
+		err := fs.Parse(rest[1:])
+		return !(errors.Is(err, flag.ErrHelp) || err == nil && *f.help)
+	case "enterprise":
+		return len(rest) > 0 && rest[0] != "--help" && rest[0] != "help"
+	}
+	// No subcommand: the top-level flags. Parsing stops at the first
+	// non-flag argument, so an unknown subcommand followed by --help is not
+	// a help request.
+	fs := flag.NewFlagSet("cercano", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	defineTopLevelFlags(fs)
+	return !errors.Is(fs.Parse(args[1:]), flag.ErrHelp)
+}
+
+// parseSetupArgs reads `cercano setup` arguments: --install-engine, and -h
+// or --help, which prints usage and changes nothing.
+func parseSetupArgs(args []string) (installEngine, help bool) {
+	for _, arg := range args {
 		switch arg {
-		case "-h", "-help", "--help":
-			return false
+		case "-h", "--help":
+			return installEngine, true
+		case "--install-engine":
+			installEngine = true
 		}
 	}
-	return true
+	return installEngine, false
+}
+
+// topLevelFlags are the flags of a bare `cercano` invocation.
+type topLevelFlags struct {
+	mcp, version, stats, server *bool
+	grpcAddr                    *string
+}
+
+func defineTopLevelFlags(fs *flag.FlagSet) topLevelFlags {
+	return topLevelFlags{
+		mcp:      fs.Bool("mcp", false, "Run in MCP mode (embedded gRPC server + MCP on stdio)"),
+		grpcAddr: fs.String("grpc-addr", "", "Address of an external gRPC server (MCP-only, no embedded server)"),
+		version:  fs.Bool("version", false, "Print version and exit"),
+		stats:    fs.Bool("stats", false, "Print usage statistics and exit"),
+		server:   fs.Bool("server", false, "Force server mode (equivalent to `cercano agent`)"),
+	}
 }
 
 // migrateProfileData moves pre-profile data into the default profile when

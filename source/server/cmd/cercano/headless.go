@@ -27,28 +27,42 @@ func resolveHeadlessConvID(explicit string) string {
 	return conversation.NewID()
 }
 
-// runHeadless executes a single prompt against the cercano agent and streams
-// the response to stdout (assistant text) and stderr (diagnostics). Used for
-// scripting and CI — no TTY required.
-func runHeadless(args []string) {
-	autoAllow := false
-	convID := ""
-	var positional []string
+// headlessArgs is the parsed command line of `cercano run`.
+type headlessArgs struct {
+	autoAllow   bool
+	convID      string
+	positional  []string
+	help        bool // -h or --help, before any missing --conv value
+	missingConv bool // --conv was the last argument
+}
 
+// parseHeadlessArgs parses `cercano run` arguments. It is shared with the
+// startup check so both agree on what is a help request.
+func parseHeadlessArgs(args []string) headlessArgs {
+	var a headlessArgs
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--auto-allow":
-			autoAllow = true
+			a.autoAllow = true
 		case "--conv":
 			if i+1 < len(args) {
-				convID = args[i+1]
+				a.convID = args[i+1]
 				i++
 			} else {
-				fmt.Fprintln(os.Stderr, "cercano run: --conv requires an ID")
-				os.Exit(2)
+				a.missingConv = true
+				return a
 			}
 		case "-h", "--help":
-			fmt.Fprintln(os.Stderr, `usage: cercano run [--auto-allow] [--conv ID] "prompt"
+			a.help = true
+			return a
+		default:
+			a.positional = append(a.positional, args[i])
+		}
+	}
+	return a
+}
+
+const headlessUsage = `usage: cercano run [--auto-allow] [--conv ID] "prompt"
 
 Sends a single prompt to the cercano agent and streams the response.
 Auto-launches an agent if one isn't already running.
@@ -60,12 +74,23 @@ Flags:
 
 Output:
   stdout  assistant text deltas + final response
-  stderr  tool-call diagnostics, progress, errors`)
-			os.Exit(0)
-		default:
-			positional = append(positional, args[i])
-		}
+  stderr  tool-call diagnostics, progress, errors`
+
+// runHeadless executes a single prompt against the cercano agent and streams
+// the response to stdout (assistant text) and stderr (diagnostics). Used for
+// scripting and CI — no TTY required.
+func runHeadless(args []string) {
+	parsed := parseHeadlessArgs(args)
+	if parsed.help {
+		fmt.Fprintln(os.Stderr, headlessUsage)
+		os.Exit(0)
 	}
+	if parsed.missingConv {
+		fmt.Fprintln(os.Stderr, "cercano run: --conv requires an ID")
+		os.Exit(2)
+	}
+	autoAllow, convID, positional := parsed.autoAllow, parsed.convID, parsed.positional
+
 	prompt := strings.Join(positional, " ")
 	if prompt == "" {
 		fmt.Fprintln(os.Stderr, `usage: cercano run [--auto-allow] [--conv ID] "prompt"`)

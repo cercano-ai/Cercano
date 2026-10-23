@@ -47,6 +47,19 @@ func TestProfileMigrationRunsForProfileCommands(t *testing.T) {
 		{"cercano", "run", "hi"}, {"cercano", "setup"}, {"cercano", "reset"},
 		{"cercano", "enterprise", "status"},
 		{"cercano", "stats"}, {"cercano", "logs"}, {"cercano", "export"},
+		// These commands ignore or misread a help flag and go on to touch
+		// profile data, so they must migrate first.
+		{"cercano", "agent", "--help"}, {"cercano", "agent", "-h"},
+		{"cercano", "stats", "-h"}, {"cercano", "stats", "--help"},
+		{"cercano", "setup", "-help"},                // setup only knows -h and --help
+		{"cercano", "run", "-help"},                  // a prompt, not a flag
+		{"cercano", "run", "--conv", "-h", "prompt"}, // -h is the conversation ID
+		{"cercano", "enterprise", "-h"},              // "unknown enterprise command" path
+		{"cercano", "enterprise", "status", "--help"},
+		{"cercano", "logs", "--tail", "-h"}, // -h is --tail's value
+		{"cercano", "export", "--help"},     // only "export trajectory" parses flags
+		{"cercano", "--grpc-addr", "-h"},    // -h is --grpc-addr's value
+		{"cercano", "unknown", "--help"},    // flag parsing stops at "unknown"
 	} {
 		if !needsProfileMigration(args) {
 			t.Errorf("needsProfileMigration(%v) = false, want true", args)
@@ -54,15 +67,19 @@ func TestProfileMigrationRunsForProfileCommands(t *testing.T) {
 	}
 	// Workers are spawned by an agent that already migrated; the model host
 	// is machine-wide; restart-after-upgrade leaves the move to the agent the
-	// Homebrew coordinator relaunches; help and static information change
-	// nothing.
+	// Homebrew coordinator relaunches; the help forms below print usage
+	// before the command touches anything.
 	for _, args := range [][]string{
 		{"cercano", "worker"}, {"cercano", "model-host"}, {"cercano", "version"},
 		{"cercano", "--version"}, {"cercano", "protocols", "sync"}, {"cercano", "skills", "sync"},
 		{"cercano", "restart-after-upgrade"}, {"cercano", "restart-after-upgrade", "--timeout", "1m"},
-		{"cercano", "--help"}, {"cercano", "-h"}, {"cercano", "-help"},
-		{"cercano", "setup", "--help"}, {"cercano", "setup", "-h"}, {"cercano", "run", "--help"},
-		{"cercano", "enterprise", "-h"}, {"cercano", "logs", "--help"}, {"cercano", "--mcp", "--help"},
+		{"cercano", "--help"}, {"cercano", "-h"}, {"cercano", "-help"}, {"cercano", "--mcp", "--help"},
+		{"cercano", "setup", "--help"}, {"cercano", "setup", "-h"}, {"cercano", "setup", "--install-engine", "-h"},
+		{"cercano", "run", "--help"}, {"cercano", "run", "-h"}, {"cercano", "run", "--conv", "abc", "-h"},
+		{"cercano", "reset", "-h"}, {"cercano", "reset", "--help"}, {"cercano", "reset", "--setup", "-help"},
+		{"cercano", "logs", "--help"}, {"cercano", "logs", "--crashes", "-h"},
+		{"cercano", "export", "trajectory", "--help"}, {"cercano", "export", "trajectory", "-h"},
+		{"cercano", "enterprise"}, {"cercano", "enterprise", "--help"}, {"cercano", "enterprise", "help"},
 	} {
 		if needsProfileMigration(args) {
 			t.Errorf("needsProfileMigration(%v) = true, want false", args)

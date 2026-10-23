@@ -1040,15 +1040,10 @@ func main() {
 			// and runtime probing. Confirmation is the developer's trigger.
 			os.Exit(runReset(os.Args[2:]))
 		case "setup":
-			installEngine := false
-			for _, arg := range os.Args[2:] {
-				switch arg {
-				case "-h", "--help":
-					fmt.Print(setupUsage)
-					return
-				case "--install-engine":
-					installEngine = true
-				}
+			installEngine, help := parseSetupArgs(os.Args[2:])
+			if help {
+				fmt.Print(setupUsage)
+				return
 			}
 			runSetup(installEngine)
 			return
@@ -1163,11 +1158,8 @@ func main() {
 		}
 	}
 
-	mcpMode := flag.Bool("mcp", false, "Run in MCP mode (embedded gRPC server + MCP on stdio)")
-	grpcAddr := flag.String("grpc-addr", "", "Address of an external gRPC server (MCP-only, no embedded server)")
-	showVersion := flag.Bool("version", false, "Print version and exit")
-	showStats := flag.Bool("stats", false, "Print usage statistics and exit")
-	forceServer := flag.Bool("server", false, "Force server mode (equivalent to `cercano agent`)")
+	top := defineTopLevelFlags(flag.CommandLine)
+	mcpMode, grpcAddr, showVersion, showStats, forceServer := top.mcp, top.grpcAddr, top.version, top.stats, top.server
 	flag.Parse()
 
 	if *showVersion {
@@ -1870,14 +1862,21 @@ func promptYesNo(out io.Writer, in io.Reader, prompt string, defaultYes bool) bo
 //	--crashes: pretty-print the last N crash-log entries (default 10).
 //	--tail N : override the count.
 //
+// newLogsFlags defines `cercano logs` flags; the startup check parses with
+// the same definitions to recognize a help request.
+func newLogsFlags(handling flag.ErrorHandling) (*flag.FlagSet, *bool, *int) {
+	fs := flag.NewFlagSet("logs", handling)
+	crashes := fs.Bool("crashes", false, "show the persistent crash log")
+	tail := fs.Int("tail", 10, "number of most-recent entries to show")
+	return fs, crashes, tail
+}
+
 // Output is human-readable, one entry per block with a divider — meant
 // for a person eyeballing the log. For structured consumption, the raw
 // JSONL file at ~/.config/cercano/crash.log is the authoritative
 // source.
 func runLogs(args []string) {
-	fs := flag.NewFlagSet("logs", flag.ExitOnError)
-	crashes := fs.Bool("crashes", false, "show the persistent crash log")
-	tail := fs.Int("tail", 10, "number of most-recent entries to show")
+	fs, crashes, tail := newLogsFlags(flag.ExitOnError)
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
