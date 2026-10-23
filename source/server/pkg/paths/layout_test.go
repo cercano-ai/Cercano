@@ -117,44 +117,82 @@ func TestInvalidProfileFallsBackButLoadReportsIt(t *testing.T) {
 }
 
 // allowedLiteral is a home-relative path literal that is allowed outside
-// pkg/paths. Each entry names the file, the exact literal, and why the path
-// is not profile-owned. Paths are relative to the repository's source/ dir.
-type allowedLiteral struct{ file, literal, reason string }
+// pkg/paths. Each entry names the file, the exact literal, how many times it
+// appears there, and why the path is not profile-owned. The count keeps an
+// entry from silently covering a new use of the same literal in that file.
+// Paths are relative to the repository's source/ dir.
+type allowedLiteral struct {
+	file, literal string
+	count         int
+	reason        string
+}
 
 var hardcodedPathAllowlist = []allowedLiteral{
 	// Machine-wide state under ~/.cercano (models, run, bin): shared by every
 	// profile and by the machine-wide model host.
-	{"server/internal/modelhost/registry.go", ".cercano", "~/.cercano/run/modelhost: machine-wide model host registry; RunDir must error without a home dir"},
-	{"server/internal/localruntime/llamaserver/provider.go", ".cercano", "~/.cercano/models: machine-wide model store"},
-	{"server/internal/localruntime/llamaserver/orphans.go", ".cercano", "~/.cercano/run/llamaserver: machine-wide runtime pid records"},
-	{"server/internal/localruntime/mistralrs/catalog_records.go", ".cercano", "~/.cercano/models: machine-wide model store"},
-	{"server/internal/localruntime/mistralrs/provider.go", ".cercano", "~/.cercano/bin/mistralrs: machine-wide runtime binary"},
-	{"server/internal/localruntime/mistralrs/orphans.go", ".cercano", "~/.cercano/run/mistralrs: machine-wide runtime pid records"},
-	{"server/pkg/config/config.go", "~/.cercano/models", "default llama_server.model_dirs: machine-wide model store"},
-	{"server/internal/server/server.go", "~/.cercano/models", "fallback download dir: machine-wide model store"},
+	{"server/internal/modelhost/registry.go", ".cercano", 1, "~/.cercano/run/modelhost: machine-wide model host registry; RunDir must error without a home dir"},
+	{"server/internal/localruntime/llamaserver/provider.go", ".cercano", 1, "~/.cercano/models: machine-wide model store"},
+	{"server/internal/localruntime/llamaserver/orphans.go", ".cercano", 1, "~/.cercano/run/llamaserver: machine-wide runtime pid records"},
+	{"server/internal/localruntime/mistralrs/catalog_records.go", ".cercano", 1, "~/.cercano/models: machine-wide model store"},
+	{"server/internal/localruntime/mistralrs/provider.go", ".cercano", 1, "~/.cercano/bin/mistralrs: machine-wide runtime binary"},
+	{"server/internal/localruntime/mistralrs/orphans.go", ".cercano", 1, "~/.cercano/run/mistralrs: machine-wide runtime pid records"},
+	{"server/pkg/config/config.go", "~/.cercano/models", 2, "default llama_server and mistralrs model_dirs: machine-wide model store"},
+	{"server/internal/server/server.go", "~/.cercano/models", 1, "fallback download dir: machine-wide model store"},
 	// Client-only UI preferences are machine-wide by design.
-	{"clients/cli/internal/uiconfig/uiconfig.go", ".config", "ui.yaml and themes/: machine-wide CLI preferences"},
+	{"clients/cli/internal/uiconfig/uiconfig.go", ".config", 1, "ui.yaml and themes/: machine-wide CLI preferences"},
 	// Project-local .cercano directories live in a repository, not under HOME.
-	{"server/internal/context/context.go", ".cercano", "<project>/.cercano: project context directory"},
-	{"server/internal/document/writer.go", ".cercano", "<file dir>/.cercano/backups: project-local document backups"},
-	{"server/internal/gitflow/config.go", ".cercano", "<repo>/.cercano/gitflow.yaml: project config"},
-	{"server/internal/projectconfig/config.go", ".cercano", "<workdir>/.cercano/config.yaml: project config"},
-	{"clients/cli/internal/slash/context.go", ".cercano", "<cwd>/.cercano/context.md: project context file"},
+	{"server/internal/capabilities/builtins/deepinfra_infer.go", ".cercano/deepinfra", 1, "<workdir>/.cercano/deepinfra: default artifact dir, resolved against the work directory"},
+	{"server/internal/context/context.go", ".cercano", 1, "<project>/.cercano: project context directory"},
+	{"server/internal/document/writer.go", ".cercano", 1, "<file dir>/.cercano/backups: project-local document backups"},
+	{"server/internal/gitflow/config.go", ".cercano", 1, "<repo>/.cercano/gitflow.yaml: project config"},
+	{"server/internal/projectconfig/config.go", ".cercano", 1, "<workdir>/.cercano/config.yaml: project config"},
+	{"clients/cli/internal/slash/context.go", ".cercano", 1, "<cwd>/.cercano/context.md: project context file"},
 }
 
-// suspiciousPathLiteral reports whether a string literal builds a path under
-// ~/.config or ~/.cercano: a bare ".config"/".cercano" path element, or a
-// literal rooted at $HOME, ~ or a home-joined "/.config", "/.cercano".
+// suspiciousPathLiteral reports whether a string literal can build a path
+// under ~/.config or ~/.cercano: a bare ".config"/".cercano" element, one
+// with more path after it (".config/cercano"), one ending a joined path
+// (home + "/.cercano"), or a literal rooted at $HOME, ~ or a home-joined
+// "/.config/", "/.cercano/".
 func suspiciousPathLiteral(s string) bool {
-	if s == ".config" || s == ".cercano" {
-		return true
-	}
-	for _, p := range []string{"$HOME/.config", "$HOME/.cercano", "~/.config/", "~/.cercano/", "/.config/", "/.cercano/"} {
-		if strings.HasPrefix(s, p) {
+	for _, dir := range []string{".config", ".cercano"} {
+		if s == dir || strings.HasPrefix(s, dir+"/") || strings.HasSuffix(s, "/"+dir) {
 			return true
+		}
+		for _, root := range []string{"$HOME/", "~/", "/"} {
+			if strings.HasPrefix(s, root+dir+"/") || s == root+dir {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// TestSuspiciousPathLiteralCoverage pins which literal forms the guard
+// catches, so a narrowed matcher cannot silently let ad hoc paths through.
+func TestSuspiciousPathLiteralCoverage(t *testing.T) {
+	flagged := []string{
+		".config", ".cercano", // filepath.Join(home, ".config", ...)
+		".config/cercano", ".config/cercano/x.db", ".cercano/enterprise", ".cercano/deepinfra", // filepath.Join(home, ".config/cercano", ...)
+		"/.config", "/.cercano", // home + "/.config"
+		"/.config/cercano/x", "/.cercano/trace-openai-stream", // home + "/.cercano/..."
+		"$HOME/.config/cercano/conversations.db", "$HOME/.cercano", // os.ExpandEnv
+		"~/.config/cercano/config.yaml", "~/.cercano/models", // ~ expansion
+	}
+	for _, s := range flagged {
+		if !suspiciousPathLiteral(s) {
+			t.Errorf("suspiciousPathLiteral(%q) = false, want true", s)
+		}
+	}
+	clean := []string{
+		"", "config.yaml", "cercano", "config", ".configure", ".cercanorc", "my.config",
+		"profiles", "logs/dispatch.log", "a .cercano dir", "x/.configs", "validation skipped",
+	}
+	for _, s := range clean {
+		if suspiciousPathLiteral(s) {
+			t.Errorf("suspiciousPathLiteral(%q) = true, want false", s)
+		}
+	}
 }
 
 // TestNoHardcodedConfigPaths stops new ad hoc paths under ~/.config/cercano or
@@ -165,12 +203,12 @@ func TestNoHardcodedConfigPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowed := map[[2]string]bool{}
+	type key struct{ file, literal string }
+	allowed := map[key]int{}
 	for _, a := range hardcodedPathAllowlist {
-		allowed[[2]string{a.file, a.literal}] = true
+		allowed[key{a.file, a.literal}] = a.count
 	}
-	used := map[[2]string]bool{}
-	var violations []string
+	hits := map[key][]string{}
 	for _, module := range []string{"server", filepath.Join("clients", "cli")} {
 		root := filepath.Join(sourceRoot, module)
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -203,12 +241,8 @@ func TestNoHardcodedConfigPaths(t *testing.T) {
 				if err != nil || !suspiciousPathLiteral(s) {
 					return true
 				}
-				key := [2]string{rel, s}
-				if allowed[key] {
-					used[key] = true
-					return true
-				}
-				violations = append(violations, fmt.Sprintf("%s:%d: %q", rel, fset.Position(lit.Pos()).Line, s))
+				k := key{rel, s}
+				hits[k] = append(hits[k], fmt.Sprintf("%s:%d", rel, fset.Position(lit.Pos()).Line))
 				return true
 			})
 			return nil
@@ -217,12 +251,24 @@ func TestNoHardcodedConfigPaths(t *testing.T) {
 			t.Fatalf("walk %s: %v", root, err)
 		}
 	}
+	var violations []string
+	for k, at := range hits {
+		if want, ok := allowed[k]; ok {
+			if len(at) != want {
+				violations = append(violations, fmt.Sprintf("%q allowlisted %d time(s) in %s but found %d: %v", k.literal, want, k.file, len(at), at))
+			}
+			continue
+		}
+		for _, pos := range at {
+			violations = append(violations, fmt.Sprintf("%s: %q", pos, k.literal))
+		}
+	}
 	sort.Strings(violations)
 	for _, v := range violations {
-		t.Errorf("hardcoded home path (use pkg/paths, or allowlist a machine-wide path with a reason): %s", v)
+		t.Errorf("hardcoded home path (use pkg/paths, or allowlist a machine-wide or project-local path with a reason): %s", v)
 	}
 	for _, a := range hardcodedPathAllowlist {
-		if !used[[2]string{a.file, a.literal}] {
+		if len(hits[key{a.file, a.literal}]) == 0 {
 			t.Errorf("stale allowlist entry: %s %q no longer appears; remove it", a.file, a.literal)
 		}
 	}

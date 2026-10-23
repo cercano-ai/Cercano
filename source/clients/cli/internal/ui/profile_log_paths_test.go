@@ -29,6 +29,7 @@ func TestDebugLogsLiveInProfileLogsDir(t *testing.T) {
 func TestDebugLogEnvOverridesStillWin(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 	t.Setenv("CERCANO_PROFILE", "work")
 	rows := []struct {
 		env string
