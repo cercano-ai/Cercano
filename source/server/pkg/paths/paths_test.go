@@ -36,7 +36,7 @@ func TestProfileDefaultsWhenUnset(t *testing.T) {
 
 func TestProfileRejectsInvalidEnv(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("CERCANO_PROFILE", "../x")
 	if _, err := Profile(); err == nil {
 		t.Fatal("Profile() error = nil, want error")
@@ -52,7 +52,7 @@ func TestProfileRejectsInvalidEnv(t *testing.T) {
 
 func TestPathsFollowHome(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	if got, want := ProfileDir("work"), filepath.Join(home, ".config", "cercano", "profiles", "work"); got != want {
 		t.Errorf("ProfileDir = %q, want %q", got, want)
 	}
@@ -75,7 +75,7 @@ func TestProfileDirPanicsOnInvalid(t *testing.T) {
 
 func TestListProfilesSkipsInvalidDirs(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	got, err := ListProfiles()
 	if err != nil || len(got) != 0 {
 		t.Fatalf("missing root: got %v, %v; want empty, nil", got, err)
@@ -95,5 +95,44 @@ func TestListProfilesSkipsInvalidDirs(t *testing.T) {
 	}
 	if want := []string{"default", "work"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
+func TestCheckHomeErrorsWhenUnset(t *testing.T) {
+	setHome(t, "")
+	err := CheckHome()
+	if err == nil {
+		t.Fatal("CheckHome() = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "cannot determine the home directory") {
+		t.Errorf("unexpected message: %v", err)
+	}
+	setHome(t, t.TempDir())
+	if err := CheckHome(); err != nil {
+		t.Errorf("CheckHome() with home set = %v", err)
+	}
+}
+
+func TestPathsPanicWhenHomeUnknown(t *testing.T) {
+	setHome(t, "")
+	for name, fn := range map[string]func(){
+		"ConfigRoot": func() { ConfigRoot() },
+		"StateRoot":  func() { StateRoot() },
+		"ProfileDir": func() { ProfileDir("work") },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s did not panic", name)
+				}
+			}()
+			fn()
+		}()
 	}
 }

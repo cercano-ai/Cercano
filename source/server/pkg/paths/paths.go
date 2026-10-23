@@ -2,6 +2,7 @@
 package paths
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,25 +35,47 @@ func Profile() (string, error) {
 	return name, nil
 }
 
-func home() string {
+func homeDir() (string, error) {
 	h, err := os.UserHomeDir()
 	if err != nil {
-		return "."
+		return "", fmt.Errorf("cannot determine the home directory (set HOME): %w", err)
+	}
+	if h == "" {
+		return "", errors.New("cannot determine the home directory (set HOME): it is empty")
+	}
+	return h, nil
+}
+
+// CheckHome returns an error when the home directory is unknown or empty.
+// Call it at process start so users get a readable error before any path is
+// computed.
+func CheckHome() error {
+	_, err := homeDir()
+	return err
+}
+
+func home() string {
+	h, err := homeDir()
+	if err != nil {
+		panic("paths: " + err.Error())
 	}
 	return h
 }
 
 // ConfigRoot is $HOME/.config/cercano.
+// It panics if the home directory is unknown; see CheckHome.
 func ConfigRoot() string { return filepath.Join(home(), ".config", "cercano") }
 
 // StateRoot is $HOME/.cercano.
+// It panics if the home directory is unknown; see CheckHome.
 func StateRoot() string { return filepath.Join(home(), ".cercano") }
 
 // ProfilesRoot is the directory holding all profile directories.
+// It panics if the home directory is unknown; see CheckHome.
 func ProfilesRoot() string { return filepath.Join(ConfigRoot(), "profiles") }
 
 // ProfileDir returns the directory for the named profile. It panics on an
-// invalid name; callers must validate first.
+// invalid name or an unknown home directory; callers must validate first.
 func ProfileDir(name string) string {
 	if err := ValidateProfileName(name); err != nil {
 		panic("paths: " + err.Error())
@@ -60,7 +83,8 @@ func ProfileDir(name string) string {
 	return filepath.Join(ProfilesRoot(), name)
 }
 
-// CurrentProfileDir returns the directory of the active profile.
+// CurrentProfileDir returns the directory of the active profile. It panics if
+// the home directory is unknown; see CheckHome.
 func CurrentProfileDir() (string, error) {
 	name, err := Profile()
 	if err != nil {
@@ -70,10 +94,12 @@ func CurrentProfileDir() (string, error) {
 }
 
 // MachineConfigPath is the machine-wide config file.
+// It panics if the home directory is unknown; see CheckHome.
 func MachineConfigPath() string { return filepath.Join(ConfigRoot(), "machine.yaml") }
 
 // ListProfiles returns the sorted valid profile directory names. A missing
-// profiles root yields an empty list, not an error.
+// profiles root yields an empty list, not an error. It panics if the home
+// directory is unknown; see CheckHome.
 func ListProfiles() ([]string, error) {
 	entries, err := os.ReadDir(ProfilesRoot())
 	if err != nil {
