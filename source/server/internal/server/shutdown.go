@@ -26,9 +26,7 @@ import (
 // call on a server that never created an event hub, and idempotent.
 func (s *Server) BeginShutdown() {
 	s.lifecycle.markShutdownBegun()
-	if s.events != nil {
-		s.events.closeAll()
-	}
+	s.eventHub().closeAll()
 }
 
 // EnableIdleShutdown calls shutdown after the last SubscribeEvents client has
@@ -40,15 +38,13 @@ func (s *Server) EnableIdleShutdown(delay time.Duration, shutdown func()) {
 	if shutdown == nil {
 		return
 	}
-	if s.events == nil {
-		s.events = newEventHub()
-	}
-	s.events.setOnEmpty(func() {
+	hub := s.eventHub()
+	hub.setOnEmpty(func() {
 		go func() {
 			if delay > 0 {
 				time.Sleep(delay)
 			}
-			if s.events == nil || s.events.subscriberCount() != 0 {
+			if hub.subscriberCount() != 0 {
 				return
 			}
 			// A disconnected UI is not proof of idle work. In particular a
@@ -57,7 +53,7 @@ func (s *Server) EnableIdleShutdown(delay time.Duration, shutdown func()) {
 			if err != nil {
 				return
 			}
-			if s.events.subscriberCount() != 0 {
+			if hub.subscriberCount() != 0 {
 				release()
 				return
 			}

@@ -184,7 +184,8 @@ type Server struct {
 	// honestly not-ready.
 	lifecycle agentLifecycle
 
-	events *eventHub // server->client push fan-out (SubscribeEvents)
+	eventsMu sync.Mutex
+	events   *eventHub // server->client push fan-out (SubscribeEvents)
 
 	// turnBroker owns the per-conversation turn-exclusivity registry. A new
 	// turn supersedes any prior turn on the same conversation: the prior ctx is

@@ -102,14 +102,22 @@ func (h *eventHub) subscriberCount() int {
 	return len(h.subs)
 }
 
+// eventHub initializes the shared fan-out even when Server was zero-initialized.
+func (s *Server) eventHub() *eventHub {
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
+	if s.events == nil {
+		s.events = newEventHub()
+	}
+	return s.events
+}
+
 // SubscribeEvents implements proto.AgentServer — a standing server->client
 // stream. It blocks, forwarding hub events to the client until the client
 // disconnects or the server shuts the stream down.
 func (s *Server) SubscribeEvents(_ *proto.SubscribeEventsRequest, stream proto.Agent_SubscribeEventsServer) error {
-	if s.events == nil {
-		s.events = newEventHub()
-	}
-	ch, unsubscribe := s.events.subscribe()
+	hub := s.eventHub()
+	ch, unsubscribe := hub.subscribe()
 	defer unsubscribe()
 
 	ctx := stream.Context()
@@ -118,10 +126,10 @@ func (s *Server) SubscribeEvents(_ *proto.SubscribeEventsRequest, stream proto.A
 	var lastLiveToken string
 	initial := true
 	for {
-		s.events.mu.Lock()
-		latest, changed := s.events.latestTUI, s.events.tuiChanged
-		ready, revision, readinessChanged := s.events.readiness, s.events.readinessRevision, s.events.readinessChanged
-		s.events.mu.Unlock()
+		hub.mu.Lock()
+		latest, changed := hub.latestTUI, hub.tuiChanged
+		ready, revision, readinessChanged := hub.readiness, hub.readinessRevision, hub.readinessChanged
+		hub.mu.Unlock()
 		if revision != lastReadiness {
 			if ready != nil && (!initial || ready.GetUpdateReadiness().GetPhase() != proto.UpdateReadiness_RELEASED) {
 				// Coalescing may skip an entire newer owner. Withdraw the last
@@ -173,10 +181,7 @@ func (s *Server) SubscribeEvents(_ *proto.SubscribeEventsRequest, stream proto.A
 // passed validation and were actually applied, so a repeat broadcast for the
 // same value can't happen from the agent side.
 func (s *Server) broadcastConfigChanged(field, value string) {
-	if s.events == nil {
-		return
-	}
-	s.events.broadcast(&proto.ClientEvent{
+	s.eventHub().broadcast(&proto.ClientEvent{
 		Event: &proto.ClientEvent_ConfigChanged{
 			ConfigChanged: &proto.ConfigChanged{Field: field, Value: value},
 		},
@@ -187,10 +192,7 @@ func (s *Server) broadcastConfigChanged(field, value string) {
 // Deduplication is handled by the permissions.Broker (both the SetMode RPC path
 // and the file-watcher path call through the broker before arriving here).
 func (s *Server) broadcastPermissionMode(mode string) {
-	if s.events == nil {
-		return
-	}
-	s.events.broadcast(&proto.ClientEvent{
+	s.eventHub().broadcast(&proto.ClientEvent{
 		Event: &proto.ClientEvent_PermissionModeChanged{
 			PermissionModeChanged: &proto.PermissionModeChanged{Mode: mode},
 		},
@@ -222,10 +224,7 @@ func (s *Server) setSessionProfile(convID, name string) error {
 // conversation — the active profile is per-conversation, so a bare broadcast
 // without the ID would leak one conversation's planning state onto every footer.
 func (s *Server) broadcastSessionProfile(convID, profile string) {
-	if s.events == nil {
-		return
-	}
-	s.events.broadcast(&proto.ClientEvent{
+	s.eventHub().broadcast(&proto.ClientEvent{
 		Event: &proto.ClientEvent_SessionProfileChanged{
 			SessionProfileChanged: &proto.SessionProfileChanged{
 				ConversationId: convID,
@@ -251,10 +250,10 @@ func (s *Server) broadcastSessionProfile(convID, profile string) {
 // fresh install-completion event without a helper here having to know all
 // three shapes.
 func (s *Server) broadcastOpenRuntimeStatus(status *proto.OpenRuntimeStatus) {
-	if s.events == nil || status == nil {
+	if status == nil {
 		return
 	}
-	s.events.broadcast(&proto.ClientEvent{
+	s.eventHub().broadcast(&proto.ClientEvent{
 		Event: &proto.ClientEvent_OpenRuntimeStatusChanged{
 			OpenRuntimeStatusChanged: &proto.OpenRuntimeStatusChanged{
 				Status: status,

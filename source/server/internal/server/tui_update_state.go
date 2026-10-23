@@ -26,7 +26,7 @@ func (s *Server) SyncTUIUpdateFromState(ctx context.Context, store *state.Store)
 }
 
 func (s *Server) syncTUIUpdateFromState(ctx context.Context, store *state.Store, validateBinding func() error) (bool, error) {
-	if ctx == nil || store == nil || s.events == nil {
+	if ctx == nil || store == nil {
 		return false, errors.New("installed TUI source is unavailable")
 	}
 	dir := store.Directory()
@@ -77,7 +77,7 @@ func (s *Server) syncTUIUpdateFromState(ctx context.Context, store *state.Store,
 		}
 	}
 	// One running agent's event hub may not be rebound to another installation.
-	h := s.events
+	h := s.eventHub()
 	h.mu.Lock()
 	if h.tuiInstallID != "" && h.tuiInstallID != store.InstallID() {
 		h.mu.Unlock()

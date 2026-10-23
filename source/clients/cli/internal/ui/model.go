@@ -110,11 +110,12 @@ type Model struct {
 	theme   theme.Theme
 	themes  *theme.Registry
 
-	agent              *agentclient.Client
-	convID             string
-	tuiUpdateAvailable bool
-	updateReadiness    agentclient.UpdateReadiness
-	forceSaveSeen      string
+	agent                                  *agentclient.Client
+	convID                                 string
+	tuiUpdateAvailable                     bool
+	updateReadiness                        agentclient.UpdateReadiness
+	readinessGeneration, readinessRevision uint64
+	forceSaveSeen                          string
 	// verifiedContext is the early-main verified installation context; it is
 	// absent when the TUI was not launched as a verified installed member
 	// (no locators), in which case trusted-observer behavior is unchanged.
@@ -1047,6 +1048,12 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		return m.restartNotice("Cancel choice recorded. No force override was requested.")
 
 	case updateReadinessMsg:
+		// Ordered within each subscription, fenced across reconnects. No owner
+		// tombstones: a later stream/revision may legitimately reuse a token.
+		if msg.generation < m.readinessGeneration || (msg.generation == m.readinessGeneration && msg.revision != 0 && msg.revision <= m.readinessRevision) {
+			return m, msg.next
+		}
+		m.readinessGeneration, m.readinessRevision = msg.generation, msg.revision
 		n := msg.notice
 		if n.OperationToken == "" && n.Phase == "" {
 			m.updateReadiness = agentclient.UpdateReadiness{}
@@ -6228,5 +6235,5 @@ func (m Model) renderUpdateReadiness() string {
 	if m.updateReadiness.OperationToken == "" {
 		return ""
 	}
-	return m.statusDivider() + m.styles.Muted.Render("update: "+strings.ToLower(m.updateReadiness.Phase)+" (exit voluntary)")
+	return m.statusDivider() + m.styles.Muted.Render("update last reported: "+strings.ToLower(m.updateReadiness.Phase)+" (exit voluntary)")
 }

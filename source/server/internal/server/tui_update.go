@@ -19,10 +19,7 @@ func (s *Server) NotifyTUIUpdateInstalled(version string, operationID int64) err
 			return errors.New("invalid installed TUI version")
 		}
 	}
-	if s.events == nil {
-		return errors.New("client event hub is unavailable")
-	}
-	h := s.events
+	h := s.eventHub()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.latestTUI != nil {

@@ -52,3 +52,43 @@ func TestUpdateReadinessPreservesDecisionsAndDraft(t *testing.T) {
 		}
 	}
 }
+
+func TestReadinessRejectsLateReleasedNotice(t *testing.T) {
+	m := New(nil, false)
+	for i, phase := range []string{"IDLE", "RELEASED", "IDLE"} {
+		updated, _ := m.Update(updateReadinessMsg{generation: 1, revision: []uint64{1, 2, 1}[i], notice: agentclient.UpdateReadiness{OperationToken: strings.Repeat("a", 32), Phase: phase}})
+		m = updated.(Model)
+	}
+	if m.renderUpdateReadiness() != "" {
+		t.Fatal("late idle resurrected released owner")
+	}
+}
+
+func TestReadinessReconnectAndTokenReuse(t *testing.T) {
+	m := New(nil, false)
+	token := strings.Repeat("a", 32)
+	apply := func(g, r uint64, phase string) {
+		n := agentclient.UpdateReadiness{}
+		if phase != "" {
+			n = agentclient.UpdateReadiness{OperationToken: token, Phase: phase}
+		}
+		updated, _ := m.Update(updateReadinessMsg{generation: g, revision: r, notice: n})
+		m = updated.(Model)
+	}
+	apply(1, 1, "IDLE")
+	apply(1, 2, "RELEASED")
+	apply(1, 3, "DRAINING")
+	if m.updateReadiness.OperationToken != token {
+		t.Fatal("valid reused token suppressed")
+	}
+	apply(1, 4, "")
+	apply(1, 3, "IDLE")
+	if m.renderUpdateReadiness() != "" {
+		t.Fatal("closed stream resurrected")
+	}
+	apply(2, 1, "IDLE")
+	apply(1, 5, "")
+	if !strings.Contains(m.renderUpdateReadiness(), "last reported") {
+		t.Fatal("old disconnect cleared new stream or authoritative label")
+	}
+}

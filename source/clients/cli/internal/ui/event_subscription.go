@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"sync/atomic"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -52,8 +53,12 @@ type configChangedMsg struct {
 // learns about mode changes and Meridian state without polling. On stream
 // error/close it stops (returns a nil msg) so we don't spin; chips simply
 // keep their last value.
+var eventStreamGeneration atomic.Uint64
+
 func subscribeEventsCmd(ag *agentclient.Client) tea.Cmd {
 	return func() tea.Msg {
+		generation := eventStreamGeneration.Add(1)
+		var revision uint64
 		ch, err := ag.SubscribeEvents(context.Background())
 		if err != nil {
 			return nil
@@ -61,11 +66,12 @@ func subscribeEventsCmd(ag *agentclient.Client) tea.Cmd {
 		var wait tea.Cmd
 		wait = func() tea.Msg {
 			ev, ok := <-ch
+			revision++
 			if !ok || ev.Err != nil {
-				return updateReadinessMsg{} // withdraw live state; stop draining
+				return updateReadinessMsg{generation: generation, revision: revision} // withdraw live state; stop draining
 			}
 			if ev.UpdateReadiness != nil {
-				return updateReadinessMsg{notice: *ev.UpdateReadiness, next: wait}
+				return updateReadinessMsg{generation: generation, revision: revision, notice: *ev.UpdateReadiness, next: wait}
 			}
 			if ev.TUIUpdate != nil {
 				return tuiUpdateNoticeMsg{version: ev.TUIUpdate.Version, operationID: ev.TUIUpdate.OperationID, next: wait}
@@ -133,6 +139,7 @@ type tuiUpdateNoticeMsg struct {
 }
 
 type updateReadinessMsg struct {
-	notice agentclient.UpdateReadiness
-	next   tea.Cmd
+	generation, revision uint64
+	notice               agentclient.UpdateReadiness
+	next                 tea.Cmd
 }

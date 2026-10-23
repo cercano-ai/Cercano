@@ -105,19 +105,33 @@ func (g *updateAdmission) drainObserved(ctx context.Context, observe func(uint64
 	g.draining = true
 	g.notifyLocked()
 	g.mu.Unlock()
+	// Serialize observation with release, independently of the admission mutex.
+	var observationMu sync.Mutex
+	released := false
+	observeLive := func(phase proto.UpdateReadiness_Phase) {
+		observationMu.Lock()
+		defer observationMu.Unlock()
+		if !released {
+			notice(phase)
+		}
+	}
 	var once sync.Once
 	release := func() {
 		once.Do(func() {
+			observationMu.Lock()
+			defer observationMu.Unlock()
+			released = true
+			// Keep ownership sealed until the published live state is withdrawn.
+			notice(proto.UpdateReadiness_RELEASED)
 			g.mu.Lock()
 			g.paused = false
 			g.draining = false
 			g.notifyLocked()
 			g.mu.Unlock()
-			notice(proto.UpdateReadiness_RELEASED)
 		})
 	}
 	stop := context.AfterFunc(ctx, release)
-	notice(proto.UpdateReadiness_DRAINING)
+	observeLive(proto.UpdateReadiness_DRAINING)
 	ownedRelease := func() { stop(); release() }
 	for _, notify := range sealed {
 		if err := notify(); err != nil {
@@ -134,7 +148,7 @@ func (g *updateAdmission) drainObserved(ctx context.Context, observe func(uint64
 		}
 		if g.active == 0 {
 			g.mu.Unlock()
-			notice(proto.UpdateReadiness_IDLE)
+			observeLive(proto.UpdateReadiness_IDLE)
 			return ownedRelease, nil
 		}
 		changed := g.changed

@@ -205,3 +205,130 @@ func TestUpdateReadinessCoalescedReleaseClearsDisplayedOwner(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestReadinessReleaseKeepsSealUntilWithdrawal(t *testing.T) {
+	var g updateAdmission
+	entered, resume := make(chan struct{}), make(chan struct{})
+	release, err := g.drainObserved(context.Background(), func(_ uint64, phase proto.UpdateReadiness_Phase) {
+		if phase == proto.UpdateReadiness_RELEASED {
+			close(entered)
+			<-resume
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { release(); close(done) }()
+	<-entered
+	work, admissionErr := g.enter()
+	if work != nil {
+		work()
+	}
+	_, ownerErr := g.drain(context.Background())
+	concurrentDone := make(chan struct{})
+	go func() { release(); close(concurrentDone) }()
+	close(resume)
+	<-done
+	<-concurrentDone
+	next, err := g.drain(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release() // stale release must not reopen the next owner
+	if work, err := g.enter(); err == nil {
+		work()
+		t.Fatal("old release stole owner")
+	}
+	next()
+	if admissionErr == nil || ownerErr == nil {
+		t.Fatal("admission reopened before readiness withdrawal")
+	}
+}
+
+func TestZeroServerReadinessBeforeSubscribe(t *testing.T) {
+	s := &Server{}
+	client, _ := drainRPCClient(t, s, s)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	owner, err := client.DrainForUpdate(ctx, &proto.DrainForUpdateRequest{OperationToken: strings.Repeat("a", 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err = owner.Recv(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sub, err := client.SubscribeEvents(ctx, &proto.SubscribeEventsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err := sub.Recv()
+	if err != nil || ev.GetUpdateReadiness().GetPhase() != proto.UpdateReadiness_IDLE {
+		t.Fatal("lost pre-subscription readiness", ev, err)
+	}
+}
+
+func TestReadinessCancelDuringCallback(t *testing.T) {
+	var g updateAdmission
+	ctx, cancel := context.WithCancel(context.Background())
+	entered, resume := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	var phases []proto.UpdateReadiness_Phase
+	go func() {
+		_, err := g.drainObserved(ctx, func(_ uint64, p proto.UpdateReadiness_Phase) {
+			phases = append(phases, p)
+			if p == proto.UpdateReadiness_DRAINING {
+				close(entered)
+				<-resume
+			}
+		})
+		done <- err
+	}()
+	<-entered
+	cancel()
+	close(resume)
+	if err := <-done; err == nil {
+		t.Fatal("cancellation ignored")
+	}
+	if len(phases) != 2 || phases[1] != proto.UpdateReadiness_RELEASED {
+		t.Fatal(phases)
+	}
+	work, err := g.enter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	work()
+}
+
+func TestZeroServerConcurrentSubscriptionsAndDrain(t *testing.T) {
+	s := &Server{}
+	client, _ := drainRPCClient(t, s, s)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	done := make(chan error, 16)
+	for i := 0; i < 16; i++ {
+		go func() {
+			sub, err := client.SubscribeEvents(ctx, &proto.SubscribeEventsRequest{})
+			if err == nil {
+				_, err = sub.Recv()
+			}
+			done <- err
+		}()
+	}
+	owner, err := client.DrainForUpdate(ctx, &proto.DrainForUpdateRequest{OperationToken: strings.Repeat("a", 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err = owner.Recv(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 16; i++ {
+		if err = <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+}

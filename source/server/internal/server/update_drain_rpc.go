@@ -24,9 +24,7 @@ func (s *Server) DrainForUpdate(req *proto.DrainForUpdateRequest, stream proto.A
 		return stream.Send(&proto.UpdateDrainState{OperationToken: token, Phase: phase})
 	}
 	release, err := s.drainForUpdateObserved(stream.Context(), func(owner uint64, phase proto.UpdateReadiness_Phase) {
-		if s.events != nil {
-			s.events.setUpdateReadiness(owner, token, phase)
-		}
+		s.eventHub().setUpdateReadiness(owner, token, phase)
 	}, func() error {
 		if err := send(proto.UpdateDrainState_SEALED); err != nil {
 			return err
