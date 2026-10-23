@@ -386,3 +386,100 @@ func TestDialClientHasNoProfile(t *testing.T) {
 		t.Fatal("a client dialed by address reports a profile")
 	}
 }
+
+// shortenLaunchWaits sets the base launch wait and its hard cap for a test.
+func shortenLaunchWaits(t *testing.T, base, limit time.Duration) {
+	t.Helper()
+	oldBase, oldMax := profileLaunchWait, profileLaunchMaxWait
+	profileLaunchWait, profileLaunchMaxWait = base, limit
+	t.Cleanup(func() { profileLaunchWait, profileLaunchMaxWait = oldBase, oldMax })
+}
+
+func TestDialProfileWaitsForLiveChildPastBaseWait(t *testing.T) {
+	// A new agent behind a draining predecessor stays alive while it waits
+	// for the profile lock, which can outlast the base wait.
+	isolateProfileHome(t)
+	shortenLaunchWaits(t, 300*time.Millisecond, 5*time.Second)
+	alive := make(chan struct{})
+	t.Cleanup(func() { close(alive) })
+	var launches atomic.Int32
+	var instance atomic.Value
+	useLaunchFunc(t, func(profile, logPath string) (<-chan struct{}, error) {
+		launches.Add(1)
+		go func() {
+			time.Sleep(900 * time.Millisecond)
+			h, err := startTestHost(t, profile, newTestInstanceID())
+			if err != nil {
+				t.Errorf("start host: %v", err)
+				return
+			}
+			instance.Store(h.instance)
+			if err := writeTestRecord(profile, profile, h.addr, h.instance); err != nil {
+				t.Errorf("write record: %v", err)
+			}
+		}()
+		return alive, nil
+	})
+
+	c, err := DialProfile(context.Background(), "work")
+	if err != nil {
+		t.Fatalf("DialProfile gave up on a live agent: %v", err)
+	}
+	defer c.Close()
+	if n := launches.Load(); n != 1 {
+		t.Fatalf("launches = %d, want 1", n)
+	}
+	if id := identityOf(t, c); id.GetInstanceId() != instance.Load() {
+		t.Fatalf("connected to instance %q, want %v", id.GetInstanceId(), instance.Load())
+	}
+}
+
+func TestDialProfileGivesUpOnLiveChildAtCap(t *testing.T) {
+	isolateProfileHome(t)
+	shortenLaunchWaits(t, 200*time.Millisecond, 700*time.Millisecond)
+	alive := make(chan struct{})
+	t.Cleanup(func() { close(alive) })
+	useLaunchFunc(t, func(string, string) (<-chan struct{}, error) { return alive, nil })
+
+	start := time.Now()
+	c, err := DialProfile(context.Background(), "work")
+	elapsed := time.Since(start)
+	if err == nil {
+		c.Close()
+		t.Fatal("DialProfile succeeded with no host")
+	}
+	if elapsed < 700*time.Millisecond {
+		t.Errorf("gave up after %s, before the %s cap, while the agent was alive", elapsed, 700*time.Millisecond)
+	}
+	if elapsed > 3*time.Second {
+		t.Errorf("gave up after %s, well past the %s cap", elapsed, 700*time.Millisecond)
+	}
+	if !strings.Contains(err.Error(), "did not answer within") {
+		t.Errorf("error is not a timeout: %v", err)
+	}
+}
+
+func TestDialProfileRejectsRecordNamingAnotherProfile(t *testing.T) {
+	// The host answers as this profile with the recorded instance, but the
+	// record itself claims another profile: it cannot be this profile's
+	// agent's record.
+	isolateProfileHome(t)
+	h := mustStartTestHost(t, "work", "same-id")
+	if err := writeTestRecord("work", "other", h.addr, "same-id"); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeLauncher{t: t}
+	useLaunchFunc(t, f.launch)
+
+	c, err := DialProfile(context.Background(), "work")
+	if err != nil {
+		t.Fatalf("DialProfile: %v", err)
+	}
+	defer c.Close()
+	if n := f.launches.Load(); n != 1 {
+		t.Fatalf("launches = %d, want 1", n)
+	}
+	if id := identityOf(t, c); id.GetInstanceId() != f.last().instance {
+		t.Fatalf("connected to instance %q, want %q", id.GetInstanceId(), f.last().instance)
+	}
+}

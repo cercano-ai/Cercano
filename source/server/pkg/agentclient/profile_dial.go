@@ -21,13 +21,21 @@ import (
 	"cercano/source/server/pkg/proto"
 )
 
-// profileLaunchWait bounds how long a launch waits for the new agent to
-// register and answer GetHostIdentity.
-const profileLaunchWait = 8 * time.Second
+// profileLaunchWait is how long a launch waits for the new agent to register
+// and answer GetHostIdentity. Tests shorten it.
+var profileLaunchWait = 8 * time.Second
+
+// profileLaunchMaxWait is the hard cap on that wait while the launched agent
+// is still running. A new agent whose predecessor for the profile is still
+// draining waits up to agentHandoverWait (15s, cmd/cercano/agent_host.go)
+// for the profile's agent lock before it serves, so a live agent gets that
+// long plus 2s to start listening. Keep it in step with agentHandoverWait.
+// Tests shorten it.
+var profileLaunchMaxWait = 17 * time.Second
 
 // profileLaunchLockWait bounds the wait for another client that is launching
 // the same profile's agent. That client holds the lock for at most about
-// profileLaunchWait, so this only trips if it is stuck.
+// profileLaunchMaxWait, so this only trips if it is stuck.
 const profileLaunchLockWait = 30 * time.Second
 
 // hostIdentityTimeout bounds one GetHostIdentity check of a recorded host.
@@ -162,10 +170,17 @@ func launchProfileHost(ctx context.Context, profile string) (c *Client, logPath 
 
 // waitForProfileHost polls until the profile's record names a host that
 // answers as the profile's agent. It fails at once if the launched process
-// exits, and after profileLaunchWait otherwise; either error carries what the
-// agent logged since logOffset.
+// exits. Otherwise it waits profileLaunchWait, and past that keeps waiting
+// while the launched process is still running (it may be waiting out a
+// draining predecessor), up to profileLaunchMaxWait. A nil exited channel
+// means the process cannot be watched, so only the base wait applies. Every
+// error carries what the agent logged since logOffset.
 func waitForProfileHost(ctx context.Context, profile string, exited <-chan struct{}, logPath string, logOffset int64) (*Client, error) {
-	deadline := time.Now().Add(profileLaunchWait)
+	start := time.Now()
+	limit := profileLaunchWait
+	if exited != nil {
+		limit = max(profileLaunchWait, profileLaunchMaxWait)
+	}
 	for {
 		c, err := resolveProfileHost(ctx, profile)
 		if err == nil {
@@ -177,9 +192,11 @@ func waitForProfileHost(ctx context.Context, profile string, exited <-chan struc
 				profile, logPath, logTail(logPath, logOffset))
 		default:
 		}
-		if !time.Now().Before(deadline) {
+		// The exit check above ran just now, so past the base wait the
+		// process is known to be alive and the cap applies.
+		if time.Since(start) >= limit {
 			return nil, fmt.Errorf("the agent for profile %q did not answer within %s (log: %s): %v%s",
-				profile, profileLaunchWait, logPath, err, logTail(logPath, logOffset))
+				profile, limit, logPath, err, logTail(logPath, logOffset))
 		}
 		timer := time.NewTimer(profileLaunchPoll)
 		select {
