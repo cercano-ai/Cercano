@@ -28,6 +28,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"syscall"
 	"time"
@@ -53,6 +54,10 @@ type pooledEntry struct {
 
 // workerPool keeps at most one warm worker per conversation.
 type workerPool struct {
+	closed         bool
+	starts         sync.WaitGroup
+	owned          map[*workerHandle]bool // true once retirement begins
+	watch          *workerWatch
 	beforeIdleKill func(*workerHandle) // guarded by mu; called outside it
 	mu             sync.Mutex
 	byConv         map[string]*pooledEntry
@@ -77,6 +82,7 @@ func newWorkerPool(spawn spawnFunc) *workerPool {
 	}
 	return &workerPool{
 		byConv: make(map[string]*pooledEntry),
+		owned:  make(map[*workerHandle]bool),
 		spawn:  spawn,
 		now:    time.Now,
 		done:   make(chan struct{}),
@@ -88,6 +94,12 @@ func newWorkerPool(spawn spawnFunc) *workerPool {
 // call Release(convID, ...) when the turn ends.
 func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*workerHandle, error) {
 	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil, errors.New("worker pool closed")
+	}
+	p.starts.Add(1)
+	defer p.starts.Done()
 	if e, ok := p.byConv[convID]; ok {
 		// A cached entry exists. Reuse it only if it's healthy and not already
 		// held by a concurrent turn (shouldn't happen under turn-exclusivity,
@@ -114,12 +126,19 @@ func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*w
 
 	// No reusable entry — spawn a fresh worker (outside the lock; spawn polls
 	// for the socket and can take a moment).
+	ctx = context.WithValue(ctx, workerStartKey{}, p.own)
 	h, err := p.spawn(ctx, convID, gen)
 	if err != nil {
 		return nil, err
 	}
 
+	p.own(h) // injected spawns may not use the start hook
 	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		h.Kill()
+		return nil, errors.New("worker pool closed")
+	}
 	// Re-check: a racing entry may have appeared while we spawned outside the
 	// lock. Under Phase-4 turn-exclusivity a single conversation is used by at
 	// most one live turn, but during a SUPERSESSION window a new turn's Acquire
@@ -140,9 +159,9 @@ func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*w
 		// unhealthy. Do NOT kill it blindly (its owner will Release it, and our
 		// Release-by-handle guard makes that a no-op once we replace the entry)
 		// and do NOT spin. REPLACE the entry with OUR fresh worker; the displaced
-		// handle is now unreferenced by the pool, so the stale turn's
-		// Release(convID, displaced, …) will compare-and-find-mismatch → no-op,
-		// and that turn's own cleanup path Kills its handle. Our fresh worker is
+		// handle leaves the warm cache but remains in owned until teardown. The
+		// stale turn's Release compares by handle and retires only its displaced
+		// child, without touching the replacement. Our fresh worker is
 		// the pool's live entry for the next turn.
 		p.byConv[convID] = &pooledEntry{handle: h, inUse: true, lastUsed: p.now()}
 		p.mu.Unlock()
@@ -188,21 +207,26 @@ func (p *workerPool) Release(convID string, h *workerHandle, healthy bool) {
 	e.handle.Kill()
 }
 
-// Shutdown kills every cached worker and clears the pool (host-shutdown drain).
+// Shutdown closes starts, waits for admitted spawns, then retires all owned
+// children (including displaced handles) and clears the warm cache.
 // It also stops the idle-reaper goroutine (by closing p.done).
 func (p *workerPool) Shutdown() {
-	p.closeOnce.Do(func() { close(p.done) })
-
 	p.mu.Lock()
-	entries := make([]*pooledEntry, 0, len(p.byConv))
-	for _, e := range p.byConv {
-		entries = append(entries, e)
+	p.closed = true
+	p.closeOnce.Do(func() { close(p.done) })
+	p.mu.Unlock()
+	// No Add can race Wait after the closed transition. Do not hold mu:
+	// admitted starts must still register their partial handles and retire.
+	p.starts.Wait()
+	p.mu.Lock()
+	handles := make([]*workerHandle, 0, len(p.owned))
+	for h := range p.owned {
+		handles = append(handles, h)
 	}
 	p.byConv = make(map[string]*pooledEntry)
 	p.mu.Unlock()
-
-	for _, e := range entries {
-		e.handle.Kill()
+	for _, h := range handles {
+		h.Kill()
 	}
 }
 

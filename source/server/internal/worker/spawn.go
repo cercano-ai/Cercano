@@ -11,6 +11,7 @@ package worker
 import (
 	"bufio"
 	"bytes"
+	"cercano/source/server/internal/updatecoord/nativeprocess"
 	"context"
 	"errors"
 	"fmt"
@@ -61,6 +62,9 @@ const MaxMsgBytes = maxGRPCWorkerMsgBytes
 
 // workerHandle owns a spawned worker process and its gRPC connection.
 type workerHandle struct {
+	owner      *workerPool
+	birth      nativeprocess.Identity
+	birthErr   error
 	teardown   sync.Once
 	cmd        *exec.Cmd
 	conn       *grpc.ClientConn
@@ -80,6 +84,10 @@ func (h *workerHandle) Kill() {
 		return
 	}
 	h.teardown.Do(func() {
+		if h.owner != nil {
+			h.owner.retire(h)
+			defer h.owner.retired(h)
+		}
 		if h.cmd != nil && h.cmd.Process != nil {
 			killGroupOrProcess(h.cmd.Process)
 			// Best-effort wait so the OS reclaims the zombie.
@@ -140,6 +148,16 @@ func spawnWorker(ctx context.Context, conversationID string, gen uint64) (*worke
 		_ = pr.Close()
 		return nil, fmt.Errorf("worker spawn: start %s: %w", bin, err)
 	}
+	h := &workerHandle{
+		cmd:        cmd,
+		socketPath: sockPath,
+		pidPath:    pidPath,
+	}
+
+	if started, ok := ctx.Value(workerStartKey{}).(func(*workerHandle)); ok {
+		started(h)
+	}
+
 	_ = pw.Close() // parent's copy; child inherits it
 
 	// Tee worker output to the log in the background.
@@ -150,12 +168,6 @@ func spawnWorker(ctx context.Context, conversationID string, gen uint64) (*worke
 		if err := writePidFile(pidPath, cmd.Process.Pid, os.Getpid()); err != nil {
 			log.Printf("[worker] cannot write pidfile %s: %v", pidPath, err)
 		}
-	}
-
-	h := &workerHandle{
-		cmd:        cmd,
-		socketPath: sockPath,
-		pidPath:    pidPath,
 	}
 
 	// Poll until the worker's unix socket accepts connections.
