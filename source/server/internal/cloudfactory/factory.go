@@ -4,6 +4,7 @@
 package cloudfactory
 
 import (
+	"cercano/source/server/internal/secrets"
 	"fmt"
 
 	"cercano/source/server/internal/inference"
@@ -64,6 +65,9 @@ func visionConfirmed(opts []Options, model string) bool {
 // BuildCloudProvider maps a profile (+ its key) to an inference.Provider. Only the
 // messages (Anthropic) flavor is implemented in the foundation.
 func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (inference.Provider, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	switch p.Flavor {
 	case FlavorMessages:
 		if p.Route == RouteSubscription {

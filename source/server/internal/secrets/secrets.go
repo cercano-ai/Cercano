@@ -31,10 +31,18 @@ type Store interface {
 
 type keyringStore struct{ kr keyring.Keyring }
 
-// OpenKeychain opens the OS keychain backend. Errors on headless systems with
-// no secret service (deferred fallback).
+// OpenKeychain returns a rejecting sentinel when credentials are explicitly
+// disabled (or the setting is malformed), before opening any backend. Otherwise
+// it opens the OS keychain and preserves normal backend errors.
 func OpenKeychain() (Store, error) {
-	kr, err := keyring.Open(keyring.Config{
+	return openKeychain(keyring.Open)
+}
+
+func openKeychain(open func(keyring.Config) (keyring.Keyring, error)) (Store, error) {
+	if err := CheckAllowed(); err != nil {
+		return disabledStore{err}, nil
+	}
+	kr, err := open(keyring.Config{
 		ServiceName:              service,
 		KeychainTrustApplication: true,
 	})

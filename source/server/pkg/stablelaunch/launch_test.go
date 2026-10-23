@@ -3,8 +3,8 @@ package stablelaunch
 import (
 	"bytes"
 	"context"
-"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,10 +26,11 @@ import (
 const helperEnv = "CERCANO_STABLE_LAUNCH_FIXTURE"
 
 type output struct {
-	Args         []string
-	Input, Cwd   string
-	PID          int
-	LockReleased bool
+	Args                []string
+	Input, Cwd          string
+	PID                 int
+	LockReleased        bool
+	CredentialsDisabled string
 }
 
 func TestMain(m *testing.M) {
@@ -90,7 +91,7 @@ func TestMain(m *testing.M) {
 	}
 	data, _ := io.ReadAll(os.Stdin)
 	cwd, _ := os.Getwd()
-	_ = json.NewEncoder(os.Stdout).Encode(output{Args: args, Input: string(data), Cwd: cwd, PID: os.Getpid(), LockReleased: true})
+	_ = json.NewEncoder(os.Stdout).Encode(output{Args: args, Input: string(data), Cwd: cwd, PID: os.Getpid(), LockReleased: true, CredentialsDisabled: os.Getenv("CERCANO_DISABLE_CREDENTIALS")})
 	fmt.Fprintln(os.Stderr, "child stderr")
 	os.Exit(17)
 }
@@ -126,6 +127,7 @@ func TestStableLauncherForegroundHandoff(t *testing.T) {
 }
 
 func testForegroundHandoff(t *testing.T, candidate bool) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	f := fixture(t, candidate)
 	for _, role := range []string{"agent", "client"} {
 		t.Run(role, func(t *testing.T) {
@@ -160,6 +162,9 @@ func testForegroundHandoff(t *testing.T, candidate bool) {
 			actual, _ := json.Marshal(got.Args)
 			if !bytes.Equal(want, actual) || got.Input != "terminal input\n" || got.Cwd != f.Home || !got.LockReleased {
 				t.Fatalf("handoff lost state: %+v", got)
+			}
+			if got.CredentialsDisabled != "1" {
+				t.Fatal("lost credential isolation")
 			}
 			if runtime.GOOS != "windows" && got.PID != pid {
 				t.Fatal("Unix process identity changed")
@@ -196,10 +201,16 @@ func TestStableLauncherExcludesUpdateAndReleasesRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
- start := time.Now()
- if _, err = prepare(context.Background(), filepath.Join(f.Root, f.AgentName), f.StateRoot, nil, false); !errors.Is(err, installcontext.ErrLaunchBusy) { t.Fatalf("want retryable busy: %v", err) }
- if _, err = installcontext.VerifyChild(context.Background(), installcontext.Locators{InstallRoot:f.Root,InstallID:f.InstallID}, f.StateRoot, filepath.Join(f.Root, "versions", "v1", "bin", f.AgentName), false); !errors.Is(err, installcontext.ErrLaunchBusy) { t.Fatalf("child want retryable busy: %v", err) }
- if time.Since(start) > 2*time.Second { t.Fatal("launch exclusion not bounded") }
+	start := time.Now()
+	if _, err = prepare(context.Background(), filepath.Join(f.Root, f.AgentName), f.StateRoot, nil, false); !errors.Is(err, installcontext.ErrLaunchBusy) {
+		t.Fatalf("want retryable busy: %v", err)
+	}
+	if _, err = installcontext.VerifyChild(context.Background(), installcontext.Locators{InstallRoot: f.Root, InstallID: f.InstallID}, f.StateRoot, filepath.Join(f.Root, "versions", "v1", "bin", f.AgentName), false); !errors.Is(err, installcontext.ErrLaunchBusy) {
+		t.Fatalf("child want retryable busy: %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("launch exclusion not bounded")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	_, err = prepare(ctx, filepath.Join(f.Root, f.AgentName), f.StateRoot, nil, false)
 	cancel()

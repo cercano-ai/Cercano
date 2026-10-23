@@ -12,6 +12,7 @@ package chatgptauth
 
 import (
 	"bytes"
+	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/accountidentity"
 	"context"
 	"encoding/base64"
@@ -118,6 +119,9 @@ type deviceStartResponse struct {
 // Start begins a device authorization: returns the URL + code to show the
 // user. Poll then blocks until they finish (or ctx cancels).
 func (f Flow) Start(ctx context.Context) (*Pending, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	body, _ := json.Marshal(map[string]string{"client_id": codexClientID})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		f.issuer()+"/api/accounts/deviceauth/usercode", bytes.NewReader(body))
@@ -171,6 +175,9 @@ type tokenResponse struct {
 // rejects the attempt, or ctx is canceled. HTTP 403/404 mean "still
 // pending" in this flow; anything else non-200 is terminal.
 func (p *Pending) Poll(ctx context.Context) (*TokenSet, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	body, _ := json.Marshal(map[string]string{
 		"device_auth_id": p.deviceAuthID,
 		"user_code":      p.UserCode,
@@ -227,6 +234,9 @@ func (f Flow) exchange(ctx context.Context, dp devicePollResponse) (*TokenSet, e
 
 // Refresh exchanges a refresh token for a fresh access token.
 func (f Flow) Refresh(ctx context.Context, refreshToken string) (*TokenSet, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	form := url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
@@ -244,6 +254,9 @@ func (f Flow) Refresh(ctx context.Context, refreshToken string) (*TokenSet, erro
 }
 
 func (f Flow) tokenRequest(ctx context.Context, form url.Values) (*TokenSet, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		f.issuer()+"/oauth/token", bytes.NewReader([]byte(form.Encode())))
 	if err != nil {

@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"cercano/source/server/internal/secrets"
 	"context"
 	"errors"
 
@@ -20,6 +21,9 @@ type LoginAttempt struct {
 }
 
 func (s *Service) BeginLogin(ctx context.Context, profile, provider string) (*LoginAttempt, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -49,6 +53,9 @@ func (a *LoginAttempt) Close() {
 	a.cancel()
 }
 func (a *LoginAttempt) Commit(encoded string) error {
+	if err := secrets.CheckAllowed(); err != nil {
+		return err
+	}
 	p := a.state
 	p.mu.Lock()
 	defer p.mu.Unlock()

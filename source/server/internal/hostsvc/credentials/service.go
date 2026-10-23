@@ -242,6 +242,9 @@ func (p *profileState) invalidate() {
 var errNoStore = errors.New("credential store unavailable")
 
 func (s *Service) Get(name string) (string, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return "", err
+	}
 	p := s.profile(name)
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -251,6 +254,9 @@ func (s *Service) Get(name string) (string, error) {
 	return p.store.Get(name)
 }
 func (s *Service) Set(name, value string) error {
+	if err := secrets.CheckAllowed(); err != nil {
+		return err
+	}
 	p := s.profile(name)
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -264,6 +270,9 @@ func (s *Service) Set(name, value string) error {
 	return nil
 }
 func (s *Service) Delete(name string) error {
+	if err := secrets.CheckAllowed(); err != nil {
+		return err
+	}
 	p := s.profile(name)
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -277,6 +286,9 @@ func (s *Service) Delete(name string) error {
 	return nil
 }
 func (s *Service) List() ([]string, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	store := s.store
 	s.mu.Unlock()
@@ -312,6 +324,9 @@ func (t *transaction) Set(profile, value string) error {
 type resolve func(context.Context, *transaction) (token, error)
 
 func (s *Service) acquire(ctx context.Context, profile, provider string, resolve resolve) (token, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return token{}, err
+	}
 	p := s.profile(profile)
 	// Repeated replacement is bounded; no automatic retry of rejected grants.
 	for attempt := 0; attempt < 3; attempt++ {

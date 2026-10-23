@@ -1,6 +1,7 @@
 package anthropicauth
 
 import (
+	"cercano/source/server/internal/secrets"
 	"context"
 	"fmt"
 	"html"
@@ -30,6 +31,9 @@ type Pending struct {
 // pair and CSRF state, and builds the authorize URL pointing back at that
 // port. The listener is held open until Wait/Redeem/Close.
 func (f Flow) Start(ctx context.Context) (*Pending, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("anthropic oauth: bind loopback: %w", err)
@@ -73,6 +77,9 @@ type callbackResult struct {
 // browser fully receives the page instead of a reset connection — the reset
 // is what renders as "localhost refused to connect".
 func (p *Pending) Wait(ctx context.Context) (*TokenSet, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	done := make(chan callbackResult, 1)
 
 	mux := http.NewServeMux()
@@ -125,6 +132,9 @@ func (p *Pending) Wait(ctx context.Context) (*TokenSet, error) {
 // does the embedded state is used, otherwise the state we generated. The
 // listener is closed on return.
 func (p *Pending) Redeem(ctx context.Context, pasted string) (*TokenSet, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	defer p.listener.Close()
 	code, state := strings.TrimSpace(pasted), p.state
 	if i := strings.IndexByte(code, '#'); i >= 0 {

@@ -4,6 +4,7 @@
 package stablelaunch
 
 import (
+	"cercano/source/server/internal/secrets"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +22,9 @@ import (
 // leaves the old startup path unchanged. Invalid existing enrollment fails closed.
 // Unix success replaces this process; Windows success returns the child's status.
 func Startup(args []string, client bool, verified installcontext.Verified) (handled bool, code int, err error) {
+	if err := secrets.ValidateEnvironment(); err != nil {
+		return true, 1, err
+	}
 	if verified.Present() {
 		return false, 0, nil
 	}

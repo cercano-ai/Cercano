@@ -1,6 +1,7 @@
 package chatgptauth
 
 import (
+	"cercano/source/server/internal/secrets"
 	"context"
 	"errors"
 	"io/fs"
@@ -22,6 +23,9 @@ type Store interface {
 // Save stores a token set for a profile, JSON-encoded, in the given store.
 // The sign-in handler calls it once the device flow completes.
 func Save(store Store, profile string, ts TokenSet) error {
+	if err := secrets.CheckAllowed(); err != nil {
+		return err
+	}
 	enc, err := ts.Encode()
 	if err != nil {
 		return err
@@ -54,6 +58,9 @@ func NewSource(store Store, profile string, flow Flow) *Source {
 // an error when nothing is stored, or when the token is expired and no
 // refresh token is available (the user must sign in again).
 func (s *Source) Token(ctx context.Context) (access, accountID string, err error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return "", "", err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
