@@ -125,6 +125,12 @@ func DialExisting(ctx context.Context, addr string) (*Client, error) {
 	return connect(ctx, addr, 600*time.Millisecond)
 }
 
+// DialExistingPinned never transparently reconnects after its first transport.
+// Native peer inspection remains the caller's responsibility on each new call.
+func DialExistingPinned(ctx context.Context, addr string) (*Client, error) {
+	return connectTransport(ctx, addr, 600*time.Millisecond, true)
+}
+
 var ErrCredentialIsolation = errors.New("agent credential isolation could not be verified")
 
 // singleTransportDialer binds an attestation to one successful TCP transport.
@@ -148,6 +154,10 @@ func singleTransportDialer(dial func(context.Context, string) (net.Conn, error))
 }
 
 func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, error) {
+	return connectTransport(ctx, addr, timeout, false)
+}
+
+func connectTransport(ctx context.Context, addr string, timeout time.Duration, pinned bool) (*Client, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// 64 MiB matches the server recv limit; also future-proofs large responses.
@@ -161,7 +171,7 @@ func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, 
 			grpc.MaxCallRecvMsgSize(maxGRPCMsgBytes),
 		),
 	}
-	if isolationRequired {
+	if pinned || isolationRequired {
 		dialer := &net.Dialer{}
 		opts = append(opts, grpc.WithContextDialer(singleTransportDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			return dialer.DialContext(ctx, "tcp", addr)

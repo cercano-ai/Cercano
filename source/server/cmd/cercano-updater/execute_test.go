@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -165,7 +166,17 @@ func bytesRepeat(b byte, n int) []byte {
 }
 
 func TestConnectedOwnerEvidenceOnly(t *testing.T) {
-	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	for _, mode := range []string{"absent", "0", "1"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("CERCANO_DISABLE_CREDENTIALS", mode)
+			if mode == "absent" {
+				os.Unsetenv("CERCANO_DISABLE_CREDENTIALS")
+			}
+			connectedOwnerEvidenceOnly(t)
+		})
+	}
+}
+func connectedOwnerEvidenceOnly(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -198,6 +209,56 @@ func TestConnectedOwnerEvidenceOnly(t *testing.T) {
 	in.StateRoot = f.StateRoot
 	in.AgentEndpoint = endpoint
 	in.Participants = []participant{{"agent", agent}, {"client", client}}
+	t.Run("native-peer-handoff", func(t *testing.T) {
+		original, lines := startInert(t, f, "agent")
+		addr := nextLine(t, lines)
+		handoff := in
+		handoff.AgentEndpoint = addr
+		handoff.Participants = []participant{{"agent", original}, {"client", client}}
+		path := inputFile(t, handoff)
+		var drains atomic.Int32
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		err := executeAtSeams(ctx, path, nil, func() {
+			// Only this test-owned inert child is stopped; never an updater effect.
+			process, err := os.FindProcess(original.PID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := process.Kill(); err != nil {
+				t.Fatal(err)
+			}
+			var listener net.Listener
+			deadline := time.Now().Add(time.Second)
+			for {
+				listener, err = net.Listen("tcp", addr)
+				if err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal(err)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			replacement := grpc.NewServer(grpc.StreamInterceptor(func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+				if info.FullMethod == proto.Agent_DrainForUpdate_FullMethodName {
+					drains.Add(1)
+				}
+				return next(srv, stream)
+			}))
+			proto.RegisterAgentServer(replacement, &inertDrain{})
+			go replacement.Serve(listener)
+			t.Cleanup(replacement.Stop)
+			// Allow gRPC's default reconnect to expose the pre-fix handoff.
+			time.Sleep(1500 * time.Millisecond)
+		})
+		if err == nil || drains.Load() != 0 {
+			t.Fatalf("replacement reached without native reinspection: err=%v drains=%d", err, drains.Load())
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(path), "status.json")); !os.IsNotExist(err) {
+			t.Fatal("handoff wrote status")
+		}
+	})
 	// All participants (including disconnected clients) must be inspected before
 	// the first RPC. A changed/unknown client refuses without asking agent drain.
 	for _, kind := range []string{"changed", "unknown", "wrong role", "wrong listener"} {
@@ -225,6 +286,63 @@ func TestConnectedOwnerEvidenceOnly(t *testing.T) {
 			case line := <-agentLines:
 				t.Fatalf("RPC before evidence: %s", line)
 			default:
+			}
+		})
+	}
+	for _, attack := range []string{"replacement", "ancestor-symlink", "input-change", "input-replacement"} {
+		t.Run(attack, func(t *testing.T) {
+			path := inputFile(t, in)
+			parent := filepath.Dir(path)
+			err := executeBeforeStatus(context.Background(), path, func() {
+				if attack == "input-replacement" {
+					data, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Rename(path, path+"-old"); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(path, data, 0600); err != nil {
+						t.Fatal(err)
+					}
+					return
+				}
+				if attack == "input-change" {
+					if err := os.WriteFile(path, []byte("changed"), 0600); err != nil {
+						t.Fatal(err)
+					}
+					return
+				}
+				moved := parent + "-moved"
+				if err := os.Rename(parent, moved); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { os.RemoveAll(moved) })
+				if attack == "ancestor-symlink" {
+					if err := os.Symlink(moved, parent); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Mkdir(parent, 0700); err != nil {
+					t.Fatal(err)
+				}
+			})
+			if err == nil {
+				t.Fatal("accepted changed operation directory")
+			}
+			if _, err := os.Stat(filepath.Join(parent, "status.json")); !os.IsNotExist(err) {
+				t.Fatal("status written after operation replacement")
+			}
+			if _, err := os.Stat(filepath.Join(parent+"-moved", "status.json")); !os.IsNotExist(err) {
+				t.Fatal("status written into renamed directory")
+			}
+			if attack == "replacement" {
+				entries, err := os.ReadDir(parent)
+				if err != nil || len(entries) != 0 {
+					t.Fatalf("replacement directory modified: %v %v", entries, err)
+				}
+			}
+			if nextLine(t, agentLines) != "drain" || nextLine(t, agentLines) != "released" {
+				t.Fatal("owner not released")
 			}
 		})
 	}

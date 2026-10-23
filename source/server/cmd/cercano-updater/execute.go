@@ -160,49 +160,152 @@ func parseInput(data []byte) (operationInput, error) {
 	return in, nil
 }
 
-func readInput(path string) (operationInput, error) {
+// operationFiles keeps all I/O anchored to the originally owned directory.
+// Path checks reject rebinding; relative I/O prevents a race from writing into
+// a replacement even if it occurs immediately after those checks.
+type operationFiles struct {
+	root       *os.Root
+	parent     string
+	parentInfo os.FileInfo
+	inputInfo  os.FileInfo
+	data       []byte
+}
+
+func (o *operationFiles) validate() error {
+	canonical, err := filepath.EvalSymlinks(o.parent)
+	if err != nil || canonical != o.parent {
+		return errInput
+	}
+	if err := privdir.VerifyExisting(o.parent); err != nil {
+		return err
+	}
+	info, err := os.Lstat(o.parent)
+	if err != nil || !os.SameFile(info, o.parentInfo) {
+		return errInput
+	}
+	f, err := privdir.OpenPrivateStateFile(filepath.Join(o.parent, "operation.json"))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err = f.Stat()
+	if err != nil || !sameInputState(info, o.inputInfo) {
+		return errInput
+	}
+	f2, err := o.root.OpenFile("operation.json", protectedReadFlags, 0)
+	if err != nil {
+		return err
+	}
+	defer f2.Close()
+	info, err = f2.Stat()
+	if err != nil || !sameInputState(info, o.inputInfo) {
+		return errInput
+	}
+	data, err := io.ReadAll(io.LimitReader(f2, maxInput+1))
+	if err != nil || !bytes.Equal(data, o.data) {
+		return errInput
+	}
+	return nil
+}
+func sameInputState(a, b os.FileInfo) bool {
+	return os.SameFile(a, b) && a.Mode() == b.Mode() && a.Size() == b.Size() && a.ModTime() == b.ModTime()
+}
+func openInput(path string) (operationInput, *operationFiles, error) {
 	var zero operationInput
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Base(path) != "operation.json" {
-		return zero, errInput
+		return zero, nil, errInput
 	}
 	parent := filepath.Dir(path)
 	canonical, err := filepath.EvalSymlinks(parent)
 	if err != nil || canonical != parent {
-		return zero, errInput
+		return zero, nil, errInput
 	}
-	f, err := privdir.OpenPrivateStateFile(path)
+	if err := privdir.VerifyExisting(parent); err != nil {
+		return zero, nil, err
+	}
+	info, err := os.Lstat(parent)
 	if err != nil {
-		return zero, err
+		return zero, nil, err
+	}
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		return zero, nil, err
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			root.Close()
+		}
+	}()
+	anchored, err := root.Stat(".")
+	if err != nil || !os.SameFile(info, anchored) {
+		return zero, nil, errInput
+	}
+	protected, err := privdir.OpenPrivateStateFile(path)
+	if err != nil {
+		return zero, nil, err
+	}
+	defer protected.Close()
+	inputInfo, err := protected.Stat()
+	if err != nil {
+		return zero, nil, err
+	}
+	f, err := root.OpenFile("operation.json", protectedReadFlags, 0)
+	if err != nil {
+		return zero, nil, err
 	}
 	defer f.Close()
-	before, err := f.Stat()
-	if err != nil {
-		return zero, err
+	opened, err := f.Stat()
+	if err != nil || !sameInputState(inputInfo, opened) {
+		return zero, nil, errInput
 	}
 	data, err := io.ReadAll(io.LimitReader(f, maxInput+1))
 	if err != nil {
-		return zero, err
+		return zero, nil, err
 	}
-	check, err := privdir.OpenPrivateStateFile(path)
+	o := &operationFiles{root, parent, info, inputInfo, data}
+	if err := o.validate(); err != nil {
+		return zero, nil, err
+	}
+	in, err := parseInput(data)
 	if err != nil {
-		return zero, err
+		return zero, nil, err
 	}
-	defer check.Close()
-	after, err := check.Stat()
-	if err != nil || !os.SameFile(before, after) {
-		return zero, errInput
+	ok = true
+	return in, o, nil
+}
+func readInput(path string) (operationInput, error) {
+	in, o, err := openInput(path)
+	if o != nil {
+		o.root.Close()
 	}
-	return parseInput(data)
+	return in, err
+}
+func (o *operationFiles) createStatus() (*os.File, error) {
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
+	return o.root.OpenFile("status.json", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 }
 
 func execute(ctx context.Context, path string) error {
+	return executeBeforeStatus(ctx, path, nil)
+}
+
+func executeBeforeStatus(ctx context.Context, path string, beforeStatus func()) error {
+	return executeAtSeams(ctx, path, beforeStatus, nil)
+}
+
+// Explicit per-call seams keep inert race tests deterministic without globals.
+func executeAtSeams(ctx context.Context, path string, beforeStatus, beforeDrain func()) error {
 	if err := secrets.ValidateEnvironment(); err != nil {
 		return err
 	}
-	in, err := readInput(path)
+	in, files, err := openInput(path)
 	if err != nil {
 		return err
 	}
+	defer files.root.Close()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	dir, err := installcontext.BootDirectory(in.StateRoot, in.InstallID)
@@ -252,7 +355,7 @@ func execute(ctx context.Context, path string) error {
 		if !held {
 			return fmt.Errorf("agent does not hold endpoint")
 		}
-		conn, err := agentclient.DialExisting(ctx, in.AgentEndpoint)
+		conn, err := agentclient.DialExistingPinned(ctx, in.AgentEndpoint)
 		if err != nil {
 			return err
 		}
@@ -264,6 +367,9 @@ func execute(ctx context.Context, path string) error {
 		if !held {
 			return fmt.Errorf("agent endpoint changed")
 		}
+		if beforeDrain != nil {
+			beforeDrain()
+		}
 		drain, err := conn.OpenUpdateDrain(ctx, in.OperationToken)
 		if err != nil {
 			return err
@@ -272,7 +378,10 @@ func execute(ctx context.Context, path string) error {
 		if _, err = drain.Recv(); err != nil {
 			return err
 		} // validated SEALED, not TUI acknowledgement
-		status, err := privdir.CreatePrivateFile(filepath.Join(filepath.Dir(path), in.StatusFile))
+		if beforeStatus != nil {
+			beforeStatus()
+		}
+		status, err := files.createStatus()
 		if err != nil {
 			return err
 		}
