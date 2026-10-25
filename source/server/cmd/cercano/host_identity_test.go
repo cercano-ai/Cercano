@@ -331,7 +331,9 @@ func buildAgentBinary(t *testing.T) string {
 
 // agentEnv is the environment for an agent under test: a private home, the
 // given profile, in-process local models, and no cloud credentials or
-// Cercano settings inherited from the developer's shell.
+// Cercano settings inherited from the developer's shell. These tests run
+// several profile agents side by side, so they turn per-profile agent
+// hosts on.
 func agentEnv(home, profile string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
@@ -351,6 +353,7 @@ func agentEnv(home, profile string) []string {
 		"USERPROFILE="+home,
 		"CERCANO_PROFILE="+profile,
 		"CERCANO_MODEL_HOST=inprocess",
+		"CERCANO_PER_PROFILE_AGENTS=1",
 	)
 }
 

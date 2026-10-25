@@ -98,8 +98,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
 		os.Exit(1)
 	}
-	if _, err := paths.Profile(); err != nil {
+	profile, err := paths.Profile()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "cercano: CERCANO_PROFILE:", err)
+		os.Exit(1)
+	}
+	// Per-profile agent hosts are off by default: only the default profile
+	// has an agent host, so fail readably before any data is touched.
+	if profile != paths.DefaultProfile && !paths.PerProfileAgents() {
+		fmt.Fprintf(os.Stderr, "cercano: profile %q would need its own agent host, but per-profile agent hosts are off; set %s=1 to enable them\n", profile, paths.PerProfileAgentsEnv)
 		os.Exit(1)
 	}
 

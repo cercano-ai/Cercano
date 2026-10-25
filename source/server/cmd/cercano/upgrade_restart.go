@@ -173,7 +173,10 @@ const upgradeRestartFailureAdvice = "The update may already be installed. Check 
 // its own --timeout deadline. When no profile agent is running it restarts a
 // pre-profile agent on the legacy address instead (the relaunched agent
 // migrates on startup); --address restarts only the agent there. A failure
-// is reported and the remaining agents are still restarted. Then a running
+// is reported and the remaining agents are still restarted. With per-profile
+// agent hosts off, a named profile's running agent is a leftover from a
+// flag-on run and is left running, not restarted (see
+// paths.PerProfileAgentsEnv). Then a running
 // shared model host is replaced once, unless every attempted restart failed.
 // The exit code is 1 when any restart failed.
 func upgradeRestartCommand(args []string, out io.Writer, deps upgradeRestartDeps) int {
@@ -240,6 +243,14 @@ func upgradeRestartCommand(args []string, out io.Writer, deps upgradeRestartDeps
 		}
 	}
 	for _, a := range agents {
+		// With per-profile agent hosts off, a named profile's running agent
+		// is a leftover from a flag-on run: the installed binary refuses to
+		// serve it, so restarting would stop the old agent and fail to bring
+		// up a replacement. Leave it running instead.
+		if a.Profile != paths.DefaultProfile && !paths.PerProfileAgents() {
+			fmt.Fprintf(out, "Left the agent for profile %q running: per-profile agent hosts are off; set %s=1 and restart to replace it.\n", a.Profile, paths.PerProfileAgentsEnv)
+			continue
+		}
 		ok, err := restartProfileAgent(deps, path, a, *timeout)
 		switch {
 		case err != nil:

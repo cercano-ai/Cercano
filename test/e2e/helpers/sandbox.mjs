@@ -59,6 +59,10 @@ export async function createSandbox({ seedConfig = true, ollamaUrl, profile } = 
     TMPDIR: tmp,
     TERM: "xterm-256color",
     CERCANO_PROFILE: profile ?? "",
+    // One agent host per profile is opt-in: only a profile sandbox turns it
+    // on, so the default-profile specs keep exercising the single-host
+    // behavior of the flag-off default.
+    CERCANO_PER_PROFILE_AGENTS: profile ? "1" : "",
     CERCANO_PORT: port ? String(port) : "",
     // Local models stay in the agent process: no shared model host is
     // launched, so none outlives the test.

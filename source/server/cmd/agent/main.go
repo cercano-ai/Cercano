@@ -64,8 +64,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if _, err := paths.Profile(); err != nil {
+	if profile, err := paths.Profile(); err != nil {
 		fmt.Fprintln(os.Stderr, "CERCANO_PROFILE:", err)
+		os.Exit(1)
+	} else if profile != paths.DefaultProfile && !paths.PerProfileAgents() {
+		fmt.Fprintf(os.Stderr, "CERCANO_PROFILE: profile %q would need its own agent host, but per-profile agent hosts are off; set %s=1 to enable them\n", profile, paths.PerProfileAgentsEnv)
 		os.Exit(1)
 	}
 	// Move data written before profiles existed into the default profile

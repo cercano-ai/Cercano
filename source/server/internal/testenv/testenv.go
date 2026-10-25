@@ -44,6 +44,14 @@ func IsolateHome(m *testing.M) int {
 	for _, k := range pathOverrides {
 		os.Unsetenv(k)
 	}
+	// Isolated tests exercise the per-profile agent-host machinery (profile
+	// dialing, host registries, per-profile restarts), which is opt-in at
+	// runtime: turn it on here so the default stays off in production.
+	// Tests of the off path unset or overwrite it themselves.
+	if err := os.Setenv("CERCANO_PER_PROFILE_AGENTS", "1"); err != nil {
+		fmt.Fprintln(os.Stderr, "testenv:", err)
+		return 1
+	}
 	return m.Run()
 }
 

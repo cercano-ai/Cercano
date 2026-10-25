@@ -61,6 +61,22 @@ var launchFunc = launchProfileAgent
 // answers as this profile's registered agent.
 var ErrNoProfileAgent = errors.New("no running agent for this profile")
 
+// ErrPerProfileAgentsDisabled reports that profile is not the default
+// profile and per-profile agent hosts are off, so no agent can serve it.
+// Setting CERCANO_PER_PROFILE_AGENTS=1 (see paths.PerProfileAgentsEnv)
+// turns the feature on.
+var ErrPerProfileAgentsDisabled = errors.New("per-profile agent hosts are disabled")
+
+// checkPerProfileHosts gates client routing: with per-profile agent hosts
+// off, only the default profile has an agent host, so dialing any other
+// profile fails at once instead of launching one.
+func checkPerProfileHosts(profile string) error {
+	if profile == paths.DefaultProfile || paths.PerProfileAgents() {
+		return nil
+	}
+	return fmt.Errorf("%w: profile %q needs CERCANO_PER_PROFILE_AGENTS=1", ErrPerProfileAgentsDisabled, profile)
+}
+
 // errNoProfileHost is ErrNoProfileAgent under its package-internal name.
 var errNoProfileHost = ErrNoProfileAgent
 
@@ -76,6 +92,9 @@ var errNoProfileHost = ErrNoProfileAgent
 // host again, because a restarted host may listen on a new port.
 func DialProfile(ctx context.Context, profile string) (*Client, error) {
 	if err := paths.ValidateProfileName(profile); err != nil {
+		return nil, err
+	}
+	if err := checkPerProfileHosts(profile); err != nil {
 		return nil, err
 	}
 	if err := paths.CheckHome(); err != nil {
@@ -106,6 +125,9 @@ func DialProfile(ctx context.Context, profile string) (*Client, error) {
 // it only looks for the profile's running agent again.
 func DialProfileExisting(ctx context.Context, profile string) (*Client, error) {
 	if err := paths.ValidateProfileName(profile); err != nil {
+		return nil, err
+	}
+	if err := checkPerProfileHosts(profile); err != nil {
 		return nil, err
 	}
 	if err := paths.CheckHome(); err != nil {

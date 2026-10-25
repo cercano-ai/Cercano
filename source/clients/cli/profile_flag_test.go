@@ -103,13 +103,41 @@ func TestInvalidProfileFlagExitsWithMessage(t *testing.T) {
 	}
 }
 
+// With per-profile agent hosts off (the default), a non-default --profile is
+// refused before any data is touched or an agent dialed, with the flag named.
+func TestProfileFlagGatedOffByDefault(t *testing.T) {
+	if os.Getenv(mainArgsEnv) == "1" {
+		runMainInChild()
+	}
+	home := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestProfileFlagGatedOffByDefault$", "--", "--profile", "work")
+	cmd.Env = append(childEnv(), mainArgsEnv+"=1", "HOME="+home, "USERPROFILE="+home, "CERCANO_PROFILE=")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("exit = %v, want status 1; stderr:\n%s", err, stderr.String())
+	}
+	if want := "CERCANO_PER_PROFILE_AGENTS=1"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want it to contain %q", stderr.String(), want)
+	}
+	if strings.Contains(stderr.String(), "TEST:") {
+		t.Errorf("an agent was dialed or data migrated: %s", stderr.String())
+	}
+	entries, _ := os.ReadDir(home)
+	if len(entries) != 0 {
+		t.Errorf("home was written to: %v", entries)
+	}
+}
+
 // childEnv is the test environment without variables the child sets itself.
 func childEnv() []string {
 	var out []string
 	for _, kv := range os.Environ() {
 		key, _, _ := strings.Cut(kv, "=")
 		switch strings.ToUpper(key) {
-		case "HOME", "USERPROFILE", "CERCANO_PROFILE", mainArgsEnv:
+		case "HOME", "USERPROFILE", "CERCANO_PROFILE", "CERCANO_PER_PROFILE_AGENTS", mainArgsEnv:
 			continue
 		}
 		out = append(out, kv)

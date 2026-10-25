@@ -8,10 +8,25 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 )
 
 // DefaultProfile is the profile used when CERCANO_PROFILE is unset.
 const DefaultProfile = "default"
+
+// PerProfileAgentsEnv turns on one agent host per profile. Unset or false
+// keeps the prior behavior: a single agent host serving the default
+// profile, on the configured (default 50052) port. Recognized values are
+// those of strconv.ParseBool ("1", "true", ...).
+const PerProfileAgentsEnv = "CERCANO_PER_PROFILE_AGENTS"
+
+// PerProfileAgents reports whether one agent host per profile is enabled.
+// It is off unless PerProfileAgentsEnv parses as true, so a fresh install
+// keeps the single-agent-host behavior.
+func PerProfileAgents() bool {
+	on, err := strconv.ParseBool(os.Getenv(PerProfileAgentsEnv))
+	return err == nil && on
+}
 
 var profileNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 

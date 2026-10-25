@@ -33,7 +33,7 @@ and `cercano-cli` (the terminal UI). The CLI is a thin gRPC client. The dev
 launcher (`source/server/scripts/cercano-launcher.sh`) builds both and
 co-locates them.
 
-Cercano runs **one agent host per profile**. A profile's files (config,
+Cercano can run **one agent host per profile** (feature-flagged; see below). A profile's files (config,
 conversations, logs) live in `~/.config/cercano/profiles/<name>/` and its
 keychain entries are separate from other profiles'; machine-wide runtime
 settings live in `~/.config/cercano/machine.yaml`. The profile is chosen with
@@ -47,6 +47,26 @@ server binary as a sibling next to its own executable. An auto-launched agent
 logs to `<profile>/logs/agent.log` and exits after its last client disconnects.
 Data from installs that predate profiles moves into `profiles/default` on first
 start.
+
+Running **one agent host per profile is behind a feature flag that is off by
+default**. With the flag off, Cercano keeps its prior single-agent-host
+behavior: only the `default` profile has an agent host, listening on the
+configured port (50052 unless changed), and found by clients as before; MCP
+mode is unchanged. `restart-after-upgrade` still restarts the default
+profile's agent and any pre-profile one, but a named profile's leftover
+agent from a flag-on run is left running, since the installed binary would
+refuse to serve it. Starting an agent for, or
+connecting with, any other profile fails with an error naming the flag.
+Turn the feature on with:
+
+```bash
+CERCANO_PER_PROFILE_AGENTS=1 cercano-cli --profile work
+```
+
+The flag is read from the environment by `cercano agent`, `cercano-cli` and
+MCP mode; values are those of Go's strconv.ParseBool (`1`, `true`, ...), and
+anything else — including unset — keeps the feature off. The CLI passes its
+environment to agents it auto-launches, so setting it for the CLI is enough.
 
 The `cercano` binary also runs one shared `cercano model-host` process that owns
 llama-server and mistral.rs for the whole machine. Agent hosts launch it on

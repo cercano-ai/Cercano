@@ -100,9 +100,17 @@ type agentHost struct {
 // acquireAgentHost takes the profile's agent lock; see waitForAgentLock for
 // what happens when another agent holds it. Holding the lock means any record
 // already present belongs to an agent that is gone, so it is removed.
+//
+// With per-profile agent hosts off (the default; see
+// paths.PerProfileAgentsEnv) only the default profile may run a host, so a
+// single agent keeps serving the default profile's clients on the configured
+// port; clients of other profiles fail before reaching any host.
 func acquireAgentHost(profile string) (*agentHost, error) {
 	if err := paths.ValidateProfileName(profile); err != nil {
 		return nil, err
+	}
+	if profile != paths.DefaultProfile && !paths.PerProfileAgents() {
+		return nil, fmt.Errorf("profile %q would need its own agent host, but per-profile agent hosts are off; set %s=1 to enable them", profile, paths.PerProfileAgentsEnv)
 	}
 	dir := paths.ProfileDir(profile)
 	release, err := waitForAgentLock(profile, dir)
