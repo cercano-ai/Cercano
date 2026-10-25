@@ -38,10 +38,13 @@ conversations, logs) live in `~/.config/cercano/profiles/<name>/` and its
 keychain entries are separate from other profiles'; machine-wide runtime
 settings live in `~/.config/cercano/machine.yaml`. The profile is chosen with
 `cercano-cli --profile <name>` or `CERCANO_PROFILE` (default: `default`). Each
-`cercano agent` holds `<profile>/agent.lock`, listens on 127.0.0.1, and records
-its pid and address in `<profile>/agent.json`. The `default` profile keeps its
-configured port (50052 unless changed); other profiles take an ephemeral port
-unless `CERCANO_PORT` sets one. The CLI finds its profile's agent through
+`cercano agent` holds `<profile>/agent.lock` and records its pid and address in
+`<profile>/agent.json`. With per-profile agent hosts on, each host listens on
+127.0.0.1: the `default` profile keeps its configured port (50052 unless
+changed); other profiles take an ephemeral port unless `CERCANO_PORT` sets
+one. With the flag off, the single host binds all interfaces at the configured
+port and publishes a dialable loopback address in `agent.json`. The CLI finds
+its profile's agent through
 `agent.json` and auto-launches `cercano agent` when none answers, finding the
 server binary as a sibling next to its own executable. An auto-launched agent
 logs to `<profile>/logs/agent.log` and exits after its last client disconnects.
@@ -50,9 +53,15 @@ start.
 
 Running **one agent host per profile is behind a feature flag that is off by
 default**. With the flag off, Cercano keeps its prior single-agent-host
-behavior: only the `default` profile has an agent host, listening on the
-configured port (50052 unless changed), and found by clients as before; MCP
-mode is unchanged. `restart-after-upgrade` still restarts the default
+behavior: only the `default` profile has an agent host, listening on all
+interfaces at the configured port (50052 unless changed) as before profiles,
+with `agent.json` recording a dialable loopback address; and `cercano --mcp`
+without `--grpc-addr` starts an embedded in-process gRPC agent — also as
+before profiles — instead of dialing a shared host. With the flag on, each
+profile gets its own loopback agent host, and `cercano --mcp` without
+`--grpc-addr` dials the profile's shared host (launching it when none runs).
+An explicit `--grpc-addr` always connects to that external address, whatever
+the flag. `restart-after-upgrade` still restarts the default
 profile's agent and any pre-profile one, but a named profile's leftover
 agent from a flag-on run is left running, since the installed binary would
 refuse to serve it. Starting an agent for, or

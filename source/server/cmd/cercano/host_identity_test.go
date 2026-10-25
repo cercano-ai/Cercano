@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -30,17 +31,82 @@ func TestAgentBindAddr(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Port = "50999"
 	for _, tc := range []struct {
+		flagOn                 bool
 		profile, envPort, want string
 	}{
-		{"default", "", "127.0.0.1:50999"},
-		{"work", "", "127.0.0.1:0"},
-		{"work", "50999", "127.0.0.1:50999"},
-		{"default", "50999", "127.0.0.1:50999"},
+		// Flag on: every host binds loopback only.
+		{true, "default", "", "127.0.0.1:50999"},
+		{true, "work", "", "127.0.0.1:0"},
+		{true, "work", "50999", "127.0.0.1:50999"},
+		{true, "default", "50999", "127.0.0.1:50999"},
+		// Flag off (the default): the single host binds all interfaces at
+		// the configured port, as the pre-profile agent did.
+		{false, "default", "", ":50999"},
+		{false, "default", "50999", ":50999"},
 	} {
+		t.Setenv(paths.PerProfileAgentsEnv, strconv.FormatBool(tc.flagOn))
 		t.Setenv("CERCANO_PORT", tc.envPort)
 		if got := agentBindAddr(tc.profile, cfg); got != tc.want {
-			t.Errorf("agentBindAddr(%q, CERCANO_PORT=%q) = %q, want %q", tc.profile, tc.envPort, got, tc.want)
+			t.Errorf("agentBindAddr(%q, flagOn=%v, CERCANO_PORT=%q) = %q, want %q", tc.profile, tc.flagOn, tc.envPort, got, tc.want)
 		}
+	}
+}
+
+func TestAdvertiseAddr(t *testing.T) {
+	for _, tc := range []struct{ addr, want string }{
+		{"[::]:50052", "127.0.0.1:50052"},
+		{":50052", "127.0.0.1:50052"},
+		{"0.0.0.0:50052", "127.0.0.1:50052"},
+		{"127.0.0.1:50052", "127.0.0.1:50052"},
+		{"localhost:50052", "localhost:50052"},
+		{"[::1]:50052", "[::1]:50052"},
+		{"192.168.1.4:50052", "192.168.1.4:50052"},
+	} {
+		if got := advertiseAddr(tc.addr); got != tc.want {
+			t.Errorf("advertiseAddr(%q) = %q, want %q", tc.addr, got, tc.want)
+		}
+	}
+}
+
+// A listener bound to all interfaces — the flag-off default-profile bind —
+// advertises a dialable loopback address: the recorded host is loopback and
+// a client can actually connect to it.
+func TestAdvertiseAddrDialableForWildcardListener(t *testing.T) {
+	lis, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Skipf("cannot bind all interfaces in this environment: %v", err)
+	}
+	defer lis.Close()
+	adv := advertiseAddr(lis.Addr().String())
+	host, port, err := net.SplitHostPort(adv)
+	if err != nil {
+		t.Fatalf("advertiseAddr(%q) = %q: %v", lis.Addr().String(), adv, err)
+	}
+	if host != "127.0.0.1" {
+		t.Fatalf("advertised host = %q, want 127.0.0.1", host)
+	}
+	_, boundPort, _ := net.SplitHostPort(lis.Addr().String())
+	if port != boundPort {
+		t.Fatalf("advertised port = %q, want the bound port %q", port, boundPort)
+	}
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := lis.Accept()
+		if err == nil {
+			accepted <- c
+		}
+	}()
+	conn, err := net.Dial("tcp", adv)
+	if err != nil {
+		t.Fatalf("dial the advertised address %q: %v", adv, err)
+	}
+	conn.Close()
+	select {
+	case c := <-accepted:
+		c.Close()
+	case <-time.After(5 * time.Second):
+		t.Fatal("the dial to the advertised address was not accepted")
 	}
 }
 

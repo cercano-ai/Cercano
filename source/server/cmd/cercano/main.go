@@ -1203,7 +1203,7 @@ func main() {
 	// `cercano --server` all run it in the foreground.
 	switch {
 	case *mcpMode:
-		runMCPMode(*grpcAddr)
+		runMCPMode(cfg, *grpcAddr)
 	case *forceServer:
 		runServerMode(cfg)
 	default:
@@ -2035,7 +2035,7 @@ func runServerMode(cfg config.Config) {
 	// takes the shutdown path that removes the record.
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	if err := host.register(addr); err != nil {
+	if err := host.register(advertiseAddr(addr)); err != nil {
 		fmt.Fprintf(os.Stderr, "\n[ERROR] %v\n", err)
 		cleanup()
 		if crashWriter != nil {
@@ -2088,10 +2088,15 @@ func runtimeStack(all bool) string {
 }
 
 // runMCPMode serves MCP over stdio. Its tools call the active profile's agent
-// (launched if none runs), or the agent at externalGRPC when given. If the
-// profile's agent cannot be reached it serves a degraded MCP server, so the
-// client sees a clear error instead of a dead pipe.
-func runMCPMode(externalGRPC string) {
+// (launched if none runs), or the agent at externalGRPC when given. With
+// per-profile agent hosts off (the default) and the default profile, tools
+// instead call an embedded in-process gRPC agent — the pre-shared-host
+// behavior — so `cercano --mcp` never depends on a shared host; a named
+// profile with the flag off still dials, and DialProfile refuses it with the
+// flag hint, serving a degraded MCP server. If the agent cannot be reached
+// the mode serves a degraded MCP server, so the client sees a clear error
+// instead of a dead pipe.
+func runMCPMode(cfg config.Config, externalGRPC string) {
 	// Tee diagnostic logging to a file so it survives Claude Code's stdio
 	// stderr capture window (which closes after the initial connect handshake).
 	setupDispatchLogFile()
@@ -2106,6 +2111,23 @@ func runMCPMode(externalGRPC string) {
 		}
 		defer conn.Close()
 		grpcClient = proto.NewAgentClient(conn)
+	} else if mcpUsesEmbeddedAgent(activeProfile()) {
+		// Flag-off legacy: no shared host, no profile routing — the agent
+		// runs in this process, exactly as before shared hosts existed.
+		agent, cleanup, err := startEmbeddedAgent(cfg)
+		if err != nil {
+			// Serve a degraded MCP server so the pipe stays alive and the
+			// client gets a clear error instead of "Failed to reconnect".
+			fmt.Fprintf(os.Stderr, "[ERROR] %v — starting in degraded mode\n", err)
+			s := mcpserver.NewDegradedServer(err)
+			if runErr := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); runErr != nil {
+				fmt.Fprintf(os.Stderr, "MCP server error: %v\n", runErr)
+				os.Exit(1)
+			}
+			return
+		}
+		defer cleanup()
+		grpcClient = agent
 	} else {
 		fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) starting...\n", version)
 		agent, closeAgent, err := connectMCPAgent(context.Background())
@@ -2155,6 +2177,45 @@ func runMCPMode(externalGRPC string) {
 		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// mcpUsesEmbeddedAgent reports whether MCP mode without --grpc-addr serves
+// through an embedded in-process agent: only with per-profile agent hosts off
+// (the default; see paths.PerProfileAgentsEnv) and the default profile,
+// which keeps `cercano --mcp` working exactly as before shared hosts. With
+// the flag on, MCP mode routes through the profile's shared agent host; a
+// named profile with the flag off still dials, and DialProfile refuses it
+// naming the flag.
+func mcpUsesEmbeddedAgent(profile string) bool {
+	return !paths.PerProfileAgents() && profile == paths.DefaultProfile
+}
+
+// startEmbeddedAgent starts the legacy in-process gRPC agent for MCP mode
+// (see mcpUsesEmbeddedAgent) and returns a client of it. The returned
+// cleanup stops the agent and its runtimes; run it when MCP exits. The
+// embedded agent holds no profile lock and publishes no registry record —
+// it lives and dies with this MCP process, as before shared hosts. Idle
+// shutdown never applies: only the profile-agent launcher sets
+// CERCANO_AUTOLAUNCHED, and it never starts MCP mode. Tests replace this.
+var startEmbeddedAgent = func(cfg config.Config) (agent proto.AgentClient, cleanup func(), err error) {
+	fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) starting with embedded gRPC server...\n", version)
+	// MCP embedded mode opens no crash log; runtime events are a no-op here
+	// rather than a second writer on the same file.
+	addr, stop, err := startGRPCServer(cfg, "localhost:0",
+		server.HostIdentity{Profile: activeProfile(), PID: os.Getpid(), Version: version}, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	fmt.Fprintf(os.Stderr, "Embedded gRPC server listening at %s\n", addr)
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		stop()
+		return nil, nil, err
+	}
+	return proto.NewAgentClient(conn), func() {
+		_ = conn.Close()
+		stop()
+	}, nil
 }
 
 // connectMCPAgent connects MCP mode to the active profile's agent, launching

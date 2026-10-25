@@ -37,16 +37,40 @@ const agentProbeTimeout = time.Second
 // agentLockName is the per-profile lock an agent host holds while it runs.
 const agentLockName = "agent.lock"
 
-// agentBindAddr is the loopback address an agent host listens on. The default
-// profile keeps the configured port so existing clients find it, as does any
-// profile when CERCANO_PORT names a port; other profiles take a free port and
-// publish it in their registry record.
+// agentBindAddr is the address an agent host listens on. With per-profile
+// agent hosts off (the default; see paths.PerProfileAgentsEnv) the single
+// host binds all interfaces at the configured port, keeping the pre-profile
+// behavior; with the flag on, each host binds loopback only, where the
+// default profile keeps the configured port so existing clients find it, as
+// does any profile when CERCANO_PORT names a port; other profiles take a free
+// port and publish it in their registry record. Named profiles never reach
+// this with the flag off — acquireAgentHost refuses them first.
 func agentBindAddr(profile string, cfg config.Config) string {
 	port := "0"
 	if profile == paths.DefaultProfile || os.Getenv("CERCANO_PORT") != "" {
 		port = cfg.Port
 	}
+	if !paths.PerProfileAgents() {
+		// Flag-off legacy: bind every interface, like the pre-profile agent.
+		return ":" + port
+	}
 	return net.JoinHostPort("127.0.0.1", port)
+}
+
+// advertiseAddr is the address to publish in the profile's registry record
+// for an agent listening at addr. A listener bound to all interfaces — the
+// flag-off default-profile behavior — reports a dialable loopback address
+// instead, so clients can connect; an address that already names a host is
+// returned unchanged, and record validation is untouched.
+func advertiseAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" || host == "::" || host == "0.0.0.0" {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+	return addr
 }
 
 // listenFailure explains a failed listen, naming the port.

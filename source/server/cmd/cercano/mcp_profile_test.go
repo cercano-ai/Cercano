@@ -41,8 +41,12 @@ func failDial(context.Context, string) (*agentclient.Client, error) {
 	return nil, errors.New("fake dial failure")
 }
 
+// With per-profile agent hosts on, MCP mode without --grpc-addr routes
+// through the profile's shared agent host: it dials the active profile, and
+// neither it nor connectMCPAgent ever starts a gRPC server of its own.
 func TestMCPConnectsToProfileHost(t *testing.T) {
 	tempHome(t)
+	t.Setenv(paths.PerProfileAgentsEnv, "1")
 	t.Setenv("CERCANO_PROFILE", "work")
 	dialed := useDialProfile(t, failDial)
 
@@ -53,11 +57,48 @@ func TestMCPConnectsToProfileHost(t *testing.T) {
 		t.Fatalf("dialed %v, want [work]", *dialed)
 	}
 
-	// MCP mode never starts a host of its own.
+	// Flag-on MCP mode never starts a host of its own.
 	for _, fn := range []string{"runMCPMode", "connectMCPAgent"} {
 		if calls := callsIn(t, "main.go", fn, "startGRPCServer"); calls != 0 {
 			t.Errorf("%s calls startGRPCServer %d times, want 0", fn, calls)
 		}
+	}
+}
+
+// The embedded-agent choice follows the flag: with per-profile agent hosts
+// off (the default) only the default profile serves through the embedded
+// in-process agent, keeping `cercano --mcp` on its pre-shared-host behavior;
+// with the flag on, every profile — and with the flag off, every named
+// profile — routes through a shared host instead.
+func TestMCPEmbeddedAgentChoiceFollowsFlag(t *testing.T) {
+	t.Setenv("CERCANO_PROFILE", "")
+	t.Setenv(paths.PerProfileAgentsEnv, "")
+	if !mcpUsesEmbeddedAgent(paths.DefaultProfile) {
+		t.Errorf("mcpUsesEmbeddedAgent(default) with the flag off = false, want true")
+	}
+	for _, profile := range []string{"work", "other"} {
+		if mcpUsesEmbeddedAgent(profile) {
+			t.Errorf("mcpUsesEmbeddedAgent(%q) with the flag off = true, want false", profile)
+		}
+	}
+
+	t.Setenv(paths.PerProfileAgentsEnv, "1")
+	for _, profile := range []string{paths.DefaultProfile, "work"} {
+		if mcpUsesEmbeddedAgent(profile) {
+			t.Errorf("mcpUsesEmbeddedAgent(%q) with the flag on = true, want false", profile)
+		}
+	}
+}
+
+// The embedded branch is the only place MCP mode starts a gRPC server: it
+// lives in startEmbeddedAgent (one start, on a loopback ephemeral port),
+// while runMCPMode and connectMCPAgent start none themselves.
+func TestMCPEmbeddedStartsOneGRPCServerInItsOwnFunction(t *testing.T) {
+	if calls := specCallsIn(t, "main.go", "startEmbeddedAgent", "startGRPCServer"); calls != 1 {
+		t.Fatalf("startEmbeddedAgent calls startGRPCServer %d times, want 1", calls)
+	}
+	if calls := callsIn(t, "main.go", "runMCPMode", "startGRPCServer"); calls != 0 {
+		t.Errorf("runMCPMode calls startGRPCServer %d times, want 0", calls)
 	}
 }
 
@@ -218,6 +259,44 @@ func TestEnterpriseDialsActiveProfileWithoutAddress(t *testing.T) {
 	if len(*dialed) != 0 {
 		t.Fatalf("--address still dialed the profile: %v", *dialed)
 	}
+}
+
+// specCallsIn counts calls to callee inside the initializer of the package
+// variable varName of file — for test seams defined as function values.
+func specCallsIn(t *testing.T, file, varName, callee string) int {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, file, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	calls := 0
+	for _, decl := range f.Decls {
+		g, ok := decl.(*ast.GenDecl)
+		if !ok || g.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range g.Specs {
+			v, ok := spec.(*ast.ValueSpec)
+			if !ok || len(v.Names) != 1 || v.Names[0].Name != varName {
+				continue
+			}
+			found = true
+			ast.Inspect(v, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					if id, ok := call.Fun.(*ast.Ident); ok && id.Name == callee {
+						calls++
+					}
+				}
+				return true
+			})
+		}
+	}
+	if !found {
+		t.Fatalf("var %s not found in %s", varName, file)
+	}
+	return calls
 }
 
 // callsIn counts calls to callee inside function fn of file.

@@ -47,14 +47,14 @@ func TestAcquireAgentHostAllowedWhenFlagOn(t *testing.T) {
 	}
 }
 
-// The bind address keeps the legacy behavior for the default profile, so
-// clients that dial the configured port find the single host.
+// The bind address keeps the legacy behavior for the default profile with the
+// flag off: all interfaces at the configured port, as before shared hosts.
 func TestAgentBindAddrDefaultKeepsConfiguredPort(t *testing.T) {
 	t.Setenv(paths.PerProfileAgentsEnv, "")
 	t.Setenv("CERCANO_PORT", "")
 	cfg := config.Defaults()
-	if got := agentBindAddr(paths.DefaultProfile, cfg); got != "127.0.0.1:"+cfg.Port {
-		t.Errorf("agentBindAddr(default) = %q, want the configured port %s", got, cfg.Port)
+	if got := agentBindAddr(paths.DefaultProfile, cfg); got != ":"+cfg.Port {
+		t.Errorf("agentBindAddr(default) = %q, want all interfaces at the configured port %q", got, cfg.Port)
 	}
 }
 
