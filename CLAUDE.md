@@ -61,12 +61,22 @@ before profiles — instead of dialing a shared host. With the flag on, each
 profile gets its own loopback agent host, and `cercano --mcp` without
 `--grpc-addr` dials the profile's shared host (launching it when none runs).
 An explicit `--grpc-addr` always connects to that external address, whatever
-the flag. `restart-after-upgrade` still restarts the default
-profile's agent and any pre-profile one, but a named profile's leftover
-agent from a flag-on run is left running, since the installed binary would
-refuse to serve it. Starting an agent for, or
-connecting with, any other profile fails with an error naming the flag.
-Turn the feature on with:
+the flag and profile. MCP mode writes only JSON-RPC messages to standard
+output; everything else, including the embedded agent's diagnostics, goes to
+standard error. With the flag off, starting an agent for, or connecting with,
+any other profile fails with an error naming the flag (MCP mode serves a
+degraded server that returns it), before any pre-profile data is migrated or
+a pre-profile agent is stopped.
+
+`restart-after-upgrade` replays each agent with the environment it was
+launched with, so it decides from that environment — not its own — before
+stopping anything: the default profile's agent, a pre-profile one, and a named
+profile's agent launched with the flag on are restarted; a named profile's
+agent launched without the flag (by a build from before the flag, or with it
+off) is left running and reported, since the installed binary would refuse to
+serve it. `--address` gets the same decision, and an address a profile's
+`agent.json` names is restarted as that profile's agent. Turn the feature on
+with:
 
 ```bash
 CERCANO_PER_PROFILE_AGENTS=1 cercano-cli --profile work

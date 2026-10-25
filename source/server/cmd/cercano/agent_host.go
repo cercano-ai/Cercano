@@ -134,7 +134,7 @@ func acquireAgentHost(profile string) (*agentHost, error) {
 		return nil, err
 	}
 	if profile != paths.DefaultProfile && !paths.PerProfileAgents() {
-		return nil, fmt.Errorf("profile %q would need its own agent host, but per-profile agent hosts are off; set %s=1 to enable them", profile, paths.PerProfileAgentsEnv)
+		return nil, errProfileHostDisabled(profile)
 	}
 	dir := paths.ProfileDir(profile)
 	release, err := waitForAgentLock(profile, dir)

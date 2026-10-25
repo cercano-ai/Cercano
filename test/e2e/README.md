@@ -61,6 +61,36 @@ unsupported ownership probe can therefore leave a failed run's agent for manual
 inspection. Regression tests cover ownership rejection, escalation, identity
 changes, and a real sandbox agent.
 
+## The per-profile agent hosts flag
+
+`specs/per-profile-flag*.test.mjs` cover `CERCANO_PER_PROFILE_AGENTS` absent,
+`"false"`/`"0"` and `"1"`/`"true"` through the real binaries, including
+`cercano --mcp` over JSON-RPC (`helpers/flag.mjs`). They set the flag per
+process rather than relying on the sandbox default (`""` for the default
+profile, `"1"` with `profile`), and read each process's environment back
+(`helpers/procs.mjs`) to check the state it really ran with. MCP servers get a
+fresh release-check cache and a dead HTTP(S) proxy (loopback is never
+proxied), so they make no external request. Leftover processes are found by
+the sandbox's own HOME and TMPDIR on a suite binary, and only those are
+signalled.
+
+The upgrade tests run builds from before the flag (f79bf87a) and before
+profiles (c23f4656). Build them, offline, with:
+
+```bash
+./scripts/build-historical.sh
+```
+
+Without them those tests are reported as skipped; set
+`E2E_REQUIRE_HISTORICAL=1` to fail instead.
+`specs/per-profile-flag-regressions.test.mjs` guards fixed defects: a refused
+named profile must not migrate pre-profile data or stop a pre-profile agent,
+and `cercano --mcp` must keep standard output to JSON-RPC across real tool
+calls. The upgrade-restart decisions are covered by the Go transition test
+(`source/server/cmd/cercano/per_profile_flag_transition_test.go`), which needs
+the same historical builds (`CERCANO_REQUIRE_HISTORICAL=1` makes them
+required).
+
 ## Writing a spec
 
 ```js

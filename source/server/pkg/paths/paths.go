@@ -24,7 +24,14 @@ const PerProfileAgentsEnv = "CERCANO_PER_PROFILE_AGENTS"
 // It is off unless PerProfileAgentsEnv parses as true, so a fresh install
 // keeps the single-agent-host behavior.
 func PerProfileAgents() bool {
-	on, err := strconv.ParseBool(os.Getenv(PerProfileAgentsEnv))
+	return PerProfileAgentsValue(os.Getenv(PerProfileAgentsEnv))
+}
+
+// PerProfileAgentsValue reports whether value, as a PerProfileAgentsEnv
+// setting, turns per-profile agent hosts on: the rule PerProfileAgents
+// applies to this process's environment, for judging another's.
+func PerProfileAgentsValue(value string) bool {
+	on, err := strconv.ParseBool(value)
 	return err == nil && on
 }
 
@@ -40,7 +47,12 @@ func ValidateProfileName(name string) error {
 
 // Profile returns the active profile name from CERCANO_PROFILE (default if empty).
 func Profile() (string, error) {
-	name := os.Getenv("CERCANO_PROFILE")
+	return ProfileValue(os.Getenv("CERCANO_PROFILE"))
+}
+
+// ProfileValue is the profile a CERCANO_PROFILE setting of name selects: the
+// rule Profile applies to this process's environment, for judging another's.
+func ProfileValue(name string) (string, error) {
 	if name == "" {
 		name = DefaultProfile
 	}

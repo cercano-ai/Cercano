@@ -15,11 +15,36 @@ type restartOps struct {
 	source    processSource
 	capture   func(Identity) (LaunchState, error)
 	preflight func(string, LaunchState) error
+	check     ReplacementCheck // optional; see CheckReplacement
 	lock      func(context.Context, LaunchState) (func(), error)
 	shutdown  func(context.Context, Identity, netip.AddrPort) error
 	waitExit  func(context.Context, Identity) error
 	start     func(string, LaunchState) (Identity, error)
 	ready     func(context.Context, Identity, netip.AddrPort) error
+}
+
+// ReplacementCheck inspects the environment a replacement would be started
+// with — the running agent's captured launch environment, which the
+// replacement inherits unchanged — and returns an error when the installed
+// binary would not serve with it.
+type ReplacementCheck func(env []string) error
+
+// ErrReplacementRefused reports a restart refused by its ReplacementCheck.
+// Nothing was stopped: the running agent keeps serving.
+var ErrReplacementRefused = errors.New("the replacement would not serve this agent's launch environment; the agent was left running")
+
+// CheckReplacement applies check (when non-nil) to the captured launch
+// environment env. A rejection is returned wrapping both
+// ErrReplacementRefused and check's own error. coordinateRestart calls it
+// after preflight and before the launch lock and any shutdown.
+func CheckReplacement(check ReplacementCheck, env []string) error {
+	if check == nil {
+		return nil
+	}
+	if err := check(env); err != nil {
+		return fmt.Errorf("%w: %w", ErrReplacementRefused, err)
+	}
+	return nil
 }
 
 // errReplacementExited reports that the replacement process exited, or its
@@ -75,6 +100,11 @@ func coordinateRestart(ctx context.Context, ops restartOps, newExecutable string
 	}
 	// All local validation must succeed before the destructive boundary.
 	if err := ops.preflight(newExecutable, state); err != nil {
+		return false, err
+	}
+	// The replacement inherits state.Env, so whether it would serve is
+	// decided from that environment now, while the agent still runs.
+	if err := CheckReplacement(ops.check, state.Env); err != nil {
 		return false, err
 	}
 	release, err := ops.lock(ctx, state)

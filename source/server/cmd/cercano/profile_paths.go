@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"cercano/source/server/internal/setupresetcmd"
@@ -71,6 +72,109 @@ func requireStartupEnvironment(args []string) {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
 		os.Exit(1)
 	}
+}
+
+// errProfileHostDisabled is the refusal of a named profile's agent host while
+// per-profile agent hosts are off (see paths.PerProfileAgentsEnv).
+func errProfileHostDisabled(profile string) error {
+	return fmt.Errorf("profile %q would need its own agent host, but per-profile agent hosts are off; set %s=1 to enable them", profile, paths.PerProfileAgentsEnv)
+}
+
+// profileHostUse is how a command uses the active profile's agent host.
+type profileHostUse int
+
+const (
+	// noProfileHost: no agent host, or only one at an explicit address
+	// (--grpc-addr, enterprise --address).
+	noProfileHost profileHostUse = iota
+	// servesProfileHost: runs the host (agent, --server, bare cercano).
+	servesProfileHost
+	// dialsProfileHost: connects to the host, starting it if needed (run,
+	// enterprise).
+	dialsProfileHost
+	// mcpProfileHost: MCP mode without --grpc-addr, which embeds the default
+	// profile's agent with the flag off and otherwise dials the host.
+	mcpProfileHost
+)
+
+// commandProfileHostUse reports how the command in args uses the active
+// profile's agent host, read with the same argument parsing as the command;
+// help requests and arguments the command rejects before reaching a host do
+// not use it.
+func commandProfileHostUse(args []string) profileHostUse {
+	if !needsStartupCheck(args) {
+		return noProfileHost
+	}
+	if len(args) < 2 {
+		return servesProfileHost
+	}
+	rest := args[2:]
+	switch args[1] {
+	case "agent":
+		return servesProfileHost
+	case "run":
+		h := parseHeadlessArgs(rest)
+		if h.help || h.missingConv || strings.Join(h.positional, " ") == "" {
+			return noProfileHost
+		}
+		return dialsProfileHost
+	case "enterprise":
+		if enterpriseDialsProfile(rest) {
+			return dialsProfileHost
+		}
+		return noProfileHost
+	case "restart-after-upgrade", "reset", "setup", "stats", "logs", "export", "model-host", "worker":
+		return noProfileHost
+	}
+	// No subcommand: the top-level flags, as main parses them. An unknown
+	// subcommand stops flag parsing and runs the server.
+	fs := flag.NewFlagSet("cercano", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	top := defineTopLevelFlags(fs)
+	switch {
+	case fs.Parse(args[1:]) != nil, *top.version, *top.stats:
+		return noProfileHost
+	case *top.mcp && *top.grpcAddr != "":
+		return noProfileHost
+	case *top.mcp:
+		return mcpProfileHost
+	}
+	return servesProfileHost
+}
+
+// disabledProfileHost returns the refusal for a command in args that would
+// run, connect to or start a named profile's agent host while per-profile
+// agent hosts are off, and how the command uses that host; nil otherwise.
+// main checks it before migrating pre-profile data, so a refused command
+// neither moves that data nor stops a running pre-profile agent.
+func disabledProfileHost(args []string) (profileHostUse, error) {
+	use := commandProfileHostUse(args)
+	if use == noProfileHost || paths.PerProfileAgents() {
+		return use, nil
+	}
+	profile, err := paths.Profile()
+	if err != nil || profile == paths.DefaultProfile {
+		return use, nil // an invalid profile is requireStartupEnvironment's to report
+	}
+	return use, errProfileHostDisabled(profile)
+}
+
+// refuseDisabledProfileHost exits with the refusal when disabledProfileHost
+// refuses the command in args. MCP mode instead keeps its pipe alive: a
+// degraded server answers every tool with the refusal until the client
+// disconnects.
+func refuseDisabledProfileHost(args []string) {
+	use, err := disabledProfileHost(args)
+	if err == nil {
+		return
+	}
+	if use == mcpProfileHost {
+		fmt.Fprintf(os.Stderr, "[ERROR] %v — starting in degraded mode\n", err)
+		serveDegradedMCP(err)
+		os.Exit(0)
+	}
+	fmt.Fprintln(os.Stderr, "cercano:", err)
+	os.Exit(1)
 }
 
 // migrationOptions builds the options for moving pre-profile data; tests

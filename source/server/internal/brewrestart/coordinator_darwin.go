@@ -24,10 +24,7 @@ import (
 // It does not install an update, compare versions, register a service, or
 // start an absent agent. The caller must set a bounded context deadline.
 func RestartInstalled(ctx context.Context, newExecutable string, endpoint netip.AddrPort) (bool, error) {
-	if _, ok := ctx.Deadline(); !ok {
-		return false, fmt.Errorf("restart requires a deadline")
-	}
-	return coordinateRestart(ctx, nativeRestartOps(), newExecutable, uint32(os.Getuid()), endpoint)
+	return RestartInstalledChecked(ctx, newExecutable, endpoint, nil, nil)
 }
 
 // RestartInstalledReady is RestartInstalled for an agent that need not listen
@@ -37,10 +34,24 @@ func RestartInstalled(ctx context.Context, newExecutable string, endpoint netip.
 // must return promptly once ctx ends, and is never relied on to notice a
 // crash: a replacement that exits during startup fails the restart at once.
 func RestartInstalledReady(ctx context.Context, newExecutable string, endpoint netip.AddrPort, probe func(ctx context.Context, pid int) bool) (bool, error) {
+	return RestartInstalledChecked(ctx, newExecutable, endpoint, probe, nil)
+}
+
+// RestartInstalledChecked is RestartInstalledReady, or RestartInstalled when
+// probe is nil, that also applies check to the agent's captured launch
+// environment after preflight and before anything is stopped. A rejection
+// returns an error wrapping ErrReplacementRefused with the agent still
+// running.
+func RestartInstalledChecked(ctx context.Context, newExecutable string, endpoint netip.AddrPort, probe func(ctx context.Context, pid int) bool, check ReplacementCheck) (bool, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return false, fmt.Errorf("restart requires a deadline")
 	}
-	return coordinateRestart(ctx, withReady(nativeRestartOps(), replacementAlive, probe), newExecutable, uint32(os.Getuid()), endpoint)
+	ops := nativeRestartOps()
+	if probe != nil {
+		ops = withReady(ops, replacementAlive, probe)
+	}
+	ops.check = check
+	return coordinateRestart(ctx, ops, newExecutable, uint32(os.Getuid()), endpoint)
 }
 
 // replacementAlive returns errReplacementExited when the replacement has

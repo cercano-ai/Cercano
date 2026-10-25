@@ -69,7 +69,6 @@ import (
 	"cercano/source/server/pkg/proto"
 	"cercano/source/server/pkg/update"
 
-	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -1032,6 +1031,10 @@ func main() {
 	// Every command that touches profile or machine state needs a home
 	// directory and a valid CERCANO_PROFILE before any path is computed.
 	requireStartupEnvironment(os.Args)
+	// A command that needs a named profile's agent host while per-profile
+	// agent hosts are off is refused before the migration below, so it moves
+	// no pre-profile data and stops no pre-profile agent.
+	refuseDisabledProfileHost(os.Args)
 	// Data written before profiles existed moves into the default profile
 	// before any command opens a profile file (config, permissions,
 	// conversations, enterprise state, logs).
@@ -2091,12 +2094,14 @@ func runtimeStack(all bool) string {
 // (launched if none runs), or the agent at externalGRPC when given. With
 // per-profile agent hosts off (the default) and the default profile, tools
 // instead call an embedded in-process gRPC agent — the pre-shared-host
-// behavior — so `cercano --mcp` never depends on a shared host; a named
-// profile with the flag off still dials, and DialProfile refuses it with the
-// flag hint, serving a degraded MCP server. If the agent cannot be reached
-// the mode serves a degraded MCP server, so the client sees a clear error
-// instead of a dead pipe.
+// behavior — so `cercano --mcp` never depends on a shared host; main refuses
+// a named profile with the flag off before this runs (see
+// disabledProfileHost). If the agent cannot be reached the mode serves a
+// degraded MCP server, so the client sees a clear error instead of a dead
+// pipe. Standard output carries only the protocol (see mcpStdio): the
+// embedded agent's diagnostics go to standard error.
 func runMCPMode(cfg config.Config, externalGRPC string) {
+	transport := mcpStdio()
 	// Tee diagnostic logging to a file so it survives Claude Code's stdio
 	// stderr capture window (which closes after the initial connect handshake).
 	setupDispatchLogFile()
@@ -2119,11 +2124,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 			// Serve a degraded MCP server so the pipe stays alive and the
 			// client gets a clear error instead of "Failed to reconnect".
 			fmt.Fprintf(os.Stderr, "[ERROR] %v — starting in degraded mode\n", err)
-			s := mcpserver.NewDegradedServer(err)
-			if runErr := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); runErr != nil {
-				fmt.Fprintf(os.Stderr, "MCP server error: %v\n", runErr)
-				os.Exit(1)
-			}
+			runMCPServer(mcpserver.NewDegradedServer(err).MCPServer(), transport)
 			return
 		}
 		defer cleanup()
@@ -2135,11 +2136,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 			// Serve a degraded MCP server so the pipe stays alive and the
 			// client gets a clear error instead of "Failed to reconnect".
 			fmt.Fprintf(os.Stderr, "[ERROR] %v — starting in degraded mode\n", err)
-			s := mcpserver.NewDegradedServer(err)
-			if runErr := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); runErr != nil {
-				fmt.Fprintf(os.Stderr, "MCP server error: %v\n", runErr)
-				os.Exit(1)
-			}
+			runMCPServer(mcpserver.NewDegradedServer(err).MCPServer(), transport)
 			return
 		}
 		defer closeAgent()
@@ -2173,10 +2170,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 		s.SetUpdateInfo(info.LatestVersion, info.UpgradeCommand())
 	}
 
-	if err := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); err != nil {
-		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
-		os.Exit(1)
-	}
+	runMCPServer(s.MCPServer(), transport)
 }
 
 // mcpUsesEmbeddedAgent reports whether MCP mode without --grpc-addr serves
@@ -2184,8 +2178,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 // (the default; see paths.PerProfileAgentsEnv) and the default profile,
 // which keeps `cercano --mcp` working exactly as before shared hosts. With
 // the flag on, MCP mode routes through the profile's shared agent host; a
-// named profile with the flag off still dials, and DialProfile refuses it
-// naming the flag.
+// named profile with the flag off is refused before MCP mode starts.
 func mcpUsesEmbeddedAgent(profile string) bool {
 	return !paths.PerProfileAgents() && profile == paths.DefaultProfile
 }

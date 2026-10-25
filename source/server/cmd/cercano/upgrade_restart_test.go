@@ -17,6 +17,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"cercano/source/server/internal/brewrestart"
 	"cercano/source/server/internal/filelock"
 	"cercano/source/server/internal/hostregistry"
 	"cercano/source/server/internal/localruntime"
@@ -68,7 +69,7 @@ func TestUpgradeRestartCommand(t *testing.T) {
 				profileAgents:     noProfileAgents,
 				restartProfile:    unexpectedProfileRestart(t),
 				relaunchModelHost: func(context.Context, string) (bool, error) { return false, nil },
-				restartAddress: func(ctx context.Context, path string, endpoint netip.AddrPort) (bool, error) {
+				restartAddress: func(ctx context.Context, path string, endpoint netip.AddrPort, _ brewrestart.ReplacementCheck) (bool, error) {
 					calls++
 					if _, ok := ctx.Deadline(); !ok {
 						t.Fatal("no restart deadline")
@@ -98,11 +99,13 @@ func TestUpgradeRestartCommand(t *testing.T) {
 func upgradeArgs(t *testing.T, out *bytes.Buffer, relaunch func(context.Context, string) (bool, error), restarted bool) int {
 	t.Helper()
 	return upgradeRestartCommand(nil, out, upgradeRestartDeps{
-		legacyPort:        func() (string, error) { return "4242", nil },
-		executable:        func() (string, error) { return "/fake/bin/cercano", nil },
-		profileAgents:     noProfileAgents,
-		restartProfile:    unexpectedProfileRestart(t),
-		restartAddress:    func(context.Context, string, netip.AddrPort) (bool, error) { return restarted, nil },
+		legacyPort:     func() (string, error) { return "4242", nil },
+		executable:     func() (string, error) { return "/fake/bin/cercano", nil },
+		profileAgents:  noProfileAgents,
+		restartProfile: unexpectedProfileRestart(t),
+		restartAddress: func(context.Context, string, netip.AddrPort, brewrestart.ReplacementCheck) (bool, error) {
+			return restarted, nil
+		},
 		relaunchModelHost: relaunch,
 	})
 }
@@ -111,8 +114,8 @@ func noProfileAgents() ([]profileAgent, error) { return nil, nil }
 
 // unexpectedProfileRestart is a profile restart for tests in which no profile
 // agent is running.
-func unexpectedProfileRestart(t *testing.T) func(context.Context, string, profileAgent, netip.AddrPort) (bool, error) {
-	return func(_ context.Context, _ string, a profileAgent, _ netip.AddrPort) (bool, error) {
+func unexpectedProfileRestart(t *testing.T) func(context.Context, string, profileAgent, netip.AddrPort, brewrestart.ReplacementCheck) (bool, error) {
+	return func(_ context.Context, _ string, a profileAgent, _ netip.AddrPort, _ brewrestart.ReplacementCheck) (bool, error) {
 		t.Errorf("unexpected restart of profile %q", a.Profile)
 		return false, errors.New("unexpected profile restart")
 	}
@@ -315,7 +318,7 @@ func TestUpgradeRestartShutdownBudgetIndependentOfRestartDeadline(t *testing.T) 
 			got = time.Until(dl)
 			return false, ctx.Err()
 		},
-		restartAddress: func(context.Context, string, netip.AddrPort) (bool, error) {
+		restartAddress: func(context.Context, string, netip.AddrPort, brewrestart.ReplacementCheck) (bool, error) {
 			time.Sleep(10 * time.Millisecond)
 			return true, nil
 		},
@@ -354,26 +357,57 @@ func (l *eventLog) String() string {
 	return strings.Join(l.events, ",")
 }
 
+// flagOnLaunchEnv is the launch environment of an agent this build started
+// for profile with per-profile agent hosts on, the only way it starts a
+// named profile's agent.
+func flagOnLaunchEnv(profile string) []string {
+	if profile == paths.DefaultProfile {
+		profile = ""
+	}
+	return []string{"HOME=/home/u", "CERCANO_PROFILE=" + profile, paths.PerProfileAgentsEnv + "=1"}
+}
+
 // profileDeps runs the command against the given running profile agents.
-// restart decides each profile's outcome; every call is logged as
-// "restart:<profile>", the legacy-address restart as "legacy", and the model
-// host relaunch as "modelhost".
-func profileDeps(t *testing.T, log *eventLog, agents []profileAgent, restart func(profileAgent) (bool, error)) upgradeRestartDeps {
+// Like the coordinator, each restart first applies its replacement check to
+// the agent's launch environment (launchEnv, flagOnLaunchEnv for profiles it
+// does not list); a rejection is logged as "left:<profile>" and returned with
+// nothing restarted. Otherwise restart decides the profile's outcome, logged
+// as "restart:<profile>"; the legacy-address restart is logged as "legacy",
+// and the model host relaunch as "modelhost".
+func profileDeps(t *testing.T, log *eventLog, agents []profileAgent, restart func(profileAgent) (bool, error), launchEnv ...map[string][]string) upgradeRestartDeps {
+	envOf := func(profile string) []string {
+		for _, m := range launchEnv {
+			if env, ok := m[profile]; ok {
+				return env
+			}
+		}
+		return flagOnLaunchEnv(profile)
+	}
 	return upgradeRestartDeps{
 		legacyPort:    func() (string, error) { return "4242", nil },
 		executable:    func() (string, error) { return "/fake/bin/cercano", nil },
 		profileAgents: func() ([]profileAgent, error) { return agents, nil },
-		restartProfile: func(ctx context.Context, exe string, a profileAgent, endpoint netip.AddrPort) (bool, error) {
+		restartProfile: func(ctx context.Context, exe string, a profileAgent, endpoint netip.AddrPort, check brewrestart.ReplacementCheck) (bool, error) {
 			if _, ok := ctx.Deadline(); !ok {
 				t.Error("no restart deadline")
 			}
 			if exe != "/fake/bin/cercano" || endpoint.String() != a.Record.Addr {
 				t.Errorf("restart of %q targets %s with %s, want %s", a.Profile, endpoint, exe, a.Record.Addr)
 			}
+			if check == nil {
+				t.Errorf("restart of %q has no replacement check", a.Profile)
+			}
+			if err := brewrestart.CheckReplacement(check, envOf(a.Profile)); err != nil {
+				log.add("left:" + a.Profile)
+				return false, err
+			}
 			log.add("restart:" + a.Profile)
 			return restart(a)
 		},
-		restartAddress: func(_ context.Context, _ string, endpoint netip.AddrPort) (bool, error) {
+		restartAddress: func(_ context.Context, _ string, endpoint netip.AddrPort, check brewrestart.ReplacementCheck) (bool, error) {
+			if check == nil {
+				t.Error("address restart has no replacement check")
+			}
 			log.add("legacy")
 			return true, nil
 		},
@@ -570,7 +604,7 @@ func TestUpgradeRestartsLegacyAgentWithoutProfileAgents(t *testing.T) {
 	var out bytes.Buffer
 	deps := profileDeps(t, &log, nil, restartOK)
 	var target string
-	deps.restartAddress = func(_ context.Context, _ string, endpoint netip.AddrPort) (bool, error) {
+	deps.restartAddress = func(_ context.Context, _ string, endpoint netip.AddrPort, _ brewrestart.ReplacementCheck) (bool, error) {
 		target = endpoint.String()
 		log.add("legacy")
 		return true, nil
@@ -645,20 +679,83 @@ func TestUpgradeRefusesNonLoopbackRecord(t *testing.T) {
 	}
 }
 
-// An explicit --address restarts only the agent there.
-func TestUpgradeExplicitAddressSkipsProfiles(t *testing.T) {
+// An explicit --address restarts only the agent there: profile agents at
+// other addresses are left alone, and an address that no profile's record
+// names is restarted as an address.
+func TestUpgradeExplicitAddressRestartsOnlyThatAgent(t *testing.T) {
+	agents := []profileAgent{fakeProfileAgent(t, "default", "127.0.0.1:5001"), fakeProfileAgent(t, "work", "127.0.0.1:5002")}
+	var log eventLog
+	var out bytes.Buffer
+	if code := upgradeRestartCommand([]string{"--address", "127.0.0.1:4343"}, &out, profileDeps(t, &log, agents, restartOK)); code != 0 {
+		t.Fatalf("code=%d output=%s", code, out.String())
+	}
+	if got, want := log.String(), "legacy,modelhost"; got != want {
+		t.Fatalf("events = %s, want %s", got, want)
+	}
+}
+
+// An explicit --address that a profile's record names restarts that agent as
+// the profile's agent — its launch lock, its replacement check, readiness
+// through its record (a named profile's replacement takes a new port) — and
+// no other agent.
+func TestUpgradeExplicitAddressOfProfileAgent(t *testing.T) {
+	agents := []profileAgent{fakeProfileAgent(t, "default", "127.0.0.1:5001"), fakeProfileAgent(t, "work", "127.0.0.1:5002")}
+	var log eventLog
+	var out bytes.Buffer
+	if code := upgradeRestartCommand([]string{"--address", "127.0.0.1:5002"}, &out, profileDeps(t, &log, agents, restartOK)); code != 0 {
+		t.Fatalf("code=%d output=%s", code, out.String())
+	}
+	if got, want := log.String(), "restart:work,modelhost"; got != want {
+		t.Fatalf("events = %s, want %s", got, want)
+	}
+	if !strings.Contains(out.String(), `Restarted agent for profile "work".`) {
+		t.Fatalf("output: %s", out.String())
+	}
+}
+
+// When profiles cannot be listed, --address still restarts the agent there,
+// as an address.
+func TestUpgradeExplicitAddressWithoutProfileList(t *testing.T) {
 	var log eventLog
 	var out bytes.Buffer
 	deps := profileDeps(t, &log, nil, restartOK)
-	deps.profileAgents = func() ([]profileAgent, error) {
-		t.Error("profiles listed despite --address")
-		return nil, nil
-	}
+	deps.profileAgents = func() ([]profileAgent, error) { return nil, errors.New("unreadable") }
 	if code := upgradeRestartCommand([]string{"--address", "127.0.0.1:4343"}, &out, deps); code != 0 {
 		t.Fatalf("code=%d output=%s", code, out.String())
 	}
 	if got, want := log.String(), "legacy,modelhost"; got != want {
 		t.Fatalf("events = %s, want %s", got, want)
+	}
+}
+
+// An agent at an address whose replacement check fails — here a pre-profile
+// agent whose environment selects a named profile without the flag — is
+// reported and left running, and that is not a failure.
+func TestUpgradeAddressRestartLeftRunningWhenReplacementWouldRefuse(t *testing.T) {
+	var log eventLog
+	var out bytes.Buffer
+	deps := profileDeps(t, &log, nil, restartOK)
+	deps.restartAddress = func(_ context.Context, _ string, endpoint netip.AddrPort, check brewrestart.ReplacementCheck) (bool, error) {
+		if err := brewrestart.CheckReplacement(check, []string{"CERCANO_PROFILE=work"}); err != nil {
+			log.add("left")
+			return false, err
+		}
+		log.add("legacy")
+		return true, nil
+	}
+	if code := upgradeRestartCommand(nil, &out, deps); code != 0 {
+		t.Fatalf("code=%d output=%s", code, out.String())
+	}
+	if got, want := log.String(), "left,modelhost"; got != want {
+		t.Fatalf("events = %s, want %s", got, want)
+	}
+	for _, want := range []string{"Left the agent at 127.0.0.1:4242 running", paths.PerProfileAgentsEnv + "=1"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q: %s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "failed") || strings.Contains(out.String(), "nothing started") {
+		t.Errorf("output: %s", out.String())
 	}
 }
 

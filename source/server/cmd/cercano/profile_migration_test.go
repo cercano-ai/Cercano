@@ -181,8 +181,10 @@ func TestMainMigratesBeforeDispatch(t *testing.T) {
 		}
 		calls = append(calls, ident.Name)
 	}
-	if len(calls) < 2 || calls[0] != "requireStartupEnvironment" || calls[1] != "requireProfileMigration" {
-		t.Fatalf("main begins with %v, want [requireStartupEnvironment requireProfileMigration ...]", calls)
+	// The disabled-profile refusal comes before the migration, so a refused
+	// command neither moves pre-profile data nor stops a pre-profile agent.
+	if len(calls) < 3 || calls[0] != "requireStartupEnvironment" || calls[1] != "refuseDisabledProfileHost" || calls[2] != "requireProfileMigration" {
+		t.Fatalf("main begins with %v, want [requireStartupEnvironment refuseDisabledProfileHost requireProfileMigration ...]", calls)
 	}
 }
 

@@ -10,13 +10,14 @@ import (
 )
 
 func TestCoordinateRestartOrderingAndFailures(t *testing.T) {
-	for _, fail := range []string{"", "capture", "preflight", "lock", "changed", "shutdown", "wait-exit", "start", "ready", "absent"} {
+	for _, fail := range []string{"", "capture", "preflight", "check", "lock", "changed", "shutdown", "wait-exit", "start", "ready", "absent"} {
 		t.Run(fail, func(t *testing.T) {
 			id := Identity{PID: 1, UID: 501, Executable: "/opt/homebrew/Cellar/cercano/1/bin/cercano", StartSeconds: 1}
 			source := &fakeProcesses{pids: []int{1}, ids: map[int]Identity{1: id}, listeners: map[int]bool{1: true}}
 			if fail == "absent" {
 				source.pids = nil
 			}
+			captured := []string{"HOME=/Users/u", "CERCANO_PROFILE=work"}
 			var calls []string
 			step := func(name string) error {
 				calls = append(calls, name)
@@ -27,8 +28,14 @@ func TestCoordinateRestartOrderingAndFailures(t *testing.T) {
 			}
 			ops := restartOps{
 				source:    source,
-				capture:   func(Identity) (LaunchState, error) { return LaunchState{Identity: id}, step("capture") },
+				capture:   func(Identity) (LaunchState, error) { return LaunchState{Identity: id, Env: captured}, step("capture") },
 				preflight: func(string, LaunchState) error { return step("preflight") },
+				check: func(env []string) error {
+					if !reflect.DeepEqual(env, captured) {
+						t.Errorf("check got %v, want the captured environment %v", env, captured)
+					}
+					return step("check")
+				},
 				lock: func(context.Context, LaunchState) (func(), error) {
 					if err := step("lock"); err != nil {
 						return nil, err
@@ -50,7 +57,10 @@ func TestCoordinateRestartOrderingAndFailures(t *testing.T) {
 			if (err != nil) != wantErr || restarted != (fail == "") {
 				t.Fatalf("restarted=%v err=%v", restarted, err)
 			}
-			all := []string{"capture", "preflight", "lock", "shutdown", "wait-exit", "start", "ready"}
+			if refused := errors.Is(err, ErrReplacementRefused); refused != (fail == "check") {
+				t.Fatalf("err=%v: ErrReplacementRefused=%v, want it only for a rejected check", err, refused)
+			}
+			all := []string{"capture", "preflight", "check", "lock", "shutdown", "wait-exit", "start", "ready"}
 			var want []string
 			if fail != "absent" {
 				for _, name := range all {
@@ -62,7 +72,7 @@ func TestCoordinateRestartOrderingAndFailures(t *testing.T) {
 						break
 					}
 				}
-				if fail != "capture" && fail != "preflight" && fail != "lock" {
+				if fail != "capture" && fail != "preflight" && fail != "check" && fail != "lock" {
 					want = append(want, "release")
 				}
 			}
@@ -154,5 +164,18 @@ func TestCoordinateRestartWithReadyHonorsDeadline(t *testing.T) {
 	restarted, err := runReadyOps(ops, 300*time.Millisecond)
 	if restarted || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("restarted=%v err=%v, want the deadline", restarted, err)
+	}
+}
+
+// A rejected replacement check is reported with the check's own error and
+// ErrReplacementRefused; no check means no extra refusal.
+func TestCheckReplacement(t *testing.T) {
+	if err := CheckReplacement(nil, []string{"X=1"}); err != nil {
+		t.Fatalf("nil check: %v", err)
+	}
+	reason := errors.New("would refuse")
+	err := CheckReplacement(func([]string) error { return reason }, nil)
+	if !errors.Is(err, ErrReplacementRefused) || !errors.Is(err, reason) {
+		t.Fatalf("err=%v, want both ErrReplacementRefused and the check's error", err)
 	}
 }

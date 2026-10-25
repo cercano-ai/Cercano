@@ -19,3 +19,13 @@ func TestPerProfileAgentsOnWhenEnabled(t *testing.T) {
 		}
 	}
 }
+
+// PerProfileAgentsValue applies the same rule to a value from another
+// process's environment.
+func TestPerProfileAgentsValue(t *testing.T) {
+	for value, want := range map[string]bool{"": false, "0": false, "false": false, "yes": false, "1": true, "true": true, "T": true} {
+		if got := PerProfileAgentsValue(value); got != want {
+			t.Errorf("PerProfileAgentsValue(%q) = %v, want %v", value, got, want)
+		}
+	}
+}

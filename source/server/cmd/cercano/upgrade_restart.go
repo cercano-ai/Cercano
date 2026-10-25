@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"cercano/source/server/internal/brewrestart"
@@ -54,12 +55,16 @@ type upgradeRestartDeps struct {
 	profileAgents func() ([]profileAgent, error)
 	// restartProfile restarts the profile's agent listening at endpoint. It
 	// reports false with a nil error when no agent owned by this installation
-	// listens there.
-	restartProfile func(ctx context.Context, executable string, agent profileAgent, endpoint netip.AddrPort) (bool, error)
+	// listens there. check is applied to the agent's captured launch
+	// environment before anything is stopped; a rejection is an error
+	// wrapping brewrestart.ErrReplacementRefused, with the agent still
+	// running.
+	restartProfile func(ctx context.Context, executable string, agent profileAgent, endpoint netip.AddrPort, check brewrestart.ReplacementCheck) (bool, error)
 	// restartAddress restarts the agent listening at endpoint and waits for
-	// its replacement to listen there; used for the legacy address and
-	// --address.
-	restartAddress func(ctx context.Context, executable string, endpoint netip.AddrPort) (bool, error)
+	// its replacement to listen there; used for the legacy address and an
+	// --address that names no registered profile agent. check is as for
+	// restartProfile.
+	restartAddress func(ctx context.Context, executable string, endpoint netip.AddrPort, check brewrestart.ReplacementCheck) (bool, error)
 	// relaunchModelHost replaces a running shared model host; see
 	// relaunchModelHostIn.
 	relaunchModelHost func(ctx context.Context, executable string) (bool, error)
@@ -85,10 +90,12 @@ func runUpgradeRestart(args []string) int {
 			return filepath.EvalSymlinks(path)
 		},
 		profileAgents: runningProfileAgents,
-		restartProfile: func(ctx context.Context, executable string, a profileAgent, endpoint netip.AddrPort) (bool, error) {
-			return brewrestart.RestartInstalledReady(ctx, executable, endpoint, profileAgentRegistered(a.Profile, a.Dir))
+		restartProfile: func(ctx context.Context, executable string, a profileAgent, endpoint netip.AddrPort, check brewrestart.ReplacementCheck) (bool, error) {
+			return brewrestart.RestartInstalledChecked(ctx, executable, endpoint, profileAgentRegistered(a.Profile, a.Dir), check)
 		},
-		restartAddress:    brewrestart.RestartInstalled,
+		restartAddress: func(ctx context.Context, executable string, endpoint netip.AddrPort, check brewrestart.ReplacementCheck) (bool, error) {
+			return brewrestart.RestartInstalledChecked(ctx, executable, endpoint, nil, check)
+		},
 		relaunchModelHost: relaunch,
 	})
 }
@@ -172,13 +179,21 @@ const upgradeRestartFailureAdvice = "The update may already be installed. Check 
 // installation, one at a time, each under its profile's launch lock and with
 // its own --timeout deadline. When no profile agent is running it restarts a
 // pre-profile agent on the legacy address instead (the relaunched agent
-// migrates on startup); --address restarts only the agent there. A failure
-// is reported and the remaining agents are still restarted. With per-profile
-// agent hosts off, a named profile's running agent is a leftover from a
-// flag-on run and is left running, not restarted (see
-// paths.PerProfileAgentsEnv). Then a running
-// shared model host is replaced once, unless every attempted restart failed.
-// The exit code is 1 when any restart failed.
+// migrates on startup). --address restarts only the agent there: as that
+// profile's agent when a profile's registry record names the address, else as
+// at the legacy address. A failure is reported and the remaining agents are
+// still restarted.
+//
+// A replacement is launched with the old agent's own captured launch
+// environment, not this command's, so whether it would serve is decided from
+// that environment before anything is stopped (see replacementCheck): an agent
+// whose replacement would refuse its profile — a named profile's agent started
+// without per-profile agent hosts on, such as one from a build that predates
+// paths.PerProfileAgentsEnv — is left running and reported, and does not count
+// as a failure. This command's own setting of the flag plays no part.
+//
+// Then a running shared model host is replaced once, unless every attempted
+// restart failed. The exit code is 1 when any restart failed.
 func upgradeRestartCommand(args []string, out io.Writer, deps upgradeRestartDeps) int {
 	flags := flag.NewFlagSet("restart-after-upgrade", flag.ContinueOnError)
 	flags.SetOutput(out)
@@ -199,7 +214,26 @@ func upgradeRestartCommand(args []string, out io.Writer, deps upgradeRestartDeps
 		return 2
 	}
 	var agents []profileAgent
-	if *address == "" {
+	var endpoint netip.AddrPort
+	if *address != "" {
+		var err error
+		if endpoint, err = loopbackEndpoint(*address); err != nil {
+			fmt.Fprintln(out, "Restart requires a numeric loopback address and nonzero port.")
+			return 2
+		}
+		// A profile agent named by the address is restarted as that profile's
+		// agent: under its launch lock and confirmed through its registry
+		// record, since a named profile's replacement listens on a new
+		// ephemeral port. Unlisted, it is restarted as an address.
+		if listed, err := deps.profileAgents(); err == nil {
+			for _, a := range listed {
+				if recorded, err := loopbackEndpoint(a.Record.Addr); err == nil && recorded == endpoint {
+					agents = []profileAgent{a}
+					break
+				}
+			}
+		}
+	} else {
 		var err error
 		agents, err = deps.profileAgents()
 		if err != nil {
@@ -212,15 +246,10 @@ func upgradeRestartCommand(args []string, out io.Writer, deps upgradeRestartDeps
 				fmt.Fprintln(out, "Cannot load agent configuration; no restart attempted.")
 				return 1
 			}
-			*address = "127.0.0.1:" + port
-		}
-	}
-	var endpoint netip.AddrPort
-	if len(agents) == 0 {
-		var err error
-		if endpoint, err = loopbackEndpoint(*address); err != nil {
-			fmt.Fprintln(out, "Restart requires a numeric loopback address and nonzero port.")
-			return 2
+			if endpoint, err = loopbackEndpoint("127.0.0.1:" + port); err != nil {
+				fmt.Fprintln(out, "Restart requires a numeric loopback address and nonzero port.")
+				return 2
+			}
 		}
 	}
 	path, err := deps.executable()
@@ -229,12 +258,16 @@ func upgradeRestartCommand(args []string, out io.Writer, deps upgradeRestartDeps
 		return 1
 	}
 
-	restarted, failed := 0, 0
+	restarted, failed, left := 0, 0, 0
 	if len(agents) == 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-		ok, err := deps.restartAddress(ctx, path, endpoint)
+		ok, err := deps.restartAddress(ctx, path, endpoint, replacementCheck(""))
 		cancel()
+		var refusal *replacementRefusal
 		switch {
+		case errors.Is(err, brewrestart.ErrReplacementRefused) && errors.As(err, &refusal):
+			left++
+			fmt.Fprintf(out, "Left the agent at %s running: %v.\n", endpoint, refusal)
 		case err != nil:
 			failed++
 			fmt.Fprintf(out, "Upgrade restart failed: %v\n", err)
@@ -243,16 +276,12 @@ func upgradeRestartCommand(args []string, out io.Writer, deps upgradeRestartDeps
 		}
 	}
 	for _, a := range agents {
-		// With per-profile agent hosts off, a named profile's running agent
-		// is a leftover from a flag-on run: the installed binary refuses to
-		// serve it, so restarting would stop the old agent and fail to bring
-		// up a replacement. Leave it running instead.
-		if a.Profile != paths.DefaultProfile && !paths.PerProfileAgents() {
-			fmt.Fprintf(out, "Left the agent for profile %q running: per-profile agent hosts are off; set %s=1 and restart to replace it.\n", a.Profile, paths.PerProfileAgentsEnv)
-			continue
-		}
 		ok, err := restartProfileAgent(deps, path, a, *timeout)
+		var refusal *replacementRefusal
 		switch {
+		case errors.Is(err, brewrestart.ErrReplacementRefused) && errors.As(err, &refusal):
+			left++
+			fmt.Fprintf(out, "Left the agent for profile %q running: %v.\n", a.Profile, refusal)
 		case err != nil:
 			failed++
 			fmt.Fprintf(out, "Upgrade restart failed for profile %q: %v\n", a.Profile, err)
@@ -288,7 +317,7 @@ func upgradeRestartCommand(args []string, out io.Writer, deps upgradeRestartDeps
 		fmt.Fprintln(out, "Running agent restarted using the installed binary.")
 	case restarted > 1:
 		fmt.Fprintf(out, "%d running agents restarted using the installed binary.\n", restarted)
-	case failed == 0:
+	case failed == 0 && left == 0:
 		fmt.Fprintln(out, "No running agent owned by this installation; nothing started.")
 	}
 	if failed > 0 {
@@ -320,7 +349,47 @@ func restartProfileAgent(deps upgradeRestartDeps, path string, a profileAgent, t
 	defer release()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return deps.restartProfile(ctx, path, a, endpoint)
+	return deps.restartProfile(ctx, path, a, endpoint, replacementCheck(a.Profile))
+}
+
+// replacementRefusal is why replacementCheck rejected a launch environment.
+type replacementRefusal struct{ reason string }
+
+func (r *replacementRefusal) Error() string { return r.reason }
+
+// replacementCheck returns the check restart-after-upgrade applies to a
+// running agent's captured launch environment, which its replacement
+// inherits unchanged: the installed binary must serve the profile that
+// environment selects (CERCANO_PROFILE, default when unset or empty) — want,
+// when the agent is known to be that profile's — and a profile other than
+// default needs per-profile agent hosts turned on in that same environment
+// (paths.PerProfileAgentsEnv), or the replacement would refuse it at startup.
+func replacementCheck(want string) brewrestart.ReplacementCheck {
+	return func(env []string) error {
+		profile, err := paths.ProfileValue(launchEnvValue(env, "CERCANO_PROFILE"))
+		if err != nil {
+			return &replacementRefusal{fmt.Sprintf("its launch environment sets CERCANO_PROFILE to %v", err)}
+		}
+		if want != "" && profile != want {
+			return &replacementRefusal{fmt.Sprintf("its launch environment selects profile %q, not %q", profile, want)}
+		}
+		if profile != paths.DefaultProfile && !paths.PerProfileAgentsValue(launchEnvValue(env, paths.PerProfileAgentsEnv)) {
+			return &replacementRefusal{fmt.Sprintf("it was started without %[1]s=1, which this version needs to serve profile %[2]q; stop it and start it again with %[1]s=1 to run this version", paths.PerProfileAgentsEnv, profile)}
+		}
+		return nil
+	}
+}
+
+// launchEnvValue is key's value in env as a replacement started with env
+// sees it: os/exec keeps the last of duplicate entries.
+func launchEnvValue(env []string, key string) string {
+	value := ""
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			value = v
+		}
+	}
+	return value
 }
 
 // loopbackEndpoint parses a numeric loopback address with a nonzero port.
