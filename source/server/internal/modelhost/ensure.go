@@ -36,6 +36,8 @@ var ErrNewerModelHost = errors.New("model host is newer than this client")
 
 // EnsureOptions configures Ensure.
 type EnsureOptions struct {
+	// CoexistenceProtection prohibits replacement and shared runtime mutation.
+	CoexistenceProtection bool
 	// RunDir holds the host record and launch lock. Default RunDir().
 	RunDir string
 	// ClientVersion is sent in Hello.
@@ -219,10 +221,12 @@ func Ensure(ctx context.Context, opts EnsureOptions) (Record, error) {
 	if timeout <= 0 {
 		timeout = defaultEnsureTimeout
 	}
-	if err := ensureRunDir(dir); err != nil {
-		return Record{}, err
-	}
+	if !opts.CoexistenceProtection {
+		if err := ensureRunDir(dir); err != nil {
+			return Record{}, err
+		}
 
+	}
 	rec, st, conn, err := probe(ctx, dir, opts.ClientVersion)
 	switch st {
 	case live:
@@ -230,11 +234,18 @@ func Ensure(ctx context.Context, opts EnsureOptions) (Record, error) {
 	case newer:
 		return Record{}, err
 	case older:
+		if opts.CoexistenceProtection {
+			conn.Close()
+			return Record{}, ErrCoexistenceProtected
+		}
 		if opts.Launch == nil {
 			conn.Close()
 			return Record{}, errors.New("incompatible model host running and no launcher configured")
 		}
 		replaceOlder(ctx, dir, rec, conn, opts.ClientVersion)
+	}
+	if opts.CoexistenceProtection {
+		return Record{}, ErrCoexistenceProtected
 	}
 	if opts.Launch == nil {
 		return Record{}, errors.New("model host is not running and no launcher is configured")

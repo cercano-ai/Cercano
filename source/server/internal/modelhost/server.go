@@ -41,6 +41,8 @@ const streamBuffer = 128
 
 // ServerOptions configures a Server.
 type ServerOptions struct {
+	// CoexistenceProtection forbids shared runtime mutations for this server lifetime.
+	CoexistenceProtection bool
 	// Token is the shared secret every RPC must present in metadata.
 	Token string
 	// IdleTimeout is how long the server tolerates having no attached stream
@@ -180,7 +182,7 @@ func (s *Server) Run(ctx context.Context) {
 // attached for IdleTimeout. It does nothing once the server is draining: a
 // Shutdown already stopped everything and ended the server.
 func (s *Server) checkIdle(ctx context.Context) {
-	if s.draining.Load() {
+	if s.opts.CoexistenceProtection || s.draining.Load() {
 		return
 	}
 	s.mu.Lock()
@@ -209,6 +211,9 @@ func (s *Server) checkIdle(ctx context.Context) {
 // completes. StopAll takes each instance's model lock while stopping it, but
 // never waits behind another model's in-flight Start.
 func (s *Server) StopAll(ctx context.Context) error {
+	if s.protected(ctx) {
+		return ErrCoexistenceProtected
+	}
 	s.draining.Store(true)
 	instances, err := s.mgr.Instances(ctx)
 	if err != nil {
@@ -377,6 +382,9 @@ func (s *Server) Hello(_ context.Context, req *proto.HelloRequest) (*proto.Hello
 
 // Shutdown stops all instances, then calls OnShutdown.
 func (s *Server) Shutdown(ctx context.Context, _ *proto.ShutdownRequest) (*proto.ShutdownResponse, error) {
+	if s.protected(ctx) {
+		return nil, ErrCoexistenceProtected
+	}
 	if err := s.authorize(ctx); err != nil {
 		return nil, err
 	}
@@ -473,6 +481,10 @@ func (s *Server) releaseClient(clientID string) {
 				s.mu.Unlock()
 				return
 			}
+			if !s.holds.has(clientID, id) {
+				s.mu.Unlock()
+				return
+			}
 			remaining := s.holds.remove(clientID, id)
 			s.mu.Unlock()
 			if remaining > 0 {
@@ -488,6 +500,9 @@ func (s *Server) releaseClient(clientID string) {
 // releaseLocked removes clientID's hold on id and stops the instance when no
 // holds remain. The instance's model lock must be held.
 func (s *Server) releaseLocked(ctx context.Context, clientID, id string) error {
+	if !s.holds.has(clientID, id) {
+		return nil
+	}
 	if s.holds.remove(clientID, id) > 0 {
 		return nil
 	}
@@ -580,6 +595,9 @@ func encode(v any) (string, error) {
 }
 
 func (s *Server) dispatch(ctx context.Context, clientID, method string, payload []byte) (string, error) {
+	if s.protected(ctx) && disruptiveMethod(method) {
+		return "", ErrCoexistenceProtected
+	}
 	switch method {
 	case "Providers":
 		return encode(s.mgr.Providers())
@@ -719,11 +737,14 @@ func (s *Server) start(ctx context.Context, clientID string, req localruntime.St
 		if liveInstance(inst) && inst.Runtime == req.Runtime &&
 			(inst.ModelID == canon || inst.ModelID == req.ModelID) {
 			inst := inst
-			if err := s.acquire(clientID, generation, &inst, true); err != nil {
+			if err := s.acquire(ctx, clientID, generation, &inst, true); err != nil {
 				return nil, err
 			}
 			return &inst, nil
 		}
+	}
+	if s.protected(ctx) {
+		return nil, ErrCoexistenceProtected
 	}
 	inst, err := s.mgr.Start(ctx, req)
 	if s.draining.Load() {
@@ -736,7 +757,7 @@ func (s *Server) start(ctx context.Context, clientID string, req localruntime.St
 	if err != nil {
 		return nil, err
 	}
-	if err := s.acquire(clientID, generation, inst, true); err != nil {
+	if err := s.acquire(ctx, clientID, generation, inst, true); err != nil {
 		return nil, err
 	}
 	return inst, nil
@@ -756,7 +777,7 @@ var errUnattached = status.Error(codes.FailedPrecondition, "an active Attach str
 
 // acquire is called under the model lock. Validation and insertion are atomic
 // with stream removal, so disconnect either sees the hold or invalidates it.
-func (s *Server) acquire(clientID string, generation uint64, inst *localruntime.InstanceRecord, add bool) error {
+func (s *Server) acquire(ctx context.Context, clientID string, generation uint64, inst *localruntime.InstanceRecord, add bool) error {
 	s.mu.Lock()
 	valid := s.clients[clientID] > 0 && s.generation[clientID] == generation
 	if valid && add {
@@ -766,7 +787,7 @@ func (s *Server) acquire(clientID string, generation uint64, inst *localruntime.
 	if valid {
 		return nil
 	}
-	if s.holds.count(inst.ID) == 0 {
+	if !s.protected(ctx) && s.holds.count(inst.ID) == 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := s.mgr.Stop(ctx, localruntime.StopRequest{InstanceID: inst.ID}); err != nil {
@@ -817,6 +838,9 @@ func (s *Server) restartTarget(ctx context.Context, req localruntime.RestartRequ
 
 // restart restarts for every holder; holds follow the instance if its ID changes.
 func (s *Server) restart(ctx context.Context, clientID string, req localruntime.RestartRequest) (*localruntime.InstanceRecord, error) {
+	if s.protected(ctx) {
+		return nil, ErrCoexistenceProtected
+	}
 	if s.draining.Load() {
 		return nil, errDraining
 	}
@@ -860,7 +884,7 @@ func (s *Server) restart(ctx context.Context, clientID string, req localruntime.
 	if found {
 		s.holds.move(target.ID, inst.ID)
 	}
-	if err := s.acquire(clientID, generation, inst, s.holds.count(inst.ID) == 0); err != nil {
+	if err := s.acquire(ctx, clientID, generation, inst, s.holds.count(inst.ID) == 0); err != nil {
 		return nil, err
 	}
 	return inst, nil

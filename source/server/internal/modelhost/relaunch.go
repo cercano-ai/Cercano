@@ -20,6 +20,8 @@ const defaultRelaunchTimeout = 10 * time.Second
 
 // RelaunchOptions configures Relaunch.
 type RelaunchOptions struct {
+	// CoexistenceProtection prohibits replacement and shared runtime mutation.
+	CoexistenceProtection bool
 	// RunDir holds the host record and launch lock. Default RunDir().
 	RunDir string
 	// ClientVersion is sent in Hello.
@@ -44,6 +46,9 @@ type RelaunchOptions struct {
 // accepts but has not exited within the timeout, the replacement is launched
 // anyway: a starting host waits for the old one to release its lock.
 func Relaunch(ctx context.Context, opts RelaunchOptions) (bool, error) {
+	if opts.CoexistenceProtection {
+		return false, ErrCoexistenceProtected
+	}
 	if opts.Launch == nil {
 		return false, errors.New("relaunch: no launcher configured")
 	}

@@ -95,3 +95,11 @@ func (h *holdTable) clear() {
 	defer h.mu.Unlock()
 	h.byInstance = map[string]map[string]struct{}{}
 }
+
+// has reports whether this client owns a hold. Lifecycle callers hold the model lock.
+func (h *holdTable) has(client, instance string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.byInstance[instance][client]
+	return ok
+}

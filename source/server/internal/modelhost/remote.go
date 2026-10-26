@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"cercano/source/server/internal/localruntime"
@@ -40,6 +41,8 @@ var errRemoteClosed = errors.New("model host client is closed")
 
 // RemoteOptions configures a Remote.
 type RemoteOptions struct {
+	// CoexistenceProtection prohibits replacement and shared runtime mutation.
+	CoexistenceProtection bool
 	// Ensure finds or launches the model host, on first connect and on every
 	// reconnect.
 	Ensure EnsureOptions
@@ -111,6 +114,8 @@ func NewRemote(ctx context.Context, opts RemoteOptions) (*Remote, error) {
 }
 
 func newRemote(ctx context.Context, opts RemoteOptions, ensure func(context.Context, EnsureOptions) (Record, error)) (*Remote, error) {
+	opts.CoexistenceProtection = opts.CoexistenceProtection || opts.Ensure.CoexistenceProtection
+	opts.Ensure.CoexistenceProtection = opts.CoexistenceProtection
 	id := opts.ClientID
 	if id == "" {
 		b := make([]byte, 16)
@@ -496,6 +501,12 @@ func (r *Remote) connLost(ctx context.Context, err error) bool {
 // the JSON response into resp (when non-nil). On a lost connection it
 // reconnects and retries once.
 func (r *Remote) call(ctx context.Context, method string, req, resp any) error {
+	if r.opts.CoexistenceProtection {
+		if disruptiveMethod(method) {
+			return ErrCoexistenceProtected
+		}
+		ctx = metadata.AppendToOutgoingContext(ctx, protectionHeader, "true")
+	}
 	var payload string
 	if req != nil {
 		b, err := json.Marshal(req)
