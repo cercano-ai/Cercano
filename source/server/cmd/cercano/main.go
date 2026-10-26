@@ -548,7 +548,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	//   2. Key already in keychain but yaml still set (previous run saved the
 	//      keychain entry but failed to blank the yaml) → blank+save only.
 	// We NEVER blank the yaml unless the key is confirmed present in the keychain.
-	if cfg.CloudAPIKey != "" && cfg.ActiveCloudProfile != "" {
+	if secrets.CheckAllowed() == nil && cfg.CloudAPIKey != "" && cfg.ActiveCloudProfile != "" {
 		if store, err := secrets.OpenKeychain(); err == nil {
 			keySafe := false
 			if _, gerr := store.Get(cfg.ActiveCloudProfile); gerr == nil {

@@ -19,6 +19,7 @@ package anthropicauth
 
 import (
 	"bytes"
+	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/accountidentity"
 	"context"
 	"crypto/rand"
@@ -229,6 +230,9 @@ func (f Flow) exchange(ctx context.Context, code, state, verifier, redirectURI s
 // refresh tokens rotate (single-use); when the response omits a new one we
 // keep the old, but normally a new refresh token replaces it.
 func (f Flow) Refresh(ctx context.Context, refreshToken string) (*TokenSet, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	ts, err := f.tokenRequest(ctx, map[string]string{
 		"grant_type":    "refresh_token",
 		"refresh_token": refreshToken,
@@ -253,6 +257,9 @@ type tokenResponse struct {
 // tokenRequest POSTs a JSON body to the token endpoint and decodes the token
 // response. Anthropic's token endpoint takes JSON (not form-encoded).
 func (f Flow) tokenRequest(ctx context.Context, body map[string]string) (*TokenSet, error) {
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err

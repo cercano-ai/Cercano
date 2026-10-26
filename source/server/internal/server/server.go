@@ -1593,6 +1593,11 @@ func (s *Server) LocusMode() string {
 // (previously atomic under one cfgMu span) — a concurrent reader can momentarily
 // observe new config with old provider wiring (documented trade-off).
 func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigRequest) (*proto.UpdateConfigResponse, error) {
+	if req.CloudApiKey != "" {
+		if err := secrets.CheckAllowed(); err != nil {
+			return nil, err
+		}
+	}
 	if req.GetCloudModel() != "" {
 		return &proto.UpdateConfigResponse{Success: false, Message: "cloud_model is retired; edit profile quality choices"}, nil
 	}

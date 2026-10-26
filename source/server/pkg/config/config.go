@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/accountidentity"
 	"fmt"
 	"log"
@@ -987,6 +988,9 @@ func finalizeModelTiers(cfg *Config) {
 // Load reads config from the given path, merges with defaults, then applies
 // environment variable overrides. Returns defaults if the file doesn't exist.
 func Load(path string) (Config, error) {
+	if err := secrets.ValidateEnvironment(); err != nil {
+		return Config{}, err
+	}
 	cfg := Defaults()
 
 	if path != "" {
@@ -1170,6 +1174,10 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("CERCANO_PORT"); v != "" {
 		cfg.Port = v
 	}
+	// Nonsecret overrides remain usable in credential-disabled installations.
+	if secrets.CheckAllowed() != nil {
+		return
+	}
 	if v := os.Getenv("GEMINI_API_KEY"); v != "" {
 		cfg.CloudAPIKey = v
 		if cfg.CloudProvider == "" {
@@ -1291,6 +1299,11 @@ func VenvPython() string {
 // split-state bug that motivated this refactor (cloud_model edited, profile
 // untouched, runtime still on the old model).
 func Save(cfg Config, path string) error {
+	if cfg.CloudAPIKey != "" {
+		if err := secrets.CheckAllowed(); err != nil {
+			return err
+		}
+	}
 	if err := cfg.LlamaServer.Validate(); err != nil {
 		return err
 	}
