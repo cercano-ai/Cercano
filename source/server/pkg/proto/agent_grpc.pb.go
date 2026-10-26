@@ -19,6 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Agent_LifecycleAcquire_FullMethodName                      = "/agent.Agent/LifecycleAcquire"
+	Agent_LifecycleRelease_FullMethodName                      = "/agent.Agent/LifecycleRelease"
+	Agent_LifecyclePrepare_FullMethodName                      = "/agent.Agent/LifecyclePrepare"
+	Agent_LifecycleValidateReceipt_FullMethodName              = "/agent.Agent/LifecycleValidateReceipt"
+	Agent_LifecycleRelinquish_FullMethodName                   = "/agent.Agent/LifecycleRelinquish"
+	Agent_LifecycleClaim_FullMethodName                        = "/agent.Agent/LifecycleClaim"
+	Agent_LifecycleList_FullMethodName                         = "/agent.Agent/LifecycleList"
+	Agent_LifecycleRetire_FullMethodName                       = "/agent.Agent/LifecycleRetire"
 	Agent_GetDevelopmentHostIdentity_FullMethodName            = "/agent.Agent/GetDevelopmentHostIdentity"
 	Agent_CheckRetainedSession_FullMethodName                  = "/agent.Agent/CheckRetainedSession"
 	Agent_GetCredentialPolicy_FullMethodName                   = "/agent.Agent/GetCredentialPolicy"
@@ -109,6 +117,14 @@ const (
 //
 // The Agent service definition.
 type AgentClient interface {
+	LifecycleAcquire(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleRelease(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecyclePrepare(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleValidateReceipt(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleClaim(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleList(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleRetire(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	// Read-only development identity checks; never attach or acquire ownership.
 	GetDevelopmentHostIdentity(ctx context.Context, in *GetDevelopmentHostIdentityRequest, opts ...grpc.CallOption) (*GetDevelopmentHostIdentityResponse, error)
 	CheckRetainedSession(ctx context.Context, in *CheckRetainedSessionRequest, opts ...grpc.CallOption) (*CheckRetainedSessionResponse, error)
@@ -358,6 +374,86 @@ type agentClient struct {
 
 func NewAgentClient(cc grpc.ClientConnInterface) AgentClient {
 	return &agentClient{cc}
+}
+
+func (c *agentClient) LifecycleAcquire(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleAcquire_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleRelease(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleRelease_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecyclePrepare(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecyclePrepare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleValidateReceipt(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleValidateReceipt_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleRelinquish_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleClaim(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleClaim_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleList(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleList_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleRetire(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleRetire_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *agentClient) GetDevelopmentHostIdentity(ctx context.Context, in *GetDevelopmentHostIdentityRequest, opts ...grpc.CallOption) (*GetDevelopmentHostIdentityResponse, error) {
@@ -1303,6 +1399,14 @@ func (c *agentClient) ExportImage(ctx context.Context, in *ExportImageRequest, o
 //
 // The Agent service definition.
 type AgentServer interface {
+	LifecycleAcquire(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleRelease(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecyclePrepare(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleValidateReceipt(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleList(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleRetire(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	// Read-only development identity checks; never attach or acquire ownership.
 	GetDevelopmentHostIdentity(context.Context, *GetDevelopmentHostIdentityRequest) (*GetDevelopmentHostIdentityResponse, error)
 	CheckRetainedSession(context.Context, *CheckRetainedSessionRequest) (*CheckRetainedSessionResponse, error)
@@ -1554,6 +1658,30 @@ type AgentServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAgentServer struct{}
 
+func (UnimplementedAgentServer) LifecycleAcquire(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleAcquire not implemented")
+}
+func (UnimplementedAgentServer) LifecycleRelease(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleRelease not implemented")
+}
+func (UnimplementedAgentServer) LifecyclePrepare(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecyclePrepare not implemented")
+}
+func (UnimplementedAgentServer) LifecycleValidateReceipt(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleValidateReceipt not implemented")
+}
+func (UnimplementedAgentServer) LifecycleRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleRelinquish not implemented")
+}
+func (UnimplementedAgentServer) LifecycleClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleClaim not implemented")
+}
+func (UnimplementedAgentServer) LifecycleList(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleList not implemented")
+}
+func (UnimplementedAgentServer) LifecycleRetire(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleRetire not implemented")
+}
 func (UnimplementedAgentServer) GetDevelopmentHostIdentity(context.Context, *GetDevelopmentHostIdentityRequest) (*GetDevelopmentHostIdentityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDevelopmentHostIdentity not implemented")
 }
@@ -1819,6 +1947,150 @@ func RegisterAgentServer(s grpc.ServiceRegistrar, srv AgentServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Agent_ServiceDesc, srv)
+}
+
+func _Agent_LifecycleAcquire_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleAcquire(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleAcquire_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleAcquire(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleRelease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleRelease(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleRelease_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleRelease(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecyclePrepare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecyclePrepare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecyclePrepare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecyclePrepare(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleValidateReceipt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleValidateReceipt(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleValidateReceipt_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleValidateReceipt(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleRelinquish_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleRelinquish(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleRelinquish_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleRelinquish(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleClaim_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleClaim(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleClaim_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleClaim(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleList(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleRetire_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleRetire(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleRetire_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleRetire(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Agent_GetDevelopmentHostIdentity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -3213,6 +3485,38 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "agent.Agent",
 	HandlerType: (*AgentServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "LifecycleAcquire",
+			Handler:    _Agent_LifecycleAcquire_Handler,
+		},
+		{
+			MethodName: "LifecycleRelease",
+			Handler:    _Agent_LifecycleRelease_Handler,
+		},
+		{
+			MethodName: "LifecyclePrepare",
+			Handler:    _Agent_LifecyclePrepare_Handler,
+		},
+		{
+			MethodName: "LifecycleValidateReceipt",
+			Handler:    _Agent_LifecycleValidateReceipt_Handler,
+		},
+		{
+			MethodName: "LifecycleRelinquish",
+			Handler:    _Agent_LifecycleRelinquish_Handler,
+		},
+		{
+			MethodName: "LifecycleClaim",
+			Handler:    _Agent_LifecycleClaim_Handler,
+		},
+		{
+			MethodName: "LifecycleList",
+			Handler:    _Agent_LifecycleList_Handler,
+		},
+		{
+			MethodName: "LifecycleRetire",
+			Handler:    _Agent_LifecycleRetire_Handler,
+		},
 		{
 			MethodName: "GetDevelopmentHostIdentity",
 			Handler:    _Agent_GetDevelopmentHostIdentity_Handler,

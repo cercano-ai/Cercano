@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"google.golang.org/grpc"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -17,8 +20,11 @@ import (
 // client's runtime participation, never Shutdown, StopAll, or restart a backend.
 type CoexistenceOptions struct {
 	StorePath, Build, Host string
-	Contract               conversation.CoexistenceDeclaration
-	CloseParticipation     func(context.Context) error
+	// Controls remain disabled unless startup explicitly supplies authenticated authorization and peer dialing.
+	ControlAuthorize   func(context.Context) error
+	ControlDial        func(context.Context, string) (*grpc.ClientConn, error)
+	Contract           conversation.CoexistenceDeclaration
+	CloseParticipation func(context.Context) error
 	// Reload must inspect durable pending outcomes without replaying live work.
 	Reload func(context.Context, conversation.Store, *conversation.Ownership) error
 	// Cleanup finishes source callbacks after durable relinquishment and unlock.
@@ -149,6 +155,7 @@ func (s *Server) AdmitRetainedWork(o broker.Owner, k broker.WorkKind) (*broker.W
 type IncomingAcceptance struct {
 	destination *coexistenceLifecycle
 	sourceBuild string
+	receipt     string
 	h           broker.IncomingHandover
 }
 
@@ -163,13 +170,20 @@ func (s *Server) AcceptIncoming(source broker.Owner, id string, peerBuild string
 		return nil, fmt.Errorf("incompatible or identical peer")
 	}
 	h := broker.IncomingHandover{Conversation: source.Conversation, SourceHost: source.Host, SourceEpoch: source.Epoch, HandoverID: id, DestinationHost: l.options.Host}
+	var token [32]byte
+	if _, e = rand.Read(token[:]); e != nil {
+		return nil, e
+	}
 	if e = l.admission.AcceptIncoming(h); e != nil {
 		return nil, e
 	}
 	if a := l.incoming[h]; a != nil {
+		if a.sourceBuild != peerBuild {
+			return nil, broker.ErrAdmissionStale
+		}
 		return a, nil
 	}
-	a := &IncomingAcceptance{destination: l, sourceBuild: peerBuild, h: h}
+	a := &IncomingAcceptance{receipt: hex.EncodeToString(token[:]), destination: l, sourceBuild: peerBuild, h: h}
 	l.incoming[h] = a
 	return a, nil
 }
@@ -198,19 +212,35 @@ func (s *Server) relinquish(ctx context.Context, o broker.Owner, requester *brok
 	if a != nil && (a.destination == nil || a.destination.options.StorePath != l.options.StorePath || a.sourceBuild != l.options.Build || a.destination.options.Contract != l.options.Contract || a.h.SourceHost != o.Host || a.h.SourceEpoch != o.Epoch || a.h.Conversation != o.Conversation) {
 		return broker.ErrAdmissionStale
 	}
+	var h *broker.IncomingHandover
+	if a != nil {
+		h = &a.h
+	}
+	return l.relinquishLocked(ctx, o, requester, nil, h)
+}
+func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Owner, requester *broker.Attachment, terminal *string, h *broker.IncomingHandover) error {
+	cap := l.owners[o.Conversation]
+	if cap == nil || ownerOf(cap) != o {
+		return broker.ErrAdmissionStale
+	}
 	t, e := l.admission.AdmitHostWork(broker.PersistenceWork)
 	if e != nil {
 		return e
 	}
-	c, e := l.admission.CloseOwner(o, requester)
+	var c *broker.Closure
+	if terminal != nil {
+		c, e = l.admission.CloseTerminal(o, *terminal)
+	} else {
+		c, e = l.admission.CloseOwner(o, requester)
+	}
 	if e != nil {
 		_ = t.Complete()
 		return e
 	}
-	if a == nil {
+	if h == nil {
 		e = cap.Release(ctx)
 	} else {
-		e = cap.ReserveHandover(ctx, a.h.DestinationHost, a.h.HandoverID)
+		e = cap.ReserveHandover(ctx, h.DestinationHost, h.HandoverID)
 	}
 	// Conservatively leave closure and ticket unresolved on ANY persistence/unlock
 	// error. No automatic reopen, unlock, timeout reassignment or recovery.

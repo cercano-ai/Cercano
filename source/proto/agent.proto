@@ -6,6 +6,15 @@ option go_package = "cercano/source/server/pkg/proto";
 
 // The Agent service definition.
 service Agent {
+  rpc LifecycleAcquire (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecycleRelease (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecyclePrepare (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecycleValidateReceipt (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecycleRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecycleClaim (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecycleList (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecycleRetire (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+
   // Read-only development identity checks; never attach or acquire ownership.
   rpc GetDevelopmentHostIdentity (GetDevelopmentHostIdentityRequest) returns (GetDevelopmentHostIdentityResponse) {}
   rpc CheckRetainedSession (CheckRetainedSessionRequest) returns (CheckRetainedSessionResponse) {}
@@ -2717,4 +2726,37 @@ enum RetainedSessionState {
 }
 message CheckRetainedSessionResponse {
   RetainedSessionState state = 1;
+}
+
+// Explicit selected identities; never discovery or launch hints.
+message LifecycleIdentity {
+ string host = 1;
+ string build = 2;
+ string contract = 3;
+ int32 schema = 4;
+ string store = 5;
+}
+message LifecycleOwner { string conversation = 1; string host = 2; string epoch = 3; }
+message LifecycleControlRequest {
+ LifecycleIdentity target = 1;
+ LifecycleIdentity source = 2;
+ LifecycleOwner owner = 3;
+ string handover_id = 4;
+ string destination_endpoint = 5;
+ LifecycleIdentity destination = 6;
+ string receipt = 7;
+ bool management = 8;
+}
+message LifecycleControlResponse {
+ LifecycleIdentity identity = 1;
+ LifecycleOwner owner = 2;
+ string receipt = 3;
+ bool pending = 4;
+ repeated LifecycleOwner retained = 5;
+ // True only after the atomic Retire reservation succeeds. List is a
+ // conservative snapshot, not a promise that retirement will succeed.
+ bool ready = 6;
+ // Per-owner admission readiness, not global retirement permission.
+ repeated LifecycleOwner open_owners = 7;
+ uint32 pending_incoming = 8;
 }
