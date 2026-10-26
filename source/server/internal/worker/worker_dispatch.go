@@ -75,6 +75,16 @@ func buildWorkerToolSvcWithDiagnostic(
 	attachments capabilities.AttachmentLookup,
 	failures *failurelog.Writer, diagnostic reasoningexperiment.Service, autonomy conversation.AutonomyLedger, candidates func() inference.Tiers, sessionModel chatroute.Control, tasks capabilities.Tasks, restart ...runtimeRestartFunc,
 ) runner.ToolSvc {
+	return buildWorkerToolSvcWithSecrets(permBroker, engine, ctxLoader, cloud, open, cfg, subPersist, enterProfile, vision, attachments, failures, diagnostic, autonomy, candidates, sessionModel, tasks, openWorkerSecrets, restart...)
+}
+
+func buildWorkerToolSvcWithSecrets(
+	permBroker permissions.Broker, engine *dispatch.Engine, ctxLoader *projectctx.Loader,
+	cloud, open inference.Provider, cfg pkgcfg.Config, subPersist *streamSubagentPersist,
+	enterProfile func(context.Context, string) error, vision capabilities.VisionService,
+	attachments capabilities.AttachmentLookup,
+	failures *failurelog.Writer, diagnostic reasoningexperiment.Service, autonomy conversation.AutonomyLedger, candidates func() inference.Tiers, sessionModel chatroute.Control, tasks capabilities.Tasks, openSecrets func() capabilities.SecretStore, restart ...runtimeRestartFunc,
+) runner.ToolSvc {
 	var runDiagnostic func(context.Context, reasoningexperiment.Spec) (reasoningexperiment.Report, error)
 	if diagnostic != nil {
 		runDiagnostic = diagnostic.RunReasoningDiagnostic
@@ -119,7 +129,7 @@ func buildWorkerToolSvcWithDiagnostic(
 		// keychain. The worker is a same-machine child process, so it opens its
 		// own keychain handle (nil on headless systems — the capability errors
 		// clearly rather than sending an anonymous request).
-		Secrets: openWorkerSecrets(),
+		Secrets: openSecrets(),
 		EnterProfile: func(convID, name string) error {
 			if enterProfile == nil {
 				return fmt.Errorf("session profile control not configured")

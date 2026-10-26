@@ -1,6 +1,9 @@
 package worker
 
 import (
+	"cercano/source/server/internal/capabilities"
+	"cercano/source/server/internal/credentialtest"
+	"cercano/source/server/internal/secrets"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +19,7 @@ import (
 )
 
 func TestWorkerReasoningDiagnosticAuthenticatedNoFallback(t *testing.T) {
+	credentialtest.Enable(t)
 	var calls, backupCalls atomic.Int32
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -44,7 +48,7 @@ func TestWorkerReasoningDiagnosticAuthenticatedNoFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	zero := 0.0
-	toolSvc := buildWorkerToolSvcWithDiagnostic(nil, nil, nil, resolver.Cloud(), resolver.Open(), c, nil, nil, nil, nil, nil, resolver.(reasoningexperiment.Service), nil, resolver.Candidates, nil, nil)
+	toolSvc := buildWorkerToolSvcWithSecrets(nil, nil, nil, resolver.Cloud(), resolver.Open(), c, nil, nil, nil, nil, nil, resolver.(reasoningexperiment.Service), nil, resolver.Candidates, nil, nil, func() capabilities.SecretStore { return secrets.NewMemory() })
 	run := toolSvc.(toolssvc.Catalog).CapRegistry().Services().ReasoningDiagnostic
 	if run == nil {
 		t.Fatal("worker capability stack dropped diagnostic service")

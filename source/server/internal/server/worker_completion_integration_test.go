@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 )
 
 func TestDisconnectedCompletionUsesWorkerMainAndPublishesReply(t *testing.T) {
+	credentialtest.Enable(t)
 	var calls atomic.Int32
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -49,7 +51,7 @@ func TestDisconnectedCompletionUsesWorkerMainAndPublishesReply(t *testing.T) {
 	}
 	listener := bufconn.Listen(1 << 20)
 	workerServer := grpc.NewServer()
-	proto.RegisterWorkerServer(workerServer, worker.New())
+	proto.RegisterWorkerServer(workerServer, worker.NewWithSecretStore(secret))
 	go workerServer.Serve(listener)
 	defer workerServer.Stop()
 	dial := func(ctx context.Context) (*grpc.ClientConn, error) {

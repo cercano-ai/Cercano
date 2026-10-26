@@ -76,11 +76,24 @@ type WorkerServer struct {
 	// toolsFactory overrides tool registry construction for tests.
 	// When nil, the production path installs the full capability registry.
 	toolsFactory func(*proto.StartTurn) (runner.ToolSvc, error)
+
+	// Per-instance test dependency; nil preserves the production keychain opener.
+	secretOpener func() capabilities.SecretStore
 }
 
 // New creates the server for a dedicated worker process. Its first managed turn
 // also installs a process guard, so losing turn context cannot bypass policy.
 func New() *WorkerServer { return &WorkerServer{processGuard: true} }
+
+// NewWithSecretStore creates an in-process worker with an explicitly supplied
+// capability credential store. It retains the full production tool stack, but
+// cannot fall back to native credentials, even when the store returns errors.
+func NewWithSecretStore(store capabilities.SecretStore) *WorkerServer {
+	if store == nil {
+		panic("worker: injected secret store must not be nil")
+	}
+	return &WorkerServer{secretOpener: func() capabilities.SecretStore { return store }}
+}
 
 // NewWithFactories creates a WorkerServer with injected factories for testing.
 func NewWithFactories(
@@ -550,7 +563,11 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 		if visionStore != nil {
 			workerAttachments = visionStore
 		}
-		toolSvc = buildWorkerToolSvcWithDiagnostic(permBroker, engine, ctxLoader, provSvc.Cloud(), provSvc.Open(), cfg, subPersist, profileCtl.SetProfile, visionSvc, workerAttachments, failureLog, diagnostic, autonomy, provSvc.Candidates, sessionModel, tasks, restart...)
+		openSecrets := w.secretOpener
+		if openSecrets == nil {
+			openSecrets = openWorkerSecrets
+		}
+		toolSvc = buildWorkerToolSvcWithSecrets(permBroker, engine, ctxLoader, provSvc.Cloud(), provSvc.Open(), cfg, subPersist, profileCtl.SetProfile, visionSvc, workerAttachments, failureLog, diagnostic, autonomy, provSvc.Candidates, sessionModel, tasks, openSecrets, restart...)
 	}
 
 	configureDevHostFixtureTasks(toolSvc, tasks)

@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -32,6 +33,7 @@ type launchLinkSink struct{ events []runner.Event }
 func (s *launchLinkSink) Emit(e runner.Event) { s.events = append(s.events, e) }
 
 func TestPublicWorkerDispatchReturnsBeforeChildFinishes(t *testing.T) {
+	credentialtest.Enable(t)
 	var calls atomic.Int32
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -53,7 +55,7 @@ func TestPublicWorkerDispatchReturnsBeforeChildFinishes(t *testing.T) {
 	_ = secret.Set("normal", "fixture-key")
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	proto.RegisterWorkerServer(server, New())
+	proto.RegisterWorkerServer(server, NewWithSecretStore(secret))
 	go server.Serve(listener)
 	defer server.Stop()
 	dial := func(ctx context.Context) (*grpc.ClientConn, error) {

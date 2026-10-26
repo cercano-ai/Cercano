@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 )
 
 func TestSuggestPlan_WorkerLiveProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, scenario := range []string{"already", "external", "same_batch", "consecutive"} {
 		t.Run(scenario, func(t *testing.T) {
 			var mu sync.Mutex
@@ -72,7 +74,7 @@ func TestSuggestPlan_WorkerLiveProfile(t *testing.T) {
 			_ = secret.Set("deepinfra", "deepinfra-key")
 			listener := bufconn.Listen(1 << 20)
 			server := grpc.NewServer()
-			proto.RegisterWorkerServer(server, New())
+			proto.RegisterWorkerServer(server, NewWithSecretStore(secret))
 			go server.Serve(listener)
 			defer server.Stop()
 			dial := func(ctx context.Context) (*grpc.ClientConn, error) {

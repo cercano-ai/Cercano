@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 )
 
 func TestSessionModelWorkerNextTurnAndToolControl(t *testing.T) {
+	credentialtest.Enable(t)
 	var mu sync.Mutex
 	var models, keys []string
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +66,7 @@ func TestSessionModelWorkerNextTurnAndToolControl(t *testing.T) {
 	_ = secret.Set("deepinfra", "deepinfra-key")
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	proto.RegisterWorkerServer(server, New())
+	proto.RegisterWorkerServer(server, NewWithSecretStore(secret))
 	go server.Serve(listener)
 	defer server.Stop()
 	dial := func(ctx context.Context) (*grpc.ClientConn, error) {
