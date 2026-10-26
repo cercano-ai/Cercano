@@ -8,6 +8,7 @@ import (
 	"cercano/source/server/internal/reasoningexperiment"
 	"cercano/source/server/internal/visioninspect"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
@@ -47,6 +48,7 @@ import (
 	proto "cercano/source/server/pkg/proto"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -264,6 +266,18 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 		sndr.close()
 		cancel() // returning finalizes the stream; the recv goroutine unwinds on the Recv error
 		return status.Errorf(codes.Internal, "worker: build deps: %v", buildErr)
+	}
+
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if values := md.Get("cercano-initial-profile"); len(values) != 0 {
+			var profile agent.Profile
+			if len(values) != 1 || json.Unmarshal([]byte(values[0]), &profile) != nil {
+				sndr.close()
+				cancel()
+				return status.Error(codes.InvalidArgument, "worker: invalid initial capability profile")
+			}
+			deps.Profiles = func(string) agent.Profile { return profile }
+		}
 	}
 
 	if closer, ok := deps.VisionStore.(interface{ Close() error }); ok {

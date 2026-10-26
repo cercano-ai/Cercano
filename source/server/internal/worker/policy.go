@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,7 +25,26 @@ type SpawnOptions struct {
 
 // SpawnPolicy is immutable after construction. Its zero value preserves legacy
 // binary lookup and resource behavior. Copying a policy does not change identity.
-type SpawnPolicy struct{ binary, manifest, generation, dir string }
+type SpawnPolicy struct {
+	binary, manifest, generation, dir string
+	binaryDigest, manifestDigest      [sha256.Size]byte
+	pinned                            bool
+}
+
+func generationDigest(path string) ([sha256.Size]byte, error) {
+	var digest [sha256.Size]byte
+	f, err := os.Open(path)
+	if err != nil {
+		return digest, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return digest, err
+	}
+	copy(digest[:], h.Sum(nil))
+	return digest, nil
+}
 
 func NewSpawnPolicy(o SpawnOptions) (SpawnPolicy, error) {
 	if o.HostInstance == "" || !filepath.IsAbs(o.GenerationDir) || !filepath.IsAbs(o.ManifestPath) || !filepath.IsAbs(o.ResourceRoot) {
@@ -53,6 +73,15 @@ func NewSpawnPolicy(o SpawnOptions) (SpawnPolicy, error) {
 	if err := p.validate(); err != nil {
 		return SpawnPolicy{}, err
 	}
+	// Pin contents as well as paths. A later spawn must not adopt a replaced
+	// executable or manifest at the selected immutable generation path.
+	if p.binaryDigest, err = generationDigest(p.binary); err != nil {
+		return SpawnPolicy{}, err
+	}
+	if p.manifestDigest, err = generationDigest(p.manifest); err != nil {
+		return SpawnPolicy{}, err
+	}
+	p.pinned = true
 	// Refuse reuse, including symlinks. Never adopt resources from an old host.
 	if err := os.Mkdir(p.dir, 0700); err != nil {
 		return SpawnPolicy{}, fmt.Errorf("worker policy: reserve host namespace: %w", err)
@@ -102,6 +131,17 @@ func (p SpawnPolicy) workerBinary() (string, error) {
 	}
 	if err := p.validate(); err != nil {
 		return "", err
+	}
+	if p.pinned {
+		for path, expected := range map[string][sha256.Size]byte{p.binary: p.binaryDigest, p.manifest: p.manifestDigest} {
+			actual, err := generationDigest(path)
+			if err != nil {
+				return "", err
+			}
+			if actual != expected {
+				return "", fmt.Errorf("worker policy: generation contents changed: %s", path)
+			}
+		}
 	}
 	return p.binary, nil
 }

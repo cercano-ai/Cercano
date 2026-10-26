@@ -39,6 +39,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"cercano/source/server/internal/agent"
@@ -705,6 +706,16 @@ func (w *workerRunner) RunTurn(
 			a.Source = "main"
 		}
 		startTurn.Accounting = &proto.AccountingWork{OperationId: a.OperationID, ConversationId: req.ConversationID, SessionId: a.SessionID, Source: a.Source}
+	}
+
+	// Carry the initial capability fence separately from permission mode.
+	// The live profile RPC remains authoritative for subsequent profile gates.
+	if w.currentProfile != nil {
+		profileJSON, err := json.Marshal(w.currentProfile(req.ConversationID))
+		if err != nil {
+			return runner.Result{}, fmt.Errorf("worker: encode profile: %w", err)
+		}
+		ctx = metadata.AppendToOutgoingContext(ctx, "cercano-initial-profile", string(profileJSON))
 	}
 
 	// ── 6. Open bidi stream and send StartTurn ────────────────────────────
