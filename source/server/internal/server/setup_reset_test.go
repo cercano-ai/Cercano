@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"net"
 	"os"
@@ -18,6 +19,7 @@ import (
 )
 
 func TestSetupResetKeepsExistingRPCSession(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	c := config.Defaults()

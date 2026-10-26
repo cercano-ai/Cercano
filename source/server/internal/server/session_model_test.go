@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -21,6 +22,7 @@ func (r *sessionModelRunner) RunTurn(_ context.Context, req runner.Request, _ ru
 	return runner.Result{FinalText: "ok"}, nil
 }
 func TestSessionModelRPCAndTurnSnapshot(t *testing.T) {
+	credentialtest.Enable(t)
 	srv, _ := newServerWithStore(t)
 	cfg := config.Defaults()
 	cfg.CloudProfiles = []config.CloudProfile{{Name: "deepinfra", Provider: "deepinfra", Flavor: "chat_completions", Model: "default-model", BaseURL: "https://example.invalid/v1"}}

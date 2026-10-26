@@ -2,6 +2,7 @@ package worker
 
 import (
 	"cercano/source/server/internal/cloudfactory"
+	"cercano/source/server/internal/credentialtest"
 	pkgcfg "cercano/source/server/pkg/config"
 	"context"
 	"errors"
@@ -15,6 +16,7 @@ func (c *unavailableCredentials) Fetch(context.Context, string) (string, string,
 	return "", "", errors.New("login missing")
 }
 func TestSubscriptionBackupDoesNotFetchCredentialsDuringBuild(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, profile := range []pkgcfg.CloudProfile{
 		{Name: "backup", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription, Model: "claude-test", ModelPinned: true},
 		{Name: "backup", Flavor: cloudfactory.FlavorResponses, Route: cloudfactory.RouteChatGPT, Model: "gpt-test", ModelPinned: true},

@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/internal/modelevidence"
 	"cercano/source/server/internal/modelmetadata"
 	"cercano/source/server/internal/toolstack"
@@ -9,6 +10,7 @@ import (
 )
 
 func TestSubscriptionVisionSurvivesWorkerSnapshot(t *testing.T) {
+	credentialtest.Enable(t)
 	c := config.Defaults()
 	c.LocusMode = "cloud_only"
 	c.ActiveCloudProfile = "signed-in"

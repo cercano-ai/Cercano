@@ -9,6 +9,7 @@ package worker
 // own model resolution used the correct named profile — a silent divergence.
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"errors"
 	"testing"
@@ -51,6 +52,7 @@ func TestBuildWorkerProviders_SelectsActiveProfileByName(t *testing.T) {
 }
 
 func TestWorkerSnapshotKeepsPrimaryWithDeletedBackupAccounts(t *testing.T) {
+	credentialtest.Enable(t)
 	cfg := pkgcfg.Defaults()
 	cfg.LocusMode = "cloud_primary"
 	cfg.CloudProfiles = []pkgcfg.CloudProfile{{Name: "signed-in", Flavor: "responses", Route: "chatgpt"}}

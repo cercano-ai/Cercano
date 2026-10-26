@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ type anthropicCatalogTransport func(*http.Request) (*http.Response, error)
 func (f anthropicCatalogTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestListCloudProfileModels_AnthropicDefaultsAndAuth(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, route := range []string{"", "subscription"} {
 		for _, base := range []string{"", "https://custom.example"} {
 			t.Run(route+"/"+base, func(t *testing.T) {

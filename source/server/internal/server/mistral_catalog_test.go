@@ -2,6 +2,7 @@ package server
 
 import (
 	"cercano/source/server/internal/cloudfactory"
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/llm"
 	"context"
@@ -19,6 +20,7 @@ import (
 )
 
 func TestMistralServerCatalogAndKeyLifecycle(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	var chatCalls atomic.Int32
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

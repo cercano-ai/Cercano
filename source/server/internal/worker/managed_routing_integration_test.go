@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 // resilience chain and OpenAI HTTP transport. No worker log files or real keys
 // are needed. The separate stream integration tests cover host authorization RPC.
 func TestManagedWorkerProviderAssemblyUsesOnlyAdministratorFallbacks(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, revoke := range []bool{false, true} {
 		t.Run(fmt.Sprintf("revoke_before_fallback=%v", revoke), func(t *testing.T) {
 			var mu sync.Mutex
@@ -60,7 +62,7 @@ func TestManagedWorkerProviderAssemblyUsesOnlyAdministratorFallbacks(t *testing.
 			defer srv.Close()
 			// Sequential test: only trust this disposable server while building clients.
 			previous := http.DefaultTransport
-			http.DefaultTransport = srv.Client().Transport
+			http.DefaultTransport = managedFixtureTransport{base: srv.URL, next: srv.Client().Transport}
 			defer func() { http.DefaultTransport = previous }()
 			cfg := config.Defaults()
 			cfg.ActiveCloudProfile = "personal"
@@ -126,4 +128,17 @@ func TestManagedWorkerProviderAssemblyUsesOnlyAdministratorFallbacks(t *testing.
 			}
 		})
 	}
+}
+
+// Keep the TLS fixture override from bypassing credentialtest's network fence.
+type managedFixtureTransport struct {
+	base string
+	next http.RoundTripper
+}
+
+func (f managedFixtureTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Scheme+"://"+r.URL.Host != f.base {
+		return nil, fmt.Errorf("unexpected managed fixture endpoint: %s", r.URL.Host)
+	}
+	return f.next.RoundTrip(r)
 }

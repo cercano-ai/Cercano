@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 )
 
 func TestWorkerRefreshAndHostLoginShareCredentialOwner(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, profile := range []pkgcfg.CloudProfile{
 		{Name: "named", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription},
 		{Name: "named", Flavor: cloudfactory.FlavorResponses, Route: cloudfactory.RouteChatGPT},

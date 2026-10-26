@@ -19,6 +19,7 @@ package worker
 //     and the primary serves.
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"io"
 	"net/http"
@@ -69,6 +70,7 @@ func chatCompletionBody(content string) string {
 }
 
 func TestWorkerBackupFailover_WrapsCompositeAndFailsOver(t *testing.T) {
+	credentialtest.Enable(t)
 	const backupText = "served by backup"
 
 	// Primary server always 500s → triggers failover.
@@ -146,6 +148,7 @@ func TestWorkerBackupFailover_WrapsCompositeAndFailsOver(t *testing.T) {
 }
 
 func TestWorkerBackupFailover_NoBackupIsBareProvider(t *testing.T) {
+	credentialtest.Enable(t)
 	primarySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, chatCompletionBody("primary"))
 	}))

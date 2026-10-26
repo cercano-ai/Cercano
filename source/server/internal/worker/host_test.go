@@ -10,6 +10,7 @@ package worker_test
 //     host_integration_test.go (//go:build integration).
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/internal/modelmetadata"
 	"context"
 	"encoding/json"
@@ -255,6 +256,7 @@ func TestWorkerRunner_EndToEnd(t *testing.T) {
 // ─── TestWorkerRunner_CredentialResolution ────────────────────────────────────
 
 func TestWorkerRunner_CredentialResolutionStaticKey(t *testing.T) {
+	credentialtest.Enable(t)
 	const profileName = "myprofile"
 	const wantKey = "sk-test-key-xyz"
 

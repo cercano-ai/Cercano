@@ -87,3 +87,8 @@ func TestCloudSaveRPCSmokeAndErrorRetention(t *testing.T) {
 		}
 	}
 }
+
+// cloudSettingsStub uses only in-memory RPC fixtures, never host credentials.
+func (*cloudSettingsStub) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

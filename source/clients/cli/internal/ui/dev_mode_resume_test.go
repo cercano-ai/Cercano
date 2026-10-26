@@ -144,3 +144,8 @@ func TestProgressiveDevModeMetadataIgnoresStaleConversation(t *testing.T) {
 		t.Fatal("relative metadata unexpectedly enabled dev mode")
 	}
 }
+
+// persistedDevResumeServer uses only in-memory RPC fixtures, never host credentials.
+func (*persistedDevResumeServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

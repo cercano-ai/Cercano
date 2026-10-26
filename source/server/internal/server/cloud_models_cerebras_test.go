@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -33,6 +34,7 @@ func cerebrasServer(t *testing.T, cfg *Server, handler http.HandlerFunc) *httpte
 }
 
 func TestListCloudProfileModels_CerebrasParsesOpenAIShape(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	if err := s.cfgSvc.Secrets().Set("cerebras", "csk-test"); err != nil {
 		t.Fatal(err)
@@ -92,6 +94,7 @@ func TestListCloudProfileModels_CerebrasMissingKeyReturnsEndpointError(t *testin
 // The bearer token must never follow a redirect: a 302 pointing at another
 // host is refused outright and the redirect target must never be contacted.
 func TestListCloudProfileModels_CerebrasRefusesRedirect(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	if err := s.cfgSvc.Secrets().Set("cerebras", "csk-test"); err != nil {
 		t.Fatal(err)

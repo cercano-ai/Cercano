@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"fmt"
 	"net/http"
@@ -69,6 +70,7 @@ func runTestChatGPTLogin(t *testing.T, s *Server, flow chatgptauth.Flow) config.
 }
 
 func TestChatGPTLoginPreservesDistinctConfiguredTierDefaults(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	c := s.cfgSvc.Get()
 	c.ModelProfiles = config.Defaults().ModelProfiles
@@ -124,6 +126,7 @@ func TestChatGPTLoginPreservesDistinctConfiguredTierDefaults(t *testing.T) {
 }
 
 func TestChatGPTLoginDoesNotDependOnModelCatalog(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	var asked bool
 	flow := chatgptLoginFixture(t, s, func(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +145,7 @@ func TestChatGPTLoginDoesNotDependOnModelCatalog(t *testing.T) {
 }
 
 func TestChatGPTLoginActivatesWithStaleBackupReferences(t *testing.T) {
+	credentialtest.Enable(t)
 	s, router := newTestServer()
 	c := s.cfgSvc.Get()
 	c.SetPrimaryBackups([]string{"deleted-chatgpt-2", "deleted-claude"})
@@ -163,6 +167,7 @@ func TestChatGPTLoginActivatesWithStaleBackupReferences(t *testing.T) {
 }
 
 func TestChatGPTLoginWithoutSetupMakesMainProviderAvailable(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, reauthenticate := range []bool{false, true} {
 		t.Run(fmt.Sprint("reauth=", reauthenticate), func(t *testing.T) {
 			s, _ := newTestServer()
@@ -193,6 +198,7 @@ func TestChatGPTLoginWithoutSetupMakesMainProviderAvailable(t *testing.T) {
 }
 
 func TestSavingFirstCloudKeyWithoutSetupMakesMainProviderAvailable(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	c := config.Defaults()
 	c.LocusMode = "cloud_primary"
@@ -210,6 +216,7 @@ func TestSavingFirstCloudKeyWithoutSetupMakesMainProviderAvailable(t *testing.T)
 }
 
 func TestChatGPTLoginUsesConfiguredInsteadOfHardcodedTierModels(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	c := s.cfgSvc.Get()
 	c.ModelProfiles = config.Defaults().ModelProfiles
@@ -225,6 +232,7 @@ func TestChatGPTLoginUsesConfiguredInsteadOfHardcodedTierModels(t *testing.T) {
 }
 
 func TestChatGPTReauthenticationPreservesExplicitQualityOverrides(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	c := s.cfgSvc.Get()
 	c.ModelProfiles = config.Defaults().ModelProfiles

@@ -68,3 +68,8 @@ func TestSessionTierPickerRPC(t *testing.T) {
 		t.Fatal("acknowledgement not applied")
 	}
 }
+
+// sessionTierRPC uses only in-memory RPC fixtures, never host credentials.
+func (*sessionTierRPC) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

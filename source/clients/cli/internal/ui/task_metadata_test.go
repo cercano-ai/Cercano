@@ -122,3 +122,8 @@ func TestRestoreSubAgentTabsWithTaskMetadata(t *testing.T) {
 		t.Fatal("empty legacy transcript was not dismissed")
 	}
 }
+
+// taskResumeServer uses only in-memory RPC fixtures, never host credentials.
+func (*taskResumeServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

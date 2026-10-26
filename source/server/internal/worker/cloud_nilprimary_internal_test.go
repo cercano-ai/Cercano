@@ -12,6 +12,7 @@ package worker
 // backend backup.
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"io/fs"
 	"testing"
@@ -31,6 +32,7 @@ func (f *splitFetcher) Fetch(_ context.Context, name string) (string, string, er
 }
 
 func TestBuildWorkerProviders_PrimaryFetchFail_UsesConfiguredBackupWithoutNilPanic(t *testing.T) {
+	credentialtest.Enable(t)
 	cfg := pkgcfg.Config{
 		LocusMode: "cloud_primary",
 		// Pin Chat to premium: this test covers nil-primary handling, and the

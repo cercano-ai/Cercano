@@ -95,3 +95,8 @@ func TestWizardResumeDiscoversOverridesBeforeAutofill(t *testing.T) {
 		t.Fatalf("resume lost configured assignment: %q", got)
 	}
 }
+
+// wizardApplyRPCStub uses only in-memory RPC fixtures, never host credentials.
+func (*wizardApplyRPCStub) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

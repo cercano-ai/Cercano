@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -12,6 +13,7 @@ import (
 )
 
 func TestSessionTierUsesEffectiveProfileAndPersists(t *testing.T) {
+	credentialtest.Enable(t)
 	srv, _ := newServerWithStore(t)
 	cfg := config.Defaults()
 	cfg.ActiveCloudProfile = "primary"

@@ -2,6 +2,7 @@ package server
 
 import (
 	"cercano/source/server/internal/chatgptauth"
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/pkg/proto"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,7 @@ func TestLoginStageFailureSafeDiagnostics(t *testing.T) {
 }
 
 func TestChatGPTLoginReportsAuthorizationStartBoundary(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	stream := &chatgptLoginTestStream{ctx: t.Context()}
 	if err := s.runChatGPTLogin(&proto.StartChatGPTLoginRequest{}, stream, false, chatgptauth.Flow{Issuer: ":invalid"}); err != nil {

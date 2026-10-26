@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"testing"
 	"time"
@@ -66,6 +67,7 @@ func TestAuthenticationGateOwnershipAndSingleUse(t *testing.T) {
 	}
 }
 func TestOneLoginWakesConcurrentRequestsWithoutRevivingCanceledOnes(t *testing.T) {
+	credentialtest.Enable(t)
 	s := &Server{cfgSvc: cfgsvc.New("", config.Defaults(), secrets.NewMemory())}
 	_, first, cancel := beginGate(t, s, "first", "work")
 	_, second, _ := beginGate(t, s, "second", "work")

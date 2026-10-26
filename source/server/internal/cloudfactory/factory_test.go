@@ -51,6 +51,9 @@ func TestBuildResponsesProvider(t *testing.T) {
 
 func TestBuildBedrockProvider(t *testing.T) {
 	credentialtest.Enable(t)
+	// Construction only: never consult any ambient credential provider.
+	t.Setenv("AWS_ACCESS_KEY_ID", "synthetic-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "synthetic-secret-key")
 	p, err := BuildCloudProvider(config.CloudProfile{Name: "b", Flavor: "bedrock", Region: "us-east-1", Model: "anthropic.claude-x"}, "")
 	if err != nil || p == nil || p.Name() != "bedrock" {
 		t.Fatalf("bedrock → %v, %v", p, err)

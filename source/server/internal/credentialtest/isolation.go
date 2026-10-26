@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +24,22 @@ func Enable(t *testing.T) {
 	}
 	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE"} {
 		t.Setenv(key, "")
+	}
+	// AWS default config can read explicit files outside HOME, execute a
+	// credential_process, or consult container/web-identity providers. Clear
+	// the entire AWS namespace, including endpoint and custom CA overrides.
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(key, "AWS_") {
+			t.Setenv(key, "")
+		}
+	}
+	for _, key := range []string{"AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"} {
+		path := filepath.Join(t.TempDir(), "empty")
+		if err := os.WriteFile(path, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(key, path)
 	}
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
 	previous := http.DefaultTransport

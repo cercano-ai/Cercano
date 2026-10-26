@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,6 +37,7 @@ func routingUpdateServer(t *testing.T, mode string) *Server {
 }
 
 func TestUpdateConfigLocusRefreshesDispatchSnapshot(t *testing.T) {
+	credentialtest.Enable(t)
 	s := routingUpdateServer(t, "open_only")
 	for _, mode := range []string{"cloud_only", "open_primary", "cloud_primary", "open_only", "cloud_only"} {
 		reply, err := s.UpdateConfig(t.Context(), &proto.UpdateConfigRequest{LocusMode: mode})
@@ -62,6 +64,7 @@ func TestUpdateConfigLocusRefreshesDispatchSnapshot(t *testing.T) {
 }
 
 func TestUpdateConfigCloudOnlyDispatchNeverCallsLocal(t *testing.T) {
+	credentialtest.Enable(t)
 	s := routingUpdateServer(t, "open_only")
 	reply, err := s.UpdateConfig(t.Context(), &proto.UpdateConfigRequest{LocusMode: "cloud_only"})
 	if err != nil || !reply.Success {
@@ -83,6 +86,7 @@ func TestUpdateConfigCloudOnlyDispatchNeverCallsLocal(t *testing.T) {
 }
 
 func TestUpdateConfigSameLocusRepairsStaleSnapshot(t *testing.T) {
+	credentialtest.Enable(t)
 	s := routingUpdateServer(t, "open_only")
 	// Simulate an already-saved configuration with the old provider graph.
 	c := s.cfgSvc.Get()
@@ -100,6 +104,7 @@ func TestUpdateConfigSameLocusRepairsStaleSnapshot(t *testing.T) {
 }
 
 func TestUpdateConfigCloudOnlyMissingAccountDoesNotKeepLocalPolicy(t *testing.T) {
+	credentialtest.Enable(t)
 	s := routingUpdateServer(t, "open_only")
 	c := s.cfgSvc.Get()
 	c.ActiveCloudProfile = ""
@@ -124,6 +129,7 @@ func TestUpdateConfigCloudOnlyMissingAccountDoesNotKeepLocalPolicy(t *testing.T)
 }
 
 func TestUpdateConfigUnrelatedSettingKeepsProviderGraph(t *testing.T) {
+	credentialtest.Enable(t)
 	s := routingUpdateServer(t, "cloud_only")
 	before := s.CloudLLMProvider()
 	reply, err := s.UpdateConfig(t.Context(), &proto.UpdateConfigRequest{WatchdogEnabled: "true"})
@@ -136,6 +142,7 @@ func TestUpdateConfigUnrelatedSettingKeepsProviderGraph(t *testing.T) {
 }
 
 func TestUpdateConfigInvalidLocusKeepsProviderGraph(t *testing.T) {
+	credentialtest.Enable(t)
 	s := routingUpdateServer(t, "cloud_only")
 	before := s.CloudLLMProvider()
 	reply, err := s.UpdateConfig(t.Context(), &proto.UpdateConfigRequest{LocusMode: "invalid-mode"})

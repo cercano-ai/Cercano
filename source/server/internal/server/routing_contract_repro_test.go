@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"testing"
 
@@ -43,6 +44,7 @@ func TestRoutingContractEmptyModelRetiresPin(t *testing.T) {
 // The provider chain captures a config snapshot. Editing a referenced backup
 // must rebuild that chain even when the active profile itself is untouched.
 func TestRoutingContractBackupEditRefreshesProviders(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	c := config.Defaults()
 	c.ActiveCloudProfile, c.BackupCloudProfile = "primary", "backup"
@@ -93,6 +95,7 @@ func TestRoutingContractChoicePresenceAndClear(t *testing.T) {
 }
 
 func TestReferencedCredentialAndRemovalRefresh(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, operation := range []string{"key", "remove"} {
 		t.Run(operation, func(t *testing.T) {
 			s, _ := newTestServer()
@@ -175,7 +178,7 @@ func TestProviderGraphRetainsTaskAssignmentsUntilRebuild(t *testing.T) {
 	// "the built graph retains its quality until rebuild" rather than tracking
 	// whatever the product default happens to be. Pin both tasks to verify destination inheritance.
 	c.TaskAssignments = map[config.Task]config.TaskAssignment{
-		config.TaskChat: {Quality: config.CostPremium},
+		config.TaskChat:     {Quality: config.CostPremium},
 		config.TaskDispatch: {Quality: config.CostStandard},
 	}
 	s.cfgSvc.Set(c)
@@ -187,7 +190,7 @@ func TestProviderGraphRetainsTaskAssignmentsUntilRebuild(t *testing.T) {
 	c.ActiveCloudProfile = "b"
 	c.SecondaryCloudProfile = "b"
 	c.TaskAssignments = map[config.Task]config.TaskAssignment{
-		config.TaskChat: {Quality: config.CostEconomy},
+		config.TaskChat:     {Quality: config.CostEconomy},
 		config.TaskDispatch: {Quality: config.CostEconomy},
 	}
 	s.cfgSvc.Set(c)

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 )
 
 func TestMistralEndpointChangeAndProfileRecreation(t *testing.T) {
+	credentialtest.Enable(t)
 	api := func(contextSize int) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, `{"data":[{"id":"same","max_context_length":%d,"capabilities":{"completion_chat":true,"function_calling":true}}]}`, contextSize)

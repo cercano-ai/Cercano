@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"io"
@@ -26,6 +27,7 @@ import (
 )
 
 func TestRoutingSettingsClientPersistenceSnapshotExecution(t *testing.T) {
+	credentialtest.Enable(t)
 	calls := []string{}
 	endpoint := func(name string, fail bool) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

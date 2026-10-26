@@ -96,3 +96,8 @@ func TestCatalogPrerequisiteStates(t *testing.T) {
 		t.Fatal("unsaved endpoint used for discovery")
 	}
 }
+
+// catalogBaselineStub uses only in-memory RPC fixtures, never host credentials.
+func (*catalogBaselineStub) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

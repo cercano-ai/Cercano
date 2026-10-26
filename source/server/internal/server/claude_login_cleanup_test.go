@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"errors"
 	"net"
@@ -34,6 +35,7 @@ func (s *failedClaudeLoginStream) Send(event *proto.StartClaudeLoginEvent) error
 	return s.failure
 }
 func TestClaudeLoginSendFailureClosesLoopback(t *testing.T) {
+	credentialtest.Enable(t)
 	sentinel := errors.New("client disconnected")
 	stream := &failedClaudeLoginStream{failure: sentinel}
 	server := &Server{cfgSvc: cfgsvc.New("", config.Defaults(), secrets.NewMemory())}

@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 // Multiple worker source views share the host credential owner. This preserves
 // single-flight refresh without relying on cached adapter pointer identity.
 func TestWorkerRunner_TokenSourceSingleFlightPerProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	store := secrets.NewMemory()
 	expired := anthropicauth.TokenSet{Access: "old", Refresh: "r", ExpiresAt: time.Now().Add(-time.Hour)}
 	if err := anthropicauth.Save(store, "sub-1", expired); err != nil {
@@ -67,6 +69,7 @@ func TestWorkerRunner_TokenSourceSingleFlightPerProfile(t *testing.T) {
 // Provider views are intentionally replaceable; service ownership, not pointer
 // identity of source adapters, is the synchronization contract.
 func TestWorkerRunner_TokenSourcesUseConfigOwner(t *testing.T) {
+	credentialtest.Enable(t)
 	cfg := cfgsvc.New("", pkgcfg.Config{}, secrets.NewMemory())
 	w := &workerRunner{cfg: cfg}
 	if err := anthropicauth.Save(cfg.Secrets(), "p1", anthropicauth.TokenSet{Access: "fresh", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {

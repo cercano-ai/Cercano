@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/pkg/config"
@@ -10,6 +11,7 @@ import (
 )
 
 func TestRoutingSettingsAtomicPresence(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	c := config.Defaults()
 	c.CloudProfiles = []config.CloudProfile{{Name: "p", Flavor: "messages"}, {Name: "pb", Flavor: "messages"}, {Name: "s", Flavor: "messages"}, {Name: "sb", Flavor: "messages"}}
@@ -55,6 +57,7 @@ func TestRoutingSettingsAtomicPresence(t *testing.T) {
 }
 
 func TestProfileSaveReportsAvailabilityAsWarning(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	c := config.Defaults()
 	c.ActiveCloudProfile = "no-key"

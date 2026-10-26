@@ -96,3 +96,8 @@ func TestWizardSubscriptionLoginIsCreateOnly(t *testing.T) {
 		})
 	}
 }
+
+// wizardKeyCollisionServer uses only in-memory RPC fixtures, never host credentials.
+func (*wizardKeyCollisionServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -48,6 +49,7 @@ func signInChatGPT(t *testing.T, s *Server) {
 }
 
 func TestListCloudProfileModels_ChatGPTListsCodexCatalog(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	var sawPath, sawVersion, sawAuth, sawAccount string
 	chatgptServer(t, s, func(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +116,7 @@ func TestListCloudProfileModels_ChatGPTSignedOutDoesNotFetch(t *testing.T) {
 }
 
 func TestListCloudProfileModels_ChatGPTUpstreamFailureIsReported(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	chatgptServer(t, s, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)

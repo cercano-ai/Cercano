@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 // Exercise persisted settings, protobuf snapshots, real worker provider assembly,
 // credentials, and HTTP inference adapters without contacting a hosted service.
 func TestRoutingSettingsSnapshotWorkerHTTP(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, primaryBackup := range []bool{false, true} {
 		for _, secondaryBackup := range []bool{false, true} {
 			t.Run(fmt.Sprintf("backups=%t,%t", primaryBackup, secondaryBackup), func(t *testing.T) {

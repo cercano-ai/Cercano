@@ -41,3 +41,21 @@ func TestIsolation(t *testing.T) {
 		t.Fatal("isolation did not restore outer environment")
 	}
 }
+
+func TestAWSInputsAreIsolated(t *testing.T) {
+	for _, key := range []string{"AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", "AWS_ROLE_ARN", "AWS_DEFAULT_PROFILE", "AWS_ENDPOINT_URL", "AWS_CA_BUNDLE"} {
+		t.Setenv(key, "inherited-synthetic-sentinel")
+	}
+	Enable(t)
+	for _, key := range []string{"AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"} {
+		data, err := os.ReadFile(os.Getenv(key))
+		if err != nil || len(data) != 0 {
+			t.Fatalf("%s must name an empty fixture: %v", key, err)
+		}
+	}
+	for _, key := range []string{"AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", "AWS_ROLE_ARN", "AWS_DEFAULT_PROFILE", "AWS_ENDPOINT_URL", "AWS_CA_BUNDLE"} {
+		if os.Getenv(key) != "" {
+			t.Errorf("inherited %s", key)
+		}
+	}
+}

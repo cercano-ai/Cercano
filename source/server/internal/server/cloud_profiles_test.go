@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"strings"
 	"testing"
@@ -44,6 +45,7 @@ func newTestServer() (*Server, *fakeRouter) {
 }
 
 func TestGetCloudProfilesListsBoth(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	resp, err := s.GetCloudProfiles(context.Background(), &proto.GetCloudProfilesRequest{})
 	if err != nil {
@@ -77,6 +79,7 @@ func TestGetCloudProfilesListsBoth(t *testing.T) {
 }
 
 func TestSetActiveCloudProfileCancelsInFlightTurns(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	s.cfgSvc.Set(config.Config{
 		ActiveCloudProfile: "claude",
@@ -126,6 +129,7 @@ func TestSetActiveCloudProfileRejectsImplicitBackupSwap(t *testing.T) {
 }
 
 func TestSetActiveCloudProfileMessagesOk(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	// Set a key so rebuildCloud can succeed.
 	if err := s.cfgSvc.Secrets().Set("messages-one", "sk-test"); err != nil {
@@ -144,6 +148,7 @@ func TestSetActiveCloudProfileMessagesOk(t *testing.T) {
 }
 
 func TestSetActiveCloudProfileUnsupportedFlavorGoesAbsent(t *testing.T) {
+	credentialtest.Enable(t)
 	s, r := newTestServer()
 	if err := s.cfgSvc.Secrets().Set("unsup-one", "sk-test"); err != nil {
 		t.Fatal(err)
@@ -175,6 +180,7 @@ func TestSetActiveCloudProfileNonexistent(t *testing.T) {
 }
 
 func TestSetCloudProfileKey(t *testing.T) {
+	credentialtest.Enable(t)
 	t.Run("existing profile sets key and has_key becomes true", func(t *testing.T) {
 		s, _ := newTestServer()
 		resp, err := s.SetCloudProfileKey(context.Background(), &proto.SetCloudProfileKeyRequest{
@@ -220,6 +226,7 @@ func TestSetCloudProfileKey(t *testing.T) {
 // no stored key and no BaseURL, rebuildCloud installs the absent sentinel rather
 // than wiring a dead provider.
 func TestRebuildCloudKeylessGoesAbsent(t *testing.T) {
+	credentialtest.Enable(t)
 	s, r := newTestServer()
 	s.cfgSvc.Mutate(func(c *config.Config) {
 		c.ActiveCloudProfile = "messages-one"
@@ -411,6 +418,7 @@ func TestUpsertCloudProfileModelPreservedOnEmptyUpdate(t *testing.T) {
 }
 
 func TestUpsertCloudProfileRebuildsActiveProvider(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	// Set a key so rebuildCloud can succeed for the messages flavor.
 	if err := s.cfgSvc.Secrets().Set("messages-one", "sk-test"); err != nil {
@@ -471,6 +479,7 @@ func TestUpsertCloudProfileValidation(t *testing.T) {
 }
 
 func TestRemoveCloudProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	s, r := newTestServer()
 	// Seed a key for messages-one so we can verify deletion.
 	if err := s.cfgSvc.Secrets().Set("messages-one", "sk-test"); err != nil {
@@ -555,6 +564,9 @@ func TestUpdateConfigRejectsRetiredCloudModel(t *testing.T) {
 }
 
 func TestSetActiveCloudProfileBedrockKeylessOk(t *testing.T) {
+	credentialtest.Enable(t)
+	t.Setenv("AWS_ACCESS_KEY_ID", "synthetic-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "synthetic-secret-key")
 	s, r := newTestServer()
 	s.cfgSvc.Mutate(func(c *config.Config) {
 		c.CloudProfiles = append(c.CloudProfiles,
@@ -577,6 +589,7 @@ func TestSetActiveCloudProfileBedrockKeylessOk(t *testing.T) {
 // ACTIVE profile's model pushes a cloud_model ConfigChanged event, so the CLI
 // header chip updates live instead of showing the stale model.
 func TestUpsertCloudProfile_ActiveBroadcastsCloudModel(t *testing.T) {
+	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	if err := s.cfgSvc.Secrets().Set("messages-one", "sk-test"); err != nil {
 		t.Fatal(err)

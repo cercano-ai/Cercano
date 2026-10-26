@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/internal/hostsvc/credentials"
 	"context"
 	"errors"
@@ -68,6 +69,7 @@ func (s *cloudLoginTestStream) Send(e *proto.CloudLoginEvent) error {
 	return nil
 }
 func TestReauthenticationRunsBothFlowsWithoutConfigChanges(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, p := range []config.CloudProfile{
 		{Name: "named", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription, Model: "pinned", ModelPinned: true, BaseURL: "https://proxy.invalid"},
 		{Name: "named", Flavor: cloudfactory.FlavorResponses, Route: cloudfactory.RouteChatGPT, Model: "pinned", ModelPinned: true, BaseURL: "https://proxy.invalid"},
@@ -162,6 +164,7 @@ func (s *supersedingLoginStream) Send(e *proto.CloudLoginEvent) error {
 	return nil
 }
 func TestSupersededDeviceLoginStopsBeforePollingOrSaving(t *testing.T) {
+	credentialtest.Enable(t)
 	var polls atomic.Int32
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

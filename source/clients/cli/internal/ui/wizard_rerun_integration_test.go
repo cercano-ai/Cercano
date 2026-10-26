@@ -792,3 +792,8 @@ func TestWizardScenarioRecommendedRerunAllModes(t *testing.T) {
 		})
 	}
 }
+
+// wizardScenarioStub uses only in-memory RPC fixtures, never host credentials.
+func (*wizardScenarioStub) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

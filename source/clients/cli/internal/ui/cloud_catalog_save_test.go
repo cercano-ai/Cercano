@@ -88,3 +88,8 @@ func TestCatalogSaveSchedulesFreshDiscovery(t *testing.T) {
 		t.Fatal("save retained credential draft")
 	}
 }
+
+// catalogSaveStub uses only in-memory RPC fixtures, never host credentials.
+func (*catalogSaveStub) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

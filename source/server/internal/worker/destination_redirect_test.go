@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"io"
@@ -14,6 +15,7 @@ import (
 )
 
 func TestDestinationRedirectWorkerExecution(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, destination := range []config.Destination{config.DestinationPrimary, config.DestinationSecondary} {
 		t.Run(string(destination), func(t *testing.T) {
 			calls := []string{}

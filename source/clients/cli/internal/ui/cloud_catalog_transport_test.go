@@ -72,3 +72,8 @@ func TestCatalogTransportErrorVisible(t *testing.T) {
 		})
 	}
 }
+
+// catalogTransportStub uses only in-memory RPC fixtures, never host credentials.
+func (*catalogTransportStub) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}
