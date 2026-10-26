@@ -167,11 +167,30 @@ func NewWorkerRunner(
 	modelEvidence func(ctx context.Context, cfg pkgcfg.Config) modelmetadata.Snapshot,
 	restart ...runtimeRestartFunc,
 ) runner.TurnRunner {
+	return NewWorkerRunnerWithPolicy(SpawnPolicy{}, persist, cfg, perms, ensureSubagent, setProfile, openProvider, openTierModel, modelEvidence, restart...)
+}
+
+// NewWorkerRunnerWithPolicy pins all pool spawns to the supplied immutable policy.
+// Coexistence startup must skip ReapOrphanWorkers; teardown uses CleanupOwnedWorkers.
+func NewWorkerRunnerWithPolicy(
+	policy SpawnPolicy,
+	persist runner.TurnHistory,
+	cfg cfgsvc.Service,
+	perms permissions.Broker,
+	ensureSubagent EnsureSubagentFunc,
+	setProfile func(ctx context.Context, convID, name string) error,
+	openProvider func() inference.Provider,
+	openTierModel func(pkgcfg.Tier) string,
+	modelEvidence func(ctx context.Context, cfg pkgcfg.Config) modelmetadata.Snapshot,
+	restart ...runtimeRestartFunc,
+) runner.TurnRunner {
 	var restartRuntime runtimeRestartFunc
 	if len(restart) > 0 {
 		restartRuntime = restart[0]
 	}
-	pool := newWorkerPool(nil) // production: spawn via spawnWorker
+	pool := newWorkerPool(func(ctx context.Context, id string, gen uint64) (*workerHandle, error) {
+		return spawnWorkerWithPolicy(ctx, id, gen, policy)
+	})
 	// Start the idle-reaper with the configured window. The reaper runs on a
 	// background context and stops when the pool is Shut down (Shutdown closes
 	// p.done). A window <= 0 (config's "disabled" sentinel) starts no goroutine.

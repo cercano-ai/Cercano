@@ -50,6 +50,8 @@ type reapSeams struct {
 // best-effort: any error is logged, never returned, so a sweep failure can never
 // block host startup. Returns the number of live worker groups it killed.
 //
+// Legacy mode only: coexistence startup MUST NOT call this global sweep.
+// Use OwnedWorkerCleaner for known-child teardown instead.
 // Call it once at startup, BEFORE spawning any worker of this host.
 func ReapOrphanWorkers() int {
 	return reapOrphanWorkers(workerDir(), realReapSeams())
@@ -183,3 +185,9 @@ func readWorkerPidFile(path string) (pid, spawnerPid int, ok bool) {
 	return pid, spawnerPid, true
 }
 
+// OwnedWorkerCleaner is the coexistence cleanup entry point. It only tears down
+// handles owned by this runner's pool; it never enumerates pidfiles or processes.
+// Ambiguous orphans from a dead host are deliberately unsupported and left alone.
+type OwnedWorkerCleaner interface{ CleanupOwnedWorkers() }
+
+func (w *workerRunner) CleanupOwnedWorkers() { w.Shutdown() }

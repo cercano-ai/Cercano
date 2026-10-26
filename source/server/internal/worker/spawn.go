@@ -99,12 +99,16 @@ func (h *workerHandle) Kill() {
 // spawnWorker starts a worker process on a fresh unix socket and returns a
 // connected handle. The caller must call Kill() when done.
 func spawnWorker(ctx context.Context, conversationID string, gen uint64) (*workerHandle, error) {
-	bin, err := findWorkerBinary()
+	return spawnWorkerWithPolicy(ctx, conversationID, gen, SpawnPolicy{})
+}
+
+func spawnWorkerWithPolicy(ctx context.Context, conversationID string, gen uint64, policy SpawnPolicy) (*workerHandle, error) {
+	bin, err := policy.workerBinary()
 	if err != nil {
 		return nil, fmt.Errorf("worker spawn: %w", err)
 	}
 
-	sockPath, pidPath, err := workerPaths(conversationID, gen)
+	sockPath, pidPath, err := policy.paths(conversationID, gen)
 	if err != nil {
 		return nil, fmt.Errorf("worker spawn: paths: %w", err)
 	}
@@ -118,6 +122,16 @@ func spawnWorker(ctx context.Context, conversationID string, gen uint64) (*worke
 		return nil, fmt.Errorf("worker spawn: pipe: %w", err)
 	}
 
+	var outputLog *os.File
+	if policy.dir != "" {
+		outputLog, err = os.OpenFile(sockPath+".log", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			pr.Close()
+			pw.Close()
+			return nil, err
+		}
+	}
+
 	// Deliberately exec.Command, NOT exec.CommandContext(ctx, …): the worker
 	// process must OUTLIVE the turn that spawned it. The pool keeps it warm across
 	// turns; binding its lifetime to the turn ctx would SIGKILL it the instant the
@@ -126,20 +140,29 @@ func spawnWorker(ctx context.Context, conversationID string, gen uint64) (*worke
 	// Kill() / Shutdown() / idle-reap / startup orphan-sweep. The turn ctx still
 	// bounds STARTUP via waitForSocket(ctx, …) below, so a hung spawn during this
 	// turn is still abortable (and the partial handle is Killed on that path).
-	cmd := exec.Command(bin, "worker", "--socket", sockPath)
-	setProcessGroup(cmd)
+	cmd := workerCommand(bin, sockPath)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
 	if err := cmd.Start(); err != nil {
 		_ = pw.Close()
 		_ = pr.Close()
+		if outputLog != nil {
+			outputLog.Close()
+		}
 		return nil, fmt.Errorf("worker spawn: start %s: %w", bin, err)
 	}
 	_ = pw.Close() // parent's copy; child inherits it
 
 	// Tee worker output to the log in the background.
-	go forwardWorkerOutput(pr, cmd.Process.Pid, log.Printf)
+	if outputLog == nil {
+		go forwardWorkerOutput(pr, cmd.Process.Pid, log.Printf)
+	} else {
+		go func() {
+			defer outputLog.Close()
+			forwardWorkerOutput(pr, cmd.Process.Pid, log.New(outputLog, "", log.LstdFlags).Printf)
+		}()
+	}
 
 	// Write pidfile so a future host startup can reap orphans (Phase 6).
 	if pidPath != "" {
@@ -200,7 +223,14 @@ func findWorkerBinary() (string, error) {
 
 // workerPaths returns (socketPath, pidPath, error) for this turn's worker.
 func workerPaths(conversationID string, gen uint64) (string, string, error) {
-	dir := filepath.Join(os.TempDir(), workerSocketDir)
+	return (SpawnPolicy{}).paths(conversationID, gen)
+}
+
+func (p SpawnPolicy) paths(conversationID string, gen uint64) (string, string, error) {
+	dir := p.dir
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), workerSocketDir)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", fmt.Errorf("mkdir %s: %w", dir, err)
 	}
@@ -320,4 +350,12 @@ func forwardWorkerOutput(r io.ReadCloser, pid int, logf func(string, ...any)) {
 		}
 		return
 	}
+}
+
+// workerCommand deliberately leaves Env nil, inheriting all host isolation
+// settings (including credential-disable), rather than rebuilding an allowlist.
+func workerCommand(binary, socket string) *exec.Cmd {
+	cmd := exec.Command(binary, "worker", "--socket", socket)
+	setProcessGroup(cmd)
+	return cmd
 }
