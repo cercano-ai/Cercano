@@ -17,6 +17,9 @@ import (
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/conversation"
+	cfgsvc "cercano/source/server/internal/hostsvc/config"
+	"cercano/source/server/internal/hostsvc/permissions"
+	runnersvc "cercano/source/server/internal/runner"
 	"cercano/source/server/internal/modelhost"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/server"
@@ -160,7 +163,7 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	// A fresh namespace prevents host lifetime reuse. No legacy reaper is called.
-	_, err = worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: *generation, ManifestPath: filepath.Join(*generation, "manifest.json"), HostInstance: *host, ResourceRoot: *root})
+	spawnPolicy, err := worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: *generation, ManifestPath: filepath.Join(*generation, "manifest.json"), HostInstance: *host, ResourceRoot: *root})
 	if err != nil {
 		return err
 	}
@@ -201,6 +204,10 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 				return fmt.Errorf("fixture startup does not admit conversation work")
 			},
 		},
+		WorkerRunner: func(history runnersvc.TurnHistory, frozen cfgsvc.Service, perms permissions.Broker) runnersvc.TurnRunner {
+			// Execution remains gated; no provider or child-launch callbacks are installed.
+			return worker.NewWorkerRunnerWithPolicy(spawnPolicy, history, frozen, perms, nil, nil, nil, nil, nil)
+		},
 		Config: cfg, ConfigPath: filepath.Join(*root, "config.json"), Secrets: secretStore,
 		RoutingPath: filepath.Join(*root, "routing.jsonl"), FailurePath: filepath.Join(*root, "failures.jsonl"),
 		Agent: func(st conversation.Store) (*agent.Agent, error) {
@@ -214,8 +221,8 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 	srv.SetBuildVersion(manifest.Build)
 	defer preparedStore.Close()
 	defer srv.Shutdown()
-	// Until prepared runner policy injection is available, refuse execution rather
-	// than silently install server's legacy worker runner or an in-process fallback.
+	// Policy injection does not enable execution: foreground/context bridging and
+	// native lifecycle remain separate work. Never call legacy SelectExecutionMode.
 	opts := auth.ServerOptions()
 	opts = append(opts, grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
 		switch filepath.Base(info.FullMethod) {

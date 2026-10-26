@@ -13,6 +13,8 @@ import (
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/dispatch"
 	cfgsvc "cercano/source/server/internal/hostsvc/config"
+	"cercano/source/server/internal/hostsvc/permissions"
+	runnersvc "cercano/source/server/internal/runner"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 )
@@ -115,6 +117,52 @@ func TestPreparedFullServerPreservesPeerTasks(t *testing.T) {
 		t.Fatal("initial snapshot lost")
 	}
 	b.reloadConfigFromDisk(ctx)
+}
+
+// Selection-only synthetic runner: no turn may execute in this fixture.
+type preparedSyntheticRunner struct{ runnersvc.TurnRunner }
+
+func TestPreparedWorkerRunnerInjection(t *testing.T) {
+	for _, inject := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "injected"}[inject], func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "fixture.db")
+			if err := conversation.PrepareCoexistence(t.Context(), path); err != nil {
+				t.Fatal(err)
+			}
+			want := &preparedSyntheticRunner{}
+			called := false
+			o := PreparedServerOptions{
+				Coexistence: CoexistenceOptions{StorePath: path, Host: "host", Build: "build", Contract: conversation.CurrentCoexistenceDeclaration(), Reload: func(context.Context, conversation.Store, *conversation.Ownership) error { return nil }, CloseParticipation: func(context.Context) error { return nil }},
+				RoutingPath: filepath.Join(dir, "routing"), FailurePath: filepath.Join(dir, "failures"),
+				Agent: func(st conversation.Store) (*agent.Agent, error) {
+					return agent.NewAgent(nil, nil, agent.WithPersistentStore(st)), nil
+				},
+			}
+			if inject {
+				o.WorkerRunner = func(history runnersvc.TurnHistory, cfg cfgsvc.Service, perms permissions.Broker) runnersvc.TurnRunner {
+					called = true
+					if history == nil || cfg == nil {
+						t.Fatal("missing prepared services")
+					}
+					return want
+				}
+			}
+			s, err := NewPreparedServer(t.Context(), o, nil, nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.coexistence.store.Close()
+			defer s.Shutdown()
+			if inject {
+				if !called || s.pickTurnRunner() != want {
+					t.Fatal("supplied runner not selected")
+				}
+			} else if s.workerRunner != nil || s.pickTurnRunner() != s.inProcessRunner {
+				t.Fatal("uninjected default changed")
+			}
+		})
+	}
 }
 
 func TestPreparedFullServerPreflightBeforeDependencies(t *testing.T) {

@@ -9,6 +9,8 @@ import (
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/engine"
 	cfgsvc "cercano/source/server/internal/hostsvc/config"
+	"cercano/source/server/internal/hostsvc/permissions"
+	runnersvc "cercano/source/server/internal/runner"
 	"cercano/source/server/internal/loop"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/config"
@@ -25,6 +27,10 @@ type PreparedServerOptions struct {
 	Secrets                  secrets.Store
 	Agent                    func(conversation.Store) (*agent.Agent, error)
 	RoutingPath, FailurePath string
+	// WorkerRunner injects a runner using the prepared host services. It must not
+	// return nil: explicit injection must never fall back to embedded execution.
+	// Callers using this hook must not call the legacy SelectExecutionMode.
+	WorkerRunner func(runnersvc.TurnHistory, cfgsvc.Service, permissions.Broker) runnersvc.TurnRunner
 }
 
 func NewPreparedServer(ctx context.Context, o PreparedServerOptions, router RouterCloudUpdater, coordinator *loop.ADKCoordinator, cloudFactory agent.CloudFactory, registry *engine.EngineRegistry) (*Server, error) {
@@ -55,6 +61,14 @@ func NewPreparedServer(ctx context.Context, o PreparedServerOptions, router Rout
 	cfg := cfgsvc.New(o.ConfigPath, o.Config.WithSharedReadOnly(), secrets.Guard(o.Secrets, secrets.Options{ReadOnly: true}), cfgsvc.Options{Frozen: true})
 	s := newServerWithConfig(a, router, coordinator, cloudFactory, registry, o.RoutingPath, o.FailurePath, cfg)
 	s.coexistence = lifecycle.coexistence
+	if o.WorkerRunner != nil {
+		s.workerRunner = o.WorkerRunner(s.persistSvc, s.cfgSvc, s.permBroker)
+		if s.workerRunner == nil {
+			s.Shutdown()
+			_ = st.Close()
+			return nil, fmt.Errorf("prepared worker runner factory returned nil")
+		}
+	}
 	return s, nil
 }
 
