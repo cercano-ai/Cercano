@@ -19,6 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Agent_GetDevelopmentHostIdentity_FullMethodName            = "/agent.Agent/GetDevelopmentHostIdentity"
+	Agent_CheckRetainedSession_FullMethodName                  = "/agent.Agent/CheckRetainedSession"
 	Agent_GetCredentialPolicy_FullMethodName                   = "/agent.Agent/GetCredentialPolicy"
 	Agent_SessionModel_FullMethodName                          = "/agent.Agent/SessionModel"
 	Agent_ProcessRequest_FullMethodName                        = "/agent.Agent/ProcessRequest"
@@ -107,6 +109,9 @@ const (
 //
 // The Agent service definition.
 type AgentClient interface {
+	// Read-only development identity checks; never attach or acquire ownership.
+	GetDevelopmentHostIdentity(ctx context.Context, in *GetDevelopmentHostIdentityRequest, opts ...grpc.CallOption) (*GetDevelopmentHostIdentityResponse, error)
+	CheckRetainedSession(ctx context.Context, in *CheckRetainedSessionRequest, opts ...grpc.CallOption) (*CheckRetainedSessionResponse, error)
 	// Credential policy only: no readiness, lifecycle, or credential access.
 	GetCredentialPolicy(ctx context.Context, in *GetCredentialPolicyRequest, opts ...grpc.CallOption) (*GetCredentialPolicyResponse, error)
 	// Direct, session-only main-chat routing control. No inference required.
@@ -353,6 +358,26 @@ type agentClient struct {
 
 func NewAgentClient(cc grpc.ClientConnInterface) AgentClient {
 	return &agentClient{cc}
+}
+
+func (c *agentClient) GetDevelopmentHostIdentity(ctx context.Context, in *GetDevelopmentHostIdentityRequest, opts ...grpc.CallOption) (*GetDevelopmentHostIdentityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDevelopmentHostIdentityResponse)
+	err := c.cc.Invoke(ctx, Agent_GetDevelopmentHostIdentity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) CheckRetainedSession(ctx context.Context, in *CheckRetainedSessionRequest, opts ...grpc.CallOption) (*CheckRetainedSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckRetainedSessionResponse)
+	err := c.cc.Invoke(ctx, Agent_CheckRetainedSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *agentClient) GetCredentialPolicy(ctx context.Context, in *GetCredentialPolicyRequest, opts ...grpc.CallOption) (*GetCredentialPolicyResponse, error) {
@@ -1278,6 +1303,9 @@ func (c *agentClient) ExportImage(ctx context.Context, in *ExportImageRequest, o
 //
 // The Agent service definition.
 type AgentServer interface {
+	// Read-only development identity checks; never attach or acquire ownership.
+	GetDevelopmentHostIdentity(context.Context, *GetDevelopmentHostIdentityRequest) (*GetDevelopmentHostIdentityResponse, error)
+	CheckRetainedSession(context.Context, *CheckRetainedSessionRequest) (*CheckRetainedSessionResponse, error)
 	// Credential policy only: no readiness, lifecycle, or credential access.
 	GetCredentialPolicy(context.Context, *GetCredentialPolicyRequest) (*GetCredentialPolicyResponse, error)
 	// Direct, session-only main-chat routing control. No inference required.
@@ -1526,6 +1554,12 @@ type AgentServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAgentServer struct{}
 
+func (UnimplementedAgentServer) GetDevelopmentHostIdentity(context.Context, *GetDevelopmentHostIdentityRequest) (*GetDevelopmentHostIdentityResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetDevelopmentHostIdentity not implemented")
+}
+func (UnimplementedAgentServer) CheckRetainedSession(context.Context, *CheckRetainedSessionRequest) (*CheckRetainedSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CheckRetainedSession not implemented")
+}
 func (UnimplementedAgentServer) GetCredentialPolicy(context.Context, *GetCredentialPolicyRequest) (*GetCredentialPolicyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetCredentialPolicy not implemented")
 }
@@ -1785,6 +1819,42 @@ func RegisterAgentServer(s grpc.ServiceRegistrar, srv AgentServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Agent_ServiceDesc, srv)
+}
+
+func _Agent_GetDevelopmentHostIdentity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDevelopmentHostIdentityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).GetDevelopmentHostIdentity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_GetDevelopmentHostIdentity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).GetDevelopmentHostIdentity(ctx, req.(*GetDevelopmentHostIdentityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_CheckRetainedSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckRetainedSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).CheckRetainedSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_CheckRetainedSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).CheckRetainedSession(ctx, req.(*CheckRetainedSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Agent_GetCredentialPolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -3143,6 +3213,14 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "agent.Agent",
 	HandlerType: (*AgentServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetDevelopmentHostIdentity",
+			Handler:    _Agent_GetDevelopmentHostIdentity_Handler,
+		},
+		{
+			MethodName: "CheckRetainedSession",
+			Handler:    _Agent_CheckRetainedSession_Handler,
+		},
 		{
 			MethodName: "GetCredentialPolicy",
 			Handler:    _Agent_GetCredentialPolicy_Handler,

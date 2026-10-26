@@ -57,7 +57,8 @@ type Client struct {
 
 	// addr is the dial target — kept so reconnect() can redial after a
 	// crash without threading it through every callsite.
-	addr string
+	addr   string
+	pinned *PinnedSessionIntent
 
 	// Connection-state observation (see reconnect.go).
 	stateMu     sync.Mutex
@@ -127,6 +128,10 @@ func DialExisting(ctx context.Context, addr string) (*Client, error) {
 }
 
 func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, error) {
+	return connectIntent(ctx, addr, timeout, nil)
+}
+
+func connectIntent(ctx context.Context, addr string, timeout time.Duration, pin *PinnedSessionIntent) (*Client, error) {
 	if err := validateCredentialEnvironment(); err != nil {
 		return nil, err
 	}
@@ -143,7 +148,10 @@ func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, 
 			grpc.MaxCallRecvMsgSize(maxGRPCMsgBytes),
 		),
 	}
-	if isolate {
+	if pin != nil {
+		opts = append(opts, pinnedMetadataOptions(*pin)...)
+	}
+	if isolate || pin != nil {
 		opts = append(opts, grpc.WithContextDialer(singleTransportDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 		})))
@@ -158,6 +166,12 @@ func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, 
 		if err != nil || !policy.GetCredentialsDisabled() {
 			_ = conn.Close()
 			return nil, fmt.Errorf("%w: agent did not attest disabled credentials (%v)", ErrCredentialIsolation, err)
+		}
+	}
+	if pin != nil {
+		if err := validatePinnedSession(dialCtx, agent, *pin); err != nil {
+			_ = conn.Close()
+			return nil, err
 		}
 	}
 	return &Client{conn: conn, agent: agent}, nil
@@ -182,7 +196,7 @@ func ensureServerLaunched(ctx context.Context, addr string, timeout time.Duratio
 		return "", false, err
 	}
 
-	logPath, err := autoLaunchServer(addr)
+	logPath, err := launchServerProcess(addr)
 	if err != nil {
 		return "", false, err
 	}
@@ -191,6 +205,9 @@ func ensureServerLaunched(ctx context.Context, addr string, timeout time.Duratio
 	}
 	return logPath, true, nil
 }
+
+// launchServerProcess is a package-local test seam; production uses autoLaunchServer.
+var launchServerProcess = autoLaunchServer
 
 // autoLaunchServer spawns `cercano` (the agent server binary) in the background.
 // Looks for the binary next to the running cercano-cli executable first, then $PATH.

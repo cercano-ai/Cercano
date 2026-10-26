@@ -305,6 +305,9 @@ func (c *Client) watchConn(ctx context.Context) {
 // client is shutting down (ctx cancelled / Close called), which is also
 // the only path that emits ConnStateFailed.
 func (c *Client) reconnect(ctx context.Context) error {
+	if c.pinned != nil {
+		return c.ReconnectPinnedSession(ctx)
+	}
 	if err := validateCredentialEnvironment(); err != nil {
 		return err
 	}

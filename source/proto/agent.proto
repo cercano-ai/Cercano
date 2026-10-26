@@ -6,6 +6,10 @@ option go_package = "cercano/source/server/pkg/proto";
 
 // The Agent service definition.
 service Agent {
+  // Read-only development identity checks; never attach or acquire ownership.
+  rpc GetDevelopmentHostIdentity (GetDevelopmentHostIdentityRequest) returns (GetDevelopmentHostIdentityResponse) {}
+  rpc CheckRetainedSession (CheckRetainedSessionRequest) returns (CheckRetainedSessionResponse) {}
+
   // Credential policy only: no readiness, lifecycle, or credential access.
   rpc GetCredentialPolicy (GetCredentialPolicyRequest) returns (GetCredentialPolicyResponse) {}
 
@@ -2687,4 +2691,30 @@ message TaskSubscriptionEvent {
 message GetCredentialPolicyRequest {}
 message GetCredentialPolicyResponse {
   bool credentials_disabled = 1;
+}
+
+// Exact-match declarations, not version negotiation or endpoint identity.
+message GetDevelopmentHostIdentityRequest {}
+message GetDevelopmentHostIdentityResponse {
+  string host_instance = 1;
+  string build = 2;
+  string contract = 3;
+  int32 schema_version = 4;
+  bool retired = 5;
+}
+message CheckRetainedSessionRequest {
+  string host_instance = 1;
+  string conversation_id = 2;
+  string ownership_epoch = 3;
+}
+enum RetainedSessionState {
+  RETAINED_SESSION_STATE_UNSPECIFIED = 0;
+  RETAINED_SESSION_STATE_RETAINED = 1;
+  RETAINED_SESSION_STATE_STALE = 2;
+  RETAINED_SESSION_STATE_RELEASED = 3;
+  RETAINED_SESSION_STATE_RETIRED = 4;
+  RETAINED_SESSION_STATE_CLOSED = 5;
+}
+message CheckRetainedSessionResponse {
+  RetainedSessionState state = 1;
 }
