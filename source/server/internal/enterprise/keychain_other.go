@@ -2,4 +2,4 @@
 
 package enterprise
 
-func OpenCredentialStore() (CredentialStore, error) { return nil, ErrCredentialStore }
+func openNativeCredentialStore() (CredentialStore, error) { return nil, ErrCredentialStore }

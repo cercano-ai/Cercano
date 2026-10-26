@@ -9,7 +9,7 @@ import (
 
 type keychain struct{ ring keyring.Keyring }
 
-func OpenCredentialStore() (CredentialStore, error) {
+func openNativeCredentialStore() (CredentialStore, error) {
 	ring, err := keyring.Open(keyring.Config{ServiceName: "cercano-enterprise", AllowedBackends: []keyring.BackendType{keyring.KeychainBackend}, KeychainTrustApplication: true})
 	if err != nil {
 		return nil, ErrCredentialStore
