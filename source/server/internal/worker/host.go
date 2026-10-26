@@ -715,7 +715,7 @@ func (w *workerRunner) RunTurn(
 		if err != nil {
 			return runner.Result{}, fmt.Errorf("worker: encode profile: %w", err)
 		}
-		ctx = metadata.AppendToOutgoingContext(ctx, "cercano-initial-profile", string(profileJSON))
+		ctx = withInitialProfileMetadata(ctx, string(profileJSON))
 	}
 
 	// ── 6. Open bidi stream and send StartTurn ────────────────────────────
@@ -1283,4 +1283,15 @@ func (w *workerRunner) ensureDispatchChild(ctx context.Context, e *proto.EnsureS
 	}
 	scope[e.GetId()] = true
 	return nil
+}
+
+// withInitialProfileMetadata replaces only the host-owned per-turn fence. A
+// retained task context can already carry the launching turn's outgoing profile;
+// appending would send two values and correctly be rejected by the worker.
+// Derive from ctx to preserve exact-owner authority, cancellation and deadlines.
+func withInitialProfileMetadata(ctx context.Context, profileJSON string) context.Context {
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	md.Set("cercano-initial-profile", profileJSON)
+	return metadata.NewOutgoingContext(ctx, md)
 }

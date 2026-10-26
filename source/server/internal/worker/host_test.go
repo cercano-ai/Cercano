@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
@@ -409,4 +410,51 @@ func (f *echoResolver) Candidates() inference.Tiers {
 }
 
 func (f *echoResolver) SetProfileModelEvidence(func(config.CloudProfile, string) modelmetadata.Evidence) {
+}
+
+// The host repairs its own retained transport metadata, not the worker's wire
+// validator: malformed and duplicate profiles sent directly still fail closed.
+func TestWorkerServerRejectsInvalidInitialProfileMetadata(t *testing.T) {
+	for name, values := range map[string][]string{
+		"duplicate": {`{"Name":"plan"}`, `{"Name":"plan"}`},
+		"malformed": {`{broken`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dial, stop := startBufconnWorker(t, "must not run")
+			defer stop()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			md := metadata.MD{}
+			md.Set("cercano-initial-profile", values...)
+			ctx = metadata.NewOutgoingContext(ctx, md)
+			conn, err := dial(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			stream, err := proto.NewWorkerClient(conn).RunTurn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = stream.Send(&proto.HostToWorker{Msg: &proto.HostToWorker_Start{Start: &proto.StartTurn{
+				ConversationId: "invalid-profile", Input: "hi", WorkDir: t.TempDir(),
+				Config: &proto.ConfigSnapshot{LocusMode: "open_primary"},
+			}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for {
+				msg, err := stream.Recv()
+				if err != nil {
+					if status.Code(err) != codes.InvalidArgument {
+						t.Fatalf("expected profile rejection, got %v", err)
+					}
+					break
+				}
+				if msg.GetDone() != nil {
+					t.Fatal("invalid profile ran a turn")
+				}
+			}
+		})
+	}
 }
