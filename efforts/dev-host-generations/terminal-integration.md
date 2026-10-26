@@ -44,13 +44,29 @@ All commands below used `CERCANO_DISABLE_CREDENTIALS=1`; final runs also used
 unchanged standalone TUI. It seeds private stores, starts an empty synthetic
 modelhost, and invokes `terminal-pty.py` against actual PTYs. Child environments
 exclude provider/config/credential environment and use private HOME/XDG/TMP.
-The final PTY run **ran and passed**: durable history, A version, accepted independent
-work held behind a barrier, physical terminal kill while that work was active,
-busy release refusal, barrier completion, explicit reconnect, detach/transfer to B,
-explicit reconnect in the same running TUI, separate unchanged TUI/B identities,
-A retirement, stale A reconnect refusal, and B foreground operation. It does not
-replace the whole final integration gate. Earlier archived CLI still rejects
-`--dev-host`, confirming the old blocked startup path.
+The extended PTY run **ran and passed twice** with
+`CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off go test ./cmd/cercano -run '^TestDevHostTerminalPTY$' -count=2 -v`.
+It holds independent work on X (`journey`) behind the compiled fixture barrier,
+physically closes X's terminal, and only then starts B. With Y (`sibling`)'s
+terminal open, a separate actual management CLI PTY targets X and asserts the
+specific admission-busy message (`retained sessions or work prevent transition`),
+not merely a nonzero exit. The existing pinned Y TUI cannot target X through a
+slash command; the existing explicit management selection supplies that target.
+Y then detaches and transfers A→B through its own TUI while X remains blocked.
+Before releasing the barrier, the Go harness uses the fixture store's TaskStore
+to assert X is still running. After release it checks the successful A-build result,
+cleared notification-pending flag, and exactly one durable completed notification.
+Y explicitly reconnects on B in the unchanged TUI; X reconnects on A, detaches,
+and releases its retained session. CLI retirement of idle A succeeds, stale A
+reconnect fails, and Y runs a fresh B foreground request successfully.
+
+All control assertions use actual CLI processes (TUI or management PTY), not
+substituted direct RPCs. Setup acquisition/seeding and read-only durable checks
+remain fixture helpers. File barriers and durable observations gate transitions;
+no sleep alone is evidence of active work or completion. Raw PTY transcripts and
+management output are emitted into verbose Go test output before private fixture
+cleanup; the two-pass run was retained at `/tmp/terminal-check.log`.
+This does not replace the whole final integration gate.
 
 ## Gaps, not waived
 
@@ -59,11 +75,10 @@ provider itself was blocked. Release then succeeded: foreground survival is NOT
 established (the transport-bound foreground work ended). No server lifecycle or
 execution redesign was made to change that observation. The passing harness
 instead disconnects while accepted independent work is still blocked, before its
-completion, and verifies that work prevents release.
+completion, and verifies that work prevents transfer.
 
-The PTY harness does not separately prove busy-transfer refusal, an unrelated
-conversation transfer during another conversation's work, lost-receipt retry,
-multiple-terminal refusal, or real loaded-model retirement. Existing direct-RPC
+The PTY harness does not prove lost-receipt retry, multiple-terminal refusal,
+or real loaded-model retirement. Existing direct-RPC
 tests are supplementary, not terminal evidence for those cases. No real-model,
 manual acceptance, whole-suite green, landing, installation, or merge claim.
 Regression-isolation edits and plan.md are separately owned and excluded.

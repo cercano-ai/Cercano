@@ -42,6 +42,13 @@ func TestDevHostTerminalPTY(t *testing.T) {
 		}
 		defer os.RemoveAll(tempRoot)
 		defer func() {
+			paths, _ := filepath.Glob(filepath.Join(tempRoot, "*.log"))
+			for _, path := range paths {
+				data, _ := os.ReadFile(path)
+				t.Logf("transcript %s:\n%s", filepath.Base(path), data)
+			}
+		}()
+		defer func() {
 			if t.Failed() {
 				paths, _ := filepath.Glob(filepath.Join(tempRoot, "w-*", "*.log"))
 				for _, p := range paths {
@@ -285,6 +292,47 @@ func TestDevHostTerminalPTY(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cliBinary := filepath.Join(root, "terminal")
+	cliBuild := exec.CommandContext(ctx, "go", "build", "-ldflags=-X main.version=fixture-TUI-unchanged", "-o", cliBinary, ".")
+	cliBuild.Dir = "../../../clients/cli"
+	if out, e := cliBuild.CombinedOutput(); e != nil {
+		t.Fatalf("terminal build: %v %s", e, out)
+	}
+	writeJSON(filepath.Join(root, "a.json"), map[string]any{"Endpoint": endpoint, "TokenFile": tokenFile, "Identity": aIdentity, "Conversation": "journey", "Epoch": owned.Owner.Epoch})
+	bIdentity := &proto.LifecycleIdentity{Build: "fixture-build-B", Host: "fixture-host-B", Contract: aIdentity.Contract, Schema: aIdentity.Schema, Store: aIdentity.Store}
+	writeJSON(filepath.Join(root, "b.json"), map[string]any{"Endpoint": bEndpoint, "TokenFile": bToken, "Identity": bIdentity, "Conversation": "journey"})
+	harness := exec.CommandContext(ctx, "python3", "../../../../efforts/dev-host-generations/terminal-pty.py", cliBinary, root)
+	harness.Env = append(command.Env, "TERM=xterm-256color")
+	// Y is independent of the barrier-held X (journey).
+	yOwned, err := client.LifecycleAcquire(ctx, &proto.LifecycleControlRequest{Target: aIdentity, Owner: &proto.LifecycleOwner{Conversation: "sibling"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeJSON(filepath.Join(root, "y.json"), map[string]any{"Endpoint": endpoint, "TokenFile": tokenFile, "Identity": aIdentity, "Conversation": "sibling", "Epoch": yOwned.Owner.Epoch})
+	var ptyOutput bytes.Buffer
+	harness.Stdout, harness.Stderr = &ptyOutput, &ptyOutput
+	if err := harness.Start(); err != nil {
+		t.Fatal(err)
+	}
+	harnessDone := make(chan error, 1)
+	go func() { harnessDone <- harness.Wait() }()
+	defer func() { _ = harness.Process.Kill() }()
+	waitMarker := func(name string) {
+		t.Helper()
+		for {
+			if _, err := os.Stat(filepath.Join(root, name)); err == nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatalf("waiting for %s", name)
+			case err := <-harnessDone:
+				t.Fatalf("PTY ended before %s: %v\n%s", name, err, ptyOutput.String())
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}
+	waitMarker("disconnected")
 	if err := bCommand.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -313,6 +361,7 @@ func TestDevHostTerminalPTY(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("B timeout")
 	}
+	writeJSON(filepath.Join(root, "b-ready"), true)
 	bAuth, err := devhostauth.Load("fixture-host-B", bToken)
 	if err != nil {
 		t.Fatal(err)
@@ -331,20 +380,71 @@ func TestDevHostTerminalPTY(t *testing.T) {
 		t.Fatal("B identity", bID, err)
 	}
 
-	cliBinary := filepath.Join(root, "terminal")
-	cliBuild := exec.CommandContext(ctx, "go", "build", "-ldflags=-X main.version=fixture-TUI-unchanged", "-o", cliBinary, ".")
-	cliBuild.Dir = "../../../clients/cli"
-	if out, e := cliBuild.CombinedOutput(); e != nil {
-		t.Fatalf("terminal build: %v %s", e, out)
+	waitMarker("transferred")
+	records, err := store.(conversation.TaskStore).ListTasks(ctx, "journey", 100)
+	if err != nil {
+		t.Fatal(err)
 	}
-	writeJSON(filepath.Join(root, "a.json"), map[string]any{"Endpoint": endpoint, "TokenFile": tokenFile, "Identity": aIdentity, "Conversation": "journey", "Epoch": owned.Owner.Epoch})
-	bIdentity := &proto.LifecycleIdentity{Build: bID.Build, Host: bID.HostInstance, Contract: aIdentity.Contract, Schema: aIdentity.Schema, Store: aIdentity.Store}
-	writeJSON(filepath.Join(root, "b.json"), map[string]any{"Endpoint": bEndpoint, "TokenFile": bToken, "Identity": bIdentity, "Conversation": "journey"})
-	harness := exec.CommandContext(ctx, "python3", "../../../../efforts/dev-host-generations/terminal-pty.py", cliBinary, root)
-	harness.Env = append(command.Env, "TERM=xterm-256color")
-	out, e := harness.CombinedOutput()
-	t.Logf("PTY output: %s", out)
-	if e != nil {
-		t.Fatal(e)
+	var live conversation.TaskRecord
+	for _, r := range records {
+		if r.ID != "journey-task" {
+			if live.ID != "" {
+				t.Fatal("duplicate launch")
+			}
+			live = r
+		}
 	}
+	if live.ID == "" || live.Status != "running" {
+		t.Fatalf("X not running after Y transfer: %+v", live)
+	}
+	writeJSON(filepath.Join(root, "checked-running"), true)
+	waitMarker("release")
+	for {
+		r, err := store.(conversation.TaskStore).GetTask(ctx, "journey", live.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Status == "completed" && !r.NotificationPending {
+			if !strings.Contains(string(r.ResultJSON), "independent completed fixture-build-exact") {
+				t.Fatalf("wrong completion: %+v", r)
+			}
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("completion not drained: %+v", r)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	turns, err := store.GetTurns(ctx, "journey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	completions := 0
+	for _, turn := range turns {
+		if _, body, ok := strings.Cut(turn.Content, "<host:task-completions>\n"); ok {
+			payload, _, ok := strings.Cut(body, "\n</host:task-completions>")
+			var notices []struct {
+				TaskID string `json:"task_id"`
+				Status string `json:"status"`
+			}
+			if !ok || json.Unmarshal([]byte(payload), &notices) != nil {
+				t.Fatalf("malformed completion: %s", turn.Content)
+			}
+			for _, notice := range notices {
+				if notice.TaskID != live.ID || notice.Status != "completed" {
+					t.Fatalf("unexpected notice: %+v", notice)
+				}
+				completions++
+			}
+		}
+	}
+	if completions != 1 {
+		t.Fatalf("durable completion notifications: %d", completions)
+	}
+	writeJSON(filepath.Join(root, "checked-completed"), true)
+	if err := <-harnessDone; err != nil {
+		t.Fatalf("PTY: %v\n%s", err, ptyOutput.String())
+	}
+	t.Logf("PTY: %s", ptyOutput.String())
 }

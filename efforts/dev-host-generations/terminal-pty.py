@@ -5,16 +5,39 @@ from pathlib import Path
 binary, root = sys.argv[1], Path(sys.argv[2])
 
 def control(path, action, *args, ok=True):
-    p = subprocess.run([binary, '--dev-host', str(path), '--dev-host-action', action, *args], capture_output=True, text=True, timeout=15)
-    if ok and p.returncode: raise AssertionError(p.stdout+p.stderr)
-    if not ok and not p.returncode: raise AssertionError('expected refusal: '+p.stdout)
-    return p
+    master, slave = pty.openpty()
+    argv = [binary, '--dev-host', str(path), '--dev-host-action', action, *args]
+    p = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    os.close(slave)
+    output = b''
+    deadline = time.monotonic()+15
+    try:
+        while True:
+            assert time.monotonic()<deadline, 'management CLI timeout'
+            if not select.select([master], [], [], .1)[0]: continue
+            try: data = os.read(master, 65536)
+            except OSError as e:
+                if e.errno != errno.EIO: raise
+                break
+            if not data: break
+            output += data
+        code = p.wait(timeout=5)
+    finally:
+        if p.poll() is None: p.kill(); p.wait()
+        os.close(master)
+    text = output.decode(errors='replace')
+    with (root/'controls.log').open('a') as log:
+        log.write(repr(argv)+'\n'+text+'\n')
+    if ok and code: raise AssertionError(text)
+    if not ok and not code: raise AssertionError('expected refusal: '+text)
+    return subprocess.CompletedProcess(argv, code, text, text)
 
 class Terminal:
     def __init__(self, selection):
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 48, 160, 0, 0))
         self.fd, self.output = master, b''
+        self.transcript = open(root / ('pty-%d.log' % len(list(root.glob('pty-*.log')))), 'wb')
         self.p = subprocess.Popen([binary, '--dev-host', str(selection)], stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
     def pump(self):
@@ -24,6 +47,7 @@ class Terminal:
                 if e.errno == errno.EIO: data = b''
                 else: raise
             self.output += data
+            self.transcript.write(data); self.transcript.flush()
             # Answer terminal capability queries, not application prompts.
             if b'\x1b[c' in data: os.write(self.fd,b'\x1b[?1;2c')
             if b'\x1b[6n' in data: os.write(self.fd,b'\x1b[1;1R')
@@ -41,39 +65,51 @@ class Terminal:
         if self.p.poll() is None: self.p.kill()
         self.p.wait(timeout=5)
         os.close(self.fd)
+        self.transcript.close()
+
+def marker(name, terminal=None):
+    deadline=time.monotonic()+60
+    while not (root/name).exists():
+        assert time.monotonic()<deadline, 'missing barrier '+name
+        if terminal: terminal.pump()
+        else: time.sleep(.01)
 
 terminals=[]
 try:
-    a,b=root/'a.json',root/'b.json'
+    a,b,y=root/'a.json',root/'b.json',root/'y.json'
     t=Terminal(a); terminals.append(t)
     t.wait('durable fixture history')
-    t.send('/version'); t.wait('fixture-TUI-unchanged'); t.wait('fixture-build-exact')
-    os.write(t.fd,b'\x1b'); time.sleep(.3)
     t.send('launch independent')
-    deadline=time.monotonic()+15
-    while not (root/'entered').exists() and time.monotonic()<deadline: t.pump()
-    assert (root/'entered').exists(), 'independent work never entered synthetic barrier'
-    assert not (root/'release').exists(), 'barrier already released'
-    assert t.p.poll() is None, 'terminal ended before active-work disconnect'
+    marker('entered',t)
+    assert not (root/'release').exists()
+    assert t.p.poll() is None
     t.stop(); terminals.remove(t)
-    # Actual disconnect DURING independent work, not a cancellation after EOF.
-    time.sleep(.3)
-    refused=control(a,'release',ok=False)
-    assert 'busy' in refused.stderr.lower() or 'work' in refused.stderr.lower(), refused.stderr
-    print('PASS: PTY disconnected while independent work barrier held; release refused',flush=True)
-    (root/'release').write_text('explicit completion')
-    t=Terminal(a); terminals.append(t); t.wait('fixture-build-exact')
+    (root/'disconnected').write_text('X terminal physically closed')
+    marker('b-ready')
+    t=Terminal(y); terminals.append(t); t.wait('durable fixture history')
+    # X has no terminal; management CLI targets its explicit selection while
+    # the unrelated Y terminal remains attached. Never substitute a test RPC.
+    refused=control(a,'transfer','--dev-host-destination',str(b),
+                    '--dev-host-handover','busy-X',ok=False)
+    (root/'busy-transfer.log').write_text(refused.stdout+refused.stderr)
+    assert 'retained sessions or work prevent transition' in refused.stderr, refused.stderr
     t.send('/host detach'); t.wait('session retained')
-    time.sleep(.3)
-    t.send('/host transfer '+str(b)+' pty-handover'); t.wait('Completed; attachment requires explicit')
-    t.send('/host reconnect'); time.sleep(.5)
-    t.wait('fixture-build-exact')
+    t.send('/host transfer '+str(b)+' pty-Y-handover'); t.wait('Completed; attachment requires explicit')
+    assert not (root/'release').exists()
+    (root/'transferred').write_text('Y transferred while X barrier held')
+    marker('checked-running',t)
+    t.send('/host reconnect'); t.wait('durable fixture history')
     t.send('/version'); t.wait('fixture-TUI-unchanged'); t.wait('fixture-build-B'); t.wait('fixture-host-B')
-    os.write(t.fd,b'\x1b'); time.sleep(.3)
+    os.write(t.fd,b'\x1b'); t.pump()
+    (root/'release').write_text('explicit completion')
+    marker('checked-completed',t)
+    x=Terminal(a); terminals.append(x); x.wait('durable fixture history')
+    x.send('/host detach'); x.wait('session retained')
+    x.send('/host release'); x.wait('Completed')
     control(a,'retire')
     stale=subprocess.run([binary,'--dev-host',str(a)],capture_output=True,text=True,timeout=10)
     assert stale.returncode != 0, 'stale A reconnect succeeded'
     t.send('B remains usable'); t.wait('fixture-build-B')
-    print('PASS: same TUI moved A to B; exact B identity shown; A retired; stale A refused; B usable',flush=True)
+    print('PASS: active X disconnect; B started; exact busy X transfer refusal; Y transferred with X running; durable X completion/notification; A released/retired; B usable',flush=True)
 finally:
     for t in terminals: t.stop()
