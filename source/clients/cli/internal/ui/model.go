@@ -2663,7 +2663,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 					body = "⚠ agent disconnected while awaiting authentication — reconnecting; the decision is preserved."
 				}
 				if msg.crashSummary != "" {
-					body += "\n  cause: " + msg.crashSummary + " (full trace in ~/.config/cercano/crash.log)"
+					body += "\n  cause: " + msg.crashSummary + " (full trace in crash.log in your profile: ~/.config/cercano/profiles/<profile>/crash.log)"
 				}
 				m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: body})
 				m.refreshViewport()
@@ -2671,7 +2671,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 				m.input.SetValue(m.lastSubmittedPrompt)
 				body := "⚠ agent disconnected mid-turn — prompt restored to the input; press Enter to re-submit once the agent is back."
 				if msg.crashSummary != "" {
-					body += "\n  cause: " + msg.crashSummary + " (full trace in ~/.config/cercano/crash.log)"
+					body += "\n  cause: " + msg.crashSummary + " (full trace in crash.log in your profile: ~/.config/cercano/profiles/<profile>/crash.log)"
 				}
 				m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: body})
 				m.streaming = false

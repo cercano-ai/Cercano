@@ -24,10 +24,52 @@ import (
 // It does not install an update, compare versions, register a service, or
 // start an absent agent. The caller must set a bounded context deadline.
 func RestartInstalled(ctx context.Context, newExecutable string, endpoint netip.AddrPort) (bool, error) {
+	return RestartInstalledChecked(ctx, newExecutable, endpoint, nil, nil)
+}
+
+// RestartInstalledReady is RestartInstalled for an agent that need not listen
+// on endpoint again once restarted, such as a profile agent on an ephemeral
+// port. endpoint identifies the running agent to stop. probe reports whether
+// the replacement, given by process ID, serves; it is polled until it does,
+// must return promptly once ctx ends, and is never relied on to notice a
+// crash: a replacement that exits during startup fails the restart at once.
+func RestartInstalledReady(ctx context.Context, newExecutable string, endpoint netip.AddrPort, probe func(ctx context.Context, pid int) bool) (bool, error) {
+	return RestartInstalledChecked(ctx, newExecutable, endpoint, probe, nil)
+}
+
+// RestartInstalledChecked is RestartInstalledReady, or RestartInstalled when
+// probe is nil, that also applies check to the agent's captured launch
+// environment after preflight and before anything is stopped. A rejection
+// returns an error wrapping ErrReplacementRefused with the agent still
+// running.
+func RestartInstalledChecked(ctx context.Context, newExecutable string, endpoint netip.AddrPort, probe func(ctx context.Context, pid int) bool, check ReplacementCheck) (bool, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return false, fmt.Errorf("restart requires a deadline")
 	}
-	return coordinateRestart(ctx, nativeRestartOps(), newExecutable, uint32(os.Getuid()), endpoint)
+	ops := nativeRestartOps()
+	if probe != nil {
+		ops = withReady(ops, replacementAlive, probe)
+	}
+	ops.check = check
+	return coordinateRestart(ctx, ops, newExecutable, uint32(os.Getuid()), endpoint)
+}
+
+// replacementAlive returns errReplacementExited when the replacement has
+// exited (startReplacement reaps it) or its PID now names another process.
+// Transient inspection errors count as alive; the next poll checks again.
+func replacementAlive(id Identity) error {
+	now, err := Inspect(id.PID)
+	switch {
+	case errors.Is(err, syscall.ESRCH):
+		return errReplacementExited
+	case errors.Is(err, syscall.EBADF) || errors.Is(err, syscall.EAGAIN):
+		return nil
+	case err != nil:
+		return err
+	case !now.SameProcess(id):
+		return errReplacementExited
+	}
+	return nil
 }
 
 func nativeRestartOps() restartOps {

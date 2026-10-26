@@ -184,3 +184,111 @@ func TestStartConfigWatcher_EndToEnd(t *testing.T) {
 		}
 	}
 }
+
+// A change to machine.yaml (another profile's edit) reaches this agent's
+// in-memory config and baseline without a restart, and the agent's next save
+// does not write it back as its own edit.
+func TestStartConfigWatcher_RefreshesMachineSections(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := config.DefaultPath()
+	if err := config.Save(config.Defaults(), path); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	srv := newConfigWatcherTestServer(t)
+	srv.SetConfigPersistence(path, cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		time.Sleep(100 * time.Millisecond)
+	}()
+	if err := srv.StartConfigWatcher(ctx, path); err != nil {
+		t.Fatalf("StartConfigWatcher: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	mc, err := config.LoadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc.MistralRS.ISQ = "Q4K"
+	if err := config.SaveMachine(mc); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for srv.cfgSvc.Get().MistralRS.ISQ != "Q4K" {
+		if time.Now().After(deadline) {
+			t.Fatal("agent did not pick up machine.yaml change within 2s")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// The machine moves on again; the agent persists an unrelated change.
+	mc.MistralRS.ISQ = "Q8_0"
+	if err := config.SaveMachine(mc); err != nil {
+		t.Fatal(err)
+	}
+	srv.cfgSvc.Persist()
+	got, _ := config.LoadMachine()
+	if got.MistralRS.ISQ != "Q8_0" {
+		t.Errorf("persist wrote stale machine section back: ISQ=%q", got.MistralRS.ISQ)
+	}
+}
+
+// The machine.yaml event from this agent's own earlier save can arrive after
+// a newer runtime edit was made in memory but before it was persisted. The
+// refresh must not revert that edit; fields the edit did not touch still take
+// the file's values.
+func TestReloadMachineKeepsUnsavedRuntimeEdit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := config.DefaultPath()
+	if err := config.Save(config.Defaults(), path); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	srv := newConfigWatcherTestServer(t)
+	srv.SetConfigPersistence(path, cfg)
+
+	setISQ := func(v string) {
+		if err := srv.cfgSvc.Mutate(func(c *config.Config) { c.MistralRS.ISQ = v }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setISQ("Q4K")
+	srv.cfgSvc.Persist() // machine.yaml now has Q4K; its event is still in flight
+	setISQ("Q8_0")       // newer edit, not yet persisted
+
+	// Another profile changed an unrelated field meanwhile.
+	mc, err := config.LoadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc.LlamaServer.Threads = 7
+	if err := config.SaveMachine(mc); err != nil {
+		t.Fatal(err)
+	}
+
+	srv.reloadMachineFromDisk() // the delayed event
+	live := srv.cfgSvc.Get()
+	if live.MistralRS.ISQ != "Q8_0" {
+		t.Fatalf("refresh reverted the unsaved edit: ISQ=%q, want Q8_0", live.MistralRS.ISQ)
+	}
+	if live.LlamaServer.Threads != 7 {
+		t.Errorf("refresh dropped the other profile's change: threads=%d, want 7", live.LlamaServer.Threads)
+	}
+	srv.cfgSvc.Persist()
+	got, err := config.LoadMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MistralRS.ISQ != "Q8_0" || got.LlamaServer.Threads != 7 {
+		t.Errorf("machine.yaml after persist: ISQ=%q threads=%d, want Q8_0 and 7", got.MistralRS.ISQ, got.LlamaServer.Threads)
+	}
+}

@@ -150,7 +150,7 @@ authorization guarantee or the policy for direct `/tool` calls.
 | `bypass` | silent | silent | silent |
 
 Switch with `/strict`, `/permissive`, `/bypass`, or `/mode <name>`. Successful
-server updates persist to `~/.config/cercano/permissions.yaml`; the CLI updates
+server updates persist to the active profile's `~/.config/cercano/profiles/<name>/permissions.yaml`; the CLI updates
 its status chip optimistically, so the chip alone does not prove the save succeeded.
 
 Additional boundaries apply: MCP W/X calls use their allowlist policy (X always

@@ -11,7 +11,6 @@ import (
 
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/pkg/agentclient"
-	"cercano/source/server/pkg/config"
 )
 
 // resolveHeadlessConvID returns the conversation id for a headless run: the
@@ -27,31 +26,46 @@ func resolveHeadlessConvID(explicit string) string {
 	return conversation.NewID()
 }
 
-// runHeadless executes a single prompt against the cercano agent and streams
-// the response to stdout (assistant text) and stderr (diagnostics). Used for
-// scripting and CI — no TTY required.
-func runHeadless(args []string) {
-	autoAllow := false
-	convID := ""
-	var positional []string
+// headlessArgs is the parsed command line of `cercano run`.
+type headlessArgs struct {
+	autoAllow   bool
+	convID      string
+	positional  []string
+	help        bool // -h or --help, before any missing --conv value
+	missingConv bool // --conv was the last argument
+}
 
+// parseHeadlessArgs parses `cercano run` arguments. It is shared with the
+// startup check so both agree on what is a help request.
+func parseHeadlessArgs(args []string) headlessArgs {
+	var a headlessArgs
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--auto-allow":
-			autoAllow = true
+			a.autoAllow = true
 		case "--conv":
 			if i+1 < len(args) {
-				convID = args[i+1]
+				a.convID = args[i+1]
 				i++
 			} else {
-				fmt.Fprintln(os.Stderr, "cercano run: --conv requires an ID")
-				os.Exit(2)
+				a.missingConv = true
+				return a
 			}
 		case "-h", "--help":
-			fmt.Fprintln(os.Stderr, `usage: cercano run [--auto-allow] [--conv ID] "prompt"
+			a.help = true
+			return a
+		default:
+			a.positional = append(a.positional, args[i])
+		}
+	}
+	return a
+}
 
-Sends a single prompt to the cercano agent and streams the response.
-Auto-launches an agent if one isn't already running.
+const headlessUsage = `usage: cercano run [--auto-allow] [--conv ID] "prompt"
+
+Sends a single prompt to the active profile's cercano agent (CERCANO_PROFILE,
+default "default") and streams the response. Auto-launches the profile's
+agent if one isn't already running.
 
 Flags:
   --auto-allow   Approve W/X-tier tool confirmations automatically.
@@ -60,21 +74,32 @@ Flags:
 
 Output:
   stdout  assistant text deltas + final response
-  stderr  tool-call diagnostics, progress, errors`)
-			os.Exit(0)
-		default:
-			positional = append(positional, args[i])
-		}
+  stderr  tool-call diagnostics, progress, errors`
+
+// runHeadless executes a single prompt against the cercano agent and streams
+// the response to stdout (assistant text) and stderr (diagnostics). Used for
+// scripting and CI — no TTY required.
+func runHeadless(args []string) {
+	os.Exit(runHeadlessCommand(args))
+}
+
+// runHeadlessCommand is runHeadless returning the exit code.
+func runHeadlessCommand(args []string) int {
+	parsed := parseHeadlessArgs(args)
+	if parsed.help {
+		fmt.Fprintln(os.Stderr, headlessUsage)
+		return 0
 	}
+	if parsed.missingConv {
+		fmt.Fprintln(os.Stderr, "cercano run: --conv requires an ID")
+		return 2
+	}
+	autoAllow, convID, positional := parsed.autoAllow, parsed.convID, parsed.positional
+
 	prompt := strings.Join(positional, " ")
 	if prompt == "" {
 		fmt.Fprintln(os.Stderr, `usage: cercano run [--auto-allow] [--conv ID] "prompt"`)
-		os.Exit(2)
-	}
-
-	cfg, err := config.Load(config.DefaultPath())
-	if err != nil {
-		cfg = config.Defaults()
+		return 2
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -82,23 +107,22 @@ Output:
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
+	defer signal.Stop(sigCh)
 	go func() {
 		<-sigCh
 		fmt.Fprintln(os.Stderr, "\n[interrupt] cancelling…")
 		cancel()
 	}()
 
-	addr := "localhost:" + cfg.Port
-	fmt.Fprintln(os.Stderr, "cercano: connecting to", addr+"…")
-	client, err := agentclient.Dial(ctx, addr)
+	client, err := dialActiveProfile(ctx, os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
-		os.Exit(1)
+		return 1
 	}
 	defer client.Close()
-	if client.AutoLaunched {
-		fmt.Fprintln(os.Stderr, "cercano: auto-launched agent server (log:", client.ServerLog+")")
-	}
+	// Count as the agent's client for the whole run (released before the
+	// client closes), so an agent this run auto-launched exits after it.
+	defer holdAgent(ctx, client.SubscribeEvents)()
 
 	convID = resolveHeadlessConvID(convID)
 
@@ -107,7 +131,7 @@ Output:
 	events, err := client.StreamChat(ctx, convID, prompt, workDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
-		os.Exit(1)
+		return 1
 	}
 
 	exitCode := 0
@@ -165,7 +189,7 @@ Output:
 	if sawText {
 		fmt.Println()
 	}
-	os.Exit(finalizeHeadlessExit(exitCode, sawText, os.Stderr))
+	return finalizeHeadlessExit(exitCode, sawText, os.Stderr)
 }
 
 func finalizeHeadlessExit(exitCode int, sawText bool, stderr io.Writer) int {

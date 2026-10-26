@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"cercano/source/server/internal/agent"
@@ -68,7 +69,11 @@ func (m *mockCoordinator) Coordinate(ctx context.Context, instruction, inputCode
 	return &agent.Response{Output: "coordinated output"}, nil
 }
 
-func init() {
+// bufServerOnce starts the shared bufconn server on first dial, after
+// TestMain has moved HOME: NewServer opens the profile's logs.
+var bufServerOnce sync.Once
+
+func startBufServer() {
 	lis = bufconn.Listen(bufSize)
 	s := grpc.NewServer()
 	coordinator := &mockCoordinator{}
@@ -82,6 +87,7 @@ func init() {
 }
 
 func bufDialer(context.Context, string) (net.Conn, error) {
+	bufServerOnce.Do(startBufServer)
 	return lis.Dial()
 }
 

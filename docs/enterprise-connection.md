@@ -157,7 +157,7 @@ scope, older revisions, expired policies and unsupported client versions. Every
 skill must match the signed ID, version, length and SHA-256 digest. The bundle is
 accepted only after all downloads and persistence succeed.
 
-`~/.cercano/enterprise/active-bundle.json` stores policy and skill content with
+The profile's `~/.config/cercano/profiles/<name>/enterprise/active-bundle.json` stores policy and skill content with
 owner-only permissions. It contains no credentials and is not trusted after a
 restart. The `managed` marker in that directory preserves the mode even when
 Keychain credentials disappear. Only an explicit standalone command clears it.

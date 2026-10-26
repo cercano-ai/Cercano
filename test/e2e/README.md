@@ -30,26 +30,68 @@ Each test gets a sandbox (`helpers/sandbox.mjs`), so the suite never touches
 - `HOME`, `XDG_CONFIG_HOME` and `TMPDIR` point into a fresh `/tmp/ce2e-*`
   directory. It sits under `/tmp` because the agent's worker sockets live
   under `$TMPDIR`, and macOS caps Unix socket paths at 104 bytes.
-- `CERCANO_PORT` is a free port, never the default 50052.
-- A `config.yaml` is seeded with `locus_mode: open_only` and
+- The default profile's agent gets a free `CERCANO_PORT`, never the default
+  50052. A test that passes `profile` selects that profile through
+  `CERCANO_PROFILE` and sets no port: each profile's agent takes an ephemeral
+  port and publishes it in `profiles/<name>/agent.json`, so several profiles can
+  run in one sandbox.
+- A `config.yaml` is seeded in the profile's directory,
+  `~/.config/cercano/profiles/<name>/`, with `locus_mode: open_only` and
   `open_runtime: ollama`, unless the test opts out to exercise the first-run
-  wizard.
+  wizard. `sandbox.writeConfig("", { legacy: true })` seeds the pre-profile
+  location `~/.config/cercano/config.yaml` instead, for migration tests.
+- `CERCANO_MODEL_HOST=inprocess` keeps local models in the agent, so no shared
+  `cercano model-host` is launched and none outlives a test.
 - `OLLAMA_URL` points at `helpers/fake-ollama.mjs`, which streams a scripted
   reply and records requests, or at an unused port when the test never chats.
   All Ollama model tiers are explicitly pinned to `fake-model`, including
   Premium chat and background helpers; no catalog model or live runtime is used.
   No cloud keys are set.
+- The OS keychain is not sandboxed, so specs never save keys or sign in.
 
 Most specs start `cercano agent` themselves (`helpers/agent.mjs`) and stop its
-whole process group afterwards. `server-discovery.test.mjs` covers the CLI's
-own auto-launch path. Its fallback cleanup (`helpers/owned-agent.mjs`) treats
-port listeners only as candidates: it verifies the exact agent command, sandbox
-HOME/TMPDIR/port, and auto-launch marker before signalling. It sends SIGTERM,
-waits up to five seconds, then rechecks ownership and process start time before
-SIGKILL. Unverifiable or unrelated processes are never signalled; an unsupported
-ownership probe can therefore leave a failed run's agent for manual inspection.
-Regression tests cover ownership rejection, escalation, identity changes, and a
-real sandbox agent.
+whole process group afterwards. `server-discovery.test.mjs`,
+`profiles.test.mjs` and `profile-migration.test.mjs` cover the CLI's own
+auto-launch path; an auto-launched agent logs to
+`profiles/<name>/logs/agent.log` in the sandbox. Their fallback cleanup
+(`helpers/owned-agent.mjs`) treats port listeners and `agent.json` records only
+as candidates: it verifies the exact agent command, sandbox HOME/TMPDIR/port,
+profile, and auto-launch marker before signalling. It sends SIGTERM, waits up
+to five seconds, then rechecks ownership and process start time before
+SIGKILL. Unverifiable or unrelated processes are never signalled; an
+unsupported ownership probe can therefore leave a failed run's agent for manual
+inspection. Regression tests cover ownership rejection, escalation, identity
+changes, and a real sandbox agent.
+
+## The per-profile agent hosts flag
+
+`specs/per-profile-flag*.test.mjs` cover `CERCANO_PER_PROFILE_AGENTS` absent,
+`"false"`/`"0"` and `"1"`/`"true"` through the real binaries, including
+`cercano --mcp` over JSON-RPC (`helpers/flag.mjs`). They set the flag per
+process rather than relying on the sandbox default (`""` for the default
+profile, `"1"` with `profile`), and read each process's environment back
+(`helpers/procs.mjs`) to check the state it really ran with. MCP servers get a
+fresh release-check cache and a dead HTTP(S) proxy (loopback is never
+proxied), so they make no external request. Leftover processes are found by
+the sandbox's own HOME and TMPDIR on a suite binary, and only those are
+signalled.
+
+The upgrade tests run builds from before the flag (f79bf87a) and before
+profiles (c23f4656). Build them, offline, with:
+
+```bash
+./scripts/build-historical.sh
+```
+
+Without them those tests are reported as skipped; set
+`E2E_REQUIRE_HISTORICAL=1` to fail instead.
+`specs/per-profile-flag-regressions.test.mjs` guards fixed defects: a refused
+named profile must not migrate pre-profile data or stop a pre-profile agent,
+and `cercano --mcp` must keep standard output to JSON-RPC across real tool
+calls. The upgrade-restart decisions are covered by the Go transition test
+(`source/server/cmd/cercano/per_profile_flag_transition_test.go`), which needs
+the same historical builds (`CERCANO_REQUIRE_HISTORICAL=1` makes them
+required).
 
 ## Writing a spec
 
@@ -68,7 +110,12 @@ test("does the thing", async (t) => {
 
 `withCli` options: `args`, `agent` (start an agent, default true),
 `seedConfig` (default true), `ollama` (true or `{ reply, chunkDelayMs }`),
-`cols`/`rows` (default 120×40), `bin` and `env`.
+`cols`/`rows` (default 120×40), `bin`, `env`, `profile` (a named profile on an
+ephemeral port) and `before` (an async `(sandbox) => {}` that seeds files before
+the agent and CLI start). The callback also receives `defer(cleanup)`: deferred
+cleanups run after the CLI closes and before the sandbox is removed, which is
+where a spec stops an agent the CLI auto-launched. `runCli(t, sandbox, { label,
+args })` starts another CLI in the same sandbox; the spec closes it.
 
 Use `getByText(...).expect()` to wait for content. It polls until the 15s
 timeout, so avoid fixed sleeps. Prefer structural assertions to

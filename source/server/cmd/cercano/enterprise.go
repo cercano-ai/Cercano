@@ -10,14 +10,12 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 	"unicode"
 
 	"cercano/source/server/internal/enterprise"
-	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
 	"google.golang.org/grpc"
@@ -28,11 +26,11 @@ import (
 )
 
 func newEnterpriseHost() (*enterprise.Host, error) {
-	home, err := os.UserHomeDir()
+	dir, err := enterprise.DefaultStateDir()
 	if err != nil {
 		return nil, err
 	}
-	return enterprise.NewHost(enterprise.HostOptions{Directory: filepath.Join(home, ".cercano", "enterprise"), Manager: enterprise.Options{ClientVersion: version}})
+	return enterprise.NewHost(enterprise.HostOptions{Directory: dir, Manager: enterprise.Options{ClientVersion: version}})
 }
 func openEnterpriseBrowser(ctx context.Context, target string) error {
 	if runtime.GOOS != "darwin" {
@@ -41,33 +39,67 @@ func openEnterpriseBrowser(ctx context.Context, target string) error {
 	return exec.CommandContext(ctx, "open", target).Run()
 }
 
+// enterpriseNotices receives connection and auto-launch notices, which stay
+// off stdout so --json output remains machine-readable.
+var enterpriseNotices io.Writer = os.Stderr
+
+// isEnterpriseCommand reports whether name is an enterprise subcommand.
+func isEnterpriseCommand(name string) bool {
+	switch name {
+	case "login", "sync", "status", "policy", "skills", "logout", "standalone":
+		return true
+	}
+	return false
+}
+
+// enterpriseFlags are the flags of every enterprise subcommand, shared with
+// enterpriseDialsProfile so both read --address alike.
+type enterpriseFlags struct {
+	*flag.FlagSet
+	asJSON                        *bool
+	skillID, server, org, address *string
+}
+
+func newEnterpriseFlags(out io.Writer) enterpriseFlags {
+	fs := flag.NewFlagSet("enterprise", flag.ContinueOnError)
+	fs.SetOutput(out)
+	return enterpriseFlags{
+		FlagSet: fs,
+		asJSON:  fs.Bool("json", false, "print machine-readable output"),
+		skillID: fs.String("skill", "", "namespaced enterprise skill ID to read"),
+		server:  fs.String("server", "", "trusted enterprise HTTPS origin"),
+		org:     fs.String("organization", "", "organization ID from your administrator"),
+		address: fs.String("address", "", "running local Cercano host (default: the active profile's host)"),
+	}
+}
+
+// enterpriseDialsProfile reports whether `cercano enterprise` with args
+// connects to (and may start) the active profile's agent host: a supported
+// subcommand on macOS whose flags parse and name no --address.
+func enterpriseDialsProfile(args []string) bool {
+	if len(args) == 0 || !isEnterpriseCommand(args[0]) || runtime.GOOS != "darwin" {
+		return false
+	}
+	flags := newEnterpriseFlags(io.Discard)
+	return flags.Parse(args[1:]) == nil && flags.NArg() == 0 && *flags.address == ""
+}
+
 // Connection changes run in the host. This CLI never opens Keychain, rotates a
 // refresh token, or treats a downloaded bundle as proof of host enforcement.
 func enterpriseCommand(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
-		fmt.Fprintln(out, "Usage: cercano enterprise login --server https://enterprise.example --organization UUID | sync | status | policy | skills [--skill ID] | logout | standalone\nConnects to the running local Cercano host. Use --address 127.0.0.1:PORT for a non-default host. Add --json for machine-readable output. Logout keeps managed work blocked; standalone explicitly returns to personal settings.")
+		fmt.Fprintln(out, "Usage: cercano enterprise login --server https://enterprise.example --organization UUID | sync | status | policy | skills [--skill ID] | logout | standalone\nConnects to the active profile's Cercano host (CERCANO_PROFILE), starting it if needed. Use --address 127.0.0.1:PORT to reach a specific host instead. Add --json for machine-readable output. Logout keeps managed work blocked; standalone explicitly returns to personal settings.")
 		return nil
 	}
-	switch args[0] {
-	case "login", "sync", "status", "policy", "skills", "logout", "standalone":
-	default:
+	if !isEnterpriseCommand(args[0]) {
 		return errors.New("unknown enterprise command")
 	}
 	if runtime.GOOS != "darwin" {
 		return errors.New("enterprise account management currently supports macOS")
 	}
-	cfg, err := config.Load(config.DefaultPath())
-	if err != nil {
-		return fmt.Errorf("load Cercano configuration: %w", err)
-	}
-	flags := flag.NewFlagSet("enterprise", flag.ContinueOnError)
-	flags.SetOutput(out)
-	asJSON := flags.Bool("json", false, "print machine-readable output")
-	skillID := flags.String("skill", "", "namespaced enterprise skill ID to read")
-	server := flags.String("server", "", "trusted enterprise HTTPS origin")
-	org := flags.String("organization", "", "organization ID from your administrator")
-	address := flags.String("address", net.JoinHostPort("127.0.0.1", cfg.Port), "running local Cercano host")
-	if err = flags.Parse(args[1:]); err != nil {
+	flags := newEnterpriseFlags(out)
+	asJSON, skillID, server, org, address := flags.asJSON, flags.skillID, flags.server, flags.org, flags.address
+	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
@@ -79,15 +111,29 @@ func enterpriseCommand(ctx context.Context, args []string, out io.Writer) error 
 	if *skillID != "" && (args[0] != "skills" || !strings.HasPrefix(*skillID, "enterprise/")) {
 		return errors.New("--skill requires the skills command and an enterprise/ ID from its catalog")
 	}
-	host, _, err := net.SplitHostPort(*address)
-	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
-		return errors.New("enterprise controls require a literal loopback host address")
+	var conn grpc.ClientConnInterface
+	if *address != "" {
+		host, _, err := net.SplitHostPort(*address)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+			return errors.New("enterprise controls require a literal loopback host address")
+		}
+		cc, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return err
+		}
+		defer cc.Close()
+		conn = cc
+	} else {
+		agent, err := dialActiveProfile(ctx, enterpriseNotices)
+		if err != nil {
+			return err
+		}
+		defer agent.Close()
+		// Count as the agent's client until done (released before the
+		// client closes), so an agent this command auto-launched exits after.
+		defer holdAgent(ctx, agent.SubscribeEvents)()
+		conn = agent.Conn()
 	}
-	conn, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 	timeout := 90 * time.Second
 	if args[0] == "login" {
 		timeout = 6 * time.Minute
@@ -96,6 +142,7 @@ func enterpriseCommand(ctx context.Context, args []string, out io.Writer) error 
 	defer cancel()
 	client := proto.NewEnterpriseClient(conn)
 	empty := &proto.EnterpriseControlRequest{}
+	var err error
 	var result *proto.EnterpriseStatus
 	var policyResult *proto.EnterprisePolicy
 	var skillsResult *proto.ListSkillsResponse

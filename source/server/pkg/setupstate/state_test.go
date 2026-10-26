@@ -45,9 +45,12 @@ func TestFreshHasNoPreviousAnswers(t *testing.T) {
 }
 func TestPathAndExistingSchemaCompatibility(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", root)
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg")) // the profile dir follows HOME, not XDG
+	t.Setenv("CERCANO_PROFILE", "work")
 	t.Setenv("CERCANO_WIZARD_STATE", "")
-	if StatePath() != filepath.Join(root, "cercano", "wizard_state.yaml") {
+	if StatePath() != filepath.Join(root, ".config", "cercano", "profiles", "work", "wizard_state.yaml") {
 		t.Fatal(StatePath())
 	}
 	p := filepath.Join(root, "override.yaml")

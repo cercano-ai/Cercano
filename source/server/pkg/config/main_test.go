@@ -21,10 +21,19 @@ var envOverrideVars = []string{
 // what each test sets. Without this, an exported GEMINI_API_KEY (common on a
 // dev machine) injects legacy cloud fields into every Load and fails tests
 // that assert those fields stay empty. Tests that exercise an override set it
-// explicitly with t.Setenv.
+// explicitly with t.Setenv. It also points HOME at a temp dir because Save
+// writes machine.yaml under it.
 func TestMain(m *testing.M) {
 	for _, name := range envOverrideVars {
 		os.Unsetenv(name)
 	}
-	os.Exit(m.Run())
+	home, err := os.MkdirTemp("", "cercano-config-test-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", home)
+	os.Setenv("USERPROFILE", home)
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"google.golang.org/grpc"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -251,5 +252,46 @@ func TestSecondModelHostExitsQuietlyWhileFirstIsStarting(t *testing.T) {
 	got, err := modelhost.ReadRecord(dir)
 	if err != nil || got.Addr != rec.Addr {
 		t.Fatalf("record changed: %+v, %v", got, err)
+	}
+}
+
+func TestModelHostConfigIgnoresProfileConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CERCANO_PROFILE", "")
+	if err := os.MkdirAll(filepath.Dir(config.DefaultPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// machine.yaml is absent; the profile file carries a legacy runtime
+	// section and a profile-only field. The host must see neither.
+	body := "port: \"59999\"\nllama_server:\n  extra_args: [\"--from-profile\"]\n"
+	if err := os.WriteFile(config.DefaultPath(), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := machineRuntimeConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := config.Defaults()
+	if len(cfg.LlamaServer.ExtraArgs) != len(def.LlamaServer.ExtraArgs) {
+		t.Errorf("ExtraArgs = %v, want defaults %v", cfg.LlamaServer.ExtraArgs, def.LlamaServer.ExtraArgs)
+	}
+	if cfg.Port != def.Port {
+		t.Errorf("Port = %q, want default %q", cfg.Port, def.Port)
+	}
+
+	// With machine.yaml present, its sections are used.
+	mach := config.MachineConfig{LlamaServer: def.LlamaServer, MistralRS: def.MistralRS}
+	mach.LlamaServer.ExtraArgs = []string{"--from-machine"}
+	if err := config.SaveMachine(mach); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = machineRuntimeConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.LlamaServer.ExtraArgs; len(got) != 1 || got[0] != "--from-machine" {
+		t.Errorf("ExtraArgs = %v, want [--from-machine]", got)
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"cercano/source/server/internal/managedsettings"
 	"cercano/source/server/internal/modelpolicy"
+	"cercano/source/server/pkg/paths"
 )
 
 // Host owns the one enterprise connection used by this running Cercano process.
@@ -45,7 +46,13 @@ func NewHost(options HostOptions) (*Host, error) {
 		return nil, errors.New("enterprise state directory required")
 	}
 	if options.OpenStore == nil {
-		options.OpenStore = OpenCredentialStore
+		options.OpenStore = func() (CredentialStore, error) {
+			profile, err := paths.Profile()
+			if err != nil {
+				return nil, err
+			}
+			return OpenCredentialStore(profile)
+		}
 	}
 	if options.Manager.CachePath == "" {
 		options.Manager.CachePath = filepath.Join(options.Directory, "active-bundle.json")
@@ -416,4 +423,20 @@ func (h *Host) Close() {
 		h.release()
 		h.release = nil
 	}
+}
+
+// DefaultStateDir returns the active profile's enterprise state directory,
+// <profile>/enterprise. It holds the managed marker, connection.lock and the
+// cached policy bundle, so each profile connects (or stays standalone) on its
+// own. It errors when the home directory is unknown or CERCANO_PROFILE is
+// invalid.
+func DefaultStateDir() (string, error) {
+	if err := paths.CheckHome(); err != nil {
+		return "", err
+	}
+	dir, err := paths.CurrentProfileDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "enterprise"), nil
 }

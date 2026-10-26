@@ -188,6 +188,7 @@ func TestSavePreservesAutomaticLlamaServerContext(t *testing.T) {
 }
 
 func TestLoad_LlamaServerContextSizePresence(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // machine.yaml must not leak between tests
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(`
@@ -206,6 +207,7 @@ llama_server:
 }
 
 func TestLoad_LlamaServerRestartCanBeDisabled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // machine.yaml must not leak between tests
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	os.WriteFile(path, []byte(`
@@ -377,15 +379,16 @@ func TestDefaults_Compaction(t *testing.T) {
 }
 
 func TestDefaultPath(t *testing.T) {
-	path := DefaultPath()
-	if path == "" {
-		t.Skip("could not determine home directory")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CERCANO_PROFILE", "")
+	if got, want := DefaultPath(), filepath.Join(home, ".config", "cercano", "profiles", "default", "config.yaml"); got != want {
+		t.Errorf("DefaultPath() = %q, want %q", got, want)
 	}
-	if !filepath.IsAbs(path) {
-		t.Errorf("expected absolute path, got %q", path)
-	}
-	if filepath.Base(path) != "config.yaml" {
-		t.Errorf("expected config.yaml filename, got %q", filepath.Base(path))
+	t.Setenv("CERCANO_PROFILE", "work")
+	if got, want := DefaultPath(), filepath.Join(home, ".config", "cercano", "profiles", "work", "config.yaml"); got != want {
+		t.Errorf("DefaultPath() with CERCANO_PROFILE=work = %q, want %q", got, want)
 	}
 }
 

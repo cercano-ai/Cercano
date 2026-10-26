@@ -158,6 +158,7 @@ func TestFindLlamaServerBinary_ConfiguredPath(t *testing.T) {
 
 func TestSetupPreservesContextSelectionAcrossSaves(t *testing.T) {
 	for _, size := range []int{0, 8192, 65536} {
+		t.Setenv("HOME", t.TempDir()) // machine.yaml must not leak between sizes
 		c := config.Defaults()
 		if size > 0 {
 			n := size

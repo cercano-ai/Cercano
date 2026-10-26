@@ -499,10 +499,10 @@ func (mo *openRuntimeInstallModal) renderActions(styles theme.Styles, w int) str
 		secondary := styles.Muted.Render("[Esc] Close")
 		hintText := "Or, out-of-band:\n" +
 			"  • add a .gguf to ~/.cercano/models/\n" +
-			"  • or set llama_server.default_model in ~/.config/cercano/config.yaml"
+			"  • or set llama_server.default_model in ~/.config/cercano/machine.yaml"
 		if mo.status.Runtime == "mistralrs" {
 			hintText = "Choose/download a mistral.rs model from the runtime dashboard,\n" +
-				"or set mistralrs.default_model in ~/.config/cercano/config.yaml."
+				"or set mistralrs.default_model in ~/.config/cercano/machine.yaml."
 		}
 		hint := styles.Muted.Render(hintText)
 		return primary + "    " + secondary + "\n" + hint

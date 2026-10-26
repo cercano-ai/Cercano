@@ -7,6 +7,11 @@ Reads hook input (JSON) from stdin, parses the transcript JSONL to extract
 cumulative cloud token usage, computes the delta since last report, and
 inserts into the cloud_usage table.
 
+Data lives in the active Cercano profile, like the agent's:
+~/.config/cercano/profiles/<profile>/{telemetry.db,hook_state.json}, where
+<profile> is $CERCANO_PROFILE or "default". An invalid profile name makes the
+hook exit quietly without writing anything; it must never break the host tool.
+
 Usage in Claude Code settings.json:
 {
   "hooks": {
@@ -22,11 +27,20 @@ Usage in Claude Code settings.json:
 
 import json
 import os
+import re
 import sqlite3
 import sys
 
-STATE_FILE = os.path.expanduser("~/.config/cercano/hook_state.json")
-DB_PATH = os.path.expanduser("~/.config/cercano/telemetry.db")
+# Same rule as Go's paths.ValidateProfileName.
+PROFILE_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+
+
+def profile_dir():
+    """Return the active profile's directory, or None if CERCANO_PROFILE is invalid."""
+    name = os.environ.get("CERCANO_PROFILE", "") or "default"
+    if not PROFILE_NAME_RE.fullmatch(name):
+        return None
+    return os.path.join(os.path.expanduser("~"), ".config", "cercano", "profiles", name)
 
 
 def read_hook_input():
@@ -78,39 +92,43 @@ def parse_transcript(transcript_path):
     }
 
 
-def load_state(session_id):
+def load_state(state_file, session_id):
     """Load the last-reported cumulative totals for this session."""
     try:
-        with open(STATE_FILE, "r") as f:
+        with open(state_file, "r") as f:
             state = json.load(f)
         return state.get(session_id, {})
     except (OSError, IOError, json.JSONDecodeError):
         return {}
 
 
-def save_state(session_id, totals):
+def save_state(state_file, session_id, totals):
     """Save cumulative totals so next invocation can compute the delta."""
     state = {}
     try:
-        with open(STATE_FILE, "r") as f:
+        with open(state_file, "r") as f:
             state = json.load(f)
     except (OSError, IOError, json.JSONDecodeError):
         pass
 
     state[session_id] = totals
 
-    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-    with open(STATE_FILE, "w") as f:
+    os.makedirs(os.path.dirname(state_file), exist_ok=True)
+    with open(state_file, "w") as f:
         json.dump(state, f)
 
 
-def write_to_db(delta_input, delta_output):
+def write_to_db(db_path, delta_input, delta_output):
     """Insert cloud usage delta into Cercano's telemetry database."""
     if delta_input <= 0 and delta_output <= 0:
         return
+    # The agent creates the database with its schema; never create an empty
+    # one here.
+    if not os.path.exists(db_path):
+        return
 
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(db_path)
         conn.execute(
             """INSERT INTO cloud_usage
                (timestamp, cloud_input_tokens, cloud_output_tokens, cloud_provider, cloud_model)
@@ -124,6 +142,12 @@ def write_to_db(delta_input, delta_output):
 
 
 def main():
+    directory = profile_dir()
+    if directory is None:
+        return
+    state_file = os.path.join(directory, "hook_state.json")
+    db_path = os.path.join(directory, "telemetry.db")
+
     hook_input = read_hook_input()
     if not hook_input:
         return
@@ -140,15 +164,15 @@ def main():
         return
 
     # Load previous state and compute delta
-    prev = load_state(session_id)
+    prev = load_state(state_file, session_id)
     delta_input = totals["input_tokens"] - prev.get("input_tokens", 0)
     delta_output = totals["output_tokens"] - prev.get("output_tokens", 0)
 
     # Write delta to telemetry DB
-    write_to_db(delta_input, delta_output)
+    write_to_db(db_path, delta_input, delta_output)
 
     # Save current state for next invocation
-    save_state(session_id, totals)
+    save_state(state_file, session_id, totals)
 
 
 if __name__ == "__main__":

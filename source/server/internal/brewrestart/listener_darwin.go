@@ -62,11 +62,13 @@ import (
 // HoldsListener verifies a known same-user process owns a loopback TCP endpoint.
 // Wildcard bindings are accepted only for IP families supported by the socket.
 // This is a per-candidate check, not a proof of unique socket ownership.
+// An expected identity whose executable is gone is revalidated without a
+// path; one with a path still requires the same path.
 func HoldsListener(expected Identity, endpoint netip.AddrPort) (bool, error) {
 	if !endpoint.IsValid() || !endpoint.Addr().IsLoopback() || endpoint.Port() == 0 || endpoint.Addr().Zone() != "" {
 		return false, fmt.Errorf("restart requires an explicit loopback TCP endpoint")
 	}
-	before, err := Inspect(expected.PID)
+	before, err := inspectProcess(expected.PID, expected.ExecutableGone)
 	if err != nil {
 		return false, err
 	}
@@ -79,7 +81,7 @@ func HoldsListener(expected Identity, endpoint netip.AddrPort) (bool, error) {
 	if code := C.cercano_listener(C.int(expected.PID), address, C.int(endpoint.Port()), &found); code != 0 {
 		return false, fmt.Errorf("inspect process listener: %w", syscall.Errno(code))
 	}
-	after, err := Inspect(expected.PID)
+	after, err := inspectProcess(expected.PID, expected.ExecutableGone)
 	if err != nil {
 		return false, err
 	}

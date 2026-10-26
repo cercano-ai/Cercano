@@ -130,7 +130,7 @@ rebuilds the native cloud provider with no restart, mirroring today's
 
 ## Using profiles
 
-Profiles are stored in `~/.config/cercano/config.yaml` under `cloud_profiles` (a list) and `active_cloud_profile` (a string):
+Profiles are stored in the active Cercano profile's config, `~/.config/cercano/profiles/<name>/config.yaml`, under `cloud_profiles` (a list) and `active_cloud_profile` (a string):
 
 ```yaml
 cloud_profiles:

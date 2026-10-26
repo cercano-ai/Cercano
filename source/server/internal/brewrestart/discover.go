@@ -48,11 +48,12 @@ func discover(source processSource, newExecutable string, uid uint32, endpoint n
 		}
 		seen[pid] = true
 		identity, err := source.Inspect(pid)
-		if errors.Is(err, syscall.ESRCH) {
-			continue
-		}
 		if err != nil {
-			return nil, fmt.Errorf("inspect candidate PID %d: %w", pid, err)
+			// Exited meanwhile, or a same-user process libproc cannot read
+			// (some app helpers). Neither can be shown to be the agent, so
+			// it is skipped; every process that can be inspected still
+			// goes through the ownership and listener checks below.
+			continue
 		}
 		if identity.PID != pid {
 			return nil, fmt.Errorf("candidate PID identity mismatch")

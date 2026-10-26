@@ -10,7 +10,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/compaction"
@@ -24,14 +23,18 @@ func main() {
 	convID := flag.String("conv", "80109e871fba4e18", "conversation id")
 	flag.Parse()
 
-	dbPath := os.ExpandEnv("$HOME/.config/cercano/conversations.db")
+	dbPath, err := conversation.DefaultPath()
+	if err != nil {
+		fmt.Println("conversations path:", err)
+		return
+	}
 	store, err := conversation.Open(dbPath)
 	if err != nil {
 		fmt.Println("open:", err)
 		return
 	}
 
-	cfg, err := config.Load(os.ExpandEnv("$HOME/.config/cercano/config.yaml"))
+	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
 		fmt.Println("config load:", err)
 		return

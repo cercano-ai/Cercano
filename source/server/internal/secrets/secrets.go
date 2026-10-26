@@ -14,7 +14,14 @@ import (
 	"github.com/99designs/keyring"
 )
 
-const service = "cercano"
+// ServiceName is the keychain service holding a profile's secrets. The default
+// profile keeps the historical "cercano" service so existing entries stay valid.
+func ServiceName(profile string) string {
+	if profile == "default" {
+		return "cercano"
+	}
+	return "cercano." + profile
+}
 
 // Store reads/writes a profile's API key.
 type Store interface {
@@ -31,11 +38,11 @@ type Store interface {
 
 type keyringStore struct{ kr keyring.Keyring }
 
-// OpenKeychain opens the OS keychain backend. Errors on headless systems with
+// OpenKeychain opens the OS keychain backend for the given Cercano profile. Errors on headless systems with
 // no secret service (deferred fallback).
-func OpenKeychain() (Store, error) {
+func OpenKeychain(profile string) (Store, error) {
 	kr, err := keyring.Open(keyring.Config{
-		ServiceName:              service,
+		ServiceName:              ServiceName(profile),
 		KeychainTrustApplication: true,
 	})
 	if err != nil {

@@ -22,6 +22,8 @@ import (
 	_ "modernc.org/sqlite"
 
 	"database/sql"
+
+	"cercano/source/server/pkg/paths"
 )
 
 //go:embed schema.sql
@@ -359,18 +361,21 @@ type Store interface {
 }
 
 // DefaultPath returns the default conversations DB location:
-// $CERCANO_CONVERSATIONS_DB if set, otherwise ~/.config/cercano/conversations.db.
-// The parent directory is created if missing.
+// $CERCANO_CONVERSATIONS_DB if set, otherwise conversations.db in the active
+// profile's directory. It errors when CERCANO_PROFILE is invalid. The parent
+// directory is created if missing.
 func DefaultPath() (string, error) {
 	if v := os.Getenv("CERCANO_CONVERSATIONS_DB"); v != "" {
 		return v, nil
 	}
-	home, err := os.UserHomeDir()
+	if err := paths.CheckHome(); err != nil {
+		return "", err
+	}
+	dir, err := paths.CurrentProfileDir()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".config", "cercano")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "conversations.db"), nil

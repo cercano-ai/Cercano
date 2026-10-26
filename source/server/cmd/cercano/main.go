@@ -63,11 +63,12 @@ import (
 	"cercano/source/server/internal/telemetry"
 	"cercano/source/server/internal/tools"
 	"cercano/source/server/internal/toolstack"
+	"cercano/source/server/pkg/agentclient"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/paths"
 	"cercano/source/server/pkg/proto"
 	"cercano/source/server/pkg/update"
 
-	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -85,15 +86,15 @@ func init() {
 }
 
 // setupDispatchLogFile configures the standard library logger to tee output
-// to both stderr and ~/.cercano-dispatch.log with microsecond timestamps,
-// so dispatch diagnostics survive Claude Code's startup-only stderr capture.
+// to both stderr and the active profile's logs/dispatch.log with microsecond
+// timestamps, so dispatch diagnostics survive Claude Code's startup-only
+// stderr capture.
 func setupDispatchLogFile() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[diag] could not resolve home dir for log: %v\n", err)
+	path := dispatchLogPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "[diag] could not create dispatch log dir: %v\n", err)
 		return
 	}
-	path := home + "/.cercano-dispatch.log"
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[diag] could not open dispatch log %s: %v\n", path, err)
@@ -178,7 +179,7 @@ func isTransientConversationStoreOpenError(err error) bool {
 // be llama_server and the primary route may be cloud, neither of which needs
 // it. Ollama-backed features (Ollama chat models, embeddings, the model
 // catalog) fail at point-of-use instead, matching the lazy SmartRouter and
-// the embedded --mcp degraded-mode paths.
+// the --mcp degraded-mode path.
 func ollamaStartupWarning(check func(string) error, baseURL string) string {
 	if err := check(baseURL); err != nil {
 		return fmt.Sprintf("[WARN] Ollama unreachable at %s (%v) — continuing; Ollama-backed models and embeddings unavailable until it comes up.", baseURL, err)
@@ -188,17 +189,22 @@ func ollamaStartupWarning(check func(string) error, baseURL string) string {
 
 // drainGrace bounds how long a shutting-down agent waits for in-flight turns
 // to finish before hard-stopping. It is a zombie-guard, not a tuning knob: an
-// agentic turn legitimately runs for minutes (model calls + tool executions),
-// and the drained process holds no resources a replacement needs — the
-// listener port frees the moment the drain starts. Only a truly wedged
-// handler should ever hit this. A second signal forces immediate exit.
+// agentic turn legitimately runs for minutes (model calls + tool executions).
+// The listener closes the moment the drain starts, but the draining process
+// holds the profile's agent lock until it exits, so drainGrace also bounds
+// how long a replacement agent for the same profile is blocked. A replacement
+// waits up to agentHandoverWait, then reports that the previous agent is
+// still finishing, and the client retries. Only a truly wedged handler should
+// ever hit this. A second signal forces immediate exit.
 const drainGrace = 10 * time.Minute
 
 // startGRPCServer initializes all providers and starts the gRPC server.
 // Returns the listener address and a cleanup function.
-// events may be nil (MCP embedded mode opens no log); a nil writer makes
-// durable runtime-event recording a no-op rather than a crash.
-func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer) (string, func(), error) {
+// events may be nil; a nil writer makes durable runtime-event recording a
+// no-op rather than a crash. identity is what GetHostIdentity reports. The
+// returned address is the one actually bound, so a port of 0 comes back as
+// the port the system chose.
+func startGRPCServer(cfg config.Config, bindAddr string, identity server.HostIdentity, events *crashlog.Writer) (string, func(), error) {
 	enterpriseHost, err := newEnterpriseHost()
 	if err != nil {
 		return "", nil, err
@@ -415,7 +421,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 
 	lis, err := net.Listen("tcp", bindAddr)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to listen on %s: %v", bindAddr, err)
+		return "", nil, listenFailure(bindAddr, err)
 	}
 
 	// 64 MiB comfortably fits multiple 20 MiB images (the per-image client cap).
@@ -430,6 +436,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	srv := server.NewServer(orchestrator, lazyRouter, coordinator, cloudFactory, registry)
 	srv.SetBackgroundWorkAdmission(enterpriseHost.Begin)
 	srv.SetBuildVersion(version)
+	srv.SetHostIdentity(identity)
 	compactionCandidates = srv.DispatchCandidates
 	srv.SetRuntimeManager(runtimeManager)
 	if os.Getenv("CERCANO_AUTOLAUNCHED") == "1" && cfg.Agent.ShutdownOnLastClient {
@@ -445,7 +452,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// catalog + files on disk). LoadCache is best-effort — a missing
 	// cache on first run just means the background refresher will
 	// populate it shortly. Start() is what kicks the periodic refresh.
-	catalogCachePath := filepath.Join(filepath.Dir(config.DefaultPath()), "catalog-cache.json")
+	catalogCachePath := profileFile("catalog-cache.json")
 	catalogManager := ollamacatalog.NewManager(&ollamacatalog.Fetcher{}, catalogCachePath)
 	if err := catalogManager.LoadCache(); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Could not load online-catalog cache at %s: %v (starting fresh)\n", catalogCachePath, err)
@@ -491,8 +498,8 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	orchestrator.SetLocusModeGetter(srv.LocusMode)
 
 	// Permission store + pending-decisions barrier for the native tool-calling
-	// loop. Path mirrors config.yaml: ~/.config/cercano/permissions.yaml.
-	permsPath := filepath.Join(filepath.Dir(config.DefaultPath()), "permissions.yaml")
+	// loop. Lives beside the active profile's config.yaml.
+	permsPath := profileFile("permissions.yaml")
 	permStore, err := agent.LoadPermissionStore(permsPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to load permission store at %s: %v — defaulting to permissive in-memory store.\n", permsPath, err)
@@ -518,7 +525,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// keeping the server's stored providers raw so the dispatch engine can wrap
 	// them per-dispatch without double-counting.
 	// agentCollector is hoisted so the coproc engine sink can reference it below.
-	agentTelemetryPath := filepath.Join(filepath.Dir(config.DefaultPath()), "telemetry.db")
+	agentTelemetryPath := profileFile("telemetry.db")
 	agentCollector, closeAgentTelemetry, err := startAgentTelemetry(agentTelemetryPath, generateSessionID())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to initialize agent telemetry: %v\n", err)
@@ -535,7 +542,11 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 
 	// Open OS keychain and attach it so profile RPCs and rebuildCloud can
 	// read API keys. Failure is non-fatal: cloud stays absent.
-	if store, err := secrets.OpenKeychain(); err == nil {
+	profile, err := paths.Profile()
+	if err != nil {
+		return "", nil, err
+	}
+	if store, err := secrets.OpenKeychain(profile); err == nil {
 		srv.SetSecrets(store)
 	} else {
 		fmt.Fprintf(os.Stderr, "[WARN] keychain unavailable (%v) — cloud profiles can't load keys; fallback deferred.\n", err)
@@ -549,7 +560,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	//      keychain entry but failed to blank the yaml) → blank+save only.
 	// We NEVER blank the yaml unless the key is confirmed present in the keychain.
 	if cfg.CloudAPIKey != "" && cfg.ActiveCloudProfile != "" {
-		if store, err := secrets.OpenKeychain(); err == nil {
+		if store, err := secrets.OpenKeychain(profile); err == nil {
 			keySafe := false
 			if _, gerr := store.Get(cfg.ActiveCloudProfile); gerr == nil {
 				// Already in keychain.
@@ -719,14 +730,34 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 // stale-partial and orphan sweeps, provider registration and interrupted
 // download resumption. It does not warm any runtime.
 func newLocalRuntimeManager(cfg config.Config, events *crashlog.Writer) *localruntime.InMemoryManager {
+	return newLocalRuntimeManagerWithLoader(cfg, events, func() (config.Config, error) {
+		return config.Load(config.DefaultPath())
+	})
+}
+
+// machineRuntimeConfig is the configuration of the shared model host: the
+// defaults with the machine-wide runtime sections from machine.yaml. It never
+// reads a profile's config, because the host serves every profile.
+func machineRuntimeConfig() (config.Config, error) {
+	cfg := config.Defaults()
+	mc, err := config.LoadMachine()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.LlamaServer = mc.LlamaServer
+	cfg.MistralRS = mc.MistralRS
+	return cfg, nil
+}
+
+// newLocalRuntimeManagerWithLoader is newLocalRuntimeManager with the
+// restart-time config reloader supplied by the caller.
+func newLocalRuntimeManagerWithLoader(cfg config.Config, events *crashlog.Writer, load func() (config.Config, error)) *localruntime.InMemoryManager {
 	manager := localruntime.NewManager(
 		localruntime.WithEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg))),
 		// Re-read config from disk on restart so a runtime relaunch picks up
 		// edits (e.g. mistralrs.max_seq_len) rather than reusing the config
 		// captured at server boot.
-		localruntime.WithConfigLoader(func() (config.Config, error) {
-			return config.Load(config.DefaultPath())
-		}),
+		localruntime.WithConfigLoader(load),
 	)
 	sweepStalePartials(cfg, manager)
 	provider := runtimellama.NewProvider(cfg.LlamaServer)
@@ -846,20 +877,25 @@ func newModelHostRemote(ctx context.Context) (*modelhost.Remote, error) {
 	}
 	bctx, cancel := context.WithTimeout(ctx, modelHostConnectBudget)
 	defer cancel()
-	remote, err := modelhost.NewRemote(bctx, modelhost.RemoteOptions{
+	remote, err := modelhost.NewRemote(bctx, modelHostRemoteOptions(runDir))
+	if err != nil && ctx.Err() == nil && bctx.Err() != nil {
+		return nil, fmt.Errorf("model host not connected within %s: %w", modelHostConnectBudget, err)
+	}
+	return remote, err
+}
+
+// modelHostRemoteOptions connects to the model host in runDir as an agent for
+// the active profile.
+func modelHostRemoteOptions(runDir string) modelhost.RemoteOptions {
+	return modelhost.RemoteOptions{
 		Ensure: modelhost.EnsureOptions{
 			RunDir:        runDir,
 			ClientVersion: version,
 			Launch:        launchModelHost(runDir),
 			Timeout:       modelHostEnsureTimeout,
 		},
-		// The active profile is reported once profiles reach the agent host.
-		Profile: "",
-	})
-	if err != nil && ctx.Err() == nil && bctx.Err() != nil {
-		return nil, fmt.Errorf("model host not connected within %s: %w", modelHostConnectBudget, err)
+		Profile: activeProfile(),
 	}
-	return remote, err
 }
 
 // startDefaultRuntimeAsync warms the llama-server default model in the
@@ -981,9 +1017,10 @@ func openTurnModel(cfg config.Config) string {
 
 const setupUsage = `Usage: cercano setup [--install-engine]
 
-Interactive first-run setup. Detects AI engine backends, writes
-~/.config/cercano/config.yaml, installs the telemetry hook, creates the
-research virtualenv, and pulls the default + embedding models.
+Interactive first-run setup. Detects AI engine backends, writes the active
+profile's config.yaml (~/.config/cercano/profiles/<name>/config.yaml, where
+<name> is $CERCANO_PROFILE or "default"), installs the telemetry hook,
+creates the research virtualenv, and pulls the default + embedding models.
 
 Flags:
   --install-engine   Install a local inference engine (Ollama) if none is found.
@@ -991,6 +1028,18 @@ Flags:
 `
 
 func main() {
+	// Every command that touches profile or machine state needs a home
+	// directory and a valid CERCANO_PROFILE before any path is computed.
+	requireStartupEnvironment(os.Args)
+	// A command that needs a named profile's agent host while per-profile
+	// agent hosts are off is refused before the migration below, so it moves
+	// no pre-profile data and stops no pre-profile agent.
+	refuseDisabledProfileHost(os.Args)
+	// Data written before profiles existed moves into the default profile
+	// before any command opens a profile file (config, permissions,
+	// conversations, enterprise state, logs).
+	requireProfileMigration(os.Args)
+
 	// Handle subcommands before flag parsing.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -1011,15 +1060,10 @@ func main() {
 			// and runtime probing. Confirmation is the developer's trigger.
 			os.Exit(runReset(os.Args[2:]))
 		case "setup":
-			installEngine := false
-			for _, arg := range os.Args[2:] {
-				switch arg {
-				case "-h", "--help":
-					fmt.Print(setupUsage)
-					return
-				case "--install-engine":
-					installEngine = true
-				}
+			installEngine, help := parseSetupArgs(os.Args[2:])
+			if help {
+				fmt.Print(setupUsage)
+				return
 			}
 			runSetup(installEngine)
 			return
@@ -1053,12 +1097,20 @@ func main() {
 			// Shared local model host: one process per user owns the local
 			// runtime instances and serves every agent over loopback gRPC.
 			// Normally launched by agents, not by hand.
-			cfg, err := config.Load(config.DefaultPath())
+			cfg, err := machineRuntimeConfig()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
+				fmt.Fprintf(os.Stderr, "[WARN] Failed to load machine config: %v (using defaults)\n", err)
 				cfg = config.Defaults()
 			}
-			crashLogPath := filepath.Join(filepath.Dir(config.DefaultPath()), "crash.log")
+			crashLogPath := filepath.Join(".", "crash.log")
+			if runDir, rdErr := modelhost.RunDir(); rdErr != nil {
+				fmt.Fprintf(os.Stderr, "[WARN] model host run directory: %v\n", rdErr)
+			} else {
+				// Create the run directory 0700 before the crash log can
+				// create it with looser permissions.
+				_ = os.MkdirAll(runDir, 0o700)
+				crashLogPath = filepath.Join(runDir, "crash.log")
+			}
 			crashWriter, cwErr := crashlog.NewWriter(crashLogPath, version)
 			if cwErr != nil {
 				fmt.Fprintf(os.Stderr, "[WARN] Failed to open crash log at %s: %v\n", crashLogPath, cwErr)
@@ -1126,11 +1178,8 @@ func main() {
 		}
 	}
 
-	mcpMode := flag.Bool("mcp", false, "Run in MCP mode (embedded gRPC server + MCP on stdio)")
-	grpcAddr := flag.String("grpc-addr", "", "Address of an external gRPC server (MCP-only, no embedded server)")
-	showVersion := flag.Bool("version", false, "Print version and exit")
-	showStats := flag.Bool("stats", false, "Print usage statistics and exit")
-	forceServer := flag.Bool("server", false, "Force server mode (equivalent to `cercano agent`)")
+	top := defineTopLevelFlags(flag.CommandLine)
+	mcpMode, grpcAddr, showVersion, showStats, forceServer := top.mcp, top.grpcAddr, top.version, top.stats, top.server
 	flag.Parse()
 
 	if *showVersion {
@@ -1185,8 +1234,7 @@ func runSetup(installEngine bool) {
 	fmt.Printf("Cercano Setup (v%s)\n", version)
 
 	// Check for updates (cached, non-blocking)
-	configDir := filepath.Dir(config.DefaultPath())
-	if info := update.CheckCached(version, configDir); info != nil && info.UpdateAvailable {
+	if info := update.CheckCached(version, updateCacheDir()); info != nil && info.UpdateAvailable {
 		fmt.Printf("\n  Note: A newer version is available (v%s).\n", info.LatestVersion)
 		fmt.Printf("  Run `%s` after setup to get the latest features.\n", info.UpgradeCommand())
 	}
@@ -1834,14 +1882,21 @@ func promptYesNo(out io.Writer, in io.Reader, prompt string, defaultYes bool) bo
 //	--crashes: pretty-print the last N crash-log entries (default 10).
 //	--tail N : override the count.
 //
+// newLogsFlags defines `cercano logs` flags; the startup check parses with
+// the same definitions to recognize a help request.
+func newLogsFlags(handling flag.ErrorHandling) (*flag.FlagSet, *bool, *int) {
+	fs := flag.NewFlagSet("logs", handling)
+	crashes := fs.Bool("crashes", false, "show the persistent crash log")
+	tail := fs.Int("tail", 10, "number of most-recent entries to show")
+	return fs, crashes, tail
+}
+
 // Output is human-readable, one entry per block with a divider — meant
 // for a person eyeballing the log. For structured consumption, the raw
 // JSONL file at ~/.config/cercano/crash.log is the authoritative
 // source.
 func runLogs(args []string) {
-	fs := flag.NewFlagSet("logs", flag.ExitOnError)
-	crashes := fs.Bool("crashes", false, "show the persistent crash log")
-	tail := fs.Int("tail", 10, "number of most-recent entries to show")
+	fs, crashes, tail := newLogsFlags(flag.ExitOnError)
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
@@ -1849,7 +1904,7 @@ func runLogs(args []string) {
 		fmt.Fprintln(os.Stderr, "usage: cercano logs --crashes [--tail N]")
 		os.Exit(2)
 	}
-	path := filepath.Join(filepath.Dir(config.DefaultPath()), "crash.log")
+	path := profileFile("crash.log")
 	entries, err := crashlog.TailEntries(path, *tail)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "logs: read %s: %v\n", path, err)
@@ -1891,7 +1946,7 @@ func runLogs(args []string) {
 
 // runStats prints cumulative usage statistics and exits.
 func runStats() {
-	telemetryPath := filepath.Join(filepath.Dir(config.DefaultPath()), "telemetry.db")
+	telemetryPath := profileFile("telemetry.db")
 	store, err := telemetry.NewSQLiteStore(telemetryPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open telemetry database: %v\n", err)
@@ -1917,9 +1972,21 @@ func generateSessionID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
 }
 
-// runServerMode starts the gRPC server in standalone mode (for IDE clients).
+// runServerMode runs this profile's agent host until signaled. It holds the
+// profile's agent lock for the whole process lifetime, so a second agent for
+// the same profile exits with status 1, and publishes the address it listens
+// on in the profile's agent.json. The record is removed and the lock released
+// on every exit path.
 func runServerMode(cfg config.Config) {
-	// Tee log.Printf diagnostics to ~/.cercano-dispatch.log so they survive
+	profile := activeProfile()
+	host, err := acquireAgentHost(profile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cercano: %v\n", err)
+		os.Exit(1)
+	}
+	defer host.close()
+
+	// Tee log.Printf diagnostics to the profile's logs/dispatch.log so they survive
 	// when the CLI auto-launches this agent and swallows its stderr. Without
 	// this, subsystem logs (e.g. [mcphost] connection failures) are lost.
 	setupDispatchLogFile()
@@ -1927,7 +1994,7 @@ func runServerMode(cfg config.Config) {
 	// Persistent crash log. Sits alongside config.yaml so operators can
 	// find it after the fact. Failure to open the log is non-fatal —
 	// crash recording is nice-to-have; the server should still start.
-	crashLogPath := filepath.Join(filepath.Dir(config.DefaultPath()), "crash.log")
+	crashLogPath := profileFile("crash.log")
 	crashWriter, cwErr := crashlog.NewWriter(crashLogPath, version)
 	if cwErr != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to open crash log at %s: %v (server continues without crash capture)\n", crashLogPath, cwErr)
@@ -1945,24 +2012,40 @@ func runServerMode(cfg config.Config) {
 				})
 				_ = crashWriter.Close()
 			}
+			host.close()
 			panic(r)
 		}
 	}()
 
-	fmt.Printf("Starting Cercano gRPC server (v%s)...\n", version)
+	fmt.Printf("Starting Cercano gRPC server (v%s) for profile %q...\n", version, profile)
 	fmt.Printf("Local model: %s\n", openChatModel(cfg))
 	fmt.Printf("Ollama URL: %s\n", cfg.OllamaURL)
 	if crashWriter != nil {
 		fmt.Printf("Crash log: %s\n", crashLogPath)
 	}
 
-	addr, cleanup, err := startGRPCServer(cfg, ":"+cfg.Port, crashWriter)
+	addr, cleanup, err := startGRPCServer(cfg, agentBindAddr(profile, cfg), host.identity(), crashWriter)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\n[ERROR] %v\n", err)
 		if crashWriter != nil {
 			crashWriter.LogPanic("server startup failed: "+err.Error(), nil, map[string]any{"stage": "startGRPCServer"})
 			_ = crashWriter.Close()
 		}
+		host.close()
+		os.Exit(1)
+	}
+	// Catch signals before registering, so a signal that arrives from here on
+	// takes the shutdown path that removes the record.
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	if err := host.register(advertiseAddr(addr)); err != nil {
+		fmt.Fprintf(os.Stderr, "\n[ERROR] %v\n", err)
+		cleanup()
+		if crashWriter != nil {
+			crashWriter.LogPanic("server startup failed: "+err.Error(), nil, map[string]any{"stage": "registerAgent"})
+			_ = crashWriter.Close()
+		}
+		host.close()
 		os.Exit(1)
 	}
 
@@ -1974,8 +2057,6 @@ func runServerMode(cfg config.Config) {
 	//
 	// Every signal now also gets recorded to the crash log so operators
 	// can distinguish a graceful stop from a mysterious disappearance.
-	sigCh := make(chan os.Signal, 2)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	sig := <-sigCh
 	fmt.Printf("Received %v — draining in-flight requests (signal again to force quit)...\n", sig)
 	if crashWriter != nil {
@@ -1988,12 +2069,15 @@ func runServerMode(cfg config.Config) {
 			_ = crashWriter.Close()
 		}
 		fmt.Fprintln(os.Stderr, "Second signal — exiting immediately")
+		host.close()
 		os.Exit(1)
 	}()
 	cleanup()
 	if crashWriter != nil {
 		_ = crashWriter.Close()
 	}
+	// Last: remove the record, then release the profile lock.
+	host.close()
 	fmt.Println("Shutdown complete")
 }
 
@@ -2006,55 +2090,63 @@ func runtimeStack(all bool) string {
 	return string(buf[:n])
 }
 
-// runMCPMode starts the MCP server. If no external gRPC address is provided,
-// it starts an embedded gRPC server on a random port.
+// runMCPMode serves MCP over stdio. Its tools call the active profile's agent
+// (launched if none runs), or the agent at externalGRPC when given. With
+// per-profile agent hosts off (the default) and the default profile, tools
+// instead call an embedded in-process gRPC agent — the pre-shared-host
+// behavior — so `cercano --mcp` never depends on a shared host; main refuses
+// a named profile with the flag off before this runs (see
+// disabledProfileHost). If the agent cannot be reached the mode serves a
+// degraded MCP server, so the client sees a clear error instead of a dead
+// pipe. Standard output carries only the protocol (see mcpStdio): the
+// embedded agent's diagnostics go to standard error.
 func runMCPMode(cfg config.Config, externalGRPC string) {
+	transport := mcpStdio()
 	// Tee diagnostic logging to a file so it survives Claude Code's stdio
 	// stderr capture window (which closes after the initial connect handshake).
 	setupDispatchLogFile()
 
-	var grpcTarget string
-
+	var grpcClient proto.AgentClient
 	if externalGRPC != "" {
-		// Connect to an external gRPC server
-		grpcTarget = externalGRPC
-		fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) connecting to external gRPC at %s...\n", version, grpcTarget)
-	} else {
-		// Embedded mode: start gRPC server in-process on a random port
-		fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) starting with embedded gRPC server...\n", version)
-		fmt.Fprintf(os.Stderr, "Local model: %s | Ollama: %s\n", openChatModel(cfg), cfg.OllamaURL)
-
-		// MCP embedded mode opens no crash log; runtime events are a
-		// no-op here rather than a second writer on the same file.
-		addr, _, err := startGRPCServer(cfg, "localhost:0", nil)
+		fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) connecting to external gRPC at %s...\n", version, externalGRPC)
+		conn, err := grpc.NewClient(externalGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			// Start in degraded mode so the MCP pipe stays alive and
-			// the client gets a clear error instead of "Failed to reconnect".
+			fmt.Fprintf(os.Stderr, "Failed to connect to gRPC server at %s: %v\n", externalGRPC, err)
+			os.Exit(1)
+		}
+		defer conn.Close()
+		grpcClient = proto.NewAgentClient(conn)
+	} else if mcpUsesEmbeddedAgent(activeProfile()) {
+		// Flag-off legacy: no shared host, no profile routing — the agent
+		// runs in this process, exactly as before shared hosts existed.
+		agent, cleanup, err := startEmbeddedAgent(cfg)
+		if err != nil {
+			// Serve a degraded MCP server so the pipe stays alive and the
+			// client gets a clear error instead of "Failed to reconnect".
 			fmt.Fprintf(os.Stderr, "[ERROR] %v — starting in degraded mode\n", err)
-			s := mcpserver.NewDegradedServer(err)
-			if runErr := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); runErr != nil {
-				fmt.Fprintf(os.Stderr, "MCP server error: %v\n", runErr)
-				os.Exit(1)
-			}
+			runMCPServer(mcpserver.NewDegradedServer(err).MCPServer(), transport)
 			return
 		}
-		grpcTarget = addr
-		fmt.Fprintf(os.Stderr, "Embedded gRPC server listening at %s\n", grpcTarget)
+		defer cleanup()
+		grpcClient = agent
+	} else {
+		fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) starting...\n", version)
+		agent, closeAgent, err := connectMCPAgent(context.Background())
+		if err != nil {
+			// Serve a degraded MCP server so the pipe stays alive and the
+			// client gets a clear error instead of "Failed to reconnect".
+			fmt.Fprintf(os.Stderr, "[ERROR] %v — starting in degraded mode\n", err)
+			runMCPServer(mcpserver.NewDegradedServer(err).MCPServer(), transport)
+			return
+		}
+		defer closeAgent()
+		grpcClient = agent
 	}
 
-	// Connect MCP to gRPC
-	conn, err := grpc.NewClient(grpcTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to connect to gRPC server at %s: %v\n", grpcTarget, err)
-		os.Exit(1)
-	}
-	defer conn.Close()
-
-	grpcClient := proto.NewAgentClient(conn)
 	s := mcpserver.NewServer(grpcClient)
 
 	// Initialize telemetry
-	telemetryPath := filepath.Join(filepath.Dir(config.DefaultPath()), "telemetry.db")
+	telemetryPath := profileFile("telemetry.db")
 	telemetryStore, err := telemetry.NewSQLiteStore(telemetryPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to initialize telemetry: %v\n", err)
@@ -2073,15 +2165,132 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 	}
 
 	// Check for updates (cached, non-blocking)
-	configDir := filepath.Dir(config.DefaultPath())
-	if info := update.CheckCached(version, configDir); info != nil && info.UpdateAvailable {
+	if info := update.CheckCached(version, updateCacheDir()); info != nil && info.UpdateAvailable {
 		fmt.Fprintf(os.Stderr, "[UPDATE] A newer version is available: v%s. Run: %s\n", info.LatestVersion, info.UpgradeCommand())
 		s.SetUpdateInfo(info.LatestVersion, info.UpgradeCommand())
 	}
 
-	if err := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); err != nil {
-		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
-		os.Exit(1)
+	runMCPServer(s.MCPServer(), transport)
+}
+
+// mcpUsesEmbeddedAgent reports whether MCP mode without --grpc-addr serves
+// through an embedded in-process agent: only with per-profile agent hosts off
+// (the default; see paths.PerProfileAgentsEnv) and the default profile,
+// which keeps `cercano --mcp` working exactly as before shared hosts. With
+// the flag on, MCP mode routes through the profile's shared agent host; a
+// named profile with the flag off is refused before MCP mode starts.
+func mcpUsesEmbeddedAgent(profile string) bool {
+	return !paths.PerProfileAgents() && profile == paths.DefaultProfile
+}
+
+// startEmbeddedAgent starts the legacy in-process gRPC agent for MCP mode
+// (see mcpUsesEmbeddedAgent) and returns a client of it. The returned
+// cleanup stops the agent and its runtimes; run it when MCP exits. The
+// embedded agent holds no profile lock and publishes no registry record —
+// it lives and dies with this MCP process, as before shared hosts. Idle
+// shutdown never applies: only the profile-agent launcher sets
+// CERCANO_AUTOLAUNCHED, and it never starts MCP mode. Tests replace this.
+var startEmbeddedAgent = func(cfg config.Config) (agent proto.AgentClient, cleanup func(), err error) {
+	fmt.Fprintf(os.Stderr, "Cercano MCP server (v%s) starting with embedded gRPC server...\n", version)
+	// MCP embedded mode opens no crash log; runtime events are a no-op here
+	// rather than a second writer on the same file.
+	addr, stop, err := startGRPCServer(cfg, "localhost:0",
+		server.HostIdentity{Profile: activeProfile(), PID: os.Getpid(), Version: version}, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	fmt.Fprintf(os.Stderr, "Embedded gRPC server listening at %s\n", addr)
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		stop()
+		return nil, nil, err
+	}
+	return proto.NewAgentClient(conn), func() {
+		_ = conn.Close()
+		stop()
+	}, nil
+}
+
+// connectMCPAgent connects MCP mode to the active profile's agent, launching
+// it when none runs. Calls through the returned client follow the agent
+// across restarts. MCP also holds the agent's event stream for its whole
+// session (see holdAgentEvents). closeAgent ends the stream and the
+// connection.
+func connectMCPAgent(ctx context.Context) (agent proto.AgentClient, closeAgent func(), err error) {
+	client, err := dialActiveProfile(ctx, os.Stderr)
+	if err != nil {
+		return nil, nil, err
+	}
+	release := holdAgent(ctx, client.SubscribeEvents)
+	return proto.NewAgentClient(client.Conn()), func() {
+		release()
+		_ = client.Close()
+	}, nil
+}
+
+// holdAgent holds the agent's event stream (see holdAgentEvents) in the
+// background until the returned release is called. A command that may have
+// auto-launched the agent holds it for as long as it uses the agent, so the
+// agent counts it as a client and, once the command releases it and no other
+// client remains, idle-exits. release waits for the stream to close; call it
+// before closing the client.
+func holdAgent(ctx context.Context, subscribe func(context.Context) (<-chan agentclient.AgentEvent, error)) (release func()) {
+	subCtx, cancel := context.WithCancel(ctx)
+	held := make(chan struct{})
+	go func() {
+		defer close(held)
+		holdAgentEvents(subCtx, subscribe)
+	}()
+	return func() {
+		cancel()
+		<-held
+	}
+}
+
+// Bounds of the wait before MCP opens the agent's event stream again.
+const (
+	mcpResubscribeMin = 250 * time.Millisecond
+	mcpResubscribeMax = 5 * time.Second
+)
+
+// holdAgentEvents keeps an agent event stream open until ctx ends. The open
+// stream counts MCP as a client, so an auto-launched agent neither shuts down
+// while MCP uses it nor outlives MCP when MCP was its last client; a dropped
+// stream also starts reconnect at once. The stream ends without a reconnect
+// when the agent shuts down gracefully or reports a terminal error, so it is
+// opened again, after a growing wait, until ctx ends: a restarted agent then
+// counts MCP too.
+func holdAgentEvents(ctx context.Context, subscribe func(context.Context) (<-chan agentclient.AgentEvent, error)) {
+	wait := mcpResubscribeMin
+	for {
+		opened := time.Now()
+		events, err := subscribe(ctx)
+		if err == nil {
+			for ev := range events {
+				if ev.Err != nil && ctx.Err() == nil {
+					err = ev.Err
+				}
+			}
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		// A stream that stayed open a while was healthy; start over with a
+		// short wait.
+		if time.Since(opened) > mcpResubscribeMax {
+			wait = mcpResubscribeMin
+		}
+		if err != nil && wait == mcpResubscribeMin {
+			fmt.Fprintf(os.Stderr, "[WARN] Agent event stream: %v; retrying\n", err)
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		wait = min(wait*2, mcpResubscribeMax)
 	}
 }
 

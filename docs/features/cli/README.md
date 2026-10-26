@@ -16,17 +16,25 @@ binaries into the same directory:
 ./source/server/bin/cercano-cli
 ```
 
-The CLI reads `~/.config/cercano/config.yaml`, connects to `localhost:<port>`
-(default `50052`), and auto-launches `cercano agent` if needed. It locates the
-server next to its own executable, then on `PATH`. The server outlives the UI;
-multiple clients share it. This is not an embedded server or a headless prompt
-command. Server commands such as `agent` and `--mcp` belong to `cercano`, not
-`cercano-cli`.
+The CLI reads the active profile's config under
+`~/.config/cercano/profiles/<name>/config.yaml`. Without a profile selection it
+uses `default`. Named-profile hosts require `CERCANO_PER_PROFILE_AGENTS=1`;
+the flag is off by default. Select one with `--profile <name>` or
+`CERCANO_PROFILE=<name>`.
+
+The CLI discovers the selected profile's host, verifies its identity, and
+auto-launches `cercano agent` if needed. The default profile keeps its configured
+port (default `50052`); enabled named profiles use ephemeral ports recorded in
+`agent.json`. It locates the server next to its own executable, then on `PATH`.
+Multiple clients of the same profile share the host. Auto-launched hosts may
+exit after their clients disconnect and the idle timeout expires. Server
+commands such as `agent` and `--mcp` belong to `cercano`, not `cercano-cli`.
 
 Supported startup options:
 
 | Option | Effect |
 |---|---|
+| `--profile <name>` | Select a profile; named-profile hosts require the opt-in flag. |
 | `--resume`, `-r` | Open the conversation history picker, not automatically the latest conversation. |
 | `--setup`, `-s` | Open setup explicitly. |
 | `--mdtest [file]` | Seed a markdown document into the TUI; built-in sample if omitted. Still connects to the agent, but rendering the sample needs no inference. |
@@ -107,8 +115,8 @@ Prefer these tabs for account-aware configuration rather than legacy single-clou
 CLI-only theme selection is stored in `ui.yaml`, with custom themes in
 `themes/<name>.yaml`. These use `$XDG_CONFIG_HOME/cercano` or
 `~/.config/cercano`, with `CERCANO_UI_CONFIG` and `CERCANO_THEMES_DIR` overrides.
-The server's `config.yaml` default is independently resolved under the home
-directory. The active-theme fallback is `cr4k3r_j4x`, not the old `cracker` name.
+The server's `config.yaml` is resolved under the active profile directory;
+local runtime settings are shared in `~/.config/cercano/machine.yaml`. The active-theme fallback is `cr4k3r_j4x`, not the old `cracker` name.
 
 ## Implemented terminal features
 

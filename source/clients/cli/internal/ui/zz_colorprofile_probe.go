@@ -49,19 +49,15 @@ var (
 )
 
 func colorProbeLogPath() string {
-	colorProbeOnce.Do(func() {
-		if p := os.Getenv("CERCANO_COLORPROBE_LOG"); p != "" {
-			colorProbePath = p
-			return
-		}
-		home, err := os.UserHomeDir()
-		if err != nil {
-			colorProbePath = "cercano-colorprobe.log"
-			return
-		}
-		colorProbePath = filepath.Join(home, ".config", "cercano", "colorprobe.log")
-	})
+	colorProbeOnce.Do(func() { colorProbePath = resolveColorProbeLogPath() })
 	return colorProbePath
+}
+
+func resolveColorProbeLogPath() string {
+	if p := os.Getenv("CERCANO_COLORPROBE_LOG"); p != "" {
+		return p
+	}
+	return filepath.Join(profileLogsDir(), "colorprobe.log")
 }
 
 // colorProbeLog appends a timestamped line to the probe log. Best-effort: any
@@ -69,7 +65,11 @@ func colorProbeLogPath() string {
 func colorProbeLog(format string, args ...any) {
 	colorProbeMu.Lock()
 	defer colorProbeMu.Unlock()
-	f, err := os.OpenFile(colorProbeLogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	path := colorProbeLogPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return
 	}

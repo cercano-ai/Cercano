@@ -30,6 +30,8 @@ import (
 	"cercano/source/server/internal/sysram"
 	"cercano/source/server/internal/tools"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/paths"
+	"cercano/source/server/pkg/profilemigrate"
 	"cercano/source/server/pkg/proto"
 
 	"google.golang.org/adk/session"
@@ -56,6 +58,28 @@ func checkOllama(ctx context.Context, baseURL string, models ...string) error {
 func main() {
 	const version = "0.3.0"
 	fmt.Printf("Starting Cercano AI Agent gRPC server (v%s)...\n", version)
+
+	// Profile paths need a home directory and a valid CERCANO_PROFILE.
+	if err := paths.CheckHome(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if profile, err := paths.Profile(); err != nil {
+		fmt.Fprintln(os.Stderr, "CERCANO_PROFILE:", err)
+		os.Exit(1)
+	} else if profile != paths.DefaultProfile && !paths.PerProfileAgents() {
+		fmt.Fprintf(os.Stderr, "CERCANO_PROFILE: profile %q would need its own agent host, but per-profile agent hosts are off; set %s=1 to enable them\n", profile, paths.PerProfileAgentsEnv)
+		os.Exit(1)
+	}
+	// Move data written before profiles existed into the default profile
+	// before any profile file is opened.
+	migrateCtx, cancelMigrate := context.WithTimeout(context.Background(), 2*time.Minute)
+	err := profilemigrate.Run(migrateCtx, profilemigrate.DefaultOptions())
+	cancelMigrate()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	// Load config: file → env vars → defaults
 	cfg, err := config.Load(config.DefaultPath())
@@ -173,7 +197,7 @@ func main() {
 		return agent.InferenceTurnRunner(p, model), nil
 	}
 
-	lis, err := net.Listen("tcp", ":"+cfg.Port)
+	lis, err := net.Listen("tcp", listenAddr(cfg.Port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -199,6 +223,10 @@ func main() {
 		log.Fatalf("failed to serve: %v", err)
 	}
 }
+
+// listenAddr is the loopback address the agent serves on: it must never be
+// reachable from other machines.
+func listenAddr(port string) string { return net.JoinHostPort("127.0.0.1", port) }
 
 func buildRuntimeManager(cfg config.Config, events *crashlog.Writer) localruntime.Manager {
 	manager := localruntime.NewManager(localruntime.WithEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg))))

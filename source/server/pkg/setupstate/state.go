@@ -5,6 +5,8 @@ import (
 	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
+
+	"cercano/source/server/pkg/paths"
 )
 
 // Step names one wizard screen. Values are persisted in the state file, so
@@ -72,17 +74,16 @@ type ProfileSnapshot struct {
 // Fresh returns a new first-step run with no prior answers or rollback baseline.
 func Fresh() State { return State{Step: StepResources, FlowVersion: 2} }
 
-// StatePath resolves the resume file. CERCANO_WIZARD_STATE overrides for
-// tests, mirroring the uiconfig env-override convention.
+// StatePath resolves the resume file: wizard_state.yaml in the active
+// profile's directory, beside the config.yaml the wizard writes.
+// CERCANO_WIZARD_STATE overrides for tests, mirroring the uiconfig
+// env-override convention. XDG_CONFIG_HOME no longer applies: the run belongs
+// to the profile, and profile directories follow HOME like config.yaml does.
 func StatePath() string {
 	if p := os.Getenv("CERCANO_WIZARD_STATE"); p != "" {
 		return p
 	}
-	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "cercano", "wizard_state.yaml")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "cercano", "wizard_state.yaml")
+	return filepath.Join(paths.ActiveProfileDir(), "wizard_state.yaml")
 }
 
 // Load reads a persisted in-progress run. ok is false when there is
@@ -104,7 +105,7 @@ func Load() (s State, ok bool) {
 // Save persists the run for resume. Called after every transition.
 func Save(s State) error {
 	path := StatePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	data, err := yaml.Marshal(s)

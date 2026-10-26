@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -183,6 +184,8 @@ type Server struct {
 	requestAccounting   map[string]requestAccountingSnapshot
 
 	buildVersion string // surfaced in exported trajectory metadata
+
+	hostIdentity atomic.Pointer[HostIdentity] // reported by GetHostIdentity
 
 	events *eventHub // server->client push fan-out (SubscribeEvents)
 

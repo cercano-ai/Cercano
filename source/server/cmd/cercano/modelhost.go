@@ -97,7 +97,7 @@ func runModelHost(ctx context.Context, opts modelHostOptions) error {
 
 	mgr := opts.Manager
 	if mgr == nil {
-		mgr = newLocalRuntimeManager(opts.Config, opts.Events)
+		mgr = newLocalRuntimeManagerWithLoader(opts.Config, opts.Events, machineRuntimeConfig)
 	}
 
 	tokenBytes := make([]byte, 32)
