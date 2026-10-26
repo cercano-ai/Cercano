@@ -150,6 +150,9 @@ func connectIntent(ctx context.Context, addr string, timeout time.Duration, pin 
 	}
 	if pin != nil {
 		opts = append(opts, pinnedMetadataOptions(*pin)...)
+		if pin.auth != nil {
+			opts = append(opts, pin.auth.DialOptions()...)
+		}
 	}
 	if isolate || pin != nil {
 		opts = append(opts, grpc.WithContextDialer(singleTransportDialer(func(ctx context.Context, addr string) (net.Conn, error) {

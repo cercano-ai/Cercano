@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
+	"cercano/source/server/pkg/devhostauth"
 	"cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -17,6 +19,7 @@ import (
 // to acquire, attach, discover an executable, launch, or migrate to another host.
 // Endpoint is selected by the caller, not discovered during retries.
 type PinnedSessionIntent struct {
+	auth                                    *devhostauth.Auth
 	terminalID                              string
 	Endpoint, HostInstance, Build, Contract string
 	SchemaVersion                           int32
@@ -58,6 +61,21 @@ func DialPinnedSession(ctx context.Context, intent PinnedSessionIntent) (*Client
 	}
 	c.addr, c.pinned, c.stopWatch = intent.Endpoint, &intent, make(chan struct{})
 	return c, nil
+}
+
+// DialAuthenticatedPinnedSession loads a private per-host token once, before
+// any RPC, and retains it across reconnects without discovery or process launch.
+func DialAuthenticatedPinnedSession(ctx context.Context, intent PinnedSessionIntent, tokenFile string) (*Client, error) {
+	host, _, err := net.SplitHostPort(intent.Endpoint)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+		return nil, fmt.Errorf("authenticated development endpoint must be literal loopback TCP")
+	}
+	auth, err := devhostauth.Load(intent.HostInstance, tokenFile)
+	if err != nil {
+		return nil, err
+	}
+	intent.auth = auth
+	return DialPinnedSession(ctx, intent)
 }
 
 // ReconnectPinnedSession always revalidates, even if gRPC still reports Ready.
