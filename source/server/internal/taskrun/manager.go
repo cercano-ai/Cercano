@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/dispatch"
 )
@@ -29,14 +30,17 @@ type execution struct {
 	done       chan struct{}
 	stop       bool
 	persistErr error
+	ticket     *broker.WorkTicket
 }
 type Manager struct {
-	mu      sync.Mutex
-	store   conversation.TaskStore
-	execute Executor
-	ctx     context.Context
-	cancel  context.CancelFunc
-	active  map[string]*execution
+	admission *broker.Admission
+	ownership OwnershipResolver
+	mu        sync.Mutex
+	store     conversation.TaskStore
+	execute   Executor
+	ctx       context.Context
+	cancel    context.CancelFunc
+	active    map[string]*execution
 	// waitWake holds one edge-triggered wake channel per registered Wait on a
 	// still-running task, keyed by the waiter's parent conversation. Only a
 	// completion signaled AFTER registration can wake a waiter, so
@@ -61,6 +65,25 @@ func New(store conversation.TaskStore, execute Executor, notify func(string)) (*
 // provides no ownership fencing or recovery.
 func NewPrepared(store conversation.TaskStore, execute Executor, notify func(string)) (*Manager, error) {
 	return newManagerWithInitialization(store, execute, notify, false)
+}
+
+// OwnershipResolver returns the exact scoped capability for a launch. It must
+// not acquire or transfer ownership; the host retains authority and its OS lock.
+type OwnershipResolver func(context.Context, string) (*conversation.Ownership, error)
+
+// NewPreparedOwned integrates an already prepared store with existing admission
+// and ownership capabilities. It never initializes, reconciles, or acquires
+// ownership. The launch capability is retained unchanged through writeback.
+func NewPreparedOwned(store conversation.TaskStore, execute Executor, notify func(string), admission *broker.Admission, ownership OwnershipResolver) (*Manager, error) {
+	if admission == nil || ownership == nil {
+		return nil, errors.New("admission and ownership resolver are required")
+	}
+	m, err := NewPrepared(store, execute, notify)
+	if err != nil {
+		return nil, err
+	}
+	m.admission, m.ownership = admission, ownership
+	return m, nil
 }
 
 func newManagerWithInitialization(store conversation.TaskStore, execute Executor, notify func(string), initialize bool) (*Manager, error) {
@@ -99,16 +122,34 @@ func (m *Manager) Launch(ctx context.Context, spec dispatch.Spec) (conversation.
 	if m.closed {
 		return conversation.TaskRecord{}, errors.New("task host is shutting down")
 	}
+	var ticket *broker.WorkTicket
+	if m.admission != nil {
+		owner, err := m.ownership(ctx, t.ParentID)
+		if err != nil {
+			return conversation.TaskRecord{}, err
+		}
+		if owner == nil || owner.ConversationID() != t.ParentID {
+			return conversation.TaskRecord{}, errors.New("task ownership scope mismatch")
+		}
+		ticket, err = m.admission.AdmitWork(broker.Owner{Conversation: owner.ConversationID(), Host: owner.HostInstance(), Epoch: owner.Epoch()}, broker.TaskAcceptanceWork)
+		if err != nil {
+			return conversation.TaskRecord{}, err
+		}
+		ctx = conversation.WithOwnership(ctx, owner)
+	}
 	// Acknowledge only durable acceptance. A canceled caller cannot leave a
 	// fictitious task handle if persistence failed.
 	if err := m.store.InsertTask(ctx, t); err != nil {
+		if ticket != nil {
+			_ = ticket.Complete()
+		}
 		return conversation.TaskRecord{}, err
 	}
 	// Preserve policy/context values, not the launching turn's cancellation or
 	// deadline. The manager provides the only execution lifetime here.
 	child, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	stopHost := context.AfterFunc(m.ctx, cancel)
-	e := &execution{parent: t.ParentID, cancel: cancel, done: make(chan struct{})}
+	e := &execution{ticket: ticket, parent: t.ParentID, cancel: cancel, done: make(chan struct{})}
 	m.active[t.ID] = e
 	spec.Tools = append([]string(nil), spec.Tools...)
 	spec.SubConversationID = t.ChildID
@@ -118,6 +159,9 @@ func (m *Manager) Launch(ctx context.Context, spec dispatch.Spec) (conversation.
 	return t, nil
 }
 func (m *Manager) run(ctx context.Context, t conversation.TaskRecord, spec dispatch.Spec, e *execution) {
+	if e.ticket != nil {
+		_ = e.ticket.Advance(broker.TaskExecutionWork)
+	}
 	var result dispatch.Result
 	var runErr error
 	func() {
@@ -151,12 +195,18 @@ func (m *Manager) run(ctx context.Context, t conversation.TaskRecord, spec dispa
 	if t.Status == "interrupted" && t.Error == "" {
 		t.Error = "Agent stopped; execution was not replayed. Inspect partial work before retrying."
 	}
-	persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if e.ticket != nil {
+		_ = e.ticket.Advance(broker.PersistenceWork)
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	var applied bool
 	applied, e.persistErr = m.store.FinishTask(persistCtx, t)
 	cancel()
 	if !applied && e.persistErr == nil {
 		e.persistErr = ErrTerminalTransitionRejected
+	}
+	if e.persistErr != nil && e.ticket != nil {
+		_ = e.ticket.PersistenceFailed()
 	}
 	// Wake task_wait callers blocked in this same conversation: their
 	// foreground turn must yield to the completion boundary so this
@@ -173,8 +223,16 @@ func (m *Manager) run(ctx context.Context, t conversation.TaskRecord, spec dispa
 	}
 	notify := m.notify
 	m.mu.Unlock()
-	if notify != nil && e.persistErr == nil {
-		notify(t.ParentID)
+	if e.persistErr == nil {
+		if e.ticket != nil {
+			_ = e.ticket.Advance(broker.CallbackWork)
+		}
+		if notify != nil {
+			notify(t.ParentID)
+		}
+		if e.ticket != nil {
+			_ = e.ticket.Complete()
+		}
 	}
 }
 func (m *Manager) Inspect(ctx context.Context, parent, id string) (conversation.TaskRecord, error) {
