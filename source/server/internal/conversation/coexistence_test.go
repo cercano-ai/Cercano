@@ -20,6 +20,10 @@ func TestCoexistencePreparedRoundTrip(t *testing.T) {
 	a, err := OpenCoexistence(ctx, path, d)
 	mustCoexist(t, err)
 	defer a.Close()
+	owner, err := AcquireOwnership(ctx, a, "conversation", "A")
+	mustCoexist(t, err)
+	defer owner.Close()
+	ctx = WithOwnership(ctx, owner)
 	mustCoexist(t, a.EnsureConversation(ctx, "conversation", "/synthetic", "fixture-model"))
 	blocks := `[{"type":"tool_use","id":"call","name":"fixture","input":{"x":1}},{"type":"text","text":"result"}]`
 	mustCoexist(t, a.Append(ctx, Turn{ID: "turn", ConversationID: "conversation", Role: "assistant", Content: "result", BlocksJSON: blocks}))
@@ -59,7 +63,7 @@ func TestCoexistencePreparedRoundTrip(t *testing.T) {
 	if live.Status != "running" {
 		t.Fatalf("startup reconciled task: %+v", live)
 	}
-	mustCoexist(t, tb.HandleTaskNotification(ctx, "conversation", "done"))
+	mustCoexist(t, ta.HandleTaskNotification(ctx, "conversation", "done"))
 	task, err = ta.GetTask(ctx, "conversation", "done")
 	mustCoexist(t, err)
 	if task.NotificationPending {
@@ -120,11 +124,11 @@ func TestCoexistenceRefusalDoesNotMutate(t *testing.T) {
 		{"missing_marker", "DROP TABLE coexistence_metadata", CurrentCoexistenceDeclaration()},
 		{"representation_same_schema", "UPDATE coexistence_metadata SET contract='different-representation'", CurrentCoexistenceDeclaration()},
 		{"ownership_same_schema", "UPDATE coexistence_metadata SET contract='different-ownership'", CurrentCoexistenceDeclaration()},
-		{"marker_schema", "UPDATE coexistence_metadata SET schema_version=2", CurrentCoexistenceDeclaration()},
-		{"sqlite_schema_version", "PRAGMA user_version=2", CurrentCoexistenceDeclaration()},
+		{"marker_schema", "UPDATE coexistence_metadata SET schema_version=999", CurrentCoexistenceDeclaration()},
+		{"sqlite_schema_version", "PRAGMA user_version=999", CurrentCoexistenceDeclaration()},
 		{"missing_marker_row", "DELETE FROM coexistence_metadata", CurrentCoexistenceDeclaration()},
 		{"unknown_build", "", CoexistenceDeclaration{"unknown", 1}},
-		{"unknown_build_schema", "", CoexistenceDeclaration{CurrentCoexistenceDeclaration().Contract, 2}},
+		{"unknown_build_schema", "", CoexistenceDeclaration{CurrentCoexistenceDeclaration().Contract, 999}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

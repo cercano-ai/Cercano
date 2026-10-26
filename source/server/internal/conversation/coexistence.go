@@ -11,8 +11,7 @@ import (
 
 // CoexistenceDeclaration is an exact-match development declaration, not version
 // negotiation. Contract covers persisted blocks, task outcomes/notifications and
-// ownership semantics. This foundation explicitly declares NO ownership fencing;
-// enabling ownership requires a new contract, not reuse of this fixture label.
+// ownership semantics. Ownership changes require a new contract.
 type CoexistenceDeclaration struct {
 	Contract      string
 	SchemaVersion int
@@ -22,7 +21,7 @@ type CoexistenceDeclaration struct {
 // pair. Incompatible representation or ownership changes must change Contract;
 // schema changes must also change SchemaVersion. Normal Open does not use it.
 func CurrentCoexistenceDeclaration() CoexistenceDeclaration {
-	return CoexistenceDeclaration{"cercano-dev-fixture-unfenced-v1", 1}
+	return CoexistenceDeclaration{"cercano-dev-fixture-owned-v2", 2}
 }
 
 // PrepareCoexistence creates a NEW synthetic fixture store, including task
@@ -63,6 +62,9 @@ func PrepareCoexistence(ctx context.Context, path string) error {
  ); INSERT INTO coexistence_metadata VALUES (1, ?, ?);`, d.Contract, d.SchemaVersion); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, ownershipSchema); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", d.SchemaVersion)); err != nil {
 		return err
 	}
@@ -84,14 +86,25 @@ func PreflightCoexistence(ctx context.Context, path string, expected Coexistence
 
 // OpenCoexistence opens only an explicitly prepared fixture, never running Open
 // migrations or task initialization/reconciliation. It rechecks metadata on the
-// writable connection before setting connection-local options. This is NOT an
-// ownership fence: ordinary Store mutations remain unfenced. Do not wire this
-// foundation into application coexistence startup until ownership is enforced.
+// writable connection before setting connection-local options. Mutations require
+// explicit capabilities supplied by WithOwnership. This is a storage foundation,
+// not application admission, quiescence, or crash recovery.
 func OpenCoexistence(ctx context.Context, path string, expected CoexistenceDeclaration) (Store, error) {
 	if err := PreflightCoexistence(ctx, path, expected); err != nil {
 		return nil, err
 	}
-	db, err := openCoexistenceDB(path, "rw")
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	absolute, err = filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateOwnershipPath(absolute); err != nil {
+		return nil, err
+	}
+	db, err := openCoexistenceDB(absolute, "rw")
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +117,7 @@ func OpenCoexistence(ctx context.Context, path string, expected CoexistenceDecla
 		db.Close()
 		return nil, err
 	}
-	return &sqliteStore{db: db}, nil
+	return &sqliteStore{db: db, coexistencePath: absolute}, nil
 }
 
 func coexistenceURI(path, mode string) (string, error) {
@@ -118,6 +131,11 @@ func coexistenceURI(path, mode string) (string, error) {
 	// Treat the argument as a filesystem path, never as a caller-supplied DSN.
 	u := url.URL{Scheme: "file", Path: absolute}
 	q := url.Values{"mode": {mode}}
+	// Connection-local settings must also apply to replacement connections. These
+	// do not migrate schema or modify persistent SQLite settings.
+	if mode == "rw" {
+		q["_pragma"] = []string{"foreign_keys(1)", "busy_timeout(5000)"}
+	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }

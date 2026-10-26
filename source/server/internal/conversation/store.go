@@ -378,8 +378,9 @@ func DefaultPath() (string, error) {
 
 // sqliteStore is the modernc.org/sqlite-backed Store.
 type sqliteStore struct {
-	mu sync.Mutex
-	db *sql.DB
+	mu              sync.Mutex
+	db              *sql.DB
+	coexistencePath string
 }
 
 // Open returns a Store backed by SQLite at the given path. ":memory:" works
@@ -525,7 +526,7 @@ func (s *sqliteStore) EnsureConversation(ctx context.Context, id, projectDir, mo
 	// are preserved — multiple sessions or a re-attached agent can't
 	// silently rebrand an existing conversation. Title and title_source are
 	// never touched here; Rename and SetGeneratedTitle own those.
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execOwned(ctx, `
 		INSERT INTO conversations (id, project_dir, model, title_source, started_at, last_turn_at)
 		VALUES (?, ?, ?, 'auto', ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -545,7 +546,7 @@ func (s *sqliteStore) EnsureSubagentConversation(ctx context.Context, id, parent
 	// Tool names are identifiers with no commas, so a plain join round-trips
 	// cleanly on read (see ListChildren, which splits on comma).
 	granted := strings.Join(grantedTools, ",")
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execOwned(ctx, `
 		INSERT INTO conversations (id, project_dir, model, title_source, kind, parent_id, granted_tools, started_at, last_turn_at)
 		VALUES (?, ?, ?, 'auto', 'subagent', ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING`,
@@ -564,7 +565,7 @@ func (s *sqliteStore) CreateRolledOver(ctx context.Context, id, projectDir, mode
 	defer s.mu.Unlock()
 	now := time.Now().Unix()
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginOwned(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -642,7 +643,7 @@ func (s *sqliteStore) Append(ctx context.Context, t Turn) error {
 		createdAt = time.Now().Unix()
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginOwned(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -861,7 +862,7 @@ func (s *sqliteStore) getTurnPageLocked(ctx context.Context, conversationID stri
 func (s *sqliteStore) Delete(ctx context.Context, conversationID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx, `DELETE FROM conversations WHERE id = ?`, conversationID)
+	_, err := s.execOwned(ctx, `DELETE FROM conversations WHERE id = ?`, conversationID)
 	return err
 }
 
@@ -882,7 +883,7 @@ func (s *sqliteStore) DeleteTurns(ctx context.Context, conversationID string, id
 		args = append(args, id)
 	}
 	query := "DELETE FROM turns WHERE conversation_id = ? AND id IN (" + strings.Join(placeholders, ",") + ")"
-	_, err := s.db.ExecContext(ctx, query, args...)
+	_, err := s.execOwned(ctx, query, args...)
 	return err
 }
 
@@ -892,7 +893,7 @@ func (s *sqliteStore) PruneRawBodies(ctx context.Context, conversationID string,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	res, err := s.db.ExecContext(ctx, `
+	res, err := s.execOwned(ctx, `
 		UPDATE turns SET content = ?, content_json = ''
 		WHERE conversation_id = ? AND created_at <= ? AND created_at < ? AND content != ?`,
 		PrunedBodyStub, conversationID, frozenThrough, beforeUnix, PrunedBodyStub)
@@ -909,7 +910,7 @@ func (s *sqliteStore) CollapseConversation(ctx context.Context, conversationID s
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginOwned(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -939,7 +940,7 @@ func (s *sqliteStore) Rename(ctx context.Context, conversationID, title string) 
 	// later insert collapses to a no-op for title and SetGeneratedTitle's
 	// guard (title_source != 'user') keeps the user's choice.
 	now := time.Now().Unix()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execOwned(ctx, `
 		INSERT INTO conversations (id, title, title_source, started_at, last_turn_at)
 		VALUES (?, ?, 'user', ?, ?)
 		ON CONFLICT(id) DO UPDATE SET title = excluded.title, title_source = 'user'`,
@@ -953,7 +954,7 @@ func (s *sqliteStore) SetGeneratedTitle(ctx context.Context, conversationID, tit
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.execOwned(ctx,
 		`UPDATE conversations SET title = ? WHERE id = ? AND title_source != 'user'`,
 		title, conversationID)
 	return err
@@ -968,7 +969,7 @@ func (s *sqliteStore) MarkSubagentDismissed(ctx context.Context, conversationID 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.execOwned(ctx,
 		`UPDATE conversations SET dismissed = 1 WHERE id = ? AND kind = 'subagent'`,
 		conversationID)
 	return err
@@ -980,7 +981,7 @@ func (s *sqliteStore) UpdateRecap(ctx context.Context, conversationID, recap str
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.execOwned(ctx,
 		`UPDATE conversations SET recap = ?, recap_updated_at = ? WHERE id = ?`,
 		recap, time.Now().Unix(), conversationID)
 	return err
@@ -1121,7 +1122,7 @@ func (s *sqliteStore) SaveContextUsage(ctx context.Context, u ContextUsage) erro
 	if u.Source == "turn" {
 		table = "conversation_request_usage"
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execOwned(ctx, `
 		INSERT INTO `+table+`
 			(conversation_id, tokens_used, raw_tokens, message_tokens, system_tokens,
 			 tool_schema_tokens, output_reserve, estimated_request, context_window,
@@ -1153,7 +1154,7 @@ func (s *sqliteStore) SaveCompaction(ctx context.Context, c Compaction) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execOwned(ctx, `
 		INSERT INTO conversation_compaction
 			(conversation_id, frozen_through, segment_summaries, consolidated, compacted_tokens, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -1176,7 +1177,7 @@ func (s *sqliteStore) SetDevWorkDir(ctx context.Context, conversationID, workDir
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	result, err := s.db.ExecContext(ctx, `UPDATE conversations SET dev_work_dir=? WHERE id=?`, filepath.Clean(workDir), conversationID)
+	result, err := s.execOwned(ctx, `UPDATE conversations SET dev_work_dir=? WHERE id=?`, filepath.Clean(workDir), conversationID)
 	if err != nil {
 		return err
 	}

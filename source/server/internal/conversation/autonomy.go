@@ -130,7 +130,7 @@ func (s *sqliteStore) CreateAutonomyRun(ctx context.Context, r AutonomyRun) (Aut
 	defer s.mu.Unlock()
 
 	r = normalizeAutonomyRunForCreate(r)
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execOwned(ctx, `
 		INSERT INTO autonomy_runs (
 			run_id, conversation_id, state, source_kind, source_plan_path, source_spec_path,
 			brief_json, revisions_json, decisions_json, review_json, blocker_json, created_at, updated_at
@@ -175,7 +175,7 @@ func (s *sqliteStore) UpdateAutonomyRun(ctx context.Context, r AutonomyRun) erro
 		query += ` AND conversation_id=?`
 		args = append(args, r.ConversationID)
 	}
-	res, err := s.db.ExecContext(ctx, query, args...)
+	res, err := s.execOwned(ctx, query, args...)
 	if err != nil {
 		return err
 	}

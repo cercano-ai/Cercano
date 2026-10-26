@@ -76,7 +76,7 @@ func (s *sqliteStore) AppendDispatchEvent(ctx context.Context, ev DispatchEvent)
 	if ev.Timestamp.IsZero() {
 		createdAt = time.Now().Unix()
 	}
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := s.execOwned(ctx, `
 		INSERT INTO dispatch_events (conversation_id, seq, kind, iteration, created_at, payload)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		ev.ConversationID, ev.Seq, ev.Kind, ev.Iteration, createdAt, ev.PayloadJSON,
