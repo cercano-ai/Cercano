@@ -72,7 +72,7 @@ func (s *sqliteStore) InsertTask(ctx context.Context, t TaskRecord) error {
 	if t.ID == "" || t.ParentID == "" || t.Status != "accepted" {
 		return fmt.Errorf("invalid accepted task")
 	}
-	_, err := s.execOwned(ctx, `INSERT INTO delegated_tasks(id,parent_id,status,task,work_dir,child_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, t.ID, t.ParentID, t.Status, t.Task, t.WorkDir, t.ChildID, t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli())
+	_, err := s.execTarget(ctx, t.ParentID, `INSERT INTO delegated_tasks(id,parent_id,status,task,work_dir,child_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, t.ID, t.ParentID, t.Status, t.Task, t.WorkDir, t.ChildID, t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli())
 	return err
 }
 
@@ -133,7 +133,7 @@ func (s *sqliteStore) ListTasks(ctx context.Context, parent string, limit int) (
 	return tasks, rows.Err()
 }
 func (s *sqliteStore) StartTask(ctx context.Context, parent, id string) error {
-	result, err := s.execOwned(ctx, `UPDATE delegated_tasks SET status='running',updated_at=? WHERE parent_id=? AND id=? AND status='accepted'`, time.Now().UnixMilli(), parent, id)
+	result, err := s.execResolvedTarget(ctx, parent, "SELECT parent_id FROM delegated_tasks WHERE id=?", id, `UPDATE delegated_tasks SET status='running',updated_at=? WHERE parent_id=? AND id=? AND status='accepted'`, time.Now().UnixMilli(), parent, id)
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func (s *sqliteStore) FinishTask(ctx context.Context, t TaskRecord) (bool, error
 	if !json.Valid([]byte(resultJSON)) {
 		return false, fmt.Errorf("invalid task result JSON")
 	}
-	result, err := s.execOwned(ctx, `UPDATE delegated_tasks SET status=?,child_id=?,result_json=?,error=?,updated_at=?,notification_pending=1,wake_claimed=0 WHERE parent_id=? AND id=? AND status IN ('accepted','running')`, t.Status, t.ChildID, resultJSON, t.Error, time.Now().UnixMilli(), t.ParentID, t.ID)
+	result, err := s.execResolvedTarget(ctx, t.ParentID, "SELECT parent_id FROM delegated_tasks WHERE id=?", t.ID, `UPDATE delegated_tasks SET status=?,child_id=?,result_json=?,error=?,updated_at=?,notification_pending=1,wake_claimed=0 WHERE parent_id=? AND id=? AND status IN ('accepted','running')`, t.Status, t.ChildID, resultJSON, t.Error, time.Now().UnixMilli(), t.ParentID, t.ID)
 	if err != nil {
 		return false, err
 	}
@@ -196,7 +196,7 @@ func (s *sqliteStore) PendingTasks(ctx context.Context, parent string) ([]TaskRe
 	return tasks, rows.Err()
 }
 func (s *sqliteStore) ClaimTaskWake(ctx context.Context, parent, id string) (bool, error) {
-	result, err := s.execOwned(ctx, `UPDATE delegated_tasks SET wake_claimed=1 WHERE parent_id=? AND id=? AND notification_pending=1 AND wake_claimed=0`, parent, id)
+	result, err := s.execResolvedTarget(ctx, parent, "SELECT parent_id FROM delegated_tasks WHERE id=?", id, `UPDATE delegated_tasks SET wake_claimed=1 WHERE parent_id=? AND id=? AND notification_pending=1 AND wake_claimed=0`, parent, id)
 	if err != nil {
 		return false, err
 	}
@@ -204,6 +204,6 @@ func (s *sqliteStore) ClaimTaskWake(ctx context.Context, parent, id string) (boo
 	return n == 1, err
 }
 func (s *sqliteStore) HandleTaskNotification(ctx context.Context, parent, id string) error {
-	_, err := s.execOwned(ctx, `UPDATE delegated_tasks SET notification_pending=0 WHERE parent_id=? AND id=?`, parent, id)
+	_, err := s.execResolvedTarget(ctx, parent, "SELECT parent_id FROM delegated_tasks WHERE id=?", id, `UPDATE delegated_tasks SET notification_pending=0 WHERE parent_id=? AND id=?`, parent, id)
 	return err
 }

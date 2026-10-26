@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -329,5 +330,105 @@ func TestOwnershipReplacementConnectionCascade(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatal("replacement connection lost cascade enforcement")
+	}
+}
+
+func TestOwnershipRelationshipUpdateProbe(t *testing.T) {
+	for _, col := range []string{"parent_id", "precursor_id"} {
+		t.Run(col, func(t *testing.T) {
+			ctx, _, s := ownershipFixture(t)
+			a := take(t, ctx, s, "a", "host")
+			b := take(t, ctx, s, "b", "host")
+			mustCoexist(t, s.EnsureConversation(WithOwnership(ctx, a), "a", "", ""))
+			mustCoexist(t, s.EnsureConversation(WithOwnership(ctx, b), "b", "", ""))
+			_, err := s.execOwned(WithOwnership(ctx, a), "UPDATE conversations SET "+col+"='b' WHERE id='a'")
+			refused(t, err)
+		})
+	}
+}
+func TestOwnershipTargetNoopProbe(t *testing.T) {
+	for _, op := range []string{"collapse", "title"} {
+		t.Run(op, func(t *testing.T) {
+			ctx, _, s := ownershipFixture(t)
+			a := take(t, ctx, s, "a", "host")
+			b := take(t, ctx, s, "b", "host")
+			mustCoexist(t, s.EnsureConversation(WithOwnership(ctx, b), "b", "", ""))
+			mustCoexist(t, s.Rename(WithOwnership(ctx, b), "b", "user title"))
+			if op == "collapse" {
+				refused(t, s.CollapseConversation(WithOwnership(ctx, a), "b"))
+			} else {
+				refused(t, s.SetGeneratedTitle(WithOwnership(ctx, a), "b", "generated"))
+			}
+		})
+	}
+}
+
+func TestOwnershipTargetedMutationAudit(t *testing.T) {
+	ctx, _, s := ownershipFixture(t)
+	a := take(t, ctx, s, "a", "host")
+	b := take(t, ctx, s, "b", "host")
+	ca, cb := WithOwnership(ctx, a), WithOwnership(ctx, b)
+	mustCoexist(t, s.EnsureConversation(cb, "b", "", ""))
+	mustCoexist(t, s.InsertTask(cb, TaskRecord{ID: "task", ParentID: "b", Status: "accepted"}))
+	_, err := s.FinishTask(cb, TaskRecord{ID: "task", ParentID: "b", Status: "completed"})
+	mustCoexist(t, err)
+	mustCoexist(t, s.HandleTaskNotification(cb, "b", "task"))
+	run, err := s.CreateAutonomyRun(cb, AutonomyRun{ConversationID: "b"})
+	mustCoexist(t, err)
+	cases := map[string]func(context.Context) error{
+		"empty delete turns": func(c context.Context) error { return s.DeleteTurns(c, "b", nil) },
+		"missing turn":       func(c context.Context) error { return s.DeleteTurns(c, "b", []string{"absent"}) },
+		"prune":              func(c context.Context) error { _, e := s.PruneRawBodies(c, "b", 1, 1); return e },
+		"dismiss main":       func(c context.Context) error { return s.MarkSubagentDismissed(c, "b") },
+		"clear absent route": func(c context.Context) error { return s.SetChatRoute(c, "b", nil) },
+		"duplicate finish": func(c context.Context) error {
+			_, e := s.FinishTask(c, TaskRecord{ID: "task", ParentID: "b", Status: "completed"})
+			return e
+		},
+		"claim no notification":  func(c context.Context) error { _, e := s.ClaimTaskWake(c, "b", "task"); return e },
+		"handle no notification": func(c context.Context) error { return s.HandleTaskNotification(c, "b", "task") },
+		"run id only":            func(c context.Context) error { return s.UpdateAutonomyRun(c, AutonomyRun{RunID: run.RunID}) },
+	}
+	for name, op := range cases {
+		t.Run(name, func(t *testing.T) { refused(t, op(ca)); mustCoexist(t, op(cb)) })
+	}
+	// Missing direct IDs retain idempotence only with a live capability for that ID.
+	missing := take(t, ctx, s, "missing", "host")
+	refused(t, s.CollapseConversation(ca, "missing"))
+	mustCoexist(t, s.CollapseConversation(WithOwnership(ctx, missing), "missing"))
+	mustCoexist(t, missing.Release(ctx))
+	refused(t, s.CollapseConversation(WithOwnership(ctx, missing), "missing"))
+	if err := s.HandleTaskNotification(cb, "b", "absent"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing task: %v", err)
+	}
+	if err := s.UpdateAutonomyRun(cb, AutonomyRun{RunID: "absent"}); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing run: %v", err)
+	}
+	refused(t, s.HandleTaskNotification(ca, "a", "task"))
+	refused(t, s.UpdateAutonomyRun(ca, AutonomyRun{RunID: run.RunID, ConversationID: "a"}))
+}
+
+func TestOwnershipRelationshipUpdateOldAndNew(t *testing.T) {
+	for _, col := range []string{"parent_id", "precursor_id"} {
+		t.Run(col, func(t *testing.T) {
+			ctx, _, s := ownershipFixture(t)
+			a := take(t, ctx, s, "a", "host")
+			b := take(t, ctx, s, "b", "host")
+			c := take(t, ctx, s, "c", "host")
+			all := WithOwnership(ctx, a, b, c)
+			for _, id := range []string{"a", "b", "c"} {
+				mustCoexist(t, s.EnsureConversation(all, id, "", ""))
+			}
+			_, err := s.execOwned(all, "UPDATE conversations SET "+col+"='b' WHERE id='a'")
+			mustCoexist(t, err)
+			_, err = s.execOwned(WithOwnership(ctx, a, c), "UPDATE conversations SET "+col+"='c' WHERE id='a'")
+			refused(t, err)
+			_, err = s.execOwned(WithOwnership(ctx, a), "UPDATE conversations SET "+col+"='' WHERE id='a'")
+			refused(t, err)
+			_, err = s.execOwned(all, "UPDATE conversations SET "+col+"='c' WHERE id='a'")
+			mustCoexist(t, err)
+			// Ordinary content updates do not change relationship authority.
+			mustCoexist(t, s.UpdateRecap(WithOwnership(ctx, a), "a", "recap"))
+		})
 	}
 }
