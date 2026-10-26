@@ -553,6 +553,8 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 		toolSvc = buildWorkerToolSvcWithDiagnostic(permBroker, engine, ctxLoader, provSvc.Cloud(), provSvc.Open(), cfg, subPersist, profileCtl.SetProfile, visionSvc, workerAttachments, failureLog, diagnostic, autonomy, provSvc.Candidates, sessionModel, tasks, restart...)
 	}
 
+	configureDevHostFixtureTasks(toolSvc, tasks)
+
 	// Register a proxy per host-advertised MCP tool. Done AFTER the built-in
 	// stack so built-ins win a name collision, matching the host ordering where
 	// the built-in registry is populated before MCP servers connect. Proxies

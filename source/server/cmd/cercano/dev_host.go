@@ -217,7 +217,9 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 		},
 		WorkerRunner: func(history runnersvc.TurnHistory, frozen cfgsvc.Service, perms permissions.Broker) runnersvc.TurnRunner {
 			// Execution remains gated; no provider or child-launch callbacks are installed.
-			return worker.NewWorkerRunnerWithPolicy(spawnPolicy, history, frozen, perms, nil, nil, nil, nil, nil)
+			wr := worker.NewWorkerRunnerWithPolicy(spawnPolicy, history, frozen, perms, nil, nil, nil, nil, nil)
+			configureDevHostWorker(wr.(worker.ProfileReaderSetter))
+			return wr
 		},
 		Config: cfg, ConfigPath: filepath.Join(*root, "config.json"), Secrets: secretStore,
 		RoutingPath: filepath.Join(*root, "routing.jsonl"), FailurePath: filepath.Join(*root, "failures.jsonl"),
@@ -229,6 +231,7 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	configureDevHostExecution(srv)
 	srv.SetBuildVersion(manifest.Build)
 	defer preparedStore.Close()
 	defer srv.Shutdown()
@@ -242,7 +245,10 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 		default:
 			return nil, status.Error(codes.FailedPrecondition, "dev-host startup fixture: execution disabled")
 		}
-	}), grpc.ChainStreamInterceptor(func(any, grpc.ServerStream, *grpc.StreamServerInfo, grpc.StreamHandler) error {
+	}), grpc.ChainStreamInterceptor(func(s any, stream grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+		if devHostExecutionAllowed(info.FullMethod) {
+			return next(s, stream)
+		}
 		return status.Error(codes.FailedPrecondition, "dev-host startup fixture: execution disabled")
 	}))
 	transport := grpc.NewServer(opts...)

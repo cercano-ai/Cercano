@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"google.golang.org/grpc/metadata"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -45,13 +47,33 @@ func TestDevHostCredentialGate(t *testing.T) {
 // Builds and executes the real CLI, not the Go test executable. The sole runtime
 // participant is a protected synthetic server with an empty manager: no provider
 // registered, no native runtime, no keychain or paid backend available.
-func TestDevHostCompiledStartup(t *testing.T) {
+func TestDevHostCompiledStartup(t *testing.T)   { testDevHostCompiled(t, false) }
+func TestDevHostCompiledExecution(t *testing.T) { testDevHostCompiled(t, true) }
+func testDevHostCompiled(t *testing.T, execution bool) {
 	if testing.Short() {
 		t.Skip("builds dedicated CLI fixture")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	tempRoot := t.TempDir()
+	if execution {
+		var e error
+		tempRoot, e = os.MkdirTemp("/tmp", "dh-")
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer os.RemoveAll(tempRoot)
+		defer func() {
+			if t.Failed() {
+				paths, _ := filepath.Glob(filepath.Join(tempRoot, "w-*", "*.log"))
+				for _, p := range paths {
+					b, _ := os.ReadFile(p)
+					t.Logf("worker log: %s", b)
+				}
+			}
+		}()
+	}
+	root, err := filepath.EvalSymlinks(tempRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +88,9 @@ func TestDevHostCompiledStartup(t *testing.T) {
 	}
 	binary := filepath.Join(generation, "cercano")
 	build := exec.CommandContext(ctx, "go", "build", "-ldflags=-X main.version=fixture-build-exact", "-o", binary, ".")
+	if execution {
+		build.Args = append(build.Args[:2], append([]string{"-tags=devhostfixture"}, build.Args[2:]...)...)
+	}
 	if b, e := build.CombinedOutput(); e != nil {
 		t.Fatalf("compile: %v\n%s", e, b)
 	}
@@ -165,7 +190,7 @@ func TestDevHostCompiledStartup(t *testing.T) {
 	}
 	command := exec.CommandContext(ctx, binary, "dev-host", "--fixture", root, "--generation", generation, "--modelhost", modelDir, "--host", "fixture-host-exact", "--listen", "127.0.0.1:0")
 	// Deliberately do not inherit any provider, credential, config, or launch env.
-	command.Env = []string{"CERCANO_DISABLE_CREDENTIALS=1", "HOME=" + filepath.Join(root, "home"), "XDG_CONFIG_HOME=" + filepath.Join(root, "config"), "TMPDIR=" + filepath.Join(root, "tmp"), "PATH=/usr/bin:/bin"}
+	command.Env = []string{"CERCANO_DISABLE_CREDENTIALS=1", "CERCANO_DEV_FIXTURE_BARRIER=" + root, "HOME=" + filepath.Join(root, "home"), "XDG_CONFIG_HOME=" + filepath.Join(root, "config"), "TMPDIR=" + filepath.Join(root, "tmp"), "PATH=/usr/bin:/bin"}
 	// The actual binary must refuse malformed/absent/enabled credentials before
 	// any modelhost entry, even with otherwise complete explicit fixture args.
 	for _, value := range []string{"", "0", "true"} {
@@ -192,6 +217,9 @@ func TestDevHostCompiledStartup(t *testing.T) {
 		_ = command.Process.Signal(os.Interrupt)
 		if e := command.Wait(); e != nil {
 			t.Errorf("child exit: %v\n%s", e, stderr.String())
+		}
+		if t.Failed() {
+			t.Logf("host stderr: %s", stderr.String())
 		}
 	}()
 	lines := make(chan string, 1)
@@ -248,6 +276,63 @@ func TestDevHostCompiledStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	runForeground := func(c proto.AgentClient, owner *proto.LifecycleOwner, expected string) {
+		t.Helper()
+		callCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		bound := metadata.AppendToOutgoingContext(callCtx, "cercano-host-instance", owner.Host, "cercano-conversation-id", owner.Conversation, "cercano-ownership-epoch", owner.Epoch, "cercano-terminal-attachment", "fixture-terminal")
+		stream, e := c.StreamProcessRequest(bound, &proto.ProcessRequestRequest{ConversationId: owner.Conversation, Input: func() string {
+			if owner.Conversation == "sibling" {
+				return "launch independent"
+			}
+			return "identify generation"
+		}()})
+		if e != nil {
+			t.Fatal(e)
+		}
+		var output strings.Builder
+		for {
+			ev, e := stream.Recv()
+			if e == io.EOF {
+				break
+			}
+			if e != nil {
+				t.Fatal(e)
+			}
+			output.WriteString(ev.String())
+		}
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("missing generation %s: %s", expected, output.String())
+		}
+		turns, e := store.GetTurns(ctx, owner.Conversation)
+		if e != nil {
+			t.Fatal(e)
+		}
+		found := false
+		for _, turn := range turns {
+			if strings.Contains(turn.Content, expected) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("generation %s not persisted: %+v", expected, turns)
+		}
+	}
+	if execution {
+		runForeground(client, owned.Owner, "fixture-build-exact")
+		runForeground(client, sibling.Owner, "fixture-build-exact")
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			if _, e := os.Stat(filepath.Join(root, "entered")); e == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				records, _ := store.(conversation.TaskStore).ListTasks(ctx, "sibling", 100)
+				t.Fatalf("independent task did not enter barrier: %+v", records)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	bGeneration := filepath.Join(root, "generation-B")
 	if err := os.Mkdir(bGeneration, 0700); err != nil {
 		t.Fatal(err)
@@ -255,6 +340,9 @@ func TestDevHostCompiledStartup(t *testing.T) {
 	bBinary := filepath.Join(bGeneration, "cercano")
 	// Compile a separate immutable artifact with a distinct build identity.
 	buildB := exec.CommandContext(ctx, "go", "build", "-ldflags=-X main.version=fixture-build-B", "-o", bBinary, ".")
+	if execution {
+		buildB.Args = append(buildB.Args[:2], append([]string{"-tags=devhostfixture"}, buildB.Args[2:]...)...)
+	}
 	if output, err := buildB.CombinedOutput(); err != nil {
 		t.Fatalf("build B: %v %s", err, output)
 	}
@@ -331,7 +419,7 @@ func TestDevHostCompiledStartup(t *testing.T) {
 	bIdentity := &proto.LifecycleIdentity{Build: "fixture-build-B", Host: "fixture-host-B", Contract: aIdentity.Contract, Schema: aIdentity.Schema, Store: aIdentity.Store}
 	for _, id := range []string{"journey", "sibling"} {
 		turns, err := store.GetTurns(ctx, id)
-		if err != nil || len(turns) != 1 || turns[0].Content != "durable fixture history" {
+		if err != nil || len(turns) < 1 || turns[0].Content != "durable fixture history" {
 			t.Fatalf("B startup changed history: %v %v", turns, err)
 		}
 		task, err := store.(conversation.TaskStore).GetTask(ctx, id, id+"-task")
@@ -360,6 +448,9 @@ func TestDevHostCompiledStartup(t *testing.T) {
 	if claimed.Owner.Host != bIdentity.Host || claimed.Owner.Epoch == owned.Owner.Epoch {
 		t.Fatal("wrong claimed ownership", claimed)
 	}
+	if execution {
+		runForeground(bc, claimed.Owner, "fixture-build-B")
+	}
 	if err := pinned.ReconnectPinnedSession(ctx); !errors.Is(err, agentclient.ErrPinnedSession) {
 		t.Fatalf("old A reconnect did not refuse: %v", err)
 	}
@@ -372,6 +463,76 @@ func TestDevHostCompiledStartup(t *testing.T) {
 	}
 	if _, err := client.LifecycleRetire(ctx, &proto.LifecycleControlRequest{Target: aIdentity}); err == nil {
 		t.Fatal("retired with sibling")
+	}
+	if execution {
+		records, e := store.(conversation.TaskStore).ListTasks(ctx, "sibling", 100)
+		if e != nil {
+			t.Fatal(e)
+		}
+		var live conversation.TaskRecord
+		for _, r := range records {
+			if r.ID != "sibling-task" {
+				if live.ID != "" {
+					t.Fatal("duplicate independent launch")
+				}
+				live = r
+			}
+		}
+		if live.ID == "" || string(live.Status) != "running" {
+			t.Fatalf("sibling did not survive caller completion/B handover: %+v", live)
+		}
+		if _, e := client.LifecycleRelease(ctx, &proto.LifecycleControlRequest{Target: aIdentity, Owner: sibling.Owner, Management: true}); e == nil {
+			t.Fatal("released busy sibling")
+		}
+		busy := &proto.LifecycleControlRequest{Target: bIdentity, Source: aIdentity, Destination: bIdentity, DestinationEndpoint: bEndpoint, Owner: sibling.Owner, HandoverId: "busy-sibling", Management: true}
+		prepared, e := bc.LifecyclePrepare(ctx, busy)
+		if e == nil {
+			busy.Receipt = prepared.Receipt
+			busy.Target = aIdentity
+			if _, e = client.LifecycleRelinquish(ctx, busy); e == nil {
+				t.Fatal("transferred busy sibling")
+			}
+		}
+		if e := os.WriteFile(filepath.Join(root, "release"), []byte("release"), 0600); e != nil {
+			t.Fatal(e)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			r, e := store.(conversation.TaskStore).GetTask(ctx, "sibling", live.ID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if string(r.Status) == "completed" && !r.NotificationPending {
+				if !strings.Contains(string(r.ResultJSON), "independent completed fixture-build-exact") {
+					t.Fatalf("wrong terminal result: %+v", r)
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("completion not drained: %+v", r)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		countCompletions := func() int {
+			turns, e := store.GetTurns(ctx, "sibling")
+			if e != nil {
+				t.Fatal(e)
+			}
+			n := 0
+			for _, turn := range turns {
+				if strings.Contains(turn.Content, "<host:task-completions>") && strings.Contains(turn.Content, live.ID) {
+					n++
+				}
+			}
+			return n
+		}
+		if n := countCompletions(); n != 1 {
+			t.Fatalf("completion count %d", n)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if n := countCompletions(); n != 1 {
+			t.Fatalf("duplicate completion count %d", n)
+		}
 	}
 	if _, err := client.LifecycleRelease(ctx, &proto.LifecycleControlRequest{Target: aIdentity, Owner: sibling.Owner, Management: true}); err != nil {
 		t.Fatal(err)
