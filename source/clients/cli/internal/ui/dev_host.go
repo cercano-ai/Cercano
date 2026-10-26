@@ -184,6 +184,10 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 	if r.client != nil {
 		// New client-bound slash handlers, same running executable and TUI identity.
 		n := New(r.client, false).WithVersion(m.devHost.version).WithDevHost(m.devHost.selection, m.devHost.version)
+		// New rebuilds client-bound handlers, but queued subscription messages
+		// still belong to this TUI's lifetime. Fence them even before Init's
+		// first reducer establishes the replacement subscription.
+		n.taskSubscriptionGeneration = m.taskSubscriptionGeneration + 1
 		n.width, n.height = m.width, m.height
 		return n, tea.Batch(n.Init(), func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} })
 	}

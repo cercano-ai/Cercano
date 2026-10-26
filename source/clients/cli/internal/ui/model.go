@@ -2225,6 +2225,11 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		return m, nil
 
 	case settingsThemeMsg:
+		// Defense at the persistence boundary: queued/direct settings messages
+		// cannot bypass pinned mode's shared-config freeze.
+		if m.devHost != nil {
+			return m, nil
+		}
 		m.applyTheme(msg.working)
 		if msg.persistName != "" {
 			_ = uiconfig.SaveActiveTheme(msg.persistName)
