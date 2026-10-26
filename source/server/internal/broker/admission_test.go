@@ -25,6 +25,48 @@ func fixtureAdmission(t *testing.T) (*Admission, Owner) {
 	return a, o
 }
 
+func TestAdmissionCheckRetained(t *testing.T) {
+	a, o := fixtureAdmission(t)
+	check := func(name string, owner Owner, wantRetired, wantRetained, wantOpen bool) {
+		t.Helper()
+		t.Run(name, func(t *testing.T) {
+			for i := 0; i < 3; i++ {
+				retired, retained, open := a.CheckRetained(owner)
+				if retired != wantRetired || retained != wantRetained || open != wantOpen {
+					t.Fatalf("CheckRetained(%+v) = (%v, %v, %v), want (%v, %v, %v)", owner, retired, retained, open, wantRetired, wantRetained, wantOpen)
+				}
+			}
+		})
+	}
+	check("live/open", o, false, true, true)
+	check("wrong epoch", Owner{o.Conversation, o.Host, "wrong"}, false, false, false)
+	check("wrong host", Owner{o.Conversation, "other", o.Epoch}, false, false, false)
+	check("unknown", Owner{"unknown", o.Host, "new"}, false, false, false)
+	check("empty", Owner{}, false, false, false)
+	// Repeated reads must not create attachments or work that block closure.
+	c, err := a.CloseOwner(o, nil)
+	mustOK(t, err)
+	check("closed closure", o, false, true, false)
+	mustOK(t, c.Reopen())
+	check("reopened", o, false, true, true)
+	c, err = a.CloseOwner(o, nil)
+	mustOK(t, err)
+	mustOK(t, c.Relinquished())
+	check("released", o, false, false, false)
+	fresh := Owner{o.Conversation, o.Host, "fresh"}
+	// A probe must not register an owner or consume its epoch.
+	check("unregistered fresh", fresh, false, false, false)
+	mustOK(t, a.RegisterOwner(fresh))
+	check("stale", o, false, false, false)
+	check("fresh", fresh, false, true, true)
+	c, err = a.CloseOwner(fresh, nil)
+	mustOK(t, err)
+	mustOK(t, c.Relinquished())
+	mustOK(t, a.Retire())
+	check("retired", fresh, true, false, false)
+	check("retired empty", Owner{}, true, false, false)
+}
+
 func TestAdmissionClosureRace(t *testing.T) {
 	// Both contenders cross an explicit start barrier. Either serialization is
 	// valid, but it is impossible for a work ticket and closure both to succeed.

@@ -12,23 +12,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// retainedIdentityReader is intentionally read-only. Admission owns its leaf
-// lock and retirement/session-closure state. Do not substitute AttachOwner or a
-// work ticket as a probe: identity validation must not enroll a client.
-// An admission implementation without this accessor fails closed.
-type retainedIdentityReader interface {
-	CheckRetained(broker.Owner) (retired, retained, open bool)
-}
-
-func retainedIdentitySnapshot(l *coexistenceLifecycle, o broker.Owner) (bool, bool, bool, error) {
-	reader, ok := any(l.admission).(retainedIdentityReader)
-	if !ok {
-		return false, false, false, status.Error(codes.FailedPrecondition, "read-only retained identity checks not enabled")
-	}
-	retired, retained, open := reader.CheckRetained(o)
-	return retired, retained, open, nil
-}
-
 // GetDevelopmentHostIdentity reports immutable selected build/store declarations.
 // It never opens a store, acquires ownership, attaches, or touches credentials.
 func (s *Server) GetDevelopmentHostIdentity(ctx context.Context, _ *proto.GetDevelopmentHostIdentityRequest) (*proto.GetDevelopmentHostIdentityResponse, error) {
@@ -38,10 +21,7 @@ func (s *Server) GetDevelopmentHostIdentity(ctx context.Context, _ *proto.GetDev
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	retired, _, _, err := retainedIdentitySnapshot(l, broker.Owner{})
-	if err != nil {
-		return nil, err
-	}
+	retired, _, _ := l.admission.CheckRetained(broker.Owner{})
 	return &proto.GetDevelopmentHostIdentityResponse{HostInstance: l.options.Host, Build: l.options.Build, Contract: l.options.Contract.Contract, SchemaVersion: int32(l.options.Contract.SchemaVersion), Retired: retired}, nil
 }
 
@@ -59,10 +39,7 @@ func (s *Server) CheckRetainedSession(ctx context.Context, req *proto.CheckRetai
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	owner := broker.Owner{Host: req.HostInstance, Conversation: req.ConversationId, Epoch: req.OwnershipEpoch}
-	retired, retained, open, err := retainedIdentitySnapshot(l, owner)
-	if err != nil {
-		return nil, err
-	}
+	retired, retained, open := l.admission.CheckRetained(owner)
 	result := func(state proto.RetainedSessionState) (*proto.CheckRetainedSessionResponse, error) {
 		return &proto.CheckRetainedSessionResponse{State: state}, nil
 	}

@@ -26,14 +26,6 @@ func TestCoexistenceIdentityDisabled(t *testing.T) {
 func TestCoexistenceIdentityPinnedIntegration(t *testing.T) {
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
 	a, _, _ := lifecycleFixture(t)
-	// The lifecycle/admission integration owner supplies this leaf-lock accessor.
-	// Until then the handler is explicitly unavailable, never an enrolling probe.
-	if _, ok := any(a.coexistence.admission).(retainedIdentityReader); !ok {
-		if _, err := a.GetDevelopmentHostIdentity(context.Background(), nil); status.Code(err) != codes.FailedPrecondition {
-			t.Fatal(err)
-		}
-		t.Skip("requires broker.Admission.CheckRetained read-only accessor from lifecycle integration")
-	}
 	ctx := context.Background()
 	o, err := a.Retain(ctx, "conversation")
 	if err != nil {
@@ -84,11 +76,3 @@ func TestCoexistenceIdentityPinnedIntegration(t *testing.T) {
 		t.Fatalf("retired: %v", err)
 	}
 }
-
-// Required admission-side implementation (outside this sub-agent's ownership):
-//
-//	func (a *Admission) CheckRetained(o Owner) (retired, retained, open bool) {
-//	  a.mu.Lock(); defer a.mu.Unlock()
-//	  s := a.sessionLocked(o)
-//	  return a.retired, s != nil, !a.retired && s != nil && !s.closed
-//	}

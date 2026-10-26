@@ -93,6 +93,16 @@ func (a *Admission) sessionLocked(o Owner) *admissionSession {
 	return s
 }
 
+// CheckRetained reports a point-in-time snapshot for the exact owner. It does
+// not register ownership, attach a client, or admit work. Open is true only for
+// a retained session whose admission and host are both open.
+func (a *Admission) CheckRetained(o Owner) (retired, retained, open bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := a.sessionLocked(o)
+	return a.retired, s != nil, !a.retired && s != nil && !s.closed
+}
+
 // Attachment is epoch-bound. Detach is transport cleanup, never session release.
 type Attachment struct {
 	a *Admission
