@@ -248,11 +248,11 @@ func (s *Server) recordRequestAccounting(conv string, snap requestAccountingSnap
 // persistence service (which owns model/window resolution). Best-effort and
 // non-blocking in spirit: any failure is swallowed by the service, because a
 // context-meter cache write must never affect a turn.
-func (s *Server) persistTurnContextUsage(conv string, acct runnersvc.RequestAccounting) {
+func (s *Server) persistTurnContextUsage(ctx context.Context, conv string, acct runnersvc.RequestAccounting) {
 	if s == nil || conv == "" || s.persistSvc == nil || acct.EstimatedRequestTokens <= 0 {
 		return
 	}
-	s.persistSvc.RecordTurnContextUsage(context.Background(), conv, persistsvc.TurnContextUsage{
+	s.persistSvc.RecordTurnContextUsage(ctx, conv, persistsvc.TurnContextUsage{
 		Model: acct.Model, Provider: acct.Provider, RuntimeInstanceID: acct.RuntimeInstanceID,
 		MessageTokens:          acct.MessageTokens,
 		SystemTokens:           acct.SystemTokens,
@@ -2423,6 +2423,9 @@ func (s *Server) ListTools(ctx context.Context, req *proto.ListToolsRequest) (*p
 // args. Tool errors are surfaced as InvokeToolResponse.error rather than gRPC
 // errors so the CLI can render them inline.
 func (s *Server) InvokeTool(ctx context.Context, req *proto.InvokeToolRequest) (*proto.InvokeToolResponse, error) {
+	if s.coexistence != nil {
+		return nil, grpcstatus.Error(codes.FailedPrecondition, "InvokeTool is unsupported in coexistence mode; use an admitted conversation turn")
+	}
 	resp := &proto.InvokeToolResponse{}
 	reg := s.toolSvc.Registry()
 	if reg == nil {
@@ -3380,10 +3383,15 @@ func formatRuntimeTime(t time.Time) string {
 
 // ProcessRequest implements proto.AgentServer (Unary).
 func (s *Server) ProcessRequest(ctx context.Context, req *proto.ProcessRequestRequest) (*proto.ProcessRequestResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginForeground(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
+	ctx, release := s.foregroundAgentTurn(ctx, req.GetConversationId(), work)
+	defer release()
 	if err := s.persistDevMode(ctx, req); err != nil {
+		persistsvc.ReportWriteFailure(ctx, err)
 		return nil, err
 	}
 	ctx = s.accountingContext(ctx, "local_tool", req.GetConversationId())
@@ -3396,21 +3404,31 @@ func (s *Server) ProcessRequest(ctx context.Context, req *proto.ProcessRequestRe
 		return nil, fmt.Errorf("agent error: %w", err)
 	}
 
+	if err := work.check(); err != nil {
+		return nil, err
+	}
 	fmt.Printf("ProcessRequest completed successfully\n")
 	return s.mapResponse(response), nil
 }
 
 // StreamProcessRequest implements proto.AgentServer (Streaming).
 func (s *Server) StreamProcessRequest(req *proto.ProcessRequestRequest, stream proto.Agent_StreamProcessRequestServer) error {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginForeground(stream.Context(), req.GetConversationId())
+	if err != nil {
 		return err
 	}
+	defer work.finish()
+	stream = &foregroundStream{Agent_StreamProcessRequestServer: stream, ctx: ctx, work: work}
 	fmt.Printf("Received request (Stream): %s\n", req.Input)
 
 	if (s.providerSvc.Cloud() != nil || s.providerSvc.Open() != nil) && s.toolSvc.Registry() != nil {
 		return s.streamProcessRequestWithToolLoop(req, stream)
 	}
+	ctx, release := s.foregroundAgentTurn(ctx, req.GetConversationId(), work)
+	defer release()
+	stream = &foregroundStream{Agent_StreamProcessRequestServer: stream, ctx: ctx, work: work}
 	if err := s.persistDevMode(stream.Context(), req); err != nil {
+		persistsvc.ReportWriteFailure(stream.Context(), err)
 		return err
 	}
 
@@ -3593,8 +3611,12 @@ func gitInfo(dir string) (bool, string) {
 //   - Live pending approvals are replayed independently of historical events.
 //     Attach never grants approval or starts a turn; Allow/Deny remain explicit.
 func (s *Server) AttachConversation(req *proto.AttachConversationRequest, stream proto.Agent_AttachConversationServer) error {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	_, attachment, _, err := s.BeginTerminalStream(stream.Context(), req.GetConversationId(), 0)
+	if err != nil {
 		return err
+	}
+	if attachment != nil {
+		defer attachment.Detach()
 	}
 	convID := req.GetConversationId()
 	if convID == "" {
@@ -3661,7 +3683,7 @@ func (s *Server) streamProcessRequestWithToolLoop(req *proto.ProcessRequestReque
 // A host completion turn supplies an already acquired idle-only lease. Human
 // requests still use BeginTurn and retain their right to supersede background work.
 func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream proto.Agent_StreamProcessRequestServer, reserved *completionTurnLease) error {
-	if reserved == nil || reserved.ctx.Value(ownedCompletionKey{}) == nil {
+	if stream.Context().Value(foregroundKey{}) == nil && (reserved == nil || reserved.ctx.Value(ownedCompletionKey{}) == nil) {
 		if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
 			return err
 		}
@@ -3679,10 +3701,20 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 		ctx, turnGen, releaseTurn = s.beginTurn(stream.Context(), req.GetConversationId())
 	}
 	if reserved == nil {
-		defer func() { releaseTurn(); s.notifyTaskChange(req.GetConversationId()) }()
+		defer func() {
+			releaseTurn()
+			if w, _ := ctx.Value(foregroundKey{}).(*foregroundWork); w != nil {
+				if !w.failed.Load() {
+					_ = s.notifyOwnedTaskChange(context.WithoutCancel(ctx), w.owner, req.GetConversationId())
+				}
+			} else {
+				s.notifyTaskChange(req.GetConversationId())
+			}
+		}()
 	}
 	if reserved == nil {
 		if err := s.persistDevMode(ctx, req); err != nil {
+			persistsvc.ReportWriteFailure(ctx, err)
 			return err
 		}
 	}
@@ -3760,7 +3792,7 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 
 	// brokerSink publishes runner events to the turn broker so all subscribers
 	// (including this initiator) receive them via Attach channels.
-	sink := &brokerSink{server: s, broker: s.turnBroker, conv: convID, gen: turnGen}
+	sink := &brokerSink{ctx: ctx, server: s, broker: s.turnBroker, conv: convID, gen: turnGen}
 
 	// Restore the autonomous profile from the durable ledger at the start of
 	// this client-initiated request (see autonomy_continuation.go): a
@@ -4174,6 +4206,7 @@ func (s *Server) workerPostTurn(convID string, res runnersvc.Result) {
 // (including the turn initiator, attached via Attach) receive the event on
 // their channels.
 type brokerSink struct {
+	ctx    context.Context
 	server *Server
 	broker *broker.Broker
 	conv   string
@@ -4200,7 +4233,11 @@ func (s *brokerSink) RecordRequestAccounting(acct runnersvc.RequestAccounting) {
 	// Also cache it durably. The in-memory map above is per-process, so without
 	// this the meter resets to "unknown" on restart and for any conversation
 	// loaded without running a turn — the case that showed a context of 0.
-	s.server.persistTurnContextUsage(s.conv, acct)
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.server.persistTurnContextUsage(ctx, s.conv, acct)
 }
 
 // streamResponseSender is the minimal interface required by sendRunnerEvent so

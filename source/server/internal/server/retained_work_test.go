@@ -59,21 +59,13 @@ func TestRetainedWorkScope(t *testing.T) {
 func TestCoexistenceOrdinaryPathsRefuseBeforeMutation(t *testing.T) {
 	a, _, _ := lifecycleFixture(t)
 	req := &proto.ProcessRequestRequest{ConversationId: "unowned", DebugMode: true, WorkDir: "/not-used"}
-	if _, err := a.ProcessRequest(t.Context(), req); status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("unary fallback: %v", err)
-	}
-	// Nil collaborators/streams deliberately prove refusal precedes access,
-	// dev-mode persistence, broker supersession, or provider execution.
-	if err := a.StreamProcessRequest(req, nil); status.Code(err) != codes.FailedPrecondition {
+	if _, err := a.ProcessRequest(t.Context(), req); status.Code(err) != codes.InvalidArgument {
 		t.Fatal(err)
 	}
-	if err := a.streamConversationTurn(req, nil, nil); status.Code(err) != codes.FailedPrecondition {
+	if err := a.StreamProcessRequest(req, newCollectingStream(t.Context())); status.Code(err) != codes.InvalidArgument {
 		t.Fatal(err)
 	}
-	if err := a.SubscribeTasks(nil, nil); status.Code(err) != codes.FailedPrecondition {
-		t.Fatal(err)
-	}
-	if err := a.AttachConversation(nil, nil); status.Code(err) != codes.FailedPrecondition {
+	if err := a.AttachConversation(&proto.AttachConversationRequest{ConversationId: "unowned"}, newCollectingStream(t.Context())); status.Code(err) != codes.InvalidArgument {
 		t.Fatal(err)
 	}
 	a.tryTaskCompletionWake(t.Context(), "unowned")

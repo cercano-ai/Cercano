@@ -17,7 +17,7 @@ import (
 // queue grows behind a slow observer. A reconnect always refreshes task status;
 // supplied progress cursors suppress already-applied immutable records.
 func (s *Server) SubscribeTasks(req *proto.SubscribeTasksRequest, stream proto.Agent_SubscribeTasksServer) error {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	if err := s.ValidateTerminalPane(stream.Context(), req.GetParentId()); err != nil {
 		return err
 	}
 	parent := req.GetParentId()

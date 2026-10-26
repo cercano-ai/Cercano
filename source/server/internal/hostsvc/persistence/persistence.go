@@ -398,6 +398,7 @@ func (x *svc) recordCompactionContextUsage(ctx context.Context, convID string, s
 		ComputedAt:         time.Now(),
 	}
 	if err := store.SaveContextUsage(ctx, usage); err != nil {
+		ReportWriteFailure(ctx, err)
 		fmt.Fprintf(os.Stderr, "[compaction] cache context usage failed %s: %v\n", convID, err)
 	}
 }

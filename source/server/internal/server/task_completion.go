@@ -165,6 +165,7 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	}
 	for _, notice := range notices {
 		if err := store.HandleTaskNotification(ctx, parent, notice.TaskID); err != nil {
+			persistsvc.ReportWriteFailure(ctx, err)
 			if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
 				w.fail(err)
 			}
