@@ -165,8 +165,18 @@ func (o *Ownership) Handover(ctx context.Context, destination string) (string, e
 		return "", fmt.Errorf("distinct exact destination instance required")
 	}
 	id := newID()
-	err := o.relinquish(ctx, "reserved", destination, id)
+	err := o.ReserveHandover(ctx, destination, id)
 	return id, err
+}
+
+// ReserveHandover uses an ID already accepted by the exact destination. The
+// caller must establish participation before calling; this layer only persists
+// the conditional reservation while retaining the source lock through commit.
+func (o *Ownership) ReserveHandover(ctx context.Context, destination, id string) error {
+	if destination == "" || destination == o.owner || id == "" {
+		return fmt.Errorf("distinct destination and explicit handover ID required")
+	}
+	return o.relinquish(ctx, "reserved", destination, id)
 }
 func (o *Ownership) relinquish(ctx context.Context, state, destination, handover string) error {
 	o.mu.Lock()
@@ -181,6 +191,15 @@ func (o *Ownership) relinquish(ctx context.Context, state, destination, handover
 	defer tx.Rollback()
 	if err = checkOwnershipContract(ctx, tx); err != nil {
 		return err
+	}
+	if handover != "" {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM conversation_handovers WHERE handover=?) + (SELECT count(*) FROM conversation_ownership WHERE handover=?)`, handover, handover).Scan(&n); err != nil {
+			return err
+		}
+		if n != 0 {
+			return fmt.Errorf("handover ID already used")
+		}
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE conversation_ownership SET state=?,destination=?,handover=? WHERE conversation_id=? AND owner=? AND epoch=? AND state='owned'`, state, destination, handover, o.conversation, o.owner, o.epoch)
 	if err != nil {

@@ -108,6 +108,7 @@ type McpManager interface {
 
 // Server is the gRPC server for the Agent service.
 type Server struct {
+	coexistence *coexistenceLifecycle // explicit lifecycle-only opt-in; never enabled by NewServer
 	pendingPrompts        pendingPromptHub
 	mistralMu             sync.Mutex
 	mistralCatalog        *mistralcatalog.Store
