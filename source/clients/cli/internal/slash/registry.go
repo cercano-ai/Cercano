@@ -48,6 +48,7 @@ const (
 	ResultSubmitPrompt          // Text carries a prompt to submit as a normal user turn
 	ResultRestartAgent          // bounce the agent process; CLI reconnect loop brings up a fresh one
 	ResultSearchConversation
+	ResultOpenVersion
 )
 
 // Result is what a slash command produces.

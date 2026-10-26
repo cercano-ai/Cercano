@@ -112,8 +112,9 @@ type Model struct {
 	theme   theme.Theme
 	themes  *theme.Registry
 
-	agent  *agentclient.Client
-	convID string
+	versionSource developmentIdentitySource // optional test adapter; production uses current agent
+	agent         *agentclient.Client
+	convID        string
 
 	registry *slash.Registry
 
@@ -461,6 +462,7 @@ func New(ag *agentclient.Client, openHistoryOnStart bool) Model {
 	convRef := &struct{ id string }{}
 	slash.RegisterHistory(reg, ag, func() string { return convRef.id })
 	slash.RegisterRuntime(reg)
+	slash.RegisterVersion(reg)
 	slash.RegisterLocus(reg, ag)
 	slash.RegisterContextView(reg)
 	slash.RegisterDev(reg)
@@ -1042,6 +1044,10 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case versionIdentityMsg:
+		return m.updateVersionIdentity(msg)
+	case versionPollMsg:
+		return m.pollVersion(msg)
 
 	case tea.ColorProfileMsg:
 		// TEMPORARY INSTRUMENTATION: record each color-profile change so we can
@@ -1151,6 +1157,9 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		// Confirmation gates keyboard input, not mouse selection or navigation.
 		mouse := msg.Mouse()
 		if mouse.Button == tea.MouseLeft && mouse.Y == 0 && m.pendingConfirm == nil && m.authLogin == nil && m.chatgptLoginModal == nil {
+			if m.mouseInVersion(mouse.X, mouse.Y) {
+				return m.openVersion()
+			}
 			if left, right, ok := m.cloudChipRange(); ok && mouse.X >= left && mouse.X < right {
 				cmd := m.openSessionTierPicker()
 				return m, cmd
@@ -3246,6 +3255,8 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 	}
 	res, _ := m.registry.Dispatch(line)
 	switch res.Kind {
+	case slash.ResultOpenVersion:
+		return m.openVersion()
 	case slash.ResultSearchConversation:
 		m.openConversationSearch(res.Text)
 		return m, nil
