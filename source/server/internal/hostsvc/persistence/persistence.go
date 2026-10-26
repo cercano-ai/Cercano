@@ -9,7 +9,6 @@
 package persistence
 
 import (
-	"cercano/source/server/internal/secrets"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1574,9 +1573,8 @@ func (x *svc) SetLocalRuntimeContext(fn func(string) (llm.RuntimeContext, error)
 	}
 }
 
-// sharedWritesFrozen fails closed when the shared-mutation boundary refuses work.
-// In particular, disabled credentials take precedence over ErrReadOnly and must
-// not accidentally enable ID-only background work in a prepared host.
+// sharedWritesFrozen follows the immutable coexistence policy, independently
+// of credential admission: disabling credentials must not disable ordinary history work.
 func (x *svc) sharedWritesFrozen() bool {
-	return x.cfgSvc != nil && secrets.CheckMutation(x.cfgSvc.Secrets()) != nil
+	return x.cfgSvc != nil && x.cfgSvc.Frozen()
 }

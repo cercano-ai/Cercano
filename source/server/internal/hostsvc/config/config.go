@@ -26,6 +26,8 @@ type Service interface {
 	// Reads
 	Get() cfg.Config
 	Path() string
+	// Frozen reports the immutable shared-write policy without credential admission.
+	Frozen() bool
 	Secrets() secrets.Store
 	Credentials() *credentials.Service
 	BeginCloudLogin(context.Context, cfg.CloudProfile, bool, bool, ...bool) (*CloudLogin, error)
@@ -91,6 +93,9 @@ func (s *svc) Get() cfg.Config {
 	s.mu.RUnlock()
 	return c
 }
+
+// Frozen is side-effect-free; the policy is fixed at construction.
+func (s *svc) Frozen() bool { return s.frozen }
 
 func (s *svc) Path() string {
 	s.mu.RLock()
