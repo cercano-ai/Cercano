@@ -34,5 +34,5 @@ Narrow read-only task `task_cb39a934f96f394f75de304c1e497269` completed a 12-cal
 
 Broad ownership audit `task_e4ea8fa8294b92907b14b901ce5df3d5` was stopped after repeated tool errors and no usable completed report. Its terminal result also reports incomplete dispatch evidence. Do not claim the ownership inventory is complete.
 
-Shared-state audit `task_1d7a1a9b585b3ea3e93bfd030dbe5d2f` failed at the dispatch token budget (1,001,899 token-volume units against a 1,000,000 limit), returning no completed inventory. No implementation actions were performed by either audit. Execution is paused pending restored delegation capacity or explicit authorization for a bounded alternative audit route; do not bypass the budget automatically.
+Shared-state audit `task_1d7a1a9b585b3ea3e93bfd030dbe5d2f` failed at the dispatch token budget (1,001,899 token-volume units against a 1,000,000 limit), returning no completed inventory. No implementation actions were performed by either audit. Execution was paused pending restored delegation capacity or explicit authorization for a bounded alternative audit route. On 2026-10-26 the user requested continuation; bounded delegated audits subsequently completed as recorded below. The prior dispatch-capacity blocker is no longer the current blocker.
 
