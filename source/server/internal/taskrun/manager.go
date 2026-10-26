@@ -31,6 +31,7 @@ type execution struct {
 	stop       bool
 	persistErr error
 	ticket     *broker.WorkTicket
+	owner      broker.Owner
 }
 type Manager struct {
 	admission *broker.Admission
@@ -50,7 +51,8 @@ type Manager struct {
 	closed   bool
 	wg       sync.WaitGroup
 	// Notify is nonblocking host scheduling, not a turn-scoped progress callback.
-	notify func(string)
+	notify      func(string)
+	notifyOwned OwnedCompletion
 }
 
 // New reconciles prior unfinished executions exactly once per host lifetime.
@@ -86,6 +88,25 @@ func NewPreparedOwned(store conversation.TaskStore, execute Executor, notify fun
 	return m, nil
 }
 
+// OwnedCompletion bridges a durable terminal commit to host scheduling. The
+// context retains launch values and ownership, but not turn cancellation. The
+// exact owner must never be resolved again by conversation ID. The callback runs
+// outside the manager lock under the task ticket; it may admit queued host work
+// before returning. An error retains the callback ticket and unresolved outcome,
+// suppresses completion wakes, and is never automatically replayed.
+type OwnedCompletion func(context.Context, broker.Owner, string) error
+
+// NewPreparedOwnedCompletion is NewPreparedOwned with an exact-owner completion
+// bridge. Existing constructors retain their legacy notification behavior.
+func NewPreparedOwnedCompletion(store conversation.TaskStore, execute Executor, notify OwnedCompletion, admission *broker.Admission, ownership OwnershipResolver) (*Manager, error) {
+	m, err := NewPreparedOwned(store, execute, nil, admission, ownership)
+	if err != nil {
+		return nil, err
+	}
+	m.notifyOwned = notify
+	return m, nil
+}
+
 func newManagerWithInitialization(store conversation.TaskStore, execute Executor, notify func(string), initialize bool) (*Manager, error) {
 	if store == nil || execute == nil {
 		return nil, errors.New("task persistence and executor are required")
@@ -117,12 +138,8 @@ func (m *Manager) Launch(ctx context.Context, spec dispatch.Spec) (conversation.
 	}
 	now := time.Now()
 	t := conversation.TaskRecord{ID: "task_" + hex.EncodeToString(entropy[:]), ParentID: spec.ConversationID, Status: "accepted", ChildID: conversation.NewID(), Task: spec.Task, WorkDir: spec.WorkDir, CreatedAt: now, UpdatedAt: now}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return conversation.TaskRecord{}, errors.New("task host is shutting down")
-	}
 	var ticket *broker.WorkTicket
+	var identity broker.Owner
 	if m.admission != nil {
 		owner, err := m.ownership(ctx, t.ParentID)
 		if err != nil {
@@ -131,11 +148,23 @@ func (m *Manager) Launch(ctx context.Context, spec dispatch.Spec) (conversation.
 		if owner == nil || owner.ConversationID() != t.ParentID {
 			return conversation.TaskRecord{}, errors.New("task ownership scope mismatch")
 		}
-		ticket, err = m.admission.AdmitWork(broker.Owner{Conversation: owner.ConversationID(), Host: owner.HostInstance(), Epoch: owner.Epoch()}, broker.TaskAcceptanceWork)
+		identity = broker.Owner{Conversation: owner.ConversationID(), Host: owner.HostInstance(), Epoch: owner.Epoch()}
+		ticket, err = m.admission.AdmitWork(identity, broker.TaskAcceptanceWork)
 		if err != nil {
 			return conversation.TaskRecord{}, err
 		}
 		ctx = conversation.WithOwnership(ctx, owner)
+	}
+	// Resolve/admit before taking mu: lifecycle resolvers may reenter manager
+	// inspection while holding host locks. Recheck closure after admission so a
+	// concurrent Close cannot race WaitGroup.Add or leave an accepted task behind.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		if ticket != nil {
+			_ = ticket.Complete()
+		}
+		return conversation.TaskRecord{}, errors.New("task host is shutting down")
 	}
 	// Acknowledge only durable acceptance. A canceled caller cannot leave a
 	// fictitious task handle if persistence failed.
@@ -149,7 +178,7 @@ func (m *Manager) Launch(ctx context.Context, spec dispatch.Spec) (conversation.
 	// deadline. The manager provides the only execution lifetime here.
 	child, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	stopHost := context.AfterFunc(m.ctx, cancel)
-	e := &execution{ticket: ticket, parent: t.ParentID, cancel: cancel, done: make(chan struct{})}
+	e := &execution{ticket: ticket, owner: identity, parent: t.ParentID, cancel: cancel, done: make(chan struct{})}
 	m.active[t.ID] = e
 	spec.Tools = append([]string(nil), spec.Tools...)
 	spec.SubConversationID = t.ChildID
@@ -208,16 +237,22 @@ func (m *Manager) run(ctx context.Context, t conversation.TaskRecord, spec dispa
 	if e.persistErr != nil && e.ticket != nil {
 		_ = e.ticket.PersistenceFailed()
 	}
-	// Wake task_wait callers blocked in this same conversation: their
-	// foreground turn must yield to the completion boundary so this
-	// completion is delivered promptly instead of waiting out the wait
-	// deadline. Waiters on other conversations are not touched.
+	// Commit before invoking host scheduling, but keep the same ticket and
+	// execution entry until the bridge has succeeded. No manager lock may be
+	// held while the callback acquires host lifecycle locks.
+	if e.persistErr == nil && m.notifyOwned != nil {
+		_ = e.ticket.Advance(broker.CallbackWork)
+		m.mu.Unlock()
+		err := m.notifyOwned(context.WithoutCancel(ctx), e.owner, t.ParentID)
+		m.mu.Lock()
+		if err != nil {
+			e.persistErr = fmt.Errorf("task completion callback: %w", err)
+		}
+	}
 	if e.persistErr == nil {
 		m.signalWaitWakeLocked(t.ParentID)
 	}
 	close(e.done)
-	// Keep failed persistence visible to Wait rather than pretending completion
-	// was durably saved. Successful entries need no retained goroutine state.
 	if e.persistErr == nil {
 		delete(m.active, t.ID)
 	}
@@ -235,6 +270,7 @@ func (m *Manager) run(ctx context.Context, t conversation.TaskRecord, spec dispa
 		}
 	}
 }
+
 func (m *Manager) Inspect(ctx context.Context, parent, id string) (conversation.TaskRecord, error) {
 	t, err := m.store.GetTask(ctx, parent, id)
 	if err != nil {
@@ -296,7 +332,7 @@ func (m *Manager) Wait(ctx context.Context, parent, id string) (conversation.Tas
 			select {
 			case <-e.done:
 				if e.persistErr != nil {
-					return t, fmt.Errorf("persist task outcome: %w", e.persistErr)
+					return t, fmt.Errorf("complete task outcome: %w", e.persistErr)
 				}
 			default:
 			}
@@ -315,7 +351,7 @@ func (m *Manager) Wait(ctx context.Context, parent, id string) (conversation.Tas
 		case <-e.done:
 		}
 		if e.persistErr != nil {
-			return t, fmt.Errorf("persist task outcome: %w", e.persistErr)
+			return t, fmt.Errorf("complete task outcome: %w", e.persistErr)
 		}
 	}
 	return m.store.GetTask(ctx, parent, id)
@@ -366,7 +402,8 @@ func (m *Manager) signalWaitWakeLocked(parent string) {
 }
 
 // UnresolvedTerminalOutcomes returns a snapshot of failed or rejected terminal
-// writes for parent (empty selects all conversations). These outcomes block
+// writes or completion callback errors for parent (empty selects all conversations).
+// These outcomes block
 // safe ownership release even after execution has stopped. No automatic retry
 // or clearing is performed: resolving them requires durable ownership evidence.
 // An empty result is not a full quiescence check; running work, admissions and
