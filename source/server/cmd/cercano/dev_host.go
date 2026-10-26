@@ -1,6 +1,6 @@
 package main
 
-// This deliberately bounded fixture host exposes identity and lifecycle inspection,
+// This deliberately bounded fixture host exposes durable lifecycle controls,
 // not inference. It must never enter the ordinary agent startup graph.
 import (
 	"context"
@@ -19,8 +19,8 @@ import (
 	"cercano/source/server/internal/conversation"
 	cfgsvc "cercano/source/server/internal/hostsvc/config"
 	"cercano/source/server/internal/hostsvc/permissions"
-	runnersvc "cercano/source/server/internal/runner"
 	"cercano/source/server/internal/modelhost"
+	runnersvc "cercano/source/server/internal/runner"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/server"
 	"cercano/source/server/internal/worker"
@@ -55,6 +55,8 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 	addr := fs.String("listen", "", "explicit loopback TCP address")
 	host := fs.String("host", "", "unique host instance")
 	generation := fs.String("generation", "", "exact immutable generation directory containing cercano and manifest.json")
+	tokenName := fs.String("token-file", "token", "private token basename inside fixture")
+	peersName := fs.String("peers-file", "peers.json", "peer declaration basename inside fixture")
 	modelDir := fs.String("modelhost", "", "explicit protected fixture modelhost record directory")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -72,6 +74,18 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 		}
 		if resolved != filepath.Clean(p) {
 			return fmt.Errorf("fixture paths must not be aliases")
+		}
+	}
+	for _, name := range []string{*tokenName, *peersName} {
+		if name == "." || name == ".." || filepath.Base(name) != name {
+			return fmt.Errorf("token and peers must be fixture basenames")
+		}
+		info, err := os.Lstat(filepath.Join(*root, name))
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("token and peers must be regular files")
 		}
 	}
 	st, err := os.Stat(*root)
@@ -109,7 +123,7 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 			return fmt.Errorf("fixture file must be regular, not an alias: %s", name)
 		}
 	}
-	auth, err := devhostauth.Load(*host, filepath.Join(*root, "token"))
+	auth, err := devhostauth.Load(*host, filepath.Join(*root, *tokenName))
 	if err != nil {
 		return err
 	}
@@ -143,7 +157,7 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 	cfg.WorkerIdleTimeoutSeconds = -1
 	cfg = cfg.WithSharedReadOnly()
 	var peers []devHostPeer
-	if err := readDevJSON(filepath.Join(*root, "peers.json"), &peers); err != nil {
+	if err := readDevJSON(filepath.Join(*root, *peersName), &peers); err != nil {
 		return err
 	}
 	peerAuth := map[string]*devhostauth.Auth{}
@@ -189,7 +203,7 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 	// An in-memory rejecting boundary: no native credential opener is invoked.
 	secretStore := secrets.Guard(secrets.NewMemory(), secrets.Options{ReadOnly: true})
 	var preparedStore conversation.Store
-	srv, err := server.NewPreparedServer(ctx, server.PreparedServerOptions{
+	srv, err := server.NewPreparedDurableServer(ctx, server.PreparedServerOptions{
 		Coexistence: server.CoexistenceOptions{StorePath: database, Build: manifest.Build, Host: *host, Contract: contract,
 			ControlAuthorize: auth.Authorize,
 			ControlDial: func(ctx context.Context, endpoint string) (*grpc.ClientConn, error) {
@@ -200,9 +214,6 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 				return grpc.NewClient(endpoint, append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, a.DialOptions()...)...)
 			},
 			CloseParticipation: func(context.Context) error { return remote.Close() },
-			Reload: func(context.Context, conversation.Store, *conversation.Ownership) error {
-				return fmt.Errorf("fixture startup does not admit conversation work")
-			},
 		},
 		WorkerRunner: func(history runnersvc.TurnHistory, frozen cfgsvc.Service, perms permissions.Broker) runnersvc.TurnRunner {
 			// Execution remains gated; no provider or child-launch callbacks are installed.
@@ -221,12 +232,12 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 	srv.SetBuildVersion(manifest.Build)
 	defer preparedStore.Close()
 	defer srv.Shutdown()
-	// Policy injection does not enable execution: foreground/context bridging and
-	// native lifecycle remain separate work. Never call legacy SelectExecutionMode.
+	// Worker/provider execution remains disabled; lifecycle reload is now durable.
+	// Never call legacy SelectExecutionMode or install background generators.
 	opts := auth.ServerOptions()
 	opts = append(opts, grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
 		switch filepath.Base(info.FullMethod) {
-		case "GetCredentialPolicy", "GetDevelopmentHostIdentity", "LifecycleList", "LifecycleRetire":
+		case "GetCredentialPolicy", "GetDevelopmentHostIdentity", "LifecycleList", "LifecycleRetire", "LifecycleAcquire", "LifecyclePrepare", "LifecycleValidateReceipt", "LifecycleRelinquish", "LifecycleClaim", "LifecycleRelease", "ResumeConversation", "CheckRetainedSession":
 			return next(ctx, req)
 		default:
 			return nil, status.Error(codes.FailedPrecondition, "dev-host startup fixture: execution disabled")
