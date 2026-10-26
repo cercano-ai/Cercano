@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -286,6 +287,7 @@ func TestLoad_EmptyPath(t *testing.T) {
 }
 
 func TestLoad_GeminiKeySetsCloudDefaults(t *testing.T) {
+	credentialtest.Enable(t)
 	t.Setenv("GEMINI_API_KEY", "test-key-123")
 
 	cfg, err := Load("/nonexistent/config.yaml")
@@ -518,6 +520,7 @@ func TestCloudProfileBackendYAML(t *testing.T) {
 // what made it possible for cloud_model and the active profile's model to
 // disagree (split-state bug).
 func TestSave_StripsLegacyCloudFieldsWhenProfilesPresent(t *testing.T) {
+	credentialtest.Enable(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	cfg := Config{

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"errors"
 	"os"
@@ -13,6 +14,7 @@ import (
 )
 
 func TestFrozenConfigBoundary(t *testing.T) {
+	credentialtest.Enable(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	original := []byte("untouched snapshot\n")
 	if err := os.WriteFile(path, original, 0600); err != nil {
@@ -112,6 +114,7 @@ func TestFrozenConfigBoundary(t *testing.T) {
 }
 
 func TestWritablePersistReturnsErrors(t *testing.T) {
+	credentialtest.Enable(t)
 	service := New(filepath.Join(t.TempDir(), "config.yaml"), cfg.Config{}, nil)
 	if err := service.SetCloudModel("writable"); err != nil {
 		t.Fatal(err)

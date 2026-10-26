@@ -1,6 +1,7 @@
 package chatgptauth
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -100,6 +101,7 @@ func fakeIssuer(t *testing.T, pendingPolls int32) *httptest.Server {
 var fakeJWTStatic string
 
 func TestDeviceFlowEndToEnd(t *testing.T) {
+	credentialtest.Enable(t)
 	fakeJWTStatic = fakeJWT(t, map[string]any{"chatgpt_account_id": "acct-42"})
 	srv := fakeIssuer(t, 2) // two pending polls before approval
 	defer srv.Close()
@@ -141,6 +143,7 @@ func TestDeviceFlowEndToEnd(t *testing.T) {
 }
 
 func TestRefreshKeepsOldRefreshTokenWhenOmitted(t *testing.T) {
+	credentialtest.Enable(t)
 	fakeJWTStatic = fakeJWT(t, map[string]any{"chatgpt_account_id": "acct-42"})
 	srv := fakeIssuer(t, 0)
 	defer srv.Close()
@@ -159,6 +162,7 @@ func TestRefreshKeepsOldRefreshTokenWhenOmitted(t *testing.T) {
 }
 
 func TestPollTerminalRejection(t *testing.T) {
+	credentialtest.Enable(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/accounts/deviceauth/usercode", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -183,6 +187,7 @@ func TestPollTerminalRejection(t *testing.T) {
 }
 
 func TestPollHonorsContextCancel(t *testing.T) {
+	credentialtest.Enable(t)
 	fakeJWTStatic = fakeJWT(t, nil)
 	srv := fakeIssuer(t, 1<<30) // never approves
 	defer srv.Close()
@@ -201,6 +206,7 @@ func TestPollHonorsContextCancel(t *testing.T) {
 }
 
 func TestAccountIDClaimLocations(t *testing.T) {
+	credentialtest.Enable(t)
 	cases := []struct {
 		name    string
 		payload any
@@ -224,6 +230,7 @@ func TestAccountIDClaimLocations(t *testing.T) {
 }
 
 func TestTokenSetRoundTrip(t *testing.T) {
+	credentialtest.Enable(t)
 	in := TokenSet{Access: "a", Refresh: "r", ExpiresAt: time.Now().Round(time.Second), AccountID: "acct"}
 	enc, err := in.Encode()
 	if err != nil {

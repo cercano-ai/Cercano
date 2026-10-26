@@ -2,6 +2,7 @@ package providers
 
 import (
 	"cercano/source/server/internal/cloudfactory"
+	"cercano/source/server/internal/credentialtest"
 	cfgsvc "cercano/source/server/internal/hostsvc/config"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/inference/profilechain"
@@ -20,6 +21,7 @@ type observedStore struct {
 
 func (s *observedStore) Get(name string) (string, error) { s.reads++; return s.Store.Get(name) }
 func TestSubscriptionConstructionIsLazyAndKeepsMissingLogin(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, profile := range []config.CloudProfile{
 		{Name: "named", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription, Model: "claude-test", ModelPinned: true},
 		{Name: "named", Flavor: cloudfactory.FlavorResponses, Route: cloudfactory.RouteChatGPT, Model: "gpt-test", ModelPinned: true},

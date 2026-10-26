@@ -189,3 +189,7 @@ func TestPinnedTerminalIdentityLifetime(t *testing.T) {
 		t.Fatalf("terminal identity lifetime: %v", ids)
 	}
 }
+
+func (*pinnedFake) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

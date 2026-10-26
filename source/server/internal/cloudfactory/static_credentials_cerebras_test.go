@@ -1,6 +1,7 @@
 package cloudfactory
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"errors"
 	"testing"
 
@@ -23,6 +24,7 @@ func cerebrasProfile() config.CloudProfile {
 // the profile's key, so it must be classified alongside api.deepinfra.com: a
 // missing static key is an auth failure, not a silent anonymous request.
 func TestRequiresStaticKey_CerebrasHost(t *testing.T) {
+	credentialtest.Enable(t)
 	if !RequiresStaticKey(cerebrasProfile()) {
 		t.Error("api.cerebras.ai is a direct vendor endpoint and must require a static key")
 	}
@@ -34,6 +36,7 @@ func TestRequiresStaticKey_CerebrasHost(t *testing.T) {
 }
 
 func TestValidateStaticCredential_CerebrasMissingKeyIsAuthError(t *testing.T) {
+	credentialtest.Enable(t)
 	err := ValidateStaticCredential(cerebrasProfile(), "", nil)
 	var ce *llm.CredentialError
 	if !errors.As(err, &ce) {
@@ -45,12 +48,14 @@ func TestValidateStaticCredential_CerebrasMissingKeyIsAuthError(t *testing.T) {
 }
 
 func TestValidateStaticCredential_CerebrasWithKeyPasses(t *testing.T) {
+	credentialtest.Enable(t)
 	if err := ValidateStaticCredential(cerebrasProfile(), "csk-test", nil); err != nil {
 		t.Errorf("populated key should validate, got %v", err)
 	}
 }
 
 func TestValidateStaticCredential_CerebrasStoreFailureStaysCredentialError(t *testing.T) {
+	credentialtest.Enable(t)
 	err := ValidateStaticCredential(cerebrasProfile(), "", errors.New("keychain unavailable"))
 	var ce *llm.CredentialError
 	if !errors.As(err, &ce) {

@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"cercano/source/server/internal/anthropicauth"
+	"cercano/source/server/internal/credentialtest"
 	cfgsvc "cercano/source/server/internal/hostsvc/config"
 	"cercano/source/server/internal/secrets"
 	cfg "cercano/source/server/pkg/config"
@@ -11,6 +12,7 @@ import (
 )
 
 func TestCredentialOwnerSurvivesBackendReplacement(t *testing.T) {
+	credentialtest.Enable(t)
 	service := cfgsvc.New("", cfg.Defaults(), nil)
 	owner := service.Credentials()
 	if owner == nil || service.Secrets() != nil {

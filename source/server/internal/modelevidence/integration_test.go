@@ -1,6 +1,7 @@
 package modelevidence_test
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -93,6 +94,7 @@ func TestOriginalFailure_ContextCapacityNowReachesBudgeting(t *testing.T) {
 // Failure 2: an image could be sent to a cloud model with no confirmed image
 // support, because the transport flag was treated as model capability.
 func TestOriginalFailure_UnconfirmedModelGetsNoVisionClient(t *testing.T) {
+	credentialtest.Enable(t)
 	res := modelevidence.New(deepinfraFixture(t))
 	prof := deepinfraProfile()
 	confirmed := func(model string) bool {

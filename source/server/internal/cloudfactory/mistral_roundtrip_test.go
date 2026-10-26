@@ -1,6 +1,7 @@
 package cloudfactory
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 )
 
 func TestMistralFactoryStreamingToolRoundtrip(t *testing.T) {
+	credentialtest.Enable(t)
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer fixture-key" {
@@ -85,6 +87,7 @@ func TestMistralFactoryStreamingToolRoundtrip(t *testing.T) {
 }
 
 func TestMistralStructuredTextContent(t *testing.T) {
+	credentialtest.Enable(t)
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: "+`{"id":"structured","choices":[{"index":0,"delta":{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"private thought"}]},{"type":"text","text":"answer"}]},"finish_reason":"stop"}]}`+"\n\ndata: [DONE]\n\n")
@@ -106,6 +109,7 @@ func TestMistralStructuredTextContent(t *testing.T) {
 }
 
 func TestMistralFactoryHTTPFailures(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, status := range []int{401, 429, 500} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

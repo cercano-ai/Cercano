@@ -1,6 +1,7 @@
 package agentclient
 
 import (
+	"cercano/source/server/pkg/proto"
 	"context"
 	"fmt"
 	"net"
@@ -157,9 +158,10 @@ func TestInstalledAgentReuseHelper(t *testing.T) {
 	if os.Getenv("CERCANO_REUSE_MODE") == "running_agent_is_reused" {
 		// A real gRPC server stands in for the running agent, so the
 		// production dial completes its HTTP/2 handshake exactly as it
-		// would against a live agent. No agent services are registered:
-		// ensureServerLaunched only needs the connection to come up.
+		// would against a live agent. The fake also attests disabled credentials, as required by
+		// ensureServerLaunched before reusing an existing connection.
 		server := grpc.NewServer()
+		proto.RegisterAgentServer(server, &isolationFake{disabled: true})
 		go func() { _ = server.Serve(listener) }()
 		defer server.Stop()
 	} else {

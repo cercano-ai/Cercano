@@ -1,11 +1,15 @@
 package cloudfactory
 
-import "testing"
+import (
+	"cercano/source/server/internal/credentialtest"
+	"testing"
+)
 
 // TestLegacyProfile pins the vendor→wire-flavor mapping that replaced the
 // langchain CloudModelProvider: the loose (provider, model, baseURL) triple the
 // old CloudFactory carried maps onto a CloudProfile the inference path builds.
 func TestLegacyProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	cases := []struct {
 		provider    string
 		wantFlavor  string
@@ -35,6 +39,7 @@ func TestLegacyProfile(t *testing.T) {
 // TestLegacyProfile_BaseURLOverride proves a proxy baseURL (Meridian and other
 // Anthropic-compatible local proxies) is preserved.
 func TestLegacyProfile_BaseURLOverride(t *testing.T) {
+	credentialtest.Enable(t)
 	p := LegacyProfile("anthropic", "claude", "http://localhost:9000")
 	if p.BaseURL != "http://localhost:9000" {
 		t.Errorf("BaseURL = %q, want the proxy URL", p.BaseURL)

@@ -120,3 +120,7 @@ func TestStreamResumeConversationViewportFirstDeliversProgressiveEvents(t *testi
 		t.Fatalf("completion events = %v, %v", got[2].Kind, got[3].Kind)
 	}
 }
+
+func (s resumeStreamTestServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

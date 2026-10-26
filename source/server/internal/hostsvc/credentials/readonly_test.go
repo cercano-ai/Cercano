@@ -1,6 +1,7 @@
 package credentials_test
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"errors"
 	"net/http"
@@ -31,6 +32,7 @@ func (r *rejectTransport) RoundTrip(*http.Request) (*http.Response, error) {
 }
 
 func TestReadOnlyBoundaries(t *testing.T) {
+	credentialtest.Enable(t)
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
 	ctx := context.Background()
 	options := secrets.Options{ReadOnly: true}
@@ -69,6 +71,7 @@ func TestReadOnlyBoundaries(t *testing.T) {
 }
 
 func TestReadOnlyOAuth(t *testing.T) {
+	credentialtest.Enable(t)
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
 	ctx := context.Background()
 	options := secrets.Options{ReadOnly: true}

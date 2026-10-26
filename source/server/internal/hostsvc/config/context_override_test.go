@@ -1,11 +1,13 @@
 package config
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	cfg "cercano/source/server/pkg/config"
 	"testing"
 )
 
 func TestContextOverrideSnapshotsAndValidation(t *testing.T) {
+	credentialtest.Enable(t)
 	n := 8192
 	c := cfg.Defaults()
 	c.LlamaServer.ContextSize = &n
@@ -40,6 +42,7 @@ func TestContextOverrideSnapshotsAndValidation(t *testing.T) {
 }
 
 func TestContextOverrideMutateRejectsInvalidState(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New("", cfg.Defaults(), nil)
 	if err := s.Mutate(func(c *cfg.Config) { n := -1; c.LlamaServer.ContextSize = &n }); err == nil {
 		t.Fatal("Mutate must report validation error")

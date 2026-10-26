@@ -131,3 +131,11 @@ func TestReauthenticationCorrelatesEventsAndClosesItsStream(t *testing.T) {
 		cancel()
 	}
 }
+
+func (s legacyCloudLoginServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}
+
+func (s testCloudLoginServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"errors"
 	"testing"
@@ -9,6 +10,7 @@ import (
 )
 
 func TestLoginNewAttemptOwnsCommit(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
 	first, err := s.BeginLogin(context.Background(), "work", "anthropic")
 	if err != nil {
@@ -37,6 +39,7 @@ func TestLoginNewAttemptOwnsCommit(t *testing.T) {
 	}
 }
 func TestLoginCancellationAndReplacement(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, operation := range []string{"cancel", "close", "write", "delete", "backend"} {
 		t.Run(operation, func(t *testing.T) {
 			s := New(secrets.NewMemory())
@@ -70,9 +73,16 @@ func TestLoginCancellationAndReplacement(t *testing.T) {
 	}
 }
 func TestClosingOldLoginDoesNotCancelNewOne(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
-	old, _ := s.BeginLogin(context.Background(), "work", "anthropic")
-	current, _ := s.BeginLogin(context.Background(), "work", "anthropic")
+	old, err := s.BeginLogin(context.Background(), "work", "anthropic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.BeginLogin(context.Background(), "work", "anthropic")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer current.Close()
 	old.Close()
 	if err := current.Commit("new"); err != nil {
@@ -80,9 +90,16 @@ func TestClosingOldLoginDoesNotCancelNewOne(t *testing.T) {
 	}
 }
 func TestDifferentProfilesHaveIndependentLogins(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
-	a, _ := s.BeginLogin(context.Background(), "a", "anthropic")
-	b, _ := s.BeginLogin(context.Background(), "b", "openai-responses")
+	a, err := s.BeginLogin(context.Background(), "a", "anthropic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.BeginLogin(context.Background(), "b", "openai-responses")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer a.Close()
 	defer b.Close()
 	a.Close()
@@ -91,6 +108,7 @@ func TestDifferentProfilesHaveIndependentLogins(t *testing.T) {
 	}
 }
 func TestLoginRejectsCanceledContext(t *testing.T) {
+	credentialtest.Enable(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := New(secrets.NewMemory()).BeginLogin(ctx, "work", "anthropic"); !errors.Is(err, context.Canceled) {

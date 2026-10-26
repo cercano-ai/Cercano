@@ -1536,3 +1536,49 @@ func TestCercanoSkillsEnterpriseMetadata(t *testing.T) {
 		}
 	}
 }
+
+func (m *mockAgentClient) LifecycleAcquire(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleAcquire in MCP mock")
+}
+
+func (m *mockAgentClient) LifecycleRelease(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRelease in MCP mock")
+}
+
+func (m *mockAgentClient) LifecyclePrepare(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecyclePrepare in MCP mock")
+}
+
+func (m *mockAgentClient) LifecycleValidateReceipt(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleValidateReceipt in MCP mock")
+}
+
+func (m *mockAgentClient) LifecycleRelinquish(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRelinquish in MCP mock")
+}
+
+func (m *mockAgentClient) LifecycleClaim(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleClaim in MCP mock")
+}
+
+func (m *mockAgentClient) LifecycleList(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleList in MCP mock")
+}
+
+func (m *mockAgentClient) LifecycleRetire(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRetire in MCP mock")
+}
+
+func (m *mockAgentClient) GetDevelopmentHostIdentity(context.Context, *proto.GetDevelopmentHostIdentityRequest, ...grpc.CallOption) (*proto.GetDevelopmentHostIdentityResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected GetDevelopmentHostIdentity in MCP mock")
+}
+
+func (m *mockAgentClient) CheckRetainedSession(context.Context, *proto.CheckRetainedSessionRequest, ...grpc.CallOption) (*proto.CheckRetainedSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected CheckRetainedSession in MCP mock")
+}
+
+func (m *mockAgentClient) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest, ...grpc.CallOption) (*proto.GetCredentialPolicyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected GetCredentialPolicy in MCP mock")
+}
+
+var _ proto.AgentClient = (*mockAgentClient)(nil)

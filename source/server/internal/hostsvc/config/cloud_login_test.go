@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"reflect"
 	"testing"
@@ -12,6 +13,7 @@ import (
 )
 
 func TestReauthenticationPreservesEntireConfiguration(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, profile := range []cfg.CloudProfile{
 		{Name: "named", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription, Provider: "anthropic", Model: "custom", ModelPinned: true, BaseURL: "https://proxy.invalid", Region: "region", AWSProfile: "unrelated"},
 		{Name: "named", Flavor: cloudfactory.FlavorResponses, Route: cloudfactory.RouteChatGPT, Provider: "openai", Model: "custom", ModelPinned: true, BaseURL: "https://proxy.invalid"},
@@ -46,6 +48,7 @@ func TestReauthenticationPreservesEntireConfiguration(t *testing.T) {
 	}
 }
 func TestLoginProfileMutationRejectsCredentialCommit(t *testing.T) {
+	credentialtest.Enable(t)
 	c := cfg.Defaults()
 	p := cfg.CloudProfile{Name: "work", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription, Model: "before"}
 	c.CloudProfiles = []cfg.CloudProfile{p}
@@ -67,6 +70,7 @@ func TestLoginProfileMutationRejectsCredentialCommit(t *testing.T) {
 	}
 }
 func TestReauthenticationRequiresExistingMatchingProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	service := cfgsvc.New("", cfg.Defaults(), secrets.NewMemory())
 	p := cfg.CloudProfile{Name: "missing", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription}
 	if _, err := service.BeginCloudLogin(context.Background(), p, false, true); err == nil {
@@ -78,6 +82,7 @@ func TestReauthenticationRequiresExistingMatchingProfile(t *testing.T) {
 	}
 }
 func TestInitialLoginStillCreatesAndActivates(t *testing.T) {
+	credentialtest.Enable(t)
 	c := cfg.Defaults()
 	c.CloudProfiles = []cfg.CloudProfile{{Name: "previous"}}
 	c.ActiveCloudProfile = "previous"
@@ -99,6 +104,7 @@ func TestInitialLoginStillCreatesAndActivates(t *testing.T) {
 }
 
 func TestRemovedAndRecreatedProfileDoesNotReviveLogin(t *testing.T) {
+	credentialtest.Enable(t)
 	c := cfg.Defaults()
 	p := cfg.CloudProfile{Name: "work", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription}
 	c.CloudProfiles = []cfg.CloudProfile{p}
@@ -117,6 +123,7 @@ func TestRemovedAndRecreatedProfileDoesNotReviveLogin(t *testing.T) {
 }
 
 func TestLoginPreservesAndIsolatesSparseProfileChoices(t *testing.T) {
+	credentialtest.Enable(t)
 	c := cfg.Defaults()
 	profile := cfg.CloudProfile{Name: "named", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription, TierOverrides: map[cfg.CostTier]string{cfg.CostPremium: "custom-premium"}, ImageModel: "custom-image", Region: "kept", AWSProfile: "kept-aws"}
 	c.CloudProfiles = []cfg.CloudProfile{profile}
@@ -156,6 +163,7 @@ func TestLoginPreservesAndIsolatesSparseProfileChoices(t *testing.T) {
 }
 
 func TestAddedAccountCreationCannotReplaceExistingCredentials(t *testing.T) {
+	credentialtest.Enable(t)
 	store := secrets.NewMemory()
 	p := cfg.CloudProfile{Name: "work", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription, TierOverrides: map[cfg.CostTier]string{cfg.CostPremium: "chosen"}}
 	c := cfg.Defaults()

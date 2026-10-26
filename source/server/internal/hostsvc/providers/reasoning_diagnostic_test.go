@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 )
 
 func TestReasoningDiagnosticUsesSelectedProfileWithoutFallback(t *testing.T) {
+	credentialtest.Enable(t)
 	var calls, backupCalls atomic.Int32
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)

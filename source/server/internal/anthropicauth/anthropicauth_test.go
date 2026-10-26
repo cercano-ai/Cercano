@@ -1,6 +1,7 @@
 package anthropicauth
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -16,6 +17,7 @@ import (
 )
 
 func TestNewPKCE_ChallengeIsS256OfVerifier(t *testing.T) {
+	credentialtest.Enable(t)
 	pk, err := newPKCE()
 	if err != nil {
 		t.Fatalf("newPKCE: %v", err)
@@ -36,6 +38,7 @@ func TestNewPKCE_ChallengeIsS256OfVerifier(t *testing.T) {
 }
 
 func TestStart_BuildsLoopbackAuthorizeURL(t *testing.T) {
+	credentialtest.Enable(t)
 	p, err := Flow{}.Start(context.Background())
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -74,6 +77,7 @@ func TestStart_BuildsLoopbackAuthorizeURL(t *testing.T) {
 }
 
 func TestTokenSet_Expired(t *testing.T) {
+	credentialtest.Enable(t)
 	now := time.Unix(1_000_000, 0)
 	fresh := TokenSet{ExpiresAt: now.Add(time.Hour)}
 	if fresh.Expired(now) {
@@ -87,6 +91,7 @@ func TestTokenSet_Expired(t *testing.T) {
 }
 
 func TestTokenSet_EncodeDecodeRoundTrip(t *testing.T) {
+	credentialtest.Enable(t)
 	in := TokenSet{Access: "a", Refresh: "r", ExpiresAt: time.Unix(1_700_000_000, 0).UTC()}
 	enc, err := in.Encode()
 	if err != nil {
@@ -123,6 +128,7 @@ func stubTokenServer(t *testing.T, reply map[string]any, capture *map[string]str
 }
 
 func TestFlow_Refresh(t *testing.T) {
+	credentialtest.Enable(t)
 	var got map[string]string
 	srv := stubTokenServer(t, map[string]any{
 		"access_token":  "new-access",
@@ -154,6 +160,7 @@ func TestFlow_Refresh(t *testing.T) {
 }
 
 func TestFlow_RefreshKeepsOldRefreshWhenOmitted(t *testing.T) {
+	credentialtest.Enable(t)
 	srv := stubTokenServer(t, map[string]any{
 		"access_token": "new-access",
 		"expires_in":   3600,
@@ -173,6 +180,7 @@ func TestFlow_RefreshKeepsOldRefreshWhenOmitted(t *testing.T) {
 // a simulated browser hits /callback with code+state, and Wait exchanges the
 // code at the stub token endpoint.
 func TestPending_Wait(t *testing.T) {
+	credentialtest.Enable(t)
 	var got map[string]string
 	srv := stubTokenServer(t, map[string]any{
 		"access_token":  "acc",
@@ -236,6 +244,7 @@ func TestPending_Wait(t *testing.T) {
 }
 
 func TestPending_WaitRejectsStateMismatch(t *testing.T) {
+	credentialtest.Enable(t)
 	srv := stubTokenServer(t, map[string]any{"access_token": "x", "expires_in": 3600}, nil)
 	defer srv.Close()
 
@@ -264,6 +273,7 @@ func TestPending_WaitRejectsStateMismatch(t *testing.T) {
 }
 
 func TestStart_BuildsManualAuthorizeURLForSameGrant(t *testing.T) {
+	credentialtest.Enable(t)
 	p, err := Flow{}.Start(context.Background())
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -303,6 +313,7 @@ func pendingWithStub(t *testing.T, reply map[string]any, capture *map[string]str
 }
 
 func TestPending_RedeemUsesManualRedirect(t *testing.T) {
+	credentialtest.Enable(t)
 	var got map[string]string
 	p, state := pendingWithStub(t, map[string]any{"access_token": "a", "expires_in": 3600}, &got)
 	if _, err := p.Redeem(context.Background(), "  code123#"+state+"  "); err != nil {
@@ -320,6 +331,7 @@ func TestPending_RedeemUsesManualRedirect(t *testing.T) {
 }
 
 func TestPending_RedeemAcceptsBareCode(t *testing.T) {
+	credentialtest.Enable(t)
 	var got map[string]string
 	p, state := pendingWithStub(t, map[string]any{"access_token": "a", "expires_in": 3600}, &got)
 	if _, err := p.Redeem(context.Background(), "code123"); err != nil {
@@ -333,6 +345,7 @@ func TestPending_RedeemAcceptsBareCode(t *testing.T) {
 // A browser that cannot reach the loopback still shows the callback address;
 // pasting it must redeem against the loopback redirect the code was issued for.
 func TestPending_RedeemAcceptsLoopbackCallbackURL(t *testing.T) {
+	credentialtest.Enable(t)
 	var got map[string]string
 	p, state := pendingWithStub(t, map[string]any{"access_token": "a", "expires_in": 3600}, &got)
 	if _, err := p.Redeem(context.Background(), p.redirectURI+"?code=cb-code&state="+url.QueryEscape(state)); err != nil {
@@ -344,6 +357,7 @@ func TestPending_RedeemAcceptsLoopbackCallbackURL(t *testing.T) {
 }
 
 func TestPending_RedeemRejectsForeignOrEmptyValues(t *testing.T) {
+	credentialtest.Enable(t)
 	var got map[string]string
 	p, state := pendingWithStub(t, map[string]any{"access_token": "a", "expires_in": 3600}, &got)
 	for _, v := range []string{"", "   ", "code#other-state", "#" + state, "two words#" + state, p.redirectURI + "?code=c&state=other"} {
@@ -360,6 +374,7 @@ func TestPending_RedeemRejectsForeignOrEmptyValues(t *testing.T) {
 // A rejected paste reports its error and leaves the sign-in waiting; a good
 // paste then completes it.
 func TestPending_WaitRedeemsPastedCodeAfterRejection(t *testing.T) {
+	credentialtest.Enable(t)
 	var got map[string]string
 	p, state := pendingWithStub(t, map[string]any{"access_token": "acc", "expires_in": 3600}, &got)
 

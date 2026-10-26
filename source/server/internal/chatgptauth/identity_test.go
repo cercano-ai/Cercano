@@ -1,6 +1,7 @@
 package chatgptauth
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 )
 
 func TestDisplayIdentityClaims(t *testing.T) {
+	credentialtest.Enable(t)
 	cases := []struct{ payload, email, name string }{
 		{`{"email":"chat@example.com","name":"Person"}`, "chat@example.com", "Person"},
 		{`{"https://api.openai.com/profile":{"email":"nested@example.com","name":"Nested"}}`, "nested@example.com", "Nested"},
@@ -33,6 +35,7 @@ func TestDisplayIdentityClaims(t *testing.T) {
 }
 
 func TestTokenExchangeIdentityPrefersEmailAcrossTokens(t *testing.T) {
+	credentialtest.Enable(t)
 	jwt := func(payload string) string {
 		return "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".signature"
 	}

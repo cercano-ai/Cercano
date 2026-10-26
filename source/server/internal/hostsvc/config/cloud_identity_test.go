@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	cfgsvc "cercano/source/server/internal/hostsvc/config"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/accountidentity"
@@ -11,6 +12,7 @@ import (
 )
 
 func TestSignInIdentityPersistsWithoutChangingAccountKey(t *testing.T) {
+	credentialtest.Enable(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	p := cfg.CloudProfile{Name: "claude-work", Flavor: "messages", Route: "subscription", TierOverrides: map[cfg.CostTier]string{cfg.CostPremium: "custom-model"}}
 	c := cfg.Defaults()

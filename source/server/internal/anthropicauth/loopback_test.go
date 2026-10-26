@@ -1,6 +1,7 @@
 package anthropicauth
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 // verbatim. The error branch runs before the state check, so this path is
 // reachable by any local process that finds the ephemeral port during sign-in.
 func TestCallbackErrorPageEscapesReflectedError(t *testing.T) {
+	credentialtest.Enable(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

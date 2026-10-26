@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 // Exercise the actual source and SDK wrapping, rather than a string-shaped
 // imitation of an OAuth failure.
 func TestAuthRecoveryExpiredCredentialThroughSDK(t *testing.T) {
+	credentialtest.Enable(t)
 	store := secrets.NewMemory()
 	if err := anthropicauth.Save(store, "work-claude", anthropicauth.TokenSet{Access: "expired", ExpiresAt: time.Now().Add(-time.Hour)}); err != nil {
 		t.Fatal(err)
@@ -29,6 +31,7 @@ func TestAuthRecoveryExpiredCredentialThroughSDK(t *testing.T) {
 }
 
 func TestAuthRecoveryRefreshRejectionThroughSDK(t *testing.T) {
+	credentialtest.Enable(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		w.Write([]byte(`{"error":"invalid_grant","error_description":"revoked"}`))
@@ -43,6 +46,7 @@ func TestAuthRecoveryRefreshRejectionThroughSDK(t *testing.T) {
 }
 
 func TestAuthRecoverySubscriptionPermissionDenial(t *testing.T) {
+	credentialtest.Enable(t)
 	c, _ := fixture(t, 403, nil, `{"type":"error","error":{"type":"permission_error","message":"forbidden"}}`)
 	if err := chatErr(t, c); llm.ClassOf(err) != llm.ErrPermission {
 		t.Fatalf("class=%s error=%v", llm.ClassOf(err), err)
@@ -50,6 +54,7 @@ func TestAuthRecoverySubscriptionPermissionDenial(t *testing.T) {
 }
 
 func TestAuthRecoveryMissingSourceIsConfigurationFailure(t *testing.T) {
+	credentialtest.Enable(t)
 	c := NewClient(Config{Route: RouteSubscription, BaseURL: "http://127.0.0.1:1"})
 	err := chatErr(t, c)
 	if llm.ClassOf(err) != llm.ErrCredential {
@@ -58,6 +63,7 @@ func TestAuthRecoveryMissingSourceIsConfigurationFailure(t *testing.T) {
 }
 
 func TestAuthRecoveryHTTP401UsesSubscriptionIdentity(t *testing.T) {
+	credentialtest.Enable(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(401)

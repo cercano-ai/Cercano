@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"sync"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 // TestServiceRaceGet races concurrent Get()+scalar-read against Set() to
 // exercise the basic struct-copy path under the race detector.
 func TestServiceRaceGet(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{LocusMode: "cloud_primary"}, nil)
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
@@ -37,6 +39,7 @@ func TestServiceRaceGet(t *testing.T) {
 //
 // With Clone() this test must pass -race cleanly.
 func TestServiceRaceCloudProfiles(t *testing.T) {
+	credentialtest.Enable(t)
 	profiles := make([]cfg.CloudProfile, 5)
 	for i := range profiles {
 		profiles[i] = cfg.CloudProfile{Name: string(rune('a' + i)), Model: "m"}
@@ -96,6 +99,7 @@ func TestServiceRaceCloudProfiles(t *testing.T) {
 }
 
 func TestServiceSetActiveProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{
 		CloudProfiles: []cfg.CloudProfile{
 			{Name: "a", Model: "m1"},
@@ -116,6 +120,7 @@ func TestServiceSetActiveProfile(t *testing.T) {
 }
 
 func TestServiceUpsertProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{
 		CloudProfiles:      []cfg.CloudProfile{{Name: "a", Model: "m1"}},
 		ActiveCloudProfile: "a",
@@ -150,6 +155,7 @@ func TestServiceUpsertProfile(t *testing.T) {
 }
 
 func TestServiceRemoveProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{
 		CloudProfiles:      []cfg.CloudProfile{{Name: "a", Model: "m1"}, {Name: "b", Model: "m2"}},
 		ActiveCloudProfile: "a",
@@ -177,6 +183,7 @@ func TestServiceRemoveProfile(t *testing.T) {
 }
 
 func TestServiceActiveProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{
 		CloudProfiles:      []cfg.CloudProfile{{Name: "a", Model: "m1"}},
 		ActiveCloudProfile: "a",
@@ -198,6 +205,7 @@ func TestServiceActiveProfile(t *testing.T) {
 }
 
 func TestServiceMutate(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{LocusMode: "cloud_only"}, nil)
 	svc.Mutate(func(c *cfg.Config) {
 		c.LocusMode = "open_only"
@@ -209,6 +217,7 @@ func TestServiceMutate(t *testing.T) {
 }
 
 func TestServiceSetCloudModel(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{CloudModel: "old"}, nil)
 	svc.SetCloudModel("new")
 	c := svc.Get()
@@ -218,6 +227,7 @@ func TestServiceSetCloudModel(t *testing.T) {
 }
 
 func TestServiceSetActiveProfileRejectsBackupCollision(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{ActiveCloudProfile: "a", BackupCloudProfile: "b", CloudProfiles: []cfg.CloudProfile{{Name: "a"}, {Name: "b"}}}, nil)
 	if svc.SetActiveProfile("b") {
 		t.Fatal("activation silently rewired the backup")
@@ -229,6 +239,7 @@ func TestServiceSetActiveProfileRejectsBackupCollision(t *testing.T) {
 }
 
 func TestServiceSetActiveProfileRejectsSelfBackup(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{BackupCloudProfile: "b", CloudProfiles: []cfg.CloudProfile{{Name: "a"}, {Name: "b"}}}, nil)
 	if svc.SetActiveProfile("b") {
 		t.Fatal("activation accepted a self-backup")
@@ -240,6 +251,7 @@ func TestServiceSetActiveProfileRejectsSelfBackup(t *testing.T) {
 }
 
 func TestServiceSetBackupProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := cfgsvc.New("", cfg.Config{
 		CloudProfiles: []cfg.CloudProfile{{Name: "a"}, {Name: "b"}},
 	}, nil)

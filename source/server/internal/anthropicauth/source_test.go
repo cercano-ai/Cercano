@@ -1,6 +1,7 @@
 package anthropicauth
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/pkg/accountidentity"
 	"context"
 	"encoding/json"
@@ -41,6 +42,7 @@ func seedToken(t *testing.T, store Store, profile string, ts TokenSet) {
 }
 
 func TestSource_ReturnsCachedWhenFresh(t *testing.T) {
+	credentialtest.Enable(t)
 	store := newFakeStore()
 	seedToken(t, store, "p", TokenSet{Access: "cached", Refresh: "r", ExpiresAt: time.Now().Add(time.Hour)})
 
@@ -61,6 +63,7 @@ func TestSource_ReturnsCachedWhenFresh(t *testing.T) {
 }
 
 func TestSource_RefreshesWhenExpired(t *testing.T) {
+	credentialtest.Enable(t)
 	store := newFakeStore()
 	seedToken(t, store, "p", TokenSet{Identity: accountidentity.Identity{Email: "keep@example.com"}, Access: "old", Refresh: "old-refresh", ExpiresAt: time.Now().Add(-time.Hour)})
 
@@ -92,6 +95,7 @@ func TestSource_RefreshesWhenExpired(t *testing.T) {
 }
 
 func TestSource_ErrorsWhenExpiredWithoutRefresh(t *testing.T) {
+	credentialtest.Enable(t)
 	store := newFakeStore()
 	seedToken(t, store, "p", TokenSet{Access: "old", ExpiresAt: time.Now().Add(-time.Hour)})
 
@@ -107,6 +111,7 @@ func TestSource_ErrorsWhenExpiredWithoutRefresh(t *testing.T) {
 // the persisted fresh token. Anthropic's rotating refresh tokens make more
 // than one refresh a correctness bug, not just waste.
 func TestSource_ConcurrentSingleFlight(t *testing.T) {
+	credentialtest.Enable(t)
 	store := newFakeStore()
 	seedToken(t, store, "p", TokenSet{Access: "old", Refresh: "r0", ExpiresAt: time.Now().Add(-time.Hour)})
 

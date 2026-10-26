@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -58,6 +59,7 @@ func (s *pasteLoginStream) Send(e *proto.CloudLoginEvent) error {
 }
 
 func TestClaudeLoginCompletesFromPastedCode(t *testing.T) {
+	credentialtest.Enable(t)
 	var exchanged map[string]string
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&exchanged)
@@ -80,8 +82,20 @@ func TestClaudeLoginCompletesFromPastedCode(t *testing.T) {
 	}
 
 	var replies []*proto.SubmitClaudeLoginCodeResponse
-	for r := range stream.replies {
-		replies = append(replies, r)
+	if stream.replies == nil {
+		t.Fatalf("login never opened code inbox: events=%+v", stream.events)
+	}
+collect:
+	for {
+		select {
+		case r, ok := <-stream.replies:
+			if !ok {
+				break collect
+			}
+			replies = append(replies, r)
+		case <-ctx.Done():
+			t.Fatalf("waiting for code replies: %v", ctx.Err())
+		}
 	}
 	if len(replies) != 2 || replies[0].Accepted || !strings.Contains(replies[0].Error, "isn't a code for this sign-in") || !replies[1].Accepted {
 		t.Fatalf("replies=%+v, want rejected typo then accepted code", replies)

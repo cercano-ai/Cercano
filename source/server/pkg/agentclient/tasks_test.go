@@ -81,3 +81,7 @@ func TestSubscribeTasksReopensWithDeliveredCursor(t *testing.T) {
 		t.Fatal("observer cancellation poisoned shared connection state")
 	}
 }
+
+func (s reconnectTaskServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

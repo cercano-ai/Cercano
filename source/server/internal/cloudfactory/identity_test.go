@@ -1,11 +1,13 @@
 package cloudfactory
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/pkg/config"
 	"testing"
 )
 
 func TestPhysicalEndpointMatchesAdapterRouting(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, tc := range []struct {
 		profile            config.CloudProfile
 		provider, endpoint string

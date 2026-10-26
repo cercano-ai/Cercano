@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/internal/secrets"
 	"context"
 	"sync"
@@ -19,6 +20,7 @@ func (c *observedLoginContext) Err() error {
 	return err
 }
 func TestCanceledQueuedLoginDoesNotSupersedeLiveAttempt(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
 	live, err := s.BeginLogin(context.Background(), "work", "anthropic")
 	if err != nil {

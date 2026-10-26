@@ -1,6 +1,7 @@
 package cloudfactory
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"testing"
 
 	"cercano/source/server/pkg/config"
@@ -10,6 +11,7 @@ import (
 // client's vision capability must therefore come from the model, not from the
 // fact that the transport can encode an image.
 func TestChatCompletions_VisionRequiresConfirmedModel(t *testing.T) {
+	credentialtest.Enable(t)
 	p := config.CloudProfile{
 		Name: "deepinfra", Flavor: FlavorChatCompletions,
 		BaseURL: "https://api.deepinfra.com/v1/openai", Model: "openai/gpt-oss-120b",
@@ -26,6 +28,7 @@ func TestChatCompletions_VisionRequiresConfirmedModel(t *testing.T) {
 }
 
 func TestChatCompletions_ConfirmedModelKeepsVision(t *testing.T) {
+	credentialtest.Enable(t)
 	p := config.CloudProfile{
 		Name: "deepinfra", Flavor: FlavorChatCompletions,
 		BaseURL: "https://api.deepinfra.com/v1/openai", Model: "zai-org/GLM-5.3-Flash",
@@ -43,6 +46,7 @@ func TestChatCompletions_ConfirmedModelKeepsVision(t *testing.T) {
 
 // A missing oracle must not grant the capability.
 func TestChatCompletions_NoOracleMeansNoVision(t *testing.T) {
+	credentialtest.Enable(t)
 	p := config.CloudProfile{
 		Name: "custom", Flavor: FlavorChatCompletions,
 		BaseURL: "https://gateway.example.com/v1", Model: "mystery",
@@ -59,6 +63,7 @@ func TestChatCompletions_NoOracleMeansNoVision(t *testing.T) {
 // Anthropic's messages flavor is bound to one vendor whose current families
 // are all multimodal; it keeps its fixed answer and must not regress.
 func TestMessages_KeepsVendorVisionWithoutOracle(t *testing.T) {
+	credentialtest.Enable(t)
 	p := config.CloudProfile{
 		Name: "anthropic", Flavor: FlavorMessages, Model: "claude-sonnet-4-6",
 	}

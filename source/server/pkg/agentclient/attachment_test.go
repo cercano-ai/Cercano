@@ -135,3 +135,11 @@ func TestConversationAttachmentReconnectCarriesCursor(t *testing.T) {
 	for range updates {
 	}
 }
+
+func (s backpressuredAttachmentServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}
+
+func (s reconnectAttachmentServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}

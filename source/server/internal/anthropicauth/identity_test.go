@@ -1,6 +1,7 @@
 package anthropicauth
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 )
 
 func TestIdentityFromTokenOrAdvisoryProfile(t *testing.T) {
+	credentialtest.Enable(t)
 	cases := []struct {
 		name, account, profile, email string
 		status                        int
@@ -59,6 +61,7 @@ func TestIdentityFromTokenOrAdvisoryProfile(t *testing.T) {
 	}
 }
 func TestIdentityLookupDoesNotFollowRedirects(t *testing.T) {
+	credentialtest.Enable(t)
 	reached := false
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true }))
 	defer target.Close()
@@ -71,6 +74,7 @@ func TestIdentityLookupDoesNotFollowRedirects(t *testing.T) {
 	}
 }
 func TestIdentityLookupCancellationIsOptional(t *testing.T) {
+	credentialtest.Enable(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)

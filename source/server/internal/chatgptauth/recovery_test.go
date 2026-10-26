@@ -1,6 +1,7 @@
 package chatgptauth
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/secrets"
 	"context"
@@ -17,6 +18,7 @@ type unavailableStore struct{}
 func (unavailableStore) Get(string) (string, error) { return "", errors.New("keychain secret-detail") }
 func (unavailableStore) Set(string, string) error   { return errors.New("keychain secret-detail") }
 func TestRecoveryCredentialSourceReasons(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, tc := range []struct {
 		name, raw string
 		class     llm.ErrorClass
@@ -50,6 +52,7 @@ func TestRecoveryCredentialSourceReasons(t *testing.T) {
 	}
 }
 func TestRecoveryRefreshEndpointClassification(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, tc := range []struct {
 		name   string
 		status int

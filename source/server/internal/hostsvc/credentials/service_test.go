@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"errors"
 	"net/http"
@@ -66,6 +67,7 @@ func tokenView(s *Service, kind, name, url string) func(context.Context) (string
 	return func(ctx context.Context) (string, error) { access, _, err := view.Token(ctx); return access, err }
 }
 func TestRebuiltSourcesShareOneRefresh(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, kind := range []string{"anthropic", "chatgpt"} {
 		t.Run(kind, func(t *testing.T) {
 			s := New(secrets.NewMemory())
@@ -119,6 +121,7 @@ func TestRebuiltSourcesShareOneRefresh(t *testing.T) {
 }
 
 func TestLoginReplacementSupersedesRefreshWithoutWaiting(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
 	seed(t, s, "anthropic", "work", "expired", true)
 	ctx := testContext(t)
@@ -173,6 +176,7 @@ func TestLoginReplacementSupersedesRefreshWithoutWaiting(t *testing.T) {
 }
 
 func TestWaiterCancellationDoesNotCancelOtherWaiters(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
 	seed(t, s, "anthropic", "work", "expired", true)
 	ctx := testContext(t)
@@ -208,6 +212,7 @@ func TestWaiterCancellationDoesNotCancelOtherWaiters(t *testing.T) {
 }
 
 func TestLastWaiterCancelsRefresh(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
 	ctx, cancel := context.WithCancel(testContext(t))
 	started := make(chan struct{})
@@ -235,6 +240,7 @@ func TestLastWaiterCancelsRefresh(t *testing.T) {
 }
 
 func TestUnrelatedProfileDoesNotWaitForNetwork(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
 	seed(t, s, "anthropic", "other", "ready", false)
 	ctx, cancel := context.WithCancel(testContext(t))
@@ -252,6 +258,7 @@ func TestUnrelatedProfileDoesNotWaitForNetwork(t *testing.T) {
 }
 
 func TestExistingViewsFollowStoreReplacement(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
 	seed(t, s, "anthropic", "work", "before", false)
 	view := s.Anthropic("work", anthropicauth.Flow{})
@@ -271,6 +278,7 @@ type failingWrites struct{ secrets.Store }
 
 func (failingWrites) Set(string, string) error { return errors.New("sensitive store failure") }
 func TestFailedCommitDoesNotReturnUnpersistedToken(t *testing.T) {
+	credentialtest.Enable(t)
 	raw := secrets.NewMemory()
 	raw.Set("work", "old")
 	s := New(failingWrites{raw})
@@ -287,6 +295,7 @@ func TestFailedCommitDoesNotReturnUnpersistedToken(t *testing.T) {
 }
 
 func TestNewWaiterDoesNotInheritAbandonedFlightCancellation(t *testing.T) {
+	credentialtest.Enable(t)
 	s := New(secrets.NewMemory())
 	ctx := testContext(t)
 	first, cancel := context.WithCancel(ctx)

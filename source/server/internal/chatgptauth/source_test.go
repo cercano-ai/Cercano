@@ -1,6 +1,7 @@
 package chatgptauth
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/pkg/accountidentity"
 	"context"
 	"testing"
@@ -10,6 +11,7 @@ import (
 )
 
 func TestSourceReturnsStoredTokenWhenValid(t *testing.T) {
+	credentialtest.Enable(t)
 	store := secrets.NewMemory()
 	ts := TokenSet{Access: "acc", Refresh: "ref", AccountID: "acct-1", ExpiresAt: time.Now().Add(time.Hour)}
 	if err := Save(store, "p", ts); err != nil {
@@ -27,6 +29,7 @@ func TestSourceReturnsStoredTokenWhenValid(t *testing.T) {
 }
 
 func TestSourceRefreshesExpiredToken(t *testing.T) {
+	credentialtest.Enable(t)
 	srv := fakeIssuer(t, 0)
 	defer srv.Close()
 	store := secrets.NewMemory()
@@ -62,6 +65,7 @@ func TestSourceRefreshesExpiredToken(t *testing.T) {
 }
 
 func TestSourceErrorsWhenExpiredNoRefresh(t *testing.T) {
+	credentialtest.Enable(t)
 	store := secrets.NewMemory()
 	ts := TokenSet{Access: "old", Refresh: "", ExpiresAt: time.Now().Add(-time.Hour)}
 	if err := Save(store, "p", ts); err != nil {
@@ -74,6 +78,7 @@ func TestSourceErrorsWhenExpiredNoRefresh(t *testing.T) {
 }
 
 func TestSourceErrorsWhenProfileMissing(t *testing.T) {
+	credentialtest.Enable(t)
 	s := NewSource(secrets.NewMemory(), "absent", Flow{})
 	if _, _, err := s.Token(context.Background()); err == nil {
 		t.Fatal("want error for missing profile")

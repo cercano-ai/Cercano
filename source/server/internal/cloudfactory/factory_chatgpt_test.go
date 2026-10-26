@@ -1,6 +1,7 @@
 package cloudfactory
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	"context"
 	"testing"
 
@@ -14,6 +15,7 @@ func (fakeTokenSource) Token(ctx context.Context) (string, string, error) {
 }
 
 func TestBuildResponsesChatGPTRouteRequiresTokenSource(t *testing.T) {
+	credentialtest.Enable(t)
 	_, err := BuildCloudProvider(config.CloudProfile{Name: "x", Flavor: FlavorResponses, Route: RouteChatGPT, Model: "gpt-5.5"}, "")
 	if err == nil {
 		t.Fatal("want error when chatgpt route has no token source")
@@ -21,6 +23,7 @@ func TestBuildResponsesChatGPTRouteRequiresTokenSource(t *testing.T) {
 }
 
 func TestBuildResponsesChatGPTRouteWithTokenSource(t *testing.T) {
+	credentialtest.Enable(t)
 	p, err := BuildCloudProvider(
 		config.CloudProfile{Name: "x", Flavor: FlavorResponses, Route: RouteChatGPT, Model: "gpt-5.5"},
 		"", Options{TokenSource: fakeTokenSource{}})

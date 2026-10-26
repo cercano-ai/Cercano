@@ -1,11 +1,13 @@
 package config
 
 import (
+	"cercano/source/server/internal/credentialtest"
 	cfg "cercano/source/server/pkg/config"
 	"testing"
 )
 
 func TestDestinationEditsAreIndependentAndValidated(t *testing.T) {
+	credentialtest.Enable(t)
 	c := cfg.Config{CloudProfiles: []cfg.CloudProfile{{Name: "p"}, {Name: "pb"}, {Name: "s"}, {Name: "sb"}}}
 	svc := New("", c, nil)
 	if err := svc.SetDestinationProfiles(cfg.DestinationPrimary, "p", "pb"); err != nil {
@@ -36,6 +38,7 @@ func TestDestinationEditsAreIndependentAndValidated(t *testing.T) {
 }
 
 func TestProfileOverrideOwnership(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := New("", cfg.Config{ActiveCloudProfile: "p"}, nil)
 	profile := cfg.CloudProfile{Name: "p", TierOverrides: map[cfg.CostTier]string{cfg.CostPremium: "original"}}
 	svc.UpsertProfile(profile)
@@ -52,6 +55,7 @@ func TestProfileOverrideOwnership(t *testing.T) {
 }
 
 func TestTaskAssignmentClearRestoresDefaults(t *testing.T) {
+	credentialtest.Enable(t)
 	svc := New("", cfg.Config{}, nil)
 	a := cfg.TaskAssignment{Destination: cfg.DestinationLocal, Quality: cfg.CostEconomy}
 	if err := svc.SetTaskAssignment(cfg.TaskDispatch, &a); err != nil {
@@ -69,6 +73,7 @@ func TestTaskAssignmentClearRestoresDefaults(t *testing.T) {
 }
 
 func TestActivationPreservesIndependentBackup(t *testing.T) {
+	credentialtest.Enable(t)
 	for _, backup := range []string{"", "b"} {
 		s := New("", cfg.Config{ActiveCloudProfile: "p", BackupCloudProfile: backup, CloudProfiles: []cfg.CloudProfile{{Name: "p"}, {Name: "b"}, {Name: "new"}}}, nil)
 		if !s.SetActiveProfile("new") || s.Get().BackupCloudProfile != backup {
@@ -78,6 +83,7 @@ func TestActivationPreservesIndependentBackup(t *testing.T) {
 }
 
 func TestRemoveOrderedBackup(t *testing.T) {
+	credentialtest.Enable(t)
 	c := cfg.Config{ActiveCloudProfile: "p", CloudProfiles: []cfg.CloudProfile{{Name: "p"}, {Name: "b"}, {Name: "c"}}}
 	c.SetPrimaryBackups([]string{"b", "c"})
 	svc := New("", c, nil)
