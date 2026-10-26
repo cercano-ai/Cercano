@@ -25,6 +25,9 @@ func (s *Server) StartChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream p
 }
 
 func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream proto.Agent_StartChatGPTLoginServer, reauthenticate bool, flow chatgptauth.Flow) error {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+		return err
+	}
 	ctx := stream.Context()
 	st := s.cfgSvc.Secrets()
 	if st == nil {

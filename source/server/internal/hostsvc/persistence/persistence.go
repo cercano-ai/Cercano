@@ -9,9 +9,12 @@
 package persistence
 
 import (
+	"cercano/source/server/internal/secrets"
 	"context"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"os"
 	"strings"
 	"sync"
@@ -301,7 +304,12 @@ func (x *svc) advanceElisionFloor(ctx context.Context, convID string) (pre, post
 // --- Setters for owned fields ---
 
 // SetRetentionSweeper attaches the background retention sweeper.
-func (x *svc) SetRetentionSweeper(sw *retention.Sweeper) { x.retentionSweeper = sw }
+func (x *svc) SetRetentionSweeper(sw *retention.Sweeper) {
+	if x.sharedWritesFrozen() {
+		return
+	}
+	x.retentionSweeper = sw
+}
 
 // SetCloudContextWindow installs the provider-published capacity resolver used
 // when a turn did not report its own window.
@@ -350,6 +358,9 @@ func isLocalLocus(mode string) bool {
 // SetCompactionGenerator attaches the background compaction scheduler and
 // wires the tool-elision-only pass implementation (the floors live here).
 func (x *svc) SetCompactionGenerator(g *compactiongen.Generator) {
+	if x.sharedWritesFrozen() {
+		return
+	}
 	x.compactionGen = g
 	if g != nil {
 		g.SetElideOnlyFn(x.advanceElisionFloor)
@@ -571,7 +582,7 @@ func (x *svc) assembleHistoryForTarget(ctx context.Context, convID string, targe
 	state, _ := store.GetCompaction(ctx, convID)
 	assembled := requestassembly.Assemble(turns, state, x.cfgSvc.Get().Compaction, x.elisionFloor(convID), target, contextmeter.Default())
 	acct := assembled.Accounting
-	if schedule && acct.Scheduled {
+	if schedule && acct.Scheduled && !x.sharedWritesFrozen() {
 		// Never compact inline — kick the background generator (debounced,
 		// deduped, timeout-bounded) and bring THIS turn under the limit with
 		// LLM-free steps only.
@@ -1267,6 +1278,11 @@ func (x *svc) ExportContext(ctx context.Context, req *proto.ExportContextRequest
 // raw turns (or, with clear_only, drops it so the raw history is sent as-is),
 // streaming progress to the client.
 func (x *svc) RegenerateContext(req *proto.RegenerateContextRequest, stream proto.Agent_RegenerateContextServer) error {
+	// A read-only prepared host must never enter the ID-only generator path.
+	// Its retry/debounce timers cannot retain the caller's capability or ticket.
+	if x.sharedWritesFrozen() {
+		return status.Error(codes.FailedPrecondition, "background regeneration is unavailable in coexistence mode")
+	}
 	convID := req.GetConversationId()
 	if convID == "" {
 		return stream.Send(&proto.RegenerateContextProgress{Done: true, Ok: false, Error: "conversation_id is required"})
@@ -1556,4 +1572,10 @@ func (x *svc) SetLocalRuntimeContext(fn func(string) (llm.RuntimeContext, error)
 		c, err := fn(model)
 		return c.Window, err == nil && c.Window > 0 && c.InstanceID != ""
 	}
+}
+
+// sharedWritesFrozen follows the immutable credential/config construction policy.
+// No host-count or mutable global switch can enable ID-only background work.
+func (x *svc) sharedWritesFrozen() bool {
+	return x.cfgSvc != nil && secrets.CheckMutation(x.cfgSvc.Secrets()) == secrets.ErrReadOnly
 }

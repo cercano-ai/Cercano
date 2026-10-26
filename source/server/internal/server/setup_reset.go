@@ -14,6 +14,9 @@ import (
 // fence. Sessions remain connected and in-flight work may fail or write back
 // stale state. It is intentionally not exposed as a model-callable tool.
 func (s *Server) ResetSetup(ctx context.Context, req *proto.ResetSetupRequest) (*proto.ResetSetupResponse, error) {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+		return nil, err
+	}
 	if !req.GetConfirmed() {
 		return &proto.ResetSetupResponse{Error: "explicit setup-reset confirmation required"}, nil
 	}

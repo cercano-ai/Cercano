@@ -17,6 +17,9 @@ import (
 // profile (empty clears it) and rewires the provider chain. Mirrors
 // SetActiveCloudProfile's shape: validate, mutate, rebuild, persist.
 func (s *Server) SetBackupCloudProfile(ctx context.Context, req *proto.SetBackupCloudProfileRequest) (*proto.SetBackupCloudProfileResponse, error) {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+		return nil, err
+	}
 	name := req.GetName()
 	if name != "" {
 		exists, isActive := s.cfgSvc.ProfileInfo(name)

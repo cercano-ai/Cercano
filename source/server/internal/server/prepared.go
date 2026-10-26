@@ -45,7 +45,14 @@ func NewPreparedServer(ctx context.Context, o PreparedServerOptions, router Rout
 		_ = st.Close()
 		return nil, fmt.Errorf("agent must use the prepared lifecycle store")
 	}
-	cfg := cfgsvc.New(o.ConfigPath, o.Config, o.Secrets, cfgsvc.Options{Frozen: true})
+	// Existing schedulers accept only IDs and may launch untracked timers.
+	// Disable before exposing the prepared agent; startup must not start generators.
+	agent.WithRecapScheduler(nil)(a)
+	agent.WithCompactionScheduler(nil)(a)
+	if o.Secrets == nil {
+		o.Secrets = secrets.NewMemory()
+	} // No native backend fallback.
+	cfg := cfgsvc.New(o.ConfigPath, o.Config.WithSharedReadOnly(), secrets.Guard(o.Secrets, secrets.Options{ReadOnly: true}), cfgsvc.Options{Frozen: true})
 	s := newServerWithConfig(a, router, coordinator, cloudFactory, registry, o.RoutingPath, o.FailurePath, cfg)
 	s.coexistence = lifecycle.coexistence
 	return s, nil

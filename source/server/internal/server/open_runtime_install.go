@@ -27,6 +27,9 @@ import (
 // terminal frame rather than an RPC error so the client's log pane stays the
 // single source of truth for user-visible outcomes.
 func (s *Server) InstallOpenRuntime(req *proto.InstallOpenRuntimeRequest, stream proto.Agent_InstallOpenRuntimeServer) error {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+		return err
+	}
 	ctx := stream.Context()
 
 	if req.GetRuntime() != "llama_server" {
