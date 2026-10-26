@@ -1,6 +1,8 @@
 # Development host generations execution plan
 
-The user approved spec.md on 2026-10-25 based on document review, not implementation or test evidence. This plan is pending separate approval. All tasks below are pending; no implementation or acceptance result is claimed.
+The user approved spec.md on 2026-10-25 based on document review, not implementation or test evidence. The planning approval committed the specification and plan at 361e38879209. Execution is authorized; checkbox status and recorded checks, not approval, establish progress. No native acceptance result is claimed.
+
+Execution clarification (2026-10-26): the user authorized the bounded approach: implement and verify normal A/B coexistence, explicit release/handover, reconnect, and idle-host retirement first, then conservative absence-based crash recovery. No further general process-identity research or additional infrastructure. Ambiguous recovery cases may remain unsupported with a clear diagnostic. In the supported same-machine, same-user development context, recovery requires acquiring the conversation lock, direct kill(positive_pid, 0) returning ESRCH, conditional matching of durable owner/epoch or reservation, and accounting for potentially surviving work without replaying external effects. Success, EPERM, other errors, and unresolved work refuse recovery. A held lock blocks crash recovery; the source holding its own lock during normal handover is expected. This explicit user clarification supersedes earlier requirements to qualify a general process-birth identity mechanism; normal workflow must not wait on that research. Recovery-specific implementation and qualification in the phases below follow normal-workflow verification. The bounded credential prerequisite may proceed while concrete Phase 1 inventories are completed; dependent ownership integration still requires those inventories.
 
 Implement only the approved same-machine, deliberately compatible development A/B journey. Keep conversation-scoped operating-system locks and durable epochs, quiescent transfer, explicit per-session release and explicit retirement. Do not add live-task migration, a general session service, arbitrary-build compatibility, updater integration, automatic generation deletion, or host-count-based configuration freezing.
 
@@ -26,7 +28,7 @@ Objective: ground execution in current source before changing behavior. Files to
 
 Objective: establish a safe prerequisite for all native application tests. Files: bounded extracts from updater-branch internal/secrets, agentclient isolation/reuse handling, worker inheritance, associated startup integration and tests; no updater machinery. Tests: absent/0/1/malformed settings, sentinel rejection before backend opening, environment inheritance and unsafe reuse/reconnect refusal. Native evidence: actual dedicated macOS agent/CLI/worker startup and reconnect, with credential backend entry probes proving zero native Keychain opening/access and no provider calls. A temporary HOME is supplementary filesystem isolation only.
 
-- [ ] Extract only the credential-disable facility and dependencies verified in Phase 1, documenting source provenance and excluded updater changes
+- [~] Extract only the credential-disable facility and dependencies verified in Phase 1, documenting source provenance and excluded updater changes
 - [ ] Preserve fail-closed malformed-setting handling and reject credential access before any backend is opened
 - [ ] Carry the isolation requirement through initial connection, reconnect and worker launch; reject hosts that cannot establish the required disabled status
 - [ ] Add hermetic tests that never read real credentials, including instrumented backend-entry rejection and unsafe host-reuse cases
@@ -37,7 +39,7 @@ Objective: establish a safe prerequisite for all native application tests. Files
 
 Objective: make the store the authoritative stale-write boundary before enabling coexistence. Files: internal/conversation/store.go, tasks.go, other inventoried persistence files and their callers; narrow ownership/lock helpers adjacent to the existing store; fixture preparation and store tests. Tests: exact-match preflight, transaction predicates, stale owner/epoch rejection and lock/crash behavior. Native evidence: dedicated macOS subprocesses contending for stable conversation locks and fixture SQLite writes, including process death and identity-reuse/uncertainty cases; no real store access.
 
-- [ ] Implement explicit fixture-store preparation with schema and coexistence representation metadata outside participating-host startup; never adopt or upgrade an existing store automatically
+- [~] Implement explicit fixture-store preparation with schema and coexistence representation metadata outside participating-host startup; never adopt or upgrade an existing store automatically
 - [ ] Add read-only metadata preflight before migration, initialization writes, persistent database setting changes or reconciliation; reject missing or mismatched contracts without mutation
 - [ ] Add stable conversation lock identities and distinct build, host-instance and acquisition-epoch identities; never unlink an in-use lock inode or overload broker generation
 - [ ] Implement durable owned, cleanly released and destination-reserved states and conditional transitions in the existing ownership record
