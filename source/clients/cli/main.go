@@ -8,9 +8,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -31,6 +33,11 @@ func main() {
 	setupLong := flag.Bool("setup", false, "Open the setup wizard on launch")
 	mdtest := flag.Bool("mdtest", false, "Launch the TUI with a markdown doc pre-loaded for render testing (optional file path as a positional arg; built-in sample if omitted)")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	devHost := flag.String("dev-host", "", "Explicit authenticated dev-host selection JSON; never discover or launch")
+	devAction := flag.String("dev-host-action", "", "Management only: list, acquire, release, retire, transfer, claim (no attachment)")
+	devDestination := flag.String("dev-host-destination", "", "Exact destination selection JSON")
+	devHandover := flag.String("dev-host-handover", "", "Unique handover ID (reuse only for explicit claim retry)")
+	devReceipt := flag.String("dev-host-receipt", "", "Prepare receipt for explicit claim retry")
 	flag.Parse()
 
 	if *showVersion {
@@ -38,6 +45,40 @@ func main() {
 		return
 	}
 
+	if *devHost != "" {
+		s, err := cliui.ReadDevHostSelection(*devHost)
+		if err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if *devAction != "" {
+				response, selection, e := cliui.ControlDevHost(ctx, s, *devAction, *devDestination, *devHandover, *devReceipt)
+				_ = json.NewEncoder(os.Stdout).Encode(struct {
+					Response  any
+					Selection any
+				}{response, selection})
+				err = e
+				if err == nil && response != nil && response.Pending {
+					err = fmt.Errorf("handover pending; preserve receipt and retry explicit claim")
+				}
+			} else {
+				var ag *agentclient.Client
+				ag, err = s.Dial(ctx)
+				if err == nil {
+					defer ag.Close()
+					_, err = tea.NewProgram(cliui.New(ag, false).WithVersion(version).WithDevHost(s, version)).Run()
+				}
+			}
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cercano:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *devAction != "" {
+		fmt.Fprintln(os.Stderr, "--dev-host-action requires --dev-host")
+		os.Exit(1)
+	}
 	// Config is shared with the server (pkg/config); the CLI needs the port to
 	// dial the agent.
 	cfg, err := config.Load(config.DefaultPath())

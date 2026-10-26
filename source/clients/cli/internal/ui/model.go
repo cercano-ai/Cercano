@@ -81,6 +81,7 @@ type Entry struct {
 
 // Model is the Bubble Tea root model.
 type Model struct {
+	devHost                                 *devHostState
 	claudeLoginAttempt, chatgptLoginAttempt uint64
 	search                                  *conversationSearch
 	searchShown                             bool
@@ -577,6 +578,9 @@ func (m *Model) applyTheme(t theme.Theme) {
 
 // Init is called by Bubble Tea once at startup.
 func (m Model) Init() tea.Cmd {
+	if m.devHost != nil {
+		return tea.Batch(m.input.Focus(), fetchConfigCmd(m.agent), subscribeConnStateCmd(m.agent), func() tea.Msg { return resumeRequestedMsg{ConversationID: m.devHost.selection.Conversation} })
+	}
 	return tea.Batch(m.input.Focus(), m.splash.Init(), fetchConfigCmd(m.agent), fetchToolsCmd(m.agent), fetchPermissionModeCmd(m.agent), fetchOpenRuntimeStatusCmd(m.agent), subscribeEventsCmd(m.agent), subscribeConnStateCmd(m.agent))
 }
 
@@ -1004,6 +1008,9 @@ func waitProgressiveResumeCmd(ch <-chan resumeViewportStreamMsg) tea.Cmd {
 
 // Update is the Bubble Tea reducer.
 func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
+	if r, ok := msg.(devHostResult); ok {
+		return m.applyDevHost(r)
+	}
 	if trace := m.search.traceContext(); trace.Session != 0 {
 		defer trace.span("update." + fmt.Sprintf("%T", msg))()
 		if _, key := msg.(tea.KeyPressMsg); key {
@@ -2994,6 +3001,15 @@ func plural(n int) string {
 }
 
 func (m Model) submit(text string, images []agentclient.InlineImage) (tea.Model, tea.Cmd) {
+	if m.devHost != nil {
+		if strings.HasPrefix(strings.TrimSpace(text), "/") {
+			return m.runSlash(text)
+		}
+		if m.devHost.detached || m.devHost.busy {
+			m.errMsg = "Detached retained session; explicit /host reconnect required"
+			return m, nil
+		}
+	}
 	// Normalize CR/CRLF line endings to LF at the submission boundary. Bare
 	// CRs from terminal paste artifacts otherwise propagate into the request,
 	// the store, and the provider (see docs/bugs/2026-07-04-user-message-tear.md).
@@ -3240,6 +3256,16 @@ func (m *Model) clearTurnAnimationState() {
 }
 
 func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
+	if m.devHost != nil {
+		f := strings.Fields(line)
+		if len(f) > 0 && f[0] == "/host" {
+			return m.runDevHost(line)
+		}
+		if len(f) > 0 && f[0] != "/version" && f[0] != "/quit" && f[0] != "/search" {
+			m.errMsg = "Pinned development mode: /host, /version, /search, /quit only"
+			return m, nil
+		}
+	}
 	if fields := strings.Fields(line); len(fields) > 0 && fields[0] == "/search" {
 		m.openConversationSearch(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "/search")))
 		return m, nil
@@ -4125,6 +4151,10 @@ func (m *Model) restoreSubAgentTabs(ctx context.Context, conversationID string) 
 }
 
 func (m Model) beginProgressiveResume(conversationID string) (Model, tea.Cmd) {
+	if m.devHost != nil && (m.devHost.detached || conversationID != m.devHost.selection.Conversation) {
+		m.errMsg = "Pinned session: changing conversation requires explicit startup selection"
+		return m, nil
+	}
 	if m.agent == nil {
 		m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "resume failed: agent unavailable"})
 		m.refreshViewport()

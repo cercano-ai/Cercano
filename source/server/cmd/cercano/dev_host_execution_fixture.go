@@ -51,7 +51,15 @@ func configureDevHostExecution(s *server.Server) {
 	s.WireDevHostFixtureTasks()
 }
 func devHostExecutionAllowed(method string) bool {
-	return method == proto.Agent_StreamProcessRequest_FullMethodName
+	switch method {
+	case proto.Agent_StreamProcessRequest_FullMethodName,
+		proto.Agent_AttachConversation_FullMethodName,
+		proto.Agent_SubscribeTasks_FullMethodName,
+		proto.Agent_StreamResumeConversationViewportFirst_FullMethodName:
+		return true
+	default:
+		return false
+	}
 }
 
 var fixtureWorker runner.TurnRunner

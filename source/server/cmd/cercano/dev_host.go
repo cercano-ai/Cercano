@@ -240,7 +240,8 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 	opts := auth.ServerOptions()
 	opts = append(opts, grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
 		switch filepath.Base(info.FullMethod) {
-		case "GetCredentialPolicy", "GetDevelopmentHostIdentity", "LifecycleList", "LifecycleRetire", "LifecycleAcquire", "LifecyclePrepare", "LifecycleValidateReceipt", "LifecycleRelinquish", "LifecycleClaim", "LifecycleRelease", "ResumeConversation", "CheckRetainedSession":
+		case "GetCredentialPolicy", "GetDevelopmentHostIdentity", "LifecycleList", "LifecycleRetire", "LifecycleAcquire", "LifecyclePrepare", "LifecycleValidateReceipt", "LifecycleRelinquish", "LifecycleClaim", "LifecycleRelease", "ResumeConversation", "CheckRetainedSession",
+			"GetConfig", "ListConversations", "GetConversation", "GetConversationTurns", "ListSubAgents", "GetSessionProfile", "GetContextUsage", "GetTokenMetrics", "GetCompactionState", "GetToolCall":
 			return next(ctx, req)
 		default:
 			return nil, status.Error(codes.FailedPrecondition, "dev-host startup fixture: execution disabled")
