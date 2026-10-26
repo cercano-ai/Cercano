@@ -567,7 +567,7 @@ func (s *Server) SetUsageSink(fn func(usage.Usage)) {
 }
 
 // SetSecrets attaches the secrets store used to retrieve profile API keys.
-func (s *Server) SetSecrets(st secrets.Store) { s.cfgSvc.SetSecrets(st) }
+func (s *Server) SetSecrets(st secrets.Store) error { return s.cfgSvc.SetSecrets(st) }
 
 // Shutdown tears down long-lived subprocess managers the server owns. Safe to
 // call once at process exit; cheap when nothing was started. Does NOT stop the
@@ -621,7 +621,14 @@ func (s *Server) ensureTaskManager() bool {
 	if engine == nil {
 		return false
 	}
-	m, err := taskrun.New(tasks, engine.Dispatch, s.notifyTaskChange)
+	var m *taskrun.Manager
+	var err error
+	if s.coexistence != nil {
+		// Foreground/child callback bridging is not enabled yet.
+		m, err = taskrun.NewPreparedOwned(tasks, engine.Dispatch, nil, s.coexistence.admission, s.resolvePreparedTaskOwner)
+	} else {
+		m, err = taskrun.New(tasks, engine.Dispatch, s.notifyTaskChange)
+	}
 	if err != nil {
 		log.Printf("[taskrun] manager unavailable: %v", err)
 		return false
@@ -1241,7 +1248,10 @@ func NewServer(a *agent.Agent, router RouterCloudUpdater, coordinator *loop.ADKC
 // Explicit paths let embedded hosts and integration tests isolate diagnostic
 // output without changing the user's home directory or normal server defaults.
 func newServerWithLogs(a *agent.Agent, router RouterCloudUpdater, coordinator *loop.ADKCoordinator, cloudFactory agent.CloudFactory, registry *engine.EngineRegistry, routingPath, failurePath string) *Server {
-	cfgService := cfgsvc.New("", config.Config{}, nil)
+	return newServerWithConfig(a, router, coordinator, cloudFactory, registry, routingPath, failurePath, cfgsvc.New("", config.Config{}, nil))
+}
+
+func newServerWithConfig(a *agent.Agent, router RouterCloudUpdater, coordinator *loop.ADKCoordinator, cloudFactory agent.CloudFactory, registry *engine.EngineRegistry, routingPath, failurePath string, cfgService cfgsvc.Service) *Server {
 	// The single effective-open-model resolver: overrides from config, defaults
 	// from the per-runtime catalog by RAM. Every collaborator that needs the
 	// effective open model receives this.
@@ -1571,12 +1581,17 @@ func (s *Server) hasMCPTools() bool {
 }
 
 // SetConfigPersistence enables config persistence by storing the config path and current state.
-func (s *Server) SetConfigPersistence(path string, cfg config.Config) {
-	s.cfgSvc.SetPath(path)
-	s.cfgSvc.Set(cfg)
+func (s *Server) SetConfigPersistence(path string, cfg config.Config) error {
+	if err := s.cfgSvc.SetPath(path); err != nil {
+		return err
+	}
+	if err := s.cfgSvc.Set(cfg); err != nil {
+		return err
+	}
 	if s.runtimesSvc != nil {
 		s.runtimesSvc.RefreshRuntimeEndpoints()
 	}
+	return nil
 }
 
 // LocusMode returns the currently configured Locus Mode (live; reflects
@@ -1594,6 +1609,9 @@ func (s *Server) LocusMode() string {
 // (previously atomic under one cfgMu span) — a concurrent reader can momentarily
 // observe new config with old provider wiring (documented trade-off).
 func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigRequest) (*proto.UpdateConfigResponse, error) {
+	if s.coexistence != nil {
+		return nil, cfgsvc.ErrFrozen
+	}
 	if req.CloudApiKey != "" {
 		if err := secrets.CheckAllowed(); err != nil {
 			return nil, err

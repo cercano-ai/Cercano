@@ -20,6 +20,7 @@
 package server
 
 import (
+	cfgsvc "cercano/source/server/internal/hostsvc/config"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -40,6 +41,9 @@ import (
 // Non-hot-reloadable diffs (port, embedding_model, llama_server.*,
 // compaction.*) are logged as warnings telling the user a restart is needed.
 func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) error {
+	if s.coexistence != nil {
+		return cfgsvc.ErrFrozen
+	}
 	if configPath == "" {
 		return nil
 	}
@@ -83,6 +87,9 @@ func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) erro
 // private-helper split keeps the watcher loop tiny and makes the apply path
 // testable.
 func (s *Server) reloadConfigFromDisk(ctx context.Context) {
+	if s.coexistence != nil {
+		return
+	}
 	cfgPath := s.cfgSvc.Path()
 	newCfg, err := config.Load(cfgPath)
 	if err != nil {

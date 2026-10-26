@@ -261,6 +261,9 @@ func (s *Server) RetireCoexistence(ctx context.Context) error {
 	if e = l.admission.Retire(); e != nil {
 		return e
 	}
+	// Admission is retired and has no outstanding task tickets. Close the
+	// prepared manager before closing the shared agent/persistence store.
+	s.closeTaskManager()
 	if e = l.options.CloseParticipation(ctx); e != nil {
 		return e
 	}

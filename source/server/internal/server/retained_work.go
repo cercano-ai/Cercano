@@ -31,6 +31,7 @@ func (s *Server) BeginRetainedWork(ctx context.Context, owner broker.Owner, kind
 		return nil, nil, err
 	}
 	ctx = conversation.WithOwnership(ctx, o)
+	ctx = WithPreparedTaskOwnership(ctx, owner, o)
 	ctx = persistsvc.WithWriteFailure(ctx, func(error) {
 		// Accounting changes kind without releasing the live work blocker.
 		_ = ticket.Advance(broker.PersistenceWork)
