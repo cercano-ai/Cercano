@@ -60,6 +60,51 @@ Commit `f06464eb15da` adds lock/epoch ownership and transaction-local row guards
 
 Commit `5caf9c444aab` adds explicit model-host protection options, server-side mutation refusal, reuse-only protected Start, no protected Ensure replacement/launch, and caller-only hold release. The child reports full modelhost and race tests passed and a no-hold Stop bug was reproduced before fixing. Startup must still pass these options and refuse in-process fallback; this is not native shared-backend acceptance. Task terminal failure resolution remains conservative: unresolved outcomes prevent readiness; Close is not a readiness test. Native application startup and credential inheritance instrumentation remain pending.
 
+## Integrated synthetic lifecycle checks
+
+- `a08a8f628efb`: reproduced and fixed relationship UPDATE and zero-row target-authorization gaps; targeted task/run IDs resolve their stored conversation inside the same transaction. Child reports conversation race tests passed.
+- `3ab75f9a358a`: NewPreparedOwned integrates broker admission and scoped ownership through task acceptance, execution, bounded terminal persistence and notification; failed outcomes retain blockers. Child reports taskrun tests/race passed.
+- `0da52b39c725`: lifecycle-only server methods implement retain/list/attach/release, preaccepted exact-destination reservation/claim and explicit retirement with safe participation hook. Synthetic A/B/C tests passed; this constructor must not serve ordinary RPC requests yet.
+- `954e24e12b6c`: immutable hostsvc config freeze guards live mutation and persistence; actual server/startup callers still require integration.
+- `a6d2e3aa7635`: isolated generation publisher and eight fixture tests. Neither installed launcher nor native application was run.
+
+Parent verification passed:
+
+```
+go test -race ./internal/conversation ./internal/taskrun ./internal/server -run 'Test(Ownership|Coexistence|Prepared|RejectedTerminal|Owned)' -count=1
+```
+
+These checks are synthetic integration evidence, not native multi-process or manual terminal acceptance. The exact source-owned lock is expected during normal handover. Crash recovery remains unimplemented, as requested until the normal workflow is verified.
+
+## Concrete admission follow-up
+
+Parent source read of `Server.InvokeTool` (server.go around 2407 in this working tree) found direct registry execution with no conversation admission or request conversation field. Before startup enablement, pinned binding metadata must either provide a checked conversation ticket for this path or the path must explicitly refuse in coexistence mode. Store fencing alone cannot stop an external tool side effect. `GetContextUsage` also delegates to persistence and may require scoped cache-write context. This is an implementation coverage item, not a reason for more process-identity research.
+
+## Prepared server and reconnect integration
+
+- `b2324fc7c4cd`: pinned no-launch client transport and additive read-only identity/session RPCs. Initial handler integration skipped for a missing admission accessor; this was not accepted as completed verification.
+- `053a9ed6d8e3`: added concrete read-only CheckRetained accessor, removed dynamic fallback and test skip. Real synthetic handler/client integration now passes under race testing.
+- `cf7369f90c47`: explicit worker SpawnPolicy pins generation binary and scopes resources; zero-process tests passed. Startup must select it and skip global reaping; ambiguous orphan cleanup remains unsupported.
+- `721188eab3d5`: scoped persistence failure reporting and fail-closed normal-work guards; explicitly not foreground execution enablement.
+- `e7f9cc2cb639`: NewPreparedServer constructs real dependencies with the same preflighted store and frozen config; owned manager initialization avoids broad reconciliation. Synthetic two-full-server tests establish B manager startup leaves A accepted/running rows unchanged. Foreground/completion enablement remains separate.
+- `f653749ac4c4`: NewPreparedOwnedCompletion carries exact owner/context through callback and preserves callback-failure blockers. A resolver-under-manager-lock deadlock was reproduced and corrected before its race tests passed.
+
+Additional parent checks passed:
+
+```
+go test -race ./internal/server ./internal/taskrun -run 'Test(Prepared|Owned|CoexistenceIdentityPinnedIntegration)' -count=1
+python3 source/server/scripts/publish-dev-generation_test.py
+# credential opener trap tests only, fake enabled stores
+go test -race ./internal/secrets ./internal/enterprise -run '^(TestCredentialGateRejectsBeforeBackend|TestCredentialGateEnabledFakeBackend|TestEnterpriseCredentialGateRejectsBeforeBackend|TestEnterpriseCredentialGateEnabledFakeBackend)$' -count=1
+```
+
 ## Work in progress
+
+Active delegated slices at this checkpoint:
+- `task_75e886c072424fc2f4da64e557ef38bd`: terminal identity/refcount and strict pinned metadata helper; retry after task_f993dfc2fe65600acd5aec4290f34fbf failed with tool errors (no completed result).
+- `task_8f02be3d7afc556c338c441e380fa90d`: exact-owner queued task-completion integration in the real prepared server.
+
+Next dependent work: foreground/stream admission using the terminal helper, remaining administrative and background scheduler coverage, actual lifecycle RPC controls and CLI UI, explicit isolated startup/runtime/worker wiring, then native normal-workflow qualification. Only afterward implement conservative absence-based recovery. No native application startup/Keychain qualification or complete A/B journey is claimed.
+
 
 Credential isolation, prepared-store task startup/stale completion handling, and store ownership enforcement have separate delegated file ownership. No application coexistence or crash recovery is enabled by the initial compatibility commit. No real configuration, credentials, databases, current agent/runtime, installation, push or merge is authorized.

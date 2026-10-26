@@ -53,7 +53,7 @@ Objective: make the store the authoritative stale-write boundary before enabling
 
 Objective: enforce ownership over execution as well as persistence, without migrating or cancelling work to manufacture readiness. Files: internal/broker/broker.go, internal/server/server.go, task_completion.go, internal/taskrun/manager.go and store callers identified in Phase 1. Tests: turn/task/completion admission races, callback draining, scoped reconciliation and stale-effect suppression. Native evidence: two dedicated fixture hosts sharing a store; starting B leaves A's running task and sibling conversation unchanged, and stale completion produces neither writes nor notifications.
 
-- [ ] Route foreground turns, automatic continuations, independent task acceptance and completion through centralized conversation admission
+- [~] Route foreground turns, automatic continuations, independent task acceptance and completion through centralized conversation admission
 - [ ] Account for accepted/running tasks, acceptance in flight, completion callbacks, persistence and unresolved write failures in quiescence; retain ownership on terminal disconnect
 - [ ] Track epoch-bound terminal attachments and atomically check attachment eligibility while closing conversation work and attachment admission
 - [ ] Replace broad startup task reconciliation with recovery scoped to an eligible recorded owner and epoch, requiring the approved native death evidence where ownership was abandoned
@@ -100,7 +100,7 @@ Objective: implement the approved lifecycle on the existing control surface and 
 Objective: let each terminal explicitly move its conversation while ordinary reconnect remains exact-host and never resurrects a released/retired session. Files: pkg/agentclient/client.go, reconnect.go and launch arbitration, agent protocol integration, CLI connection/session state, slash registry, header and mouse/details paths. Tests: client state/launch-spy tests, protocol integration and terminal behavior. Native evidence: disconnected old terminals retrying after release, transfer and retirement with zero spawn attempts, plus TUI/host identity presentation before and after movement.
 
 - [ ] Separate explicit initial launch/resume intent from ordinary reconnect in the client API and persisted/reconstructed connection intent where used
-- [ ] Make ordinary session reconnect use only the pinned exact-host connection path, never auto-launch; enforce this before executable lookup or process spawn, including shared launch helpers
+- [~] Make ordinary session reconnect use only the pinned exact-host connection path, never auto-launch; enforce this before executable lookup or process spawn, including shared launch helpers
   - [ ] Preserve host/epoch binding through disconnect and classify released/stale/retired results explicitly
   - [ ] When the host is unreachable and session status cannot be established, fail closed without spawn, migration or acquisition; do not infer permission from transport failure
   - [ ] Require a separate explicit launch/resume action for a new host/session acquisition; ordinary retry cannot convert itself into that action
