@@ -229,7 +229,8 @@ type streamSessionProfileController struct {
 }
 
 type profileResult struct {
-	err error
+	profileJSON string
+	err         error
 }
 
 func newStreamSessionProfileController(sndr *sender, convID string) *streamSessionProfileController {
@@ -241,6 +242,23 @@ func newStreamSessionProfileController(sndr *sender, convID string) *streamSessi
 }
 
 func (p *streamSessionProfileController) SetProfile(ctx context.Context, name string) error {
+	_, err := p.requestProfile(ctx, name, false)
+	return err
+}
+
+func (p *streamSessionProfileController) CurrentProfile(ctx context.Context, _ string) (agent.Profile, error) {
+	raw, err := p.requestProfile(ctx, "", true)
+	if err != nil {
+		return agent.Profile{}, err
+	}
+	var profile agent.Profile
+	if err := json.Unmarshal([]byte(raw), &profile); err != nil {
+		return agent.Profile{}, fmt.Errorf("read session profile: %w", err)
+	}
+	return profile, nil
+}
+
+func (p *streamSessionProfileController) requestProfile(ctx context.Context, name string, readOnly bool) (string, error) {
 	id := p.nextID.Add(1)
 	ch := make(chan profileResult, 1)
 
@@ -256,15 +274,16 @@ func (p *streamSessionProfileController) SetProfile(ctx context.Context, name st
 
 	p.sndr.send(&proto.WorkerToHost{Msg: &proto.WorkerToHost_ProfileRequest{ProfileRequest: &proto.SessionProfileRequest{
 		Id:             id,
+		ReadOnly:       readOnly,
 		Name:           name,
 		ConversationId: p.convID,
 	}}})
 
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return "", ctx.Err()
 	case r := <-ch:
-		return r.err
+		return r.profileJSON, r.err
 	}
 }
 
@@ -281,7 +300,7 @@ func (p *streamSessionProfileController) deliver(resp *proto.SessionProfileRespo
 	} else if !resp.GetOk() {
 		err = fmt.Errorf("session profile switch was rejected")
 	}
-	ch <- profileResult{err: err}
+	ch <- profileResult{err: err, profileJSON: resp.GetProfileJson()}
 }
 
 // ─── streamCredentialSource ───────────────────────────────────────────────────

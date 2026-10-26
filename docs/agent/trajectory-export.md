@@ -1,5 +1,44 @@
 # Trajectory Export
 
+## Implementation status
+
+Export is implemented by `internal/server/trajectory_export.go` and
+`internal/trajectory`, not merely a planned client feature. The server reads
+conversation persistence, maps ATIF, gathers artifacts, applies best-effort
+redaction, validates and packages the bundle. `ExportTrajectory` streams progress,
+warnings and completion or a failure (`no_store` / `export_failed`). Clients pass
+options; they do not reconstruct the database. The specification below records
+the design contract, not proof of external ATIF consumer interoperability or
+complete secret removal.
+
+### Current implementation limits (2026-10-22)
+
+The design and acceptance criteria below are historical targets, not a list of
+completed guarantees. Current `internal/trajectory/export.go` writes the root
+trajectory/manifest, tool-result artifacts (4096-byte default preview), available
+persisted child trajectories, conversation metadata, raw turn JSONL and a minimal
+environment record. It does **not** write `config.redacted.json`; `IncludeLogs`
+is accepted but no log collector consumes it. Metadata is selected/redacted,
+not a lossless database backup. Proposed CLI/TUI affordances below are not
+certified by this server-side implementation audit.
+
+`ValidateBundle` in `internal/trajectory/validate.go` checks root JSON, the ATIF
+version marker and sequential root step IDs. When a manifest is present and
+parseable it checks listed artifact/subagent paths and existence. It does **not**
+require a valid manifest, verify recorded SHA-256 values, check tool-call
+references, or recursively validate child trajectory schemas. Writing checksums
+is not the same as verifying them, and this is not a full ATIF schema validator.
+
+Redaction matches selected key/token/password assignments, long `sk-` tokens and
+PEM private keys and replaces the home-directory prefix. It does not guarantee
+coverage of bearer headers, URL passwords, arbitrary OAuth/cloud credentials or
+all metadata fields. Review every bundle before sharing. Zip packaging uses the
+bundle directory as its top-level entry; the proposed symlink-safety rules below
+are not a verified security guarantee. No Harbor/external-consumer validation
+was performed.
+
+## Historical design
+
 ## Goal
 
 Add first-party export of a complete Cercano conversation as an agent trajectory bundle. The export should be useful for debugging, sharing, evaluation, supervised fine-tuning, and reinforcement-learning pipelines while preserving Cercano-specific artifacts that do not fit cleanly into a single interchange document.

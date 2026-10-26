@@ -17,7 +17,7 @@ without duplicating the agent itself.
 
 ## Try it
 
-Launch `cercano` in two terminals and start separate conversations for different
+Launch `cercano-cli` in two terminals and start separate conversations for different
 tasks. The client auto-launches the agent server when needed. For a headless task:
 
 ```bash
@@ -32,7 +32,12 @@ You can also start the server explicitly with `cercano agent`.
   access can affect the same files; use separate worktrees for conflicting edits.
 - Permissions remain important regardless of which client submits a task.
 - An independent process does not promise that every in-flight task survives a
-  client disconnect or server restart. Persisted conversations are a separate feature.
+  client disconnect or server restart. Independent delegated tasks survive a
+  launching-turn cancellation while their host remains running, but not host
+  shutdown. Auto-launched agents can shut down after the last client disconnects
+  when `agent.shutdown_on_last_client` is enabled; explicitly started servers
+  are not marked for that auto-launch lifecycle. Persisted conversations are a
+  separate feature.
 - Server and CLI are separate Go modules; interface changes may require updating both.
 
 See the [architecture reference](../agent-isolation/architecture.md),

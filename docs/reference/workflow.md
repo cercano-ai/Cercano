@@ -33,17 +33,15 @@ All tasks follow a strict lifecycle:
    - Rerun tests to ensure they still pass after refactoring.
 
 6. **Skill Sync:** If the task added, modified, or removed an MCP tool or user-facing capability:
-   - Check whether a corresponding SKILL.md exists in `.agents/skills/`.
-   - If a new tool was added, create a new `<skill-name>/SKILL.md` following the Agent Skills spec (see agentskills.io).
-   - If a tool's interface changed (parameters, behavior, description), update its SKILL.md to match.
-   - If a tool was removed, remove its SKILL.md directory.
-   - Ensure the `name` field matches the directory name and the `description` accurately reflects current behavior.
+   - Edit the canonical tool skill in `source/server/internal/skills/catalog/`, not the generated trees.
+   - Rebuild the host, then run `source/server/bin/cercano skills sync` from the repository root to regenerate `.agents/skills/` and `.claude/skills/` from the updated embedded catalog.
+   - Keep the `plugins/skills/` distribution copy aligned with the canonical instructions.
+   - Run `go test ./internal/skills` from `source/server` to check mirror drift.
+   - Match the tool's implemented parameters and routing; a tool name does not guarantee local execution.
 
-7. **Verify Coverage:** Run coverage reports using the project's chosen tools. For example, in a Python project, this might look like:
-   ```bash
-   pytest --cov=app --cov-report=html
-   ```
-   Target: >80% coverage for new code. The specific tools and commands will vary by language and framework.
+7. **Verify Coverage:** Run Go coverage from each affected module (commands below).
+   Target: >80% coverage for new code. This is a target, not a claim about current
+   repository coverage.
 
 8. **Document Deviations:** If implementation differs from tech stack:
    - **STOP** implementation
@@ -62,7 +60,7 @@ All tasks follow a strict lifecycle:
     - **Step 10.3: Attach Note:** Use the `git notes` command to attach the summary to the commit.
       ```bash
       # The note content from the previous step is passed via the -m flag.
-      git notes add -m "<note content>" <commit_hash>
+      git notes add -m "<note content>" "$(git log -1 --format=%H)"
       ```
 
 11. **Get and Record Task Commit SHA:**
@@ -157,60 +155,82 @@ Before marking any task complete, verify:
 
 ## Development Commands
 
-### Cercano-Specific Commands
-
-#### Build
-```bash
-# Rebuild the cercano binary (required after any Go code changes for MCP testing)
-cd source/server && go build -o bin/cercano ./cmd/cercano/
-```
-
-#### Test
-```bash
-# Run all tests
-cd source/server && go test ./... -count=1
-
-# Run specific package tests
-cd source/server && go test ./internal/mcp/ -v
-```
-
-#### Protobuf Regeneration
-```bash
-# After modifying source/proto/agent.proto, regenerate Go code:
-PATH=$PATH:~/go/bin protoc --go_out=. --go-grpc_out=. -I. source/proto/agent.proto
-# Generated files go to source/server/pkg/proto/ — verify they landed in the right place
-```
-
-#### MCP Testing
-```bash
-# The MCP server is configured in .mcp.json and launched via: cercano --mcp
-# After rebuilding the binary, restart the MCP connection in your agent (e.g., Claude Code)
-# to pick up changes.
-```
-
-### General Commands
-
-**AI AGENT INSTRUCTION: This section should be adapted to the project's specific language, framework, and build tools.**
+Commands below run from the repository root; subshells keep each module's working
+directory isolated. The server, terminal client, and enterprise API contract are
+separate Go modules requiring Go 1.26 (see their `go.mod` files).
 
 ### Setup
 ```bash
-# Example: Commands to set up the development environment (e.g., install dependencies, configure database)
-# e.g., for a Node.js project: npm install
-# e.g., for a Go project: go mod tidy
+(cd source/server && go mod download)
+(cd source/clients/cli && go mod download)
+(cd source/enterpriseapi && go mod download)
 ```
 
-### Daily Development
+The CLI replaces its server dependency with `../../server`. The server pins a
+published enterprise API module; testing the local contract module does not
+substitute it into the server build. Model/runtime installation and cloud
+credentials are separate from compiling these modules.
+
+### Build
 ```bash
-# Example: Commands for common daily tasks (e.g., start dev server, run tests, lint, format)
-# e.g., for a Node.js project: npm run dev, npm test, npm run lint
-# e.g., for a Go project: go run main.go, go test ./..., go fmt ./...
+make -C source/server build
+make -C source/clients/cli build
+(cd source/enterpriseapi && go build ./...)
 ```
+
+Outputs are `source/server/bin/cercano` (host) and
+`source/clients/cli/bin/cercano-cli` (terminal client). The API contract is a
+library, not a runnable service. The Makefiles supply version metadata and invoke
+optional macOS signing. Co-locate the binaries for sibling-server auto-launch,
+or use the [development launcher](../agent/self-dev.md).
+
+### Test and Coverage
+```bash
+(cd source/server && go test ./... -count=1)
+(cd source/clients/cli && go test ./... -count=1)
+(cd source/enterpriseapi && go test ./... -count=1)
+
+# Focused MCP tests
+(cd source/server && go test ./internal/mcp/ -v)
+
+# Repeat in each affected module for coverage
+(cd source/server && go test ./... -coverprofile=coverage.out)
+(cd source/server && go tool cover -func=coverage.out)
+```
+
+A module's `./...` does not include the other modules. Review test prerequisites
+and report environmental skips/failures rather than treating them as acceptance.
+
+### Protobuf Regeneration
+After modifying `source/proto/agent.proto`, use the canonical script (requires
+Go and `protoc`, available on macOS via `brew install protobuf`):
+
+```bash
+source/proto/generate.sh
+```
+
+The script resolves paths independently of the working directory, adds the Go
+plugin directory to `PATH`, installs pinned plugins if missing, and writes
+source-relative bindings directly into `source/server/pkg/proto/`. Review the
+generated diff; do not substitute an ad hoc `protoc --go_out=.` invocation.
+
+### MCP Testing
+Configure your MCP client's server entry to launch the rebuilt
+`source/server/bin/cercano --mcp` (use an absolute executable path in client
+configuration). MCP configuration is client-specific; this checkout does not
+provide a root `.mcp.json`. After rebuilding, restart that MCP connection to
+load the new binary. Rebuild before running `skills sync` too: the canonical
+skill catalog is embedded in the binary.
 
 ### Before Committing
+Run tests above for every affected module, then static checks and a whitespace
+check. Format changed Go files with `gofmt` before reviewing the diff.
+
 ```bash
-# Example: Commands to run all pre-commit checks (e.g., format, lint, type check, run tests)
-# e.g., for a Node.js project: npm run check
-# e.g., for a Go project: make check (if a Makefile exists)
+(cd source/server && go vet ./...)
+(cd source/clients/cli && go vet ./...)
+(cd source/enterpriseapi && go vet ./...)
+git diff --check
 ```
 
 ## Testing Requirements
@@ -344,7 +364,7 @@ A task is complete when:
 - [ ] All tests passing
 - [ ] Coverage >80%
 - [ ] No linting errors
-- [ ] Mobile testing complete
+- [ ] Mobile testing complete (if applicable)
 - [ ] Environment variables configured
 - [ ] Database migrations ready
 - [ ] Backup created

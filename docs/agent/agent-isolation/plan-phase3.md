@@ -1,5 +1,12 @@
 # Agent Execution Isolation — Phase 3 Implementation Plan (Extract `TurnRunner`)
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../features/README.md) and [routing guide](../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Pull one conversation turn's execution out of the `Server` front door into a self-contained `internal/runner` package behind a `TurnRunner` interface that owns all per-turn execution state and holds **zero process-global mutable state** — so the same core runs in-process today and in a worker process later (Phase 5), and the isolation is guaranteed by construction + a guard test.

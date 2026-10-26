@@ -476,7 +476,7 @@
       "id": "chat",
       "label": "Chat",
       "destination": "primary",
-      "quality": "standard"
+      "quality": "premium"
     },
     {
       "id": "compaction",

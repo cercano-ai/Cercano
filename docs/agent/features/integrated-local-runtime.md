@@ -5,7 +5,11 @@
 Cercano integrates a managed **llama-server** runtime for open-weight models.
 Runtime setup, model selection, and process lifecycle are part of the agent
 experience, rather than a separate inference service you must assemble yourself.
-Ollama is also supported; the selected backend determines how local models run.
+Ollama and the optional managed **mistral.rs** sidecar are also supported; the
+selected `open_runtime` backend determines how local models run. The default is
+`llama_server`; `mistralrs` is distinct from the hosted Mistral API provider.
+See [mistral.rs integration](../../features/embedded_inference/mistralrs-integration.md)
+for model formats and setup limitations.
 
 ## Why it matters
 
@@ -21,7 +25,7 @@ After following the [build and setup guide](../README.md), run:
 
 ```bash
 cercano setup
-cercano
+cercano-cli
 ```
 
 Open `/config` and inspect **Runtime** and **Local Models**. Select the managed
@@ -32,7 +36,9 @@ downloads to finish, then assign a suitable task to Local in **Routing**.
 
 - Runtime integration does not eliminate model downloads, disk requirements,
   or CPU/GPU and memory constraints. Larger models need more resources.
-- Runtime preparation and the active backend are separate choices; do not
+- Managed runtime restarts reload on-disk configuration when the config loader
+  and provider support it; a reload failure retains the previous configuration.
+  Runtime preparation and the active backend are separate choices; do not
   assume installation alone switches every route to llama-server.
 - Model support for tools and its ability to follow instructions matter for
   agent work. Quality and speed vary by model, quantization, and hardware.

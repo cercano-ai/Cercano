@@ -58,7 +58,7 @@ const features = [
     code: "06 / LOCAL",
     title: "Put local models to work.",
     lead: "Open-weight models belong inside the workflow, not beside it.",
-    body: "Cercano manages a local runtime and makes local inference a first-class destination for delegated work, private tasks, and zero-cost iteration.",
+    body: "Cercano manages a local runtime and makes local inference a first-class destination for delegated work, tasks kept on-device by their selected route, and iteration without per-token provider charges for local execution.",
     doc: "integrated-local-runtime.md",
   },
   {
@@ -242,7 +242,7 @@ export default function Home() {
                 {copied ? "Copied" : "Copy"}
               </button>
             </div>
-            <p className="after-install">Then run <code>cercano</code>. Configure providers, local models, routing, and permissions from inside the TUI.</p>
+            <p className="after-install">Then run <code>cercano-cli</code>. Configure providers, local models, routing, and permissions from inside the TUI.</p>
 
             <div className="package-roadmap" aria-label="Upcoming package managers">
               <div><span>apt</span><small>Linux · coming soon</small></div>

@@ -1,5 +1,11 @@
 # Chat View Migration — Step 3 Implementation Plan
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 **Status:** Ready to execute. Decisions are LOCKED (see `docs/decisions/autonomous_2026-06-24.md` D3; quantified context in `step3-design.md`). This plan does NOT re-litigate forks — F1=A, F2=A, F3=A, F4a/b/c, F6, F7 are baked in below. Build green at every Task; no broken intermediate.
 
 ---

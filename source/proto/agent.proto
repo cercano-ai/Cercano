@@ -1994,12 +1994,14 @@ message PermissionResponse {
 // capability profile. The worker must not keep its own profile broker; planning
 // mode changes affect the host session and therefore the next turn's tool fence.
 message SessionProfileRequest {
+  bool read_only = 4; // query current state without changing it
   uint64 id = 1;
   string name = 2;
   string conversation_id = 3; // scopes the host profile switch to the worker's conversation
 }
 
 message SessionProfileResponse {
+  string profile_json = 4; // authoritative capability profile for read_only queries
   uint64 id = 1;
   bool   ok = 2;
   string error = 3;

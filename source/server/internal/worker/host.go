@@ -114,7 +114,8 @@ type workerRunner struct {
 	// worker-side session-control capability (suggest_plan/request_plan_approval)
 	// asks for it. The worker must not own this state. The convID scopes the
 	// switch to the worker's conversation so planning mode stays per-conversation.
-	setProfile func(ctx context.Context, convID, name string) error
+	setProfile     func(ctx context.Context, convID, name string) error
+	currentProfile func(string) agent.Profile
 
 	// autonomyLedger applies autonomy-ledger operations (create / update /
 	// get_active) to the host-owned conversation store when a worker-side
@@ -324,6 +325,13 @@ func (w *workerRunner) handleDispatchEvent(ctx context.Context, req *proto.Dispa
 type ProfileHandlerSetter interface {
 	SetProfileHandler(fn func(ctx context.Context, convID, name string) error)
 }
+
+// ProfileReaderSetter wires authoritative host state for worker entry guards.
+type ProfileReaderSetter interface {
+	SetProfileReader(func(string) agent.Profile)
+}
+
+func (w *workerRunner) SetProfileReader(fn func(string) agent.Profile) { w.currentProfile = fn }
 
 // SetProfileHandler wires the host's profile switch handler (the production
 // NewWorkerRunner setProfile parameter) into a runner built without it, such as
@@ -988,7 +996,20 @@ func (w *workerRunner) RunTurn(
 			pr := m.ProfileRequest
 			go func() {
 				resp := &proto.SessionProfileResponse{Id: pr.GetId(), Ok: true}
-				if w.setProfile == nil {
+				if pr.GetReadOnly() {
+					if w.currentProfile == nil {
+						resp.Ok = false
+						resp.Error = "session profile reader not configured"
+					} else {
+						data, err := json.Marshal(w.currentProfile(req.ConversationID))
+						if err != nil {
+							resp.Ok = false
+							resp.Error = err.Error()
+						} else {
+							resp.ProfileJson = string(data)
+						}
+					}
+				} else if w.setProfile == nil {
 					resp.Ok = false
 					resp.Error = "session profile control not configured"
 				} else if err := w.setProfile(ctx, pr.GetConversationId(), pr.GetName()); err != nil {

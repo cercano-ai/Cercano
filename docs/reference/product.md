@@ -1,5 +1,9 @@
 # Initial Concept
 
+> Historical concept/planning record, not a current functionality or release-support
+> guide. Status and architecture statements below describe the original effort.
+> Use the root README and maintained guides in `docs/README.md` for current behavior.
+
 I want to create a new AI development experience that incorporates both cloud and local models in a way that harnesses the benefits of each to explicitly create a better workflow than today’s dominant, cloud-AI first approach. Specifically, I’d like to use one or more local models that can perform a number of common development tasks at a much faster speed than shoveling data back and forth to the cloud. And use the cloud models, when the local models are insufficient for the task at hand.
 
 What I’d specifically like to produce, is a locally executable program that plugs into modern agentic enabled IDEs such as VS Code or Zed, and uses MCP to facilitate the integration between the IDE and the executable. The executable itself will be a Go (language) application..

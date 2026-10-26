@@ -1,5 +1,12 @@
 # Multi-Cloud Provider Profiles — Design
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 **Status:** Foundation implemented 2026-06-27.
 
 The foundation for non-Anthropic cloud support: let Cercano store **multiple named

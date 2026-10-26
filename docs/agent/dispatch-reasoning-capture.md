@@ -5,7 +5,7 @@ compaction passes — but redacts *why*. Reasoning blocks are reduced to a byte
 count:
 
 ```
-[reasoning omitted: 639 bytes]
+[dispatchhistory: reasoning blob omitted (639 bytes not recorded; id="")]
 ```
 
 That is correct for normal operation. Reasoning restates conversation and tool
@@ -48,7 +48,8 @@ later snapshot containing that turn.
 
 ## Bounds and safety
 
-- Each reasoning block is capped at 32 KiB, truncated on a rune boundary, with
+- Each captured reasoning payload is capped at 32 KiB (plus the appended
+  truncation notice), truncated on a rune boundary, with
   the truncation disclosed in the stored text. A single block in the
   aperture-reuse investigation ran to 15,268 characters; unbounded capture would
   grow the conversation database quickly.

@@ -7,8 +7,10 @@ and dispatch summarization through the shared summarizer wiring.
 
 ## Summary contract
 
-The existing `GOAL / DECISIONS / PROPOSALS / FILES / OPEN / STATE` format is
-unchanged. Status qualifiers live inside its existing string fields:
+The structured format now includes `FINDINGS` alongside
+`GOAL / DECISIONS / PROPOSALS / FILES / OPEN / STATE` (see
+[working memory](compaction-working-memory.md)). Status qualifiers live inside
+its string fields:
 
 - `DECISIONS`: `[instruction]` constraints and `[approved]` decisions, including
   scope, conditions, prohibitions, and stopping rules.
@@ -24,8 +26,9 @@ instructed not to invent entries, approvals, provenance, or template placeholder
 
 ## Source references
 
-Each rendered transcript message carries a `source sha256:<32 hex digits>`
-reference: the first 128 bits of SHA-256 over its rendered evidence, including
+Each transcript message with rendered evidence carries a
+`source sha256:<32 hex digits>` reference (messages containing only unrendered
+blocks, such as hidden reasoning, are skipped): the first 128 bits of SHA-256 over its rendered evidence, including
 role and tool call/result metadata. Tool results now include their call ID and
 `is_error` flag, rather than only their textual contents.
 
@@ -50,6 +53,8 @@ correction/supersession, unsupported deployment claims, failed and successful
 checks, pending proposals, and interruptions.
 
 These are deterministic pipeline tests, **not live-model semantic evaluations**.
+`BuildSummaryPromptWithTask` can include a JSON-encoded, read-only task reference for relevance, explicitly not evidence of approval or execution. `ParseSummary` is lenient: it ignores leading prose, leaves missing sections empty, and never rejects a summary; repeated `FILES` paths overwrite earlier entries.
+
 The model can still misclassify facts, omit qualifications, or invent citations;
 there is no new output validator or durable decision ledger. Existing chunk
 merging and retention policies are unchanged and can still retain conflicting

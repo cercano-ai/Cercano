@@ -1,12 +1,19 @@
 ---
 name: cercano-local
-description: Use when the user wants to run a prompt against a local AI model via Ollama. Handles both chat-style queries and agentic code generation with validation. Use this to offload work to local inference — faster, private, zero cost.
-compatibility: Requires Cercano server running and connected to an Ollama instance.
+description: Run prompts through Cercano with configured routing. Handles chat-style queries and code generation with validation. The tool name does not guarantee local, private, free, or faster execution.
+compatibility: Requires Cercano server running with a usable configured model route.
 ---
 
 # Cercano Local Inference
 
-Run prompts against local AI models through Cercano's MCP interface. Cercano routes requests to Ollama for local inference.
+Run prompts through Cercano's MCP interface. Saved routing and redirects determine the destination; this legacy tool name is not a local-only constraint.
+
+## Routing and data handling
+
+Saved task routing and redirects determine local or cloud execution. Tool names
+do not enforce locality, privacy, cost, or latency. Verify the selected destination
+before supplying sensitive input; web research also contacts external search and
+page servers. Model output and confidence are not independent verification.
 
 ## MCP Tool
 

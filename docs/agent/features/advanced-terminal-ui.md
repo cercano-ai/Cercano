@@ -21,11 +21,13 @@ your preferences.
 
 ## Try it
 
-Start `cercano`, then use:
+Start `cercano-cli`, then use:
 
 - `/theme` to select or edit a theme.
 - `/config` to explore settings and responsive layouts at different terminal widths.
-- `/context` to inspect context usage alongside the live meter.
+- `/c` to open the active-conversation context viewer alongside the live meter.
+- `/context` to read the project’s `.cercano/context.md` file.
+- `/export trajectory [path]` to open trajectory export for the conversation.
 - `/search TODO` to find matching text in the current conversation.
 - `/help` for the current keymap and command list.
 
@@ -42,7 +44,8 @@ search and switch to the subagent tab to follow that investigation.
   [independent tasks](../independent-tasks.md).
 - The interactive client and headless output are different presentations of
   the same agent; do not expect terminal interactions in a script.
-- The [CLI track](../../features/cli/README.md) records remaining interface work.
+- The [CLI guide](../../features/cli/README.md) describes current controls and
+  links to historical interface plans.
   Formatting claims are not a promise that every planned control is implemented.
 
 See the [agent command reference](../README.md).

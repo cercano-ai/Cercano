@@ -12,7 +12,7 @@ Looking for the external co-processor integration? It is
 **[deprecated for now](../co-processor/README.md)**; its historical instructions
 are preserved separately.
 
-The standalone Cercano agent is a daily-driver AI coding assistant with native tool calling, a terminal UI, and a headless mode for scripts and CI. It connects to local models via Ollama and to Anthropic Claude via Meridian (Claude Max OAuth) or a direct API key.
+The standalone Cercano agent is a daily-driver AI coding assistant with native tool calling, a terminal UI, and a headless mode for scripts and CI. It supports managed llama-server (the default), optional mistral.rs, Ollama, and cloud provider profiles. See [routing](../cloud-routing.md) for account and task configuration.
 
 ## Set up and use Cercano as a standalone agent
 
@@ -23,10 +23,10 @@ sections ([What you get](#what-you-get), [Quick start](#quick-start),
 
 ### 1. Prerequisites
 
-- **Go** (to build the server and CLI — they're separate Go modules under `source/`).
+- **Go 1.26** (to build the server and CLI — they're separate Go modules under `source/`).
 - **A model to talk to.** Pick at least one:
-  - **Local, zero-cost, offline:** [Ollama](https://ollama.com) with a tool-capable model pulled (e.g. `ollama pull qwen3-coder`). No API key.
-  - **Anthropic Claude:** a direct API key, *or* [Meridian](https://github.com/rynfar/meridian) if you drive Claude through a Claude Max subscription.
+  - **Local inference:** managed llama-server, optional mistral.rs, or [Ollama](https://ollama.com), with a compatible model. Local inference has no provider per-token fee; downloads and network tools are not offline. See the [runtime guide](features/integrated-local-runtime.md).
+  - **Anthropic Claude:** a direct API key or built-in Claude subscription sign-in (Max/Pro). [Meridian](https://github.com/rynfar/meridian) is an optional proxy route.
   - **OpenAI-compatible** (OpenAI, Gemini, Groq, …) via an API key, or **ChatGPT** via a Plus/Pro subscription sign-in.
 
 You need Go plus one model source. Everything else is optional.
@@ -50,36 +50,41 @@ it and how to add it to `PATH` if needed).
 cercano
 ```
 
-That's the interactive terminal UI. When stdin is a TTY, `cercano` runs the
-CLI; the CLI auto-launches the gRPC agent on `:50052` if one isn't already
-running. To run the agent server by hand, use `cercano agent`.
+This development launcher is distinct from the installed server binary. For
+Homebrew/release installs, launch `cercano-cli`; bare `cercano` is the server.
+The development launcher always execs `cercano-cli` with the original arguments;
+it does not select server mode based on stdin. The CLI can auto-launch the
+gRPC agent if it cannot connect. To run the agent server by hand from a dev
+launcher install, use `"$HOME/bin/.cercano-libexec/cercano" agent` (or
+`cercano agent` when `cercano` resolves to the installed server binary).
 
 ### 4. Point it at a model
 
-- **Local (Ollama):** if no cloud provider is configured, the agent just uses your local Ollama model. Set which one with `/config` → Local Model, or `/config local_model qwen3-coder`. Done.
-- **Cloud:** open `/config` (or `/cloud`) and add a provider profile — Anthropic, an OpenAI-compatible endpoint, or a ChatGPT subscription sign-in. Use **Add another account** to save independent sign-ins for the same provider. In **Routing → Primary**, select the preferred account and an ordered list of backups. Quota exhaustion advances through that list and stays on the next account, with no cooldown or automatic return; exhausting every account stops the request. Authentication errors retain their existing recovery prompts. See [Cloud setup](#cloud-setup) below for the details and config-file examples.
+- **Local:** open `/config` → Runtime / Local Models, select a backend and compatible model, and configure Local task routes. Runtime installation and routing are separate settings.
+- **Cloud:** open `/config` → **Cloud** and add a provider profile — Anthropic, an OpenAI-compatible endpoint, or a ChatGPT subscription sign-in. Use **Add another account** to save independent sign-ins for the same provider. In **Routing → Primary**, select the preferred account and an ordered list of backups. Quota exhaustion advances through that list and stays on the next account, with no cooldown or automatic return; exhausting every account stops the request. Authentication errors retain their existing recovery prompts. See [Cloud setup](#cloud-setup) below for the details and config-file examples.
 
 ### 5. Talk to it
 
 Type a prompt and hit Enter. The agent decides on its own when to read files,
-grep, run commands, or edit code. For anything destructive (write, edit, run a
-command, delete, git push) it pauses and asks you to confirm with
-`[y]es / [n]o / [d]iff` — how often it asks depends on your
+grep, run commands, or edit code. Confirmation depends on the tool tier and your
 [permission mode](#permission-modes) (`permissive` by default). Switch modes
 any time with `/strict`, `/permissive`, or `/bypass`.
 
 ### 6. Or run it headless
 
-For scripts, CI, or driving Cercano from another agent, skip the UI entirely:
+For scripts, CI, or driving Cercano from another agent, invoke the server
+binary's `run` command, not the development launcher. For release installs, use
+`cercano run`; for a dev launcher install:
 
 ```bash
-cercano run "list the markdown files in this directory"
-cercano run --auto-allow "add a TODO line to the top of README.md"
-cercano run --conv my-session "continue where we left off"
+"$HOME/bin/.cercano-libexec/cercano" run "list the markdown files in this directory"
+"$HOME/bin/.cercano-libexec/cercano" run --auto-allow "add a TODO line to the top of README.md"
+"$HOME/bin/.cercano-libexec/cercano" run --conv my-session "continue where we left off"
 ```
 
-Stdout is the assistant's answer; stderr is progress. Exit codes: `0` success,
-`2` usage error, `3` you denied a confirm gate.
+Stdout is the assistant's answer; stderr carries progress and errors. Exit codes:
+`0` success, `1` connection/stream errors or no assistant output, `2` usage error,
+`3` a confirmation was denied automatically (the default without `--auto-allow`).
 
 That's the whole loop. The rest of this document is reference detail on each
 piece.
@@ -90,7 +95,7 @@ piece.
 - **Headless one-shot mode** (`cercano run "prompt"`) for scripts, CI, and other agents
 - **Native tool calling** through the provider's structured tool channel (Anthropic `tool_use` blocks, Ollama `tool_calls`) — no JSON-in-text parsing
 - **Three permission modes** controlling when the user is prompted before destructive work
-- **Conversation persistence** in SQLite with lossless tool-call history for `/resume`
+- **Conversation persistence** in SQLite with structured tool-call history for `/resume`
 - **Pluggable cloud + local providers** behind a shared interface
 
 ## Quick start
@@ -104,7 +109,9 @@ Generate it (bakes this clone's path in, exports `CERCANO_REPO`):
 cd source/server && make launcher
 ```
 
-Then `cercano` runs the CLI when stdin is a TTY, and `cercano agent` runs the gRPC agent server. The CLI auto-launches the agent if no server is on `:50052`.
+Then `cercano` always runs the CLI, forwarding its arguments. To run the gRPC
+agent server directly, use `"$HOME/bin/.cercano-libexec/cercano" agent`. The CLI
+can auto-launch the agent if it cannot connect.
 
 ### Interactive mode
 
@@ -112,27 +119,46 @@ Then `cercano` runs the CLI when stdin is a TTY, and `cercano agent` runs the gR
 cercano
 ```
 
-Type a prompt. The agent decides whether to use tools (Read, Glob, Grep, LS, Bash, Edit, Write, plus git operations). For W- and X-tier tools, the CLI prompts you to confirm `[y]es / [n]o / [d]iff`.
+Type a prompt. The agent decides whether to use tools (Read, Glob, Grep, LS, RunCommand, Edit, Write, plus git operations). For ordinary built-ins, W-tier calls require confirmation in strict mode; X-tier calls require it in strict and permissive modes. MCP tools and explicit human-handoff tools have additional gates. See the permission table below.
 
 ### Headless / scripted mode
 
+Use the server binary, not the development launcher. The paths below are for a
+dev launcher install; for a release install, use `cercano run` instead.
+
 ```bash
-cercano run "list the markdown files in this directory"
-cercano run --auto-allow "edit README.md and add a TODO line at the top"
-cercano run --conv my-session "continue where we left off"
+"$HOME/bin/.cercano-libexec/cercano" run "list the markdown files in this directory"
+"$HOME/bin/.cercano-libexec/cercano" run --auto-allow "edit README.md and add a TODO line at the top"
+"$HOME/bin/.cercano-libexec/cercano" run --conv my-session "continue where we left off"
 ```
 
-Stdout carries the assistant's text response. Stderr carries progress diagnostics (tool calls, exec status). Exit codes: `0` success, `2` usage error, `3` user denied a confirm gate.
+Stdout carries the assistant's text response. Stderr carries progress diagnostics
+(tool calls, exec status) and errors. Exit codes: `0` success, `1` connection/stream
+errors or no assistant output, `2` usage error, `3` a confirmation was denied
+automatically (the default without `--auto-allow`).
 
 ## Permission modes
 
-| Mode | R-tier (read_file, grep, list) | W-tier (write, edit, run_command) | X-tier (rm, git push, reset) |
+This table describes the ordinary model-driven built-in tool gate, using the
+tool's effective tier (which can depend on its arguments). It is not a blanket
+authorization guarantee or the policy for direct `/tool` calls.
+
+| Mode | R-tier | W-tier | X-tier |
 |---|---|---|---|
 | `strict` | silent | confirm | confirm |
 | `permissive` *(default)* | silent | silent | confirm |
 | `bypass` | silent | silent | silent |
 
-Switch with `/strict`, `/permissive`, `/bypass`, or `/mode <name>`. Persists to the active profile's `~/.config/cercano/profiles/<name>/permissions.yaml`.
+Switch with `/strict`, `/permissive`, `/bypass`, or `/mode <name>`. Successful
+server updates persist to the active profile's `~/.config/cercano/profiles/<name>/permissions.yaml`; the CLI updates
+its status chip optimistically, so the chip alone does not prove the save succeeded.
+
+Additional boundaries apply: MCP W/X calls use their allowlist policy (X always
+confirms outside bypass); session-model changes and explicit human handoffs can
+still prompt in bypass. Recognized WIP-consuming `git stash` commands require
+confirmation regardless of mode or delegated tool grants. Explicitly preauthorized
+tools can skip the ordinary gate; profile fences and watchdog checks remain
+separate. Direct `/tool` calls use CLI-local confirmation as described below.
 
 ## Slash commands
 
@@ -140,24 +166,25 @@ Switch with `/strict`, `/permissive`, `/bypass`, or `/mode <name>`. Persists to 
 |---|---|
 | `/d [repo-path]` (alias `/dev`) | Development mode — point the session at the Cercano repo and prime the agent to work on itself |
 | `/tools` | List the agent's registered tools |
-| `/tool <name> <json>` | Invoke a tool directly (W/X requires `/bypass`) |
+| `/tool <name> <json>` | Invoke a tool directly; cached W/X calls queue CLI-local confirmation in every mode (including bypass); approval calls unary `InvokeTool` |
 | `/strict` `/permissive` `/bypass` `/mode <m>` | Change permission mode |
 | `/history` | Pick a past conversation to resume |
-| `/resume <id>` | Resume by conversation id |
-| `/rename <title>` | Rename the current conversation |
-| `/clear` | Wipe in-memory state for this session |
+| `/resume [id]` | Resume by conversation id; without an id, open the conversation picker |
+| `/rename <title>` or `/rename <id> <title>` | Rename the current conversation, or the specified conversation when `<id>` is exactly 24 hexadecimal characters; titles may contain spaces |
+| `/clear` | Clear displayed messages and start a new conversation ID; retain the old stored conversation |
 | `/color <name|hex>` | Change the prompt border accent color |
 | `/config` | Open the settings page (or `/config <key> <value>` to set one value directly; `/config show` to print current config) |
 | `/s` `/settings` | Open the settings page (sectioned: local model, cloud, routing, permissions, UI/theme) |
 | `/theme` | Open settings to switch/edit the color theme |
-| `/cloud` | Cloud provider settings shortcut |
-| `/context` | Inspect the current context window usage |
+| `/cloud` | List saved cloud profiles; edit profiles in `/config` → **Cloud** |
+| `/context` | Read the project’s `.cercano/context.md` |
+| `/c` | Open the active conversation context viewer |
 | `/compact` | Compact the conversation's context incrementally (digest the backlog, keep existing summaries) |
 | `/context-regen` | Rebuild the conversation's context from raw turns (clears state, re-runs compaction) |
 | `/clear-compacted-context` | Drop the compacted summaries and rehydrate the context from raw turns — no re-summarization (recovery when a broken summarizer produced a bad/empty compacted layer) |
 | `/elide-context` | Stub all tool outputs in the context so far — LLM-free token reclaim. In-memory and send-view only: raw turns untouched, resets on agent restart; tool results after the command stay intact |
-| `/mcp` | List/add/remove/restart hosted MCP servers |
-| `/help` | Show keymap and command list |
+| `/mcp` | Open MCP configuration; subcommands add/remove/restart hosted servers |
+| `/help` | List registered slash commands and their help text |
 | `/quit` | Quit (or press Ctrl+C twice) |
 
 ## Cloud setup
@@ -171,23 +198,21 @@ The agent supports multiple cloud providers:
 - **Anthropic** — via direct API key or Meridian (Claude Max OAuth)
 - **OpenAI-compatible** — OpenAI, Gemini, Groq, and others (see [cloud-openai.md](cloud-openai.md#5-openai-compatible-endpoints) for endpoint examples and setup)
 - **OpenAI (ChatGPT subscription)** — sign in with a ChatGPT Plus/Pro account instead of an API key (unofficial; see below)
-- **Local** — Ollama (offline, no API key needed)
+- **Local** — managed llama-server, optional mistral.rs, or Ollama (no cloud API key needed)
 
 ### Providers
 
 ### Meridian (Claude Max via OAuth)
 
-If you have [Meridian](https://github.com/rynfar/meridian) running on `127.0.0.1:3456`, configure:
+Add an Anthropic profile in `/config` → Cloud Providers → **+ Add provider…**
+and configure its endpoint and credentials.
+For Meridian, use your running proxy endpoint (commonly `http://127.0.0.1:3456`).
+Use profile-scoped quality selections in [cloud routing](../cloud-routing.md),
+not legacy top-level `cloud_model` mutations.
 
-```yaml
-# ~/.config/cercano/profiles/<name>/config.yaml (the active profile)
-cloud_provider: anthropic
-cloud_model: claude-sonnet-4-6
-cloud_base_url: http://127.0.0.1:3456
-cloud_api_key: dummy
-```
-
-The Anthropic provider streams through Meridian, which uses your Claude Max subscription. Cercano injects `x-opencode-session` / `x-opencode-request` / `x-opencode-agent-mode` headers per request so Meridian routes through its OpenCode adapter and bumps the SDK turn cap from 3 to 4.
+The Anthropic provider can stream through a running Meridian proxy using its
+configured endpoint and credentials. Proxy-side subscription handling and turn
+limits depend on the Meridian version; they are not enforced by Cercano.
 
 ### Mistral API accounts
 
@@ -198,7 +223,7 @@ The provider remains labeled untested until separately authorized live checks pa
 
 ### Direct Anthropic API
 
-Set a real `cloud_api_key` and leave `cloud_base_url` empty.
+Add an Anthropic API-key profile in `/config` → Cloud Providers → **+ Add provider…**; use its default API endpoint. `/cloud` lists profiles, selects an existing profile, or stores its key; it does not create profiles.
 
 ### ChatGPT subscription (device-code OAuth)
 
@@ -212,14 +237,17 @@ keychain (refreshing them automatically) under a `chatgpt` profile
 
 **Unofficial / ToS-gray.** This borrows the Codex CLI's OAuth client id, has no
 sanctioned third-party path, can break whenever OpenAI changes things, and
-limits you to the ChatGPT-backend model allowlist (gpt-5.5, gpt-5.3-codex,
-gpt-5.4, gpt-5.4-mini, …). An API key stays the fully-sanctioned path and is
+uses the account-scoped ChatGPT-backend model catalog rather than guaranteeing
+access to any fixed model list. An API key stays the fully-sanctioned path and is
 one keystroke away in the same UI. Design + endpoint details:
 [docs/features/chatgpt-subscription-auth/design.md](../features/chatgpt-subscription-auth/design.md).
 
-### Local-only (Ollama)
+### Local inference
 
-If no cloud is configured, the agent runs purely on local Ollama with whatever `local_model` you've set. Tool calling works for tool-capable local models (qwen3-coder, qwen2.5-coder, llama3.1+, deepseek-r1, mistral-nemo, granite3.x). Non-tool-capable models are rejected with a clear error rather than degrading silently.
+Select a compatible runtime and model in Runtime / Local Models. Use local-only
+locus policy when cloud inference must be prohibited; simply configuring a local
+model does not prevent other task routes or network tools from using the network.
+Tool and image support depend on the selected model/backend.
 
 ## Architecture
 
@@ -254,24 +282,45 @@ Layered abstraction. The shared `Provider` interface exposes `Chat`, `StreamChat
 
 - `internal/llm/anthropic/` — uses `github.com/anthropics/anthropic-sdk-go` v1.51. Custom User-Agent RoundTripper for Meridian fingerprint compatibility.
 - `internal/llm/ollama/` — uses `github.com/ollama/ollama/api`.
+- `internal/llm/openai/` — Chat Completions, including backend-specific Mistral content normalization.
+- `internal/llm/responses/` — Responses API and the ChatGPT subscription route.
+- `internal/llm/bedrock/` — Bedrock Converse with AWS credentials.
 
-The internal `Block` type carries text / `tool_use` / `tool_result` / `image` and is the lingua franca. Each adapter translates SDK types ↔ `Block`. Image translation is plumbed at the provider layer ([vision-input.md](vision-input.md)); live attachments can also be inspected through `inspect_image`.
+`internal/cloudfactory` constructs all four cloud wire flavors (`messages`,
+`chat_completions`, `responses`, `bedrock`). Subscription routes require the
+host credential service; protocol support is not a live availability or account
+eligibility guarantee.
 
-**Cloud resilience.** Every adapter normalizes its wire errors into provider-agnostic classes (`quota`, `busy`, `auth`, `invalid_request`, `network`, `unknown` — `llm.Error`), and a single engine (`internal/inference/resilience`) owns the retry/failover policy: busy gets one narrated same-provider retry, quota/auth/network fail over to the backup profile immediately, invalid requests surface. Actions are narrated to the user in-band ("anthropic quota reached — switching to openai") and logged server-side. SDK-internal and transport-level retries are deliberately disabled — the engine is the only retry layer. Primary's `internal/inference/profilechain` account cycle composes this engine into bounded ordered traversals. Its synchronized, generation-checked active-account state survives provider rebuilds, but is in-memory and resets on agent restart. Quota alone advances that shared state; partially streamed responses are never replayed. Secondary retains its existing single-backup behavior. See [cloud routing](../cloud-routing.md) for current account configuration and [cloud-failover-audit.md](cloud-failover-audit.md) for the earlier resilience audit.
+The internal `Block` type carries text / `tool_use` / `tool_result` / `image` / `reasoning` and is the lingua franca. Each adapter translates SDK types ↔ `Block`. Image translation is plumbed at the provider layer ([vision-input.md](vision-input.md)); live attachments can also be inspected through `inspect_image`.
+
+**Cloud resilience.** Adapters normalize wire errors into provider-agnostic
+classes (`llm.Error`), and `internal/inference/resilience` owns retry/failover
+policy. Busy, network, and unknown errors can receive one narrated same-provider
+retry, including a narrated mid-answer stream restart. Before content is emitted,
+eligible failures can fail over to a configured backup; authentication recovery
+has its own gates (see below). Invalid requests normally surface, except recognized
+model-unavailable errors; context overflow requires a known larger target window.
+Actions are narrated in-band and logged server-side. Primary's
+`internal/inference/profilechain` composes bounded ordered account traversals.
+Its synchronized, generation-checked active account survives provider rebuilds,
+but is in-memory and resets on agent restart. Quota alone advances that shared
+state. Secondary retains its single-backup behavior. See
+[cloud routing](../cloud-routing.md) for account configuration and
+[cloud-failover-audit.md](cloud-failover-audit.md) for the earlier resilience audit.
 
 ### Tool loop (`internal/agent/toolloop.go`)
 
 Bounded autonomous loop. Per iteration:
 
-1. Build the tool catalog from `agenttools.Registry` (the 15 built-in tools).
-2. Call `Provider.StreamChat` with the catalog. Streaming is required: Meridian's non-streaming path has a 3-turn SDK cap that bites broad agentic prompts.
+1. Build the tool catalog from `agenttools.Registry` (registered built-in and capability tools).
+2. Call `Provider.StreamChat` with the catalog. The agent tool loop uses streaming for provider responses.
 3. Accumulate text + `tool_use` blocks from the stream.
 4. Partition tool calls by tier:
    - R-tier runs concurrently via goroutines
    - W/X-tier serializes through the permission gate
 5. For each W/X call requiring confirmation, emit a `PermissionRequired` streaming event; wait for the client's `AllowToolCall` or `DenyToolCall` reply via the `PendingDecisions` map.
 6. Execute the allowed tools. Each result becomes a `tool_result` block, fed back as a user message.
-7. Track guards: 3 consecutive iterations of all-errored calls aborts; `MaxToolLoopIterations = 10` caps total round-trips; user denial of any confirm is a hard turn-end.
+7. Track guards: 3 consecutive counted iterations of all-errored calls abort; iterations with watchdog intervention do not advance or reset that counter; the configured tool-loop iteration limit caps round-trips (see `pkg/config` defaults); ordinary permission denial ends the turn. A “chat about this” redirect continues for ordinary tools but ends session-control transitions; watchdog escalation denial blocks the action without this immediate turn-end.
 
 ### Autonomous run completion
 
@@ -285,12 +334,13 @@ New high-risk choices and unresolved blockers must be raised when they arise.
 The former `complete_autonomous_review` tool is retired. New runs transition
 straight from `running` to `completed`; persisted `review_pending` runs from older
 versions can finish through the same completion action. Their decision history
-is preserved. Completion-record writes precede the profile change, with rollback
-of the record if the profile change fails.
+is preserved. Completion-record writes precede the profile change, with attempted rollback
+of the record if the profile change fails; rollback failures are reported.
 
 ### Built-in tools (`internal/agenttools/`)
 
-Names match Claude's training (Read, Write, Edit, LS, Glob, Grep, Bash) to keep Claude's internal planning concise:
+Selected built-ins are exposed with standalone aliases (Read, Write, Edit, LS,
+Glob, Grep, RunCommand). This is a core inventory, not the full capability catalog:
 
 | Name | Tier | Action |
 |---|---|---|
@@ -304,7 +354,7 @@ Names match Claude's training (Read, Write, Edit, LS, Glob, Grep, Bash) to keep 
 | `git_log` | R | `git log` |
 | `Write` | W | Atomic file write |
 | `Edit` | W | Find/replace in a file (refuses ambiguous/zero/no-op matches) |
-| `Bash` | W | Run a shell command (16 KiB output cap, timeout-aware) |
+| `RunCommand` | W | Execute a program and argv (shell only when explicitly invoked; stdout and stderr each capped at 16 KiB; timeout-aware) |
 | `git_add` | W | `git add` |
 | `git_commit` | W | `git commit` |
 | `rm_file` | X | Delete a file (refuses directories) |
@@ -313,11 +363,13 @@ Names match Claude's training (Read, Write, Edit, LS, Glob, Grep, Bash) to keep 
 
 ### Persistence (`internal/conversation/`)
 
-SQLite via `modernc.org/sqlite` (pure Go). Each turn is a row in `turns`. Tool-calling turns carry an ordered block-array JSON in `content_json` matching the Anthropic Messages wire shape. `/resume` deserializes and drops straight into the next provider call — no translation.
+SQLite via `modernc.org/sqlite` (pure Go). Each turn is a row in `turns`; `content_json` stores an ordered array of internal `llm.Block` values, not a provider-native wire payload. Resume reloads the transcript and rebuilds session state. Provider-facing history is reconstructed with text fallback for missing/invalid block JSON and repair of unmatched tool calls/results; compaction can replace older history with summaries. Adapters then translate the internal blocks to their wire formats. Renaming persists a user-chosen title, including before the first turn, protected from automatic title replacement.
 
 ### Permission gating
 
-The decision is **agent-side**. The CLI just renders the `PermissionRequired` streaming event and forwards user input via `AllowToolCall` / `DenyToolCall` RPCs. Every client (CLI, VS Code, Zed, future) sees consistent behavior under the same mode.
+For **model-driven calls**, the decision is agent-side. Clients render `PermissionRequired` and forward `AllowToolCall` / `DenyToolCall`. Delegated preauthorization can skip ordinary mode gates; WIP-consuming `git stash` adds a forced confirmation independent of mode/grants. A prior human-approved watchdog escalation avoids a duplicate prompt. Session-model changes and explicit human handoffs have additional gates.
+
+Direct `/tool` is different: the CLI checks its cached tier, runs R-tier (and unknown-tier) calls directly, and queues local confirmation for W/X even in bypass. Approval invokes the unary RPC; denial does not invoke it. `InvokeTool` itself directly executes the registry tool without the tool-loop permission gate. Tool-specific validation can still fail; this RPC is not a server-enforced approval boundary.
 
 ## Detailed design docs
 
@@ -329,8 +381,8 @@ The decision is **agent-side**. The CLI just renders the `PermissionRequired` st
 
 ## Known limitations
 
-- **`/tool` invoking W/X-tier** requires `/bypass` mode. The unary `InvokeTool` RPC can't stream a confirm prompt back to the CLI. Model-driven tool calls in normal chat flow always go through the gate correctly.
-- **Inline tool-call expand/collapse keybind** isn't implemented yet. Tool entries render folded; scroll your terminal to see args/results.
+- **Direct tool invocation:** `/tool` uses CLI-local confirmation, not the model-driven permission protocol; `/bypass` is not required. Use `y` to approve local MCP calls: the current local `[a]lways` callback neither invokes the tool nor persists an allowlist rule (persistence is wired only for stream-origin calls).
+- **Tool-call display:** entries can be folded or expanded in tool navigation (Enter/Tab toggles the focused entry). Resumed transcript text is restored, but empty-content tool turns are skipped by the main transcript renderer; this is not a replay of every live tool card.
 - **Image attachment storage:** `inspect_image` uses private temporary files under the operating system's temporary directory (Go `os.TempDir()`, not a hard-coded Unix or Windows path). The store retains only metadata and reads image bytes on demand; it has no cumulative per-conversation image-count or byte cap. `Store.Clear` removes a conversation’s files; server shutdown and worker-turn completion close their owned stores. Missing/unreadable files produce lookup misses, and failed writes produce an omitted-image placeholder. Reattaching identical bytes restores a missing file under the same live ID.
 - **Image lifetime:** attachment IDs are indexed in memory and do not survive agent restarts. Temporary storage is not durable history: OS cleanup can remove files, and crashes may leave orphan files for OS cleanup. Payloads still occupy memory while being ingested or inspected; this change removes long-lived payload retention in the attachment store, not provider/request limits or other copies elsewhere in the message pipeline.
 
@@ -338,9 +390,9 @@ The decision is **agent-side**. The CLI just renders the `PermissionRequired` st
 
 Expired Claude or ChatGPT subscription login pauses the affected request before either cloud-provider failover or cloud/local fallback. Authentication is a structured failure with a named profile, not a string matched from a routing notice. Ordinary transient failures retain their retry policy; API-key rejection and permission denial do not open subscription login.
 
-The configuration service owns one shared credential service for host providers, workers, refresh, and interactive login. Refresh writes are generation-checked, login attempts are single-use, and reauthentication does not rewrite profile configuration or active selection. A successful login wakes current requests waiting on that provider/profile; canceled requests stay canceled.
+The configuration service owns one shared credential service for host providers, workers, refresh, and interactive login. Refresh writes are generation-checked, login attempts are single-use, and reauthentication preserves routing settings and active selection while updating saved account identity. A successful login wakes current requests waiting on that provider/profile; canceled requests stay canceled.
 
-Interactive clients explicitly opt into the authentication gate. `ReauthenticateCloud` performs credential-only login, while `ResolveAuthentication` handles explicit fallback or cancellation. These are distinct from onboarding and tool permission approval. Older servers/workers fail closed when they do not support recovery; subscription workers must be upgraded with the host.
+Interactive clients explicitly opt into the authentication gate. `ReauthenticateCloud` refreshes credentials and saved account identity without changing routing, while `ResolveAuthentication` handles explicit fallback or cancellation. These are distinct from onboarding and tool permission approval. Older servers/workers fail closed when they do not support recovery; subscription workers must be upgraded with the host.
 
 Explicit fallback is authorized only for the owning user turn. It switches at an inference boundary, without replaying completed tools, and does not change default routing. If response events have already escaped, the agent does not silently replay them: login repairs credentials, then the interrupted response requires an explicit fresh request.
 

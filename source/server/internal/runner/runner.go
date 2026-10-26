@@ -127,6 +127,8 @@ type Deps struct {
 	// and never leaks across attached clients. A nil func, or a func returning a
 	// zero Profile, means unrestricted (no fence) — the default posture.
 	Profiles func(convID string) agent.Profile
+	// CurrentProfile supports a fallible live read across the worker boundary.
+	CurrentProfile func(context.Context, string) (agent.Profile, error)
 
 	// CloudContextWindow resolves the discovered context capacity for a cloud
 	// model, returning ok=false when nothing is known about it. It is consulted

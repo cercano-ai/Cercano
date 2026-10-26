@@ -1,12 +1,21 @@
 ---
 name: cercano-summarize
-description: Use when the user needs to summarize large text, files, logs, or diffs. ALWAYS prefer this over reading large files directly into cloud context. Processes content locally and returns a concise summary.
-compatibility: Requires Cercano server running and connected to an Ollama instance.
+description: Summarize text or files using the configured model route via Cercano with local or cloud execution determined by routing. Supports brief, medium, and detailed summary lengths.
+TRIGGER when: user asks to summarize a file, log, diff, document, or large block of text. Use this INSTEAD of reading the full content into cloud context.
+DO NOT TRIGGER when: summarizing short text that's already in the conversation context.
+compatibility: Requires Cercano server running with a usable configured model route.
 ---
 
 # Cercano Summarize
 
-Summarize text or files using local AI inference.
+Summarize text or files using the configured model route.
+
+## Routing and data handling
+
+Saved task routing and redirects determine local or cloud execution. Tool names
+do not enforce locality, privacy, cost, or latency. Verify the selected destination
+before supplying sensitive input; web research also contacts external search and
+page servers. Model output and confidence are not independent verification.
 
 ## MCP Tool
 

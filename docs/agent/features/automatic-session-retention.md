@@ -28,6 +28,21 @@ cercano run --conv my-session "Explain this project's configuration loader"
 cercano run --conv my-session "Which tests cover it?"
 ```
 
+## Retention aging
+
+Persistence is not an indefinite archive. Defaults are **90 days** for raw
+bodies and **180 days** for inactive conversations. The background sweeper
+stubs old raw bodies only through the compacted/frozen boundary. Conversations
+whose last turn predates the longer horizon lose their turns and compaction
+state, retaining their identity record. This is destructive, not just a change
+to what the model sees.
+
+Use `/config raw-retention-days 90`, `/config compacted-retention-days 180`,
+or `/config keep-forever true` to control aging. Keep-forever disables aging;
+a non-positive value for either horizon also disables it as a safety measure.
+Changes affect subsequent sweeps, not already-pruned data. Export important
+work before it ages out (`/export trajectory [path]`).
+
 ## Controls and limitations
 
 - Persisted history is not the same as the active model context: long sessions

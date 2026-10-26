@@ -93,12 +93,9 @@ var planExtraTools = []string{"Write", "Edit", "write_file", "edit_file", "reque
 // Both handoff tools flip the ProfileBroker to the default (unrestricted)
 // profile in their Execute: plan_exit abandons planning silently, and
 // request_plan_approval hands off to execution once the plan is approved. That
-// broker change only lands on the NEXT turn's profile read (runner reads the
-// active profile once at turn start and freezes it into ToolLoopInput.Profile),
-// so without lifting the loop-local fence mid-turn the rest of THIS turn stays
-// fenced and any follow-on write/exec tool is wrongly blocked. The lift is
-// asymmetric: it only ever relaxes the fence, never tightens it — entering a
-// profile still happens cleanly at a turn boundary.
+// the loop also lifts its local fence immediately so follow-on calls and the
+// next iteration's catalog reflect the handoff. Successful suggest_plan entry
+// similarly tightens the local fence; live reads guard redundant entries.
 func ToolLiftsPlanFence(toolName string) bool {
 	return toolName == "plan_exit" || toolName == "request_plan_approval"
 }

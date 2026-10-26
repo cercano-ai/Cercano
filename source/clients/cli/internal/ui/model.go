@@ -851,7 +851,10 @@ func (m *Model) dispatchToolFetches() []tea.Cmd {
 	return cmds
 }
 
-type recapLoadedMsg struct{ recap string }
+type recapLoadedMsg struct {
+	convID string
+	recap  string
+}
 
 // nextPromptSuggestionMsg carries the result of a SuggestNextPrompt call.
 // Empty suggestion means the server couldn't produce one (missing recap,
@@ -882,15 +885,15 @@ func fetchNextPromptSuggestion(ag *agentclient.Client, convID string) tea.Cmd {
 func fetchRecap(ag *agentclient.Client, convID string) tea.Cmd {
 	return func() tea.Msg {
 		if convID == "" {
-			return recapLoadedMsg{}
+			return recapLoadedMsg{convID: convID}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		info, err := ag.GetConversation(ctx, convID)
 		if err != nil {
-			return recapLoadedMsg{}
+			return recapLoadedMsg{convID: convID}
 		}
-		return recapLoadedMsg{recap: recapDisplay(info)}
+		return recapLoadedMsg{convID: convID, recap: recapDisplay(info)}
 	}
 }
 
@@ -2147,6 +2150,11 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		return m, nil
 
 	case recapLoadedMsg:
+		// A poll started before /clear (or a conversation switch) must not
+		// restore an old recap or erase the current conversation's recap.
+		if msg.convID != m.convID {
+			return m, nil
+		}
 		// The recap line(s) claim rows below the viewport, so relayout() must
 		// re-run whenever their count changes — otherwise the viewport stays
 		// sized for the old chrome height and the extra row pushes the status
@@ -3254,9 +3262,11 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 			m.wdRef.dir = ""
 		}
 		m.sessionTitle = ""
+		m.recap = ""
 		m.cumIn = 0
 		m.cumOut = 0
 		m.mainChat().ExitToolNav()
+		m.relayout()
 		m.refreshViewport()
 	case slash.ResultOpenSettings:
 		return m, m.openConfigSurface(configTabGeneral)

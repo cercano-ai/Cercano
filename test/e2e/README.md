@@ -44,6 +44,8 @@ Each test gets a sandbox (`helpers/sandbox.mjs`), so the suite never touches
   `cercano model-host` is launched and none outlives a test.
 - `OLLAMA_URL` points at `helpers/fake-ollama.mjs`, which streams a scripted
   reply and records requests, or at an unused port when the test never chats.
+  All Ollama model tiers are explicitly pinned to `fake-model`, including
+  Premium chat and background helpers; no catalog model or live runtime is used.
   No cloud keys are set.
 - The OS keychain is not sandboxed, so specs never save keys or sign in.
 

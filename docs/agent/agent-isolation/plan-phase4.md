@@ -1,5 +1,12 @@
 # Agent Execution Isolation — Phase 4 Implementation Plan (Conversation Broker + Multi-Surface Attach)
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../features/README.md) and [routing guide](../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Grow the per-conversation turn-exclusivity registry into a real `internal/broker` that fans one turn's live events out to *many* attached surfaces (not just the client that started the turn), with a running per-turn replay buffer so a surface that joins mid-turn sees the in-flight turn animate from where it currently sits — proven server-side by tests, with no client-app changes this phase.

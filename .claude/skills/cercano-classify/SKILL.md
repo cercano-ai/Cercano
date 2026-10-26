@@ -1,16 +1,23 @@
 ---
 name: cercano-classify
-description: Classify or triage text using local AI via Cercano. Returns a category, confidence level, and brief reasoning. Use this for quick local triage of errors, logs, code quality issues, bug reports, or any content that needs categorization without sending it to the cloud.
-compatibility: Requires Cercano server running and connected to an Ollama instance.
+description: Classify or triage text using the configured model route via Cercano. Returns a category, confidence level, and brief reasoning. Use this for quick local triage of errors, logs, code quality issues, bug reports, or any content that needs categorization through the configured model route.
+compatibility: Requires Cercano server running with a usable configured model route.
 ---
 
 # Cercano Classify
 
-Classify or triage text into categories using local AI inference.
+Classify or triage text into categories using the configured model route.
 
 ## Important: Display the result
 
 MCP tool results may not be visible to the user in the terminal. After calling the tool, you MUST output the full tool result text verbatim in your response so the user can see it.
+
+## Routing and data handling
+
+Saved task routing and redirects determine local or cloud execution. Tool names
+do not enforce locality, privacy, cost, or latency. Verify the selected destination
+before supplying sensitive input; web research also contacts external search and
+page servers. Model output and confidence are not independent verification.
 
 ## MCP Tool
 

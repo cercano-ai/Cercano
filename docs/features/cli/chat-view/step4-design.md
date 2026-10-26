@@ -1,5 +1,11 @@
 # Chat View Migration — Step 4 Design (Adopt `chatView` in `/c`, delete `chatPane`)
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 **Status:** Design — forks ENUMERATED, not decided. The autonomous-run controller
 decides each fork (G1…G7) at execution time per
 `khalkulo/workflow/design_decisions.md`.

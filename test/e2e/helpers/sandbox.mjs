@@ -102,7 +102,17 @@ export async function createSandbox({ seedConfig = true, ollamaUrl, profile } = 
       mkdirSync(dir, { recursive: true });
       const lines = ["locus_mode: open_only", "open_runtime: ollama", `ollama_url: ${ollama}`];
       if (port) lines.push(`port: "${port}"`);
-      lines.push(extra);
+      // Pin every local tier, not only Everyday (CERCANO_OPEN_MODEL).
+      // Chat defaults to Premium; side calls may select other tiers.
+      lines.push(
+        "models:",
+        "  open:",
+        "    overrides:",
+        "      ollama:",
+        ...["most_capable", "everyday", "fast_light", "fast_light_text", "embedding", "vision"]
+          .map((tier) => `        ${tier}: fake-model`),
+        extra,
+      );
       writeFileSync(join(dir, "config.yaml"), lines.join("\n") + "\n");
     },
     cleanup() {

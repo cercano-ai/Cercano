@@ -76,11 +76,13 @@ type Server struct {
 	// draining is set once StopAll begins; lifecycle calls then fail.
 	draining atomic.Bool
 
-	mu        sync.Mutex
-	streams   map[*stream]struct{}
-	clients   map[string]int // attached stream count per client ID
-	idleSince time.Time
-	idleFired bool
+	mu             sync.Mutex
+	streams        map[*stream]struct{}
+	clients        map[string]int // attached stream count per client ID
+	generation     map[string]uint64
+	nextGeneration uint64
+	idleSince      time.Time
+	idleFired      bool
 }
 
 type stream struct {
@@ -136,11 +138,12 @@ func NewServer(m localruntime.Manager, opts ServerOptions) *Server {
 		opts.Now = time.Now
 	}
 	s := &Server{
-		mgr:     m,
-		opts:    opts,
-		holds:   newHoldTable(),
-		streams: map[*stream]struct{}{},
-		clients: map[string]int{},
+		mgr:        m,
+		opts:       opts,
+		holds:      newHoldTable(),
+		streams:    map[*stream]struct{}{},
+		clients:    map[string]int{},
+		generation: map[string]uint64{},
 	}
 	s.idleSince = opts.Now()
 	m.RegisterObserver(s)
@@ -424,6 +427,10 @@ func (s *Server) addStream(clientID string) *stream {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.streams[st] = struct{}{}
+	if s.clients[clientID] == 0 {
+		s.nextGeneration++
+		s.generation[clientID] = s.nextGeneration
+	}
 	s.clients[clientID]++
 	return st
 }
@@ -437,6 +444,7 @@ func (s *Server) removeStream(clientID string, st *stream) bool {
 	gone := s.clients[clientID] <= 0
 	if gone {
 		delete(s.clients, clientID)
+		delete(s.generation, clientID)
 	}
 	if len(s.streams) == 0 {
 		s.idleSince = s.opts.Now()
@@ -460,10 +468,17 @@ func (s *Server) releaseClient(clientID string) {
 		func() {
 			unlock := s.lockInstance(ctx, id)
 			defer unlock()
-			if s.attachedClients(clientID) > 0 {
+			s.mu.Lock()
+			if s.clients[clientID] > 0 {
+				s.mu.Unlock()
 				return
 			}
-			if err := s.releaseLocked(ctx, clientID, id); err != nil {
+			remaining := s.holds.remove(clientID, id)
+			s.mu.Unlock()
+			if remaining > 0 {
+				return
+			}
+			if err := s.mgr.Stop(ctx, localruntime.StopRequest{InstanceID: id}); err != nil {
 				log.Printf("modelhost: release %s for client %s: %v", id, clientID, err)
 			}
 		}()
@@ -680,8 +695,16 @@ func reply(v any, err error) (string, error) {
 }
 
 // start shares a running instance for the same runtime and model, otherwise
-// starts one, and records the client's hold either way.
+// starts one, and records the client's hold either way. Model-acquiring calls
+// require an active Attach stream and cannot outlive its attachment generation.
 func (s *Server) start(ctx context.Context, clientID string, req localruntime.StartRequest) (*localruntime.InstanceRecord, error) {
+	if s.draining.Load() {
+		return nil, errDraining
+	}
+	generation, err := s.attachment(clientID)
+	if err != nil {
+		return nil, err
+	}
 	canon := s.canonicalModel(ctx, req.Runtime, req.ModelID)
 	unlock := s.keys.lock(modelKey(req.Runtime, canon))
 	defer unlock()
@@ -696,7 +719,9 @@ func (s *Server) start(ctx context.Context, clientID string, req localruntime.St
 		if liveInstance(inst) && inst.Runtime == req.Runtime &&
 			(inst.ModelID == canon || inst.ModelID == req.ModelID) {
 			inst := inst
-			s.holds.add(clientID, inst.ID)
+			if err := s.acquire(clientID, generation, &inst, true); err != nil {
+				return nil, err
+			}
 			return &inst, nil
 		}
 	}
@@ -711,8 +736,44 @@ func (s *Server) start(ctx context.Context, clientID string, req localruntime.St
 	if err != nil {
 		return nil, err
 	}
-	s.holds.add(clientID, inst.ID)
+	if err := s.acquire(clientID, generation, inst, true); err != nil {
+		return nil, err
+	}
 	return inst, nil
+}
+
+// attachment captures the current lifetime before any blocking model work.
+func (s *Server) attachment(clientID string) (uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.clients[clientID] == 0 {
+		return 0, errUnattached
+	}
+	return s.generation[clientID], nil
+}
+
+var errUnattached = status.Error(codes.FailedPrecondition, "an active Attach stream is required for model acquisition")
+
+// acquire is called under the model lock. Validation and insertion are atomic
+// with stream removal, so disconnect either sees the hold or invalidates it.
+func (s *Server) acquire(clientID string, generation uint64, inst *localruntime.InstanceRecord, add bool) error {
+	s.mu.Lock()
+	valid := s.clients[clientID] > 0 && s.generation[clientID] == generation
+	if valid && add {
+		s.holds.add(clientID, inst.ID)
+	}
+	s.mu.Unlock()
+	if valid {
+		return nil
+	}
+	if s.holds.count(inst.ID) == 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.mgr.Stop(ctx, localruntime.StopRequest{InstanceID: inst.ID}); err != nil {
+			return errors.Join(errUnattached, err)
+		}
+	}
+	return errUnattached
 }
 
 // stop releases the client's hold and stops the instance once unheld.
@@ -756,6 +817,13 @@ func (s *Server) restartTarget(ctx context.Context, req localruntime.RestartRequ
 
 // restart restarts for every holder; holds follow the instance if its ID changes.
 func (s *Server) restart(ctx context.Context, clientID string, req localruntime.RestartRequest) (*localruntime.InstanceRecord, error) {
+	if s.draining.Load() {
+		return nil, errDraining
+	}
+	generation, err := s.attachment(clientID)
+	if err != nil {
+		return nil, err
+	}
 	target, found := s.restartTarget(ctx, req)
 	canon := s.canonicalModel(ctx, req.Runtime, req.ModelID)
 	key := modelKey(req.Runtime, canon)
@@ -792,9 +860,8 @@ func (s *Server) restart(ctx context.Context, clientID string, req localruntime.
 	if found {
 		s.holds.move(target.ID, inst.ID)
 	}
-	if s.holds.count(inst.ID) == 0 {
-		// A restart that degenerated into a fresh start still needs an owner.
-		s.holds.add(clientID, inst.ID)
+	if err := s.acquire(clientID, generation, inst, s.holds.count(inst.ID) == 0); err != nil {
+		return nil, err
 	}
 	return inst, nil
 }

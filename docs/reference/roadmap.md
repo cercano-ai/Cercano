@@ -1,5 +1,9 @@
 # Master Project Plan
 
+> Historical concept/planning record, not a current functionality or release-support
+> guide. Status and architecture statements below describe the original effort.
+> Use the root README and maintained guides in `docs/README.md` for current behavior.
+
 This plan tracks all major jobs for the project. Each job links to its detailed
 spec or plan under `features/`, `research/`, or `internal/`. Status lives in each
 doc's header; folders no longer move when a feature ships.

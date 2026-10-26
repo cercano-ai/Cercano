@@ -1,7 +1,7 @@
 # Self-Development Guide
 
 How to build, test, and inspect Cercano when working on Cercano itself. This
-doc is read by the agent on entering development mode (`/d`), alongside
+doc is requested by the kickoff prompt on entering development mode (`/d`), alongside
 `docs/features/cli/README.md` (CLI track status + outstanding work) and
 `docs/agent/README.md` (agent architecture).
 
@@ -13,18 +13,13 @@ Older conversations have no recorded dev-mode metadata. Enter `/d` once after up
 
 ## Delegate to open models — this is the point of Cercano
 
-**Read this before doing recon work.** Cercano exists to keep the frontier
-model's tokens for frontier-grade reasoning and push everything else onto local
-("open") models. When *you* — the main thread — grind through a pile of
-`Grep`/`Read`/`Glob` calls to understand how some code works, you are burning
-frontier tokens on work an open model does perfectly well. Don't. Delegate it.
+Prefer bounded delegation for routine reconnaissance when the host exposes it and
+its route, cost and permissions fit the task. Local-model quality depends on the
+model and workload; inspect the returned evidence rather than assuming parity
+with a frontier model. Follow the current host's tool catalog and task constraints.
 
-**The delegation tools are native agent tools, not "just MCP skills."** When
-Cercano runs as the agent (which is what you are right now), the capabilities
-below are in your tool catalog and you call them directly, exactly like `Read`
-or `Bash`. The `SKILL.md` files under `plugins/skills/` and the embedded
-`internal/skills/catalog/` are the *same* capabilities described for host agents
-— but here they are first-class tools you invoke yourself.
+Cercano registers delegation as native agent capabilities as well as MCP-facing
+capabilities; skill descriptions are not proof that a particular host grants them.
 
 | Tool | Shape | Runs on | Use it for |
 |---|---|---|---|
@@ -36,7 +31,7 @@ or `Bash`. The `SKILL.md` files under `plugins/skills/` and the embedded
 
 Public `dispatch`/`workflow` returns an accepted task handle immediately, not the
 finished report. Use `task_inspect` or `task_wait` before relying on the child's
-answer; use `task_stop` to stop execution. See [independent tasks](independent-tasks.md).
+answer; use `task_stop` to request cancellation, not as proof of terminal completion. See [independent tasks](independent-tasks.md).
 
 
 **Canonical delegation example.** Instead of running fifteen Grep/Read calls
@@ -66,7 +61,7 @@ Choose `class` at the semantic entry point:
 - `git_land`: the existing landing workflow including its nested review (Local/Premium).
 - `watchdog`: normal Watchdog routing (Local/Standard); no special placement exemption.
 
-Chat is Primary/Standard; omitted dispatch class uses Default dispatch (Secondary/Premium). Unknown explicit classes are rejected. Prefer omitting `tier` so the chosen class's saved quality applies. Explicit `light`, `standard`, or `deep` changes quality only; it never chooses a destination, class or permission grant. Light uses the persisted `economy` value.
+Chat is Primary/Standard; omitted dispatch class uses Default dispatch (Secondary/Standard). Unknown explicit classes are rejected. Prefer omitting `tier` so the chosen class's saved quality applies. Explicit `light`, `standard`, or `deep` changes quality only; it never chooses a destination, class or permission grant. Light uses the persisted `economy` value.
 
 Secondary/Local redirects resolve before placement and model selection. Only the final destination's models, credentials and backup chain apply. Saved source assignments remain unchanged. Locus policy still prohibits forbidden placement; final Secondary cannot fall through to Primary/Local. Tool permissions remain the explicit grant and approval system, independent of model quality. See [the routing guide](../cloud-routing.md).
 
@@ -83,32 +78,31 @@ Two binaries from two Go modules:
 
 ```bash
 # Server (agent + MCP)
-cd source/server && make build
-cd source/server && go test ./... -count=1
+make -C source/server build
+(cd source/server && go test ./... -count=1)
 
 # CLI (separate Go module; depends on server pkg/ via replace directive)
-cd source/clients/cli && make build
-cd source/clients/cli && go test ./... -count=1
+make -C source/clients/cli build
+(cd source/clients/cli && go test ./... -count=1)
 ```
 
 **Prefer `make build`** (in each module) over bare `go build`: the make targets
 inject the Git-derived build version (`git describe --tags --always --dirty`,
-with the leading `v` stripped; `VERSION` overrides it) and code-sign the binary
-via `source/server/scripts/codesign-if-available.sh`.
-A stable Developer ID signature keeps macOS Keychain ACLs matching across
-rebuilds, so the agent's secret reads (cloud API keys, OAuth tokens) don't
-prompt for a password after every rebuild. The dev launcher uses the same
-version convention and signing for its rebuilds. Bare `go build` still works,
-but the CLI reports `dev` rather than a release version — the binary also reverts
-to an ad-hoc signature and the first Keychain read will prompt again.
-`CERCANO_CODESIGN_ID` overrides the auto-detected identity (`none` disables).
+with the leading `v` stripped; `VERSION` overrides it) and invoke
+`source/server/scripts/codesign-if-available.sh`. Signing is conditional on an
+available Developer ID identity; `CERCANO_CODESIGN_ID` selects one (`none`
+disables signing). A stable identity is intended to preserve macOS Keychain
+access across rebuilds, but prompts depend on OS and Keychain configuration.
+The launcher uses the same version/signing convention. Bare `go build` without
+version ldflags reports `dev` and does not run this signing helper.
 
-**Singleton caveat:** the agent server is a singleton on `:50052`. A rebuilt
+**Singleton caveat:** the agent server is a singleton (default address `:50052`). A rebuilt
 binary changes nothing until the running agent is killed — a stale agent will
 happily keep serving old code. The dev launcher (`~/bin/cercano`, generated by
 `source/server/scripts/install-launcher.sh`) handles this: it rebuilds either
-binary whose sources changed and kills agents older than the fresh binary
-before exec'ing the CLI. After launcher-template changes, regenerate the installed
+binary when missing or when `.go` file timestamps are newer and kills agents older than the fresh binary
+before exec'ing the CLI. Non-Go changes (including module files and embedded
+assets) may require a manual rebuild. After launcher-template changes, regenerate the installed
 launcher with `make launcher` in `source/server`; the installed copy does not
 update itself.
 
@@ -121,24 +115,28 @@ another).
 | Path | What it is |
 |---|---|
 | `<profile>/logs/agent.log` | stdout/stderr of an auto-launched agent |
-| `<profile>/crash.log` | agent crash reports |
+| `<profile>/crash.log` | crash reports when crash capture initializes successfully |
 | `<profile>/logs/dispatch.log` | MCP dispatch-mode diagnostics |
 
 The auto-launch log path comes from `pkg/agentclient/profile_dial.go` (it prints as
-"auto-launched agent server (log: …)" on CLI startup). When debugging agent
+"auto-launched agent server (log: …)" when auto-launching). When debugging agent
 behavior, check the server log first — tool-loop iterations, provider errors,
-and permission decisions all land there.
+and permission diagnostics may appear there; manually started agents use their
+configured stdout/stderr instead.
 
 ## Databases
 
-SQLite in WAL mode. Query in place with `sqlite3`; if you must copy a
-database, take its `-wal` and `-shm` siblings too or you'll read a stale
-snapshot. Timestamps are integer unix **seconds**.
+Both stores enable SQLite WAL mode. Use read-only queries (for example,
+`sqlite3 -readonly`) when inspecting live data. For a consistent copy use
+SQLite's backup facility; copying a live database and its sidecars separately
+is not an atomic snapshot. Conversation timestamps below are integer Unix
+**seconds**; telemetry timestamps are stored as SQLite DATETIME values.
 
 ### `<profile>/conversations.db`
 
-Override with `$CERCANO_CONVERSATIONS_DB`. Schema source of truth:
-`source/server/internal/conversation/schema.sql`. Tables: `conversations`
+Override with `$CERCANO_CONVERSATIONS_DB`. Schema sources of truth:
+`source/server/internal/conversation/schema.sql` and migrations in `store.go`.
+Selected tables: `conversations`
 (id, title, project_dir, recap, timestamps), `turns` (role, content,
 token counts, created_at), `conversation_compaction` (derived summaries).
 Tool-calling turns carry an ordered Anthropic-wire-shape block array in the
@@ -146,17 +144,17 @@ Tool-calling turns carry an ordered Anthropic-wire-shape block array in the
 
 ```bash
 # Ten most recent conversations
-sqlite3 ~/.config/cercano/profiles/default/conversations.db \
+sqlite3 -readonly ~/.config/cercano/profiles/default/conversations.db \
   "SELECT id, title, datetime(last_turn_at,'unixepoch') FROM conversations \
    ORDER BY last_turn_at DESC LIMIT 10;"
 
 # A conversation's turns, in order (truncate long bodies)
-sqlite3 ~/.config/cercano/profiles/default/conversations.db \
+sqlite3 -readonly ~/.config/cercano/profiles/default/conversations.db \
   "SELECT role, substr(coalesce(nullif(content,''), content_json),1,120) \
    FROM turns WHERE conversation_id='<id>' ORDER BY created_at;"
 
 # Turns whose tool calls mention a given tool
-sqlite3 ~/.config/cercano/profiles/default/conversations.db \
+sqlite3 -readonly ~/.config/cercano/profiles/default/conversations.db \
   "SELECT conversation_id, datetime(created_at,'unixepoch') FROM turns \
    WHERE content_json LIKE '%\"name\":\"Edit\"%' ORDER BY created_at DESC LIMIT 20;"
 ```
@@ -170,36 +168,39 @@ command; raw SQL works too (`.tables` to explore — the schema is small).
 ## Config surfaces
 
 Per profile, in `<profile>/`: `config.yaml` (server: models, endpoints,
-cloud provider), `permissions.yaml` (permission mode + allowlist), `mcp.yaml`
-(hosted MCP servers; per-project override in `.cercano/mcp.yaml`).
-Machine-wide, in `~/.config/cercano/`: `machine.yaml` (local runtime settings:
-`llama_server`, `mistralrs`) and `ui.yaml` (CLI).
+cloud provider), `permissions.yaml` (permission mode + allowlist), and `mcp.yaml`
+(hosted MCP servers; legacy `mcp.json` is also imported, with YAML winning
+collisions). The server host loads from the profile directory, not a per-project
+`.cercano/mcp.yaml` override. Machine-wide, in `~/.config/cercano/`:
+`machine.yaml` (local runtime settings: `llama_server`, `mistralrs`) and `ui.yaml`
+(CLI). CLI UI config honors `CERCANO_UI_CONFIG` and `XDG_CONFIG_HOME`.
 
 ## Where outstanding work is tracked
 
 - `docs/features/cli/README.md` — task rollups per phase, deviations from
   plan, and the "still outstanding" list for the CLI track.
-- `README.md` (repo root) — Feature TODOs: new features and existing
-  improvements across the whole project.
+- `README.md` (repo root) — overview and links to feature/status documentation.
 - `docs/features/` and `docs/agent/` — per-feature `design.md` / `plan.md`
-  pairs; a plan's unchecked boxes are its remaining work.
+  pairs; historical unchecked boxes are not a reliable current backlog. Confirm
+  implementation and current tracking before treating a plan step as outstanding.
 
 ## Troubleshooting local models & the agent lifecycle
 
-Hard-won facts from debugging the local-runtime path (2026-07-07). When a
+Historical debugging notes (2026-07-07), updated for current source. These are
+diagnostic leads, not guarantees about external runtimes or model formats. When a
 background job (recap, compaction, watchdog) fails, triage by the error's
 *shape* in the server log:
 
 | Log error | Meaning | Where to look |
 |---|---|---|
 | `model "X" not found in configured model_dirs` | name resolution — the requested name matches no GGUF (`matchesModel` in `internal/localruntime/llamaserver/provider.go`; bare names alias `<name>-latest` stems) | tier values in `config.yaml` vs actual filenames |
-| `llama-server exited during startup: exit status 1` | the file or binary is the problem, not Cercano — reproduce manually (below) | GGUF/llama.cpp compatibility |
-| `chat error (status 400) … exceeds the available context size` | config — `llama_server.context_size` must exceed the caller's prompt (compaction sends ~8k-token segments plus overhead, so 8192 can never fit; 16384+ works) | `llama_server.context_size` |
+| `llama-server exited during startup: exit status 1` | startup failed; inspect stderr and reproduce the actual invocation (below) | GGUF/llama.cpp compatibility |
+| `chat error (status 400) … exceeds the available context size` | request exceeds the runtime context budget; account for prompt, tool schema and output reserve (no fixed context size guarantees success) | `llama_server.context_size` |
 
-Reproduce a spawn failure outside the agent. macOS has no coreutils `timeout`,
+Reproduce a spawn failure outside the agent. A stock macOS shell may lack coreutils `timeout`,
 but you do **not** need the old background-and-kill dance from a Cercano tool
-call: the `Bash` tool enforces `timeout_seconds` itself (default 60), killing
-the command's whole process group and returning any partial output. Pass
+call: the `RunCommand` tool (legacy alias `Bash`) enforces `timeout_seconds` itself (default 60), signalling
+the command's process group on Unix and returning partial output on timeout. Pass
 `timeout_seconds` rather than hand-rolling a cap.
 
 `timeout_seconds` values: omit it (or pass `0`) for the 60s default, a positive
@@ -208,7 +209,10 @@ genuinely unbounded work such as a cold-cache build, a large migration, or a
 long sweep, where guessing a bound risks killing legitimate work. Any other
 negative is rejected, so a typo'd `-60` cannot silently mean "forever".
 Unbounded is not unstoppable: `-1` only removes the deadline, and cancelling
-the turn (Esc) still reaps the whole process group.
+the turn still sends SIGTERM to the Unix process group. A deadline also triggers
+a final group SIGKILL sweep; cancellation alone does not guarantee cleanup of
+SIGTERM-resistant descendants. `RunCommand` takes argv, not an implicit shell;
+use an explicit shell for pipelines or background jobs.
 
 The background + kill form below is for running this by hand in a plain shell:
 
@@ -218,16 +222,16 @@ The background + kill form below is for running this by hand in a plain shell:
   > /tmp/lls.log 2>&1 & sleep 5; kill %1; grep -iE 'error|missing' /tmp/lls.log
 ```
 
-Known incompatibility: **Ollama-pulled GGUF blobs are not guaranteed to load
-in upstream llama.cpp.** qwen3-coder-next from Ollama's registry fails with
-`missing tensor 'blk.0.ssm_dt.bias'` on every upstream build tried — Ollama
-runs such models on its own engine. Fix by re-sourcing a HuggingFace-converted
-GGUF, not by upgrading llama.cpp.
+Historical compatibility report: an Ollama-sourced qwen3-coder-next blob failed
+with `missing tensor 'blk.0.ssm_dt.bias'` on the upstream builds tried at the
+time. This is not a current compatibility matrix. Check the exact artifact and
+runtime version; a compatible conversion or runtime may be needed. Neither a
+runtime upgrade nor a different download source alone guarantees a fix.
 
 ### Tracing raw tool-call streaming (`cercano_streamtrace`)
 
 When an OpenAI-compatible server (llama-server, vLLM, etc.) produces wrong or
-missing tool calls, the culprit is often *how it splits one tool call across
+missing tool calls, one possible cause is *how it splits one tool call across
 streaming fragments* — the name, id, and argument JSON can arrive on different
 `data:` chunks, and the reassembly in `internal/llm/openai/stream.go` has to
 tolerate it. Don't infer that wire shape from second-order symptoms; observe it.
@@ -237,16 +241,20 @@ A build-tagged tracer dumps every raw tool-call fragment to stderr. It is
 `os.Stat`/env cost on the hot path), so it must be compiled in explicitly:
 
 ```bash
-go build -tags cercano_streamtrace -o ~/bin/.cercano-libexec/cercano ./source/server/cmd/cercano
-# codesign as usual, then restart the agent
+cd source/server
+tmp="$HOME/bin/.cercano-libexec/cercano.new.$$"
+go build -tags cercano_streamtrace -o "$tmp" ./cmd/cercano && \
+  scripts/codesign-if-available.sh "$tmp" cercano && \
+  mv -f "$tmp" "$HOME/bin/.cercano-libexec/cercano"
+# Restart the agent only when it is safe to interrupt active work.
 ```
 
 Once running a trace-tagged binary, enable it at runtime with EITHER:
 
 - `CERCANO_TRACE_OPENAI_STREAM=1` in the server's env (read once at start), or
-- `touch ~/.cercano/trace-openai-stream` — checked live per stream, so it
+- `mkdir -p ~/.cercano; touch ~/.cercano/trace-openai-stream` — checked per fragment, so it
   toggles on the already-running singleton server with no restart (remove the
-  file to turn it off).
+  file to turn it off only if the environment switch is not enabled).
 
 Output, one line per fragment, in the server log/stderr:
 
@@ -255,12 +263,10 @@ Output, one line per fragment, in the server log/stderr:
 [openai-stream-trace] tool_call fragment idx=0 id="" name="" args="\"path\":"
 ```
 
-This is how the 2026-08-12 "delegated sub-agents log `called=[]`" case was
-resolved: the trace proved GLM-4.5-Air sends the tool name on the *first*
-fragment (ruling out a deferred-name streaming bug), which redirected the fix
-to the real cause — the sub-agent flatten path stripping `BlockToolUse` from
-the history the low-signal detector inspected (now read from
-`ToolLoopResult.CalledTools` instead).
+Historical incident (2026-08-12): tracing the GLM-4.5-Air `called=[]` case
+reportedly ruled out deferred-name streaming and exposed lost tool-use evidence.
+This anecdote does not establish the wire format of current model/runtime builds.
+Trace output can contain sensitive tool arguments; handle and remove logs accordingly.
 
 ### Opt-in live open-model dispatch smoke
 
@@ -284,31 +290,33 @@ show a real tool-grounded run (`called=[Read]`). It is skipped unless
 `CERCANO_LIVE_OPEN_MODEL_TEST=1` is set, so CI and normal development never
 require a local model.
 
-Model-resolution wiring (all resolved once at agent startup in
-`cmd/cercano/main.go`): compaction summarizer ← `fast_light.open`;
-recap and watchdog ← `fast_light_text.open`; interactive local chat ←
-`open_model`. A broken `open_model` no longer breaks background jobs.
+Model resolution is task-specific, not one startup-only local-model mapping.
+Compaction uses shared `internal/loopcompact` routing (default Secondary/Light);
+`compaction.summarizer_model` applies only to explicitly Local, resolved-local
+execution. Watchdog uses its saved task assignment (default Local/Standard).
+The recap generator is wired at startup with `fast_light_text.open`; local chat
+uses `open_model`. Diagnose the effective route and selected model rather than
+assuming every background job uses the local fast/light model. See
+[compaction routing](compaction-routing.md) and [routing](../cloud-routing.md).
 
 Agent-bounce pitfalls:
 
-- Killing the agent does **not** kill its spawned llama-server children —
-  orphans linger with the old `--ctx-size`. Check `pgrep -fl llama-server`
-  and kill stale ones after a config change.
-- The auto-relaunch path (CLI reconnect) execs the installed
-  `~/bin/.cercano-libexec/cercano` binary **without** the launcher's
-  rebuild-if-stale step. After changing server code, rebuild into libexec
-  (`go build -o ~/bin/.cercano-libexec/cercano ./cmd/cercano/`) or run
-  `cercano` itself before trusting a bounce.
-- **Never `cp` over an installed signed binary in place** — macOS caches the
-  code signature per vnode, and the overwritten binary dies with
-  `Killed: 9` on launch even though `codesign -dv` looks fine. `rm` the
-  destination first, then copy (fresh vnode, fresh signature), or build
-  directly to the destination path.
+- Graceful server shutdown attempts to stop managed runtime instances; startup
+  also sweeps owned llama-server orphans. Hard kills or failed cleanup can still
+  leave children with old settings. Inspect ownership before terminating any process.
+- Auto-launch executes the server sibling of the running CLI, falling back to
+  `PATH`; with the dev launcher this is `~/bin/.cercano-libexec/cercano`.
+  It does not itself rebuild. After source changes, run the installed dev
+  launcher or explicitly build/install before trusting a bounce.
+- Install rebuilt signed binaries via a temporary sibling and rename (as the
+  launcher does), not by overwriting an executing binary in place. This avoids
+  the signature-cache problems noted in historical macOS debugging; exact OS
+  behavior is environment-dependent.
 - Verify a bounce actually happened: compare the agent PID/start time
   (`ps -o pid,lstart -p $(lsof -tiTCP:50052 -sTCP:LISTEN)`) against your kill,
   and count startup banners in the server log. A phantom "killed" echo from a
   mangled PID extraction cost a full debugging round.
-- Compaction pass **success is silent** in the server log — falling token
-  counts across consecutive `pass start` lines are the success signal.
+- Background compaction logs `pass ok` with before/after token counts after
+  saving changed state; it also logs deferred, failed and no-op passes.
   Recap success is visible in `conversations.db` (`recap`,
   `recap_updated_at`).

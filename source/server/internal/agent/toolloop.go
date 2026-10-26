@@ -120,9 +120,13 @@ type ToolLoopInput struct {
 	// PlanProfile) both hides forbidden tools from the model and denies them at
 	// the gate. It is orthogonal to Permissions.Mode(), which planning still
 	// honors for the reads it allows.
-	Profile     Profile
-	ConvHistory []llm.Message
-	UserInput   string
+	Profile Profile
+
+	// CurrentProfile reads authoritative session state before each suggest_plan gate.
+	// Errors fail closed; nil retains the loop-local profile.
+	CurrentProfile func(context.Context) (Profile, error)
+	ConvHistory    []llm.Message
+	UserInput      string
 
 	// PinUserInput retains the original delegated task verbatim as the first
 	// user message. Only execution history is compactable or trimmable.
@@ -1015,6 +1019,31 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 
 		watchdogIntervened := false
 		for _, pc := range wxCalls {
+			// Check each queued entry, not just batch classification: an earlier
+			// entry or an external /plan during inference may have changed state.
+			// This precedes watchdog escalation as well as the normal confirm gate.
+			if pc.block.ToolName == "suggest_plan" {
+				if in.CurrentProfile != nil {
+					current, err := in.CurrentProfile(ctx)
+					if err != nil {
+						return ToolLoopResult{}, err
+					}
+					in.Profile = current
+				}
+				if in.Profile.Name == "plan" {
+					emit(LoopEvent{Kind: LoopToolExecComplete, ToolUseID: pc.block.ToolUseID, ToolName: pc.block.ToolName, Summary: "blocked by plan profile", IsError: true})
+					results = append(results, llm.Block{Type: llm.BlockToolResult, ToolUseRef: pc.block.ToolUseID, Content: fenceDenialMessage("plan", pc.block.ToolName, pc.tier), IsError: true})
+					continue
+				}
+			}
+			// An earlier queued control call may have tightened or lifted the
+			// local fence since classification. Revalidate every W/X call before
+			// watchdog escalation or permission can authorize execution.
+			if !in.Profile.Allows(pc.tier, pc.block.ToolName) {
+				emit(LoopEvent{Kind: LoopToolExecComplete, ToolUseID: pc.block.ToolUseID, ToolName: pc.block.ToolName, Summary: "blocked by " + in.Profile.Name + " profile", IsError: true})
+				results = append(results, llm.Block{Type: llm.BlockToolResult, ToolUseRef: pc.block.ToolUseID, Content: fenceDenialMessage(in.Profile.Name, pc.block.ToolName, pc.tier), IsError: true})
+				continue
+			}
 			watchdogApproved := false
 			if in.WatchdogGate != nil {
 				wd := in.WatchdogGate(ctx, pc.block.ToolName, pc.block.ToolInput, hist)
@@ -1165,14 +1194,11 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 				out.StartLine = res.StartLine
 				emit(LoopEvent{Kind: LoopToolExecComplete, ToolUseID: pc.block.ToolUseID, ToolName: pc.block.ToolName, Summary: summarizeResult(res), Detail: res.Detail, StartLine: res.StartLine, IsError: false})
 				results = append(results, toolResultBlocks(out, res, preserveImages)...)
-				// Handoff tools (plan_exit, request_plan_approval) drop the
-				// read-only planning fence. The ProfileBroker change they make only
-				// lands on the next turn, so without this the rest of THIS turn
-				// stays fenced and any follow-on write/exec tool is wrongly blocked.
-				// Zero the loop-local Profile so subsequent calls in this turn are
-				// unrestricted. This only ever relaxes the fence (asymmetric):
-				// entering a profile still happens cleanly at a turn boundary, never
-				// mid-turn. See agent.ToolLiftsPlanFence.
+				// Successful entry tightens the local fence and the next iteration's
+				// rebuilt catalog. Successful handoffs still lift it immediately.
+				if pc.block.ToolName == "suggest_plan" {
+					in.Profile = PlanProfile()
+				}
 				if ToolLiftsPlanFence(pc.block.ToolName) {
 					in.Profile = Profile{}
 				}

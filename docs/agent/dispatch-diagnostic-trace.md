@@ -8,7 +8,7 @@ Every agentic dispatch with conversation persistence now records its request-con
 
 The host remains the only SQLite owner. In-process dispatches append through the narrow `conversation.DispatchEventStore` interface. Worker dispatches use correlated request/response messages over their existing host stream. The host acknowledges a write only after the database operation returns. Only child conversations successfully created under the current turn or its authorized descendants can write events through that stream.
 
-Writes have a bounded wait and respect cancellation. Recording failures do not abort the task: they are logged without payload content, counted in the recorder, reported in the final dispatch result/progress, and recorded in the failure log. Later successful events retain sequence gaps, and a successfully written `dispatch_done` includes the preceding persistence-failure count. A failed final append, cancelled stream or process crash can leave no terminal event; absence of one is not evidence of success. Existing ordinary turn persistence remains best-effort; this change does not claim to repair all historical turn accounting.
+Each recorder append waits at most five seconds and respects cancellation. Recording failures do not abort the task: they are logged without payload content, counted in the recorder, reported in the final dispatch result/progress, and recorded in the failure log. Later successful events retain sequence gaps, and a successfully written `dispatch_done` includes the preceding persistence-failure count. A failed final append, cancelled stream or process crash can leave no terminal event; absence of one is not evidence of success. Existing ordinary turn persistence remains best-effort; this change does not claim to repair all historical turn accounting.
 
 ## Evidence retained
 
@@ -50,7 +50,10 @@ The store API also exposes `ListDispatchEvents`. No new UI or public retrieval R
 
 Like ordinary conversation turns, these records contain sensitive prompts, source code and tool results. They stay in the existing local database and its backups; do not upload or commit them. No transport authentication headers, provider configuration objects or arbitrary transport-error bodies are recorded. This is not a secret scrubber for secrets embedded in task/source/tool content.
 
-Images/image URLs and opaque provider reasoning blobs are omitted with explicit markers. Provider-specific extras and final wire serialization are not captured. Summarizer prompts are captured at the runner boundary; runner-added system prompts and finish reasons unavailable there are not fabricated. Ordinary chat and one-shot non-agentic calls are outside this dispatch-loop feature. Historical lost compaction state cannot be reconstructed retroactively.
+Images/image URLs and provider reasoning are omitted with explicit markers by
+default. The opt-in [reasoning capture](dispatch-reasoning-capture.md) setting
+retains bounded plaintext reasoning only in `model_response`; opaque reasoning
+and history snapshots remain redacted. Provider-specific extras and final wire serialization are not captured. Summarizer prompts are captured at the runner boundary; runner-added system prompts and finish reasons unavailable there are not fabricated. Ordinary chat and one-shot non-agentic calls are outside this dispatch-loop feature. Historical lost compaction state cannot be reconstructed retroactively.
 
 Existing JSONL captures on disk are not imported or deleted. Their old selectors and claim files are ignored by this version. Deployment may archive the obsolete `armed` file to disarm an old binary without deleting its evidence or interrupting active work.
 

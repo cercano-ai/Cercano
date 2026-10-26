@@ -17,14 +17,14 @@ func TestRecapAppearanceReservesViewportRow(t *testing.T) {
 
 	h0 := m.mainChat().Height()
 
-	next, _ := m.Update(recapLoadedMsg{recap: "wired the engine badge"})
+	next, _ := m.Update(recapLoadedMsg{convID: m.convID, recap: "wired the engine badge"})
 	m = next.(Model)
 	if got := m.mainChat().Height(); got != h0-2 {
 		t.Errorf("recap appearing should shrink viewport by 2 (blank spacer + recap line): %d -> %d, want %d", h0, got, h0-2)
 	}
 
 	// Clearing it frees the row again.
-	next, _ = m.Update(recapLoadedMsg{recap: ""})
+	next, _ = m.Update(recapLoadedMsg{convID: m.convID, recap: ""})
 	m = next.(Model)
 	if got := m.mainChat().Height(); got != h0 {
 		t.Errorf("recap clearing should restore viewport height: want %d, got %d", h0, got)
@@ -42,7 +42,7 @@ func TestRecapWrapsAndReservesAllRows(t *testing.T) {
 	h0 := m.mainChat().Height()
 
 	long := "refactored the telemetry collector to guard Emit against a closed channel, added a race regression test, and rebuilt the server"
-	next, _ := m.Update(recapLoadedMsg{recap: long})
+	next, _ := m.Update(recapLoadedMsg{convID: m.convID, recap: long})
 	m = next.(Model)
 
 	n := len(m.recapLines())
@@ -67,7 +67,7 @@ func TestRecapGrowthRelayoutsWithoutPresenceToggle(t *testing.T) {
 	m = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 30})
 
 	// Start with a short recap that wraps to exactly one line.
-	next, _ := m.Update(recapLoadedMsg{recap: "wired the badge"})
+	next, _ := m.Update(recapLoadedMsg{convID: m.convID, recap: "wired the badge"})
 	m = next.(Model)
 	if n := len(m.recapLines()); n != 1 {
 		t.Fatalf("setup: short recap should be 1 line at width 60, got %d", n)
@@ -77,7 +77,7 @@ func TestRecapGrowthRelayoutsWithoutPresenceToggle(t *testing.T) {
 	// Grow the recap text — no presence toggle, it was already non-empty — into
 	// something that wraps to multiple rows.
 	long := "refactored the telemetry collector to guard Emit against a closed channel, added a race regression test, and rebuilt the server"
-	next, _ = m.Update(recapLoadedMsg{recap: long})
+	next, _ = m.Update(recapLoadedMsg{convID: m.convID, recap: long})
 	m = next.(Model)
 
 	n := len(m.recapLines())

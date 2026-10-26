@@ -1,6 +1,10 @@
 # Agent execution isolation — architecture (as-built)
 
-**Status:** as-built through Phase 4 (landed) + Phase 5 (worker, in progress).
+**Status:** Architecture snapshot with historical phase notes. Production configuration
+defaults to `worker`; embedded/test construction can use `in_process`.
+The phase checklist below is not a current implementation backlog.
+`worker_idle_timeout_seconds` defaults to a five-minute idle window (zero selects
+the default; negative disables idle reaping). See `pkg/config/config.go`.
 This is the AS-BUILT complement to `design.md` (the forward-looking design) and
 the per-phase plans (`plan-phase{2,3,4,5}.md`). Where the design describes intent,
 this describes the code as it stands: which types exist, what they own, and how a
@@ -107,6 +111,12 @@ back to the host over the stream.
 
 ## 3. The layers / components
 
+The field lists and approximate line numbers below are phase-era sketches, not
+exhaustive current inventories. For example, `runner.Request` now also carries
+chat-route/model overrides, authentication recovery and input attribution; its
+`Deps` include vision and capability-profile accessors. Read the named types for
+the complete API.
+
 ### 3.1 The front door — `internal/server/server.go`
 
 `Server` embeds `proto.UnimplementedAgentServer` and terminates client
@@ -132,9 +142,9 @@ The turn handler `streamProcessRequestWithToolLoop` (server.go ~1978) is the
 single per-turn choreographer: it opens the turn fence (`beginTurn`), attaches
 the initiator as the first (lossless) broker subscriber, spins the turn in a
 goroutine that calls `s.turnRunner.RunTurn(ctx, req, sink, requester, persist)`
-(server.go ~2081), and drains broker events to the initiator's stream. **This
-handler is identical regardless of execution mode** — `turnRunner` is an
-interface (§3.4, §3.6).
+(server.go ~2081), and drains broker events to the initiator's stream. Both modes
+share this handler and `TurnRunner` interface (§3.4, §3.6); worker-specific
+conversation setup and post-turn bookkeeping still run on the host.
 
 ### 3.2 The six host services — `internal/hostsvc/`
 
@@ -174,8 +184,7 @@ The `Broker` owns three per-conversation concerns, all under one `mu`. It is
 - **Replay buffer.** `Publish` also appends to the current turn's buffer.
   `Attach` atomically snapshots that buffer (replay) *and* registers a live
   channel under the same lock, so every event is **either** in replay (published
-  before Attach) **or** on the channel (published after) — never both, never
-  neither. This is the mid-turn-join guarantee.
+  before Attach) **or** eligible for live delivery (published after), without an attach-boundary race. Passive live delivery can still drop on overflow.
 - **Lossy vs lossless subscribers.** `Attach` returns a cap-64 **drop-on-full**
   channel — correct for a passive observer that must never stall the turn.
   `AttachLossless` returns a channel backed by an unbounded queue drained by a
@@ -213,7 +222,11 @@ worker process (worker mode) *the same code path*.
 - **`Core.RunTurn`** (core.go) does the whole turn: resolve provider from locus,
   assemble history, persist the user turn up front (crash-resilience), build the
   watchdog gate + gated registry, run `agent.RunToolLoop`, do cross-tier fallback
-  on error, and post-turn bookkeeping (recap, compaction, token accounting). Note
+  only before visible text/tool execution makes replay unsafe. Same-provider
+  whole-turn retry is similarly gated and additionally requires a retryable error.
+  Recap, compaction and context-usage bookkeeping require a host `Agent`; the
+  worker has none, so `Server.workerPostTurn` performs those on the host and
+  emits aggregate usage telemetry (not in-process per-call usage). Note
   `buildSystemPrompt` and the directory/git snapshot live here (proto-free copies)
   and use `req.WorkDir` — never `os.Chdir`.
 
@@ -227,18 +240,20 @@ turn in isolation and holds **no durable state**. Worker-side files:
   from the `ConfigSnapshot`, stream-backed permissions, preloaded history), then
   runs the **unchanged** `runner.New(deps).RunTurn(...)` with stream-backed
   sink/requester/persist. It builds providers via `buildWorkerProviders`
-  (a minimal `workerResolver`) and tools via `buildWorkerTools` (the full
-  built-in registry; **MCP tools excluded** — MCP servers run host-side only).
+  (a minimal `workerResolver`) and tools via `buildWorkerToolSvcWithDiagnostic` (the full
+  built-in registry plus proxies for advertised host MCP tools; MCP servers themselves remain host-side).
   Panics in the turn are recovered into a `TurnError`.
 - **`proxies.go`** — the stream-backed `Deps`/callback proxies: a single
   serialized `sender` goroutine (gRPC `Send` is not concurrency-safe);
   `streamEventSink` (Emit → `WorkerEvent`), `streamPermissionRequester`
   (id-correlated round-trip), `streamCredentialSource` + `streamTokenSource`
-  (id-correlated credential fetch; the ChatGPT-subscription token source), and
+  (id-correlated credential fetch; ChatGPT and Anthropic subscription token
+  adapters), `streamSessionProfileController` (host profile read/switch), and
   `streamPersistFunc` + `preloadedHistory` (Assemble/LoadProjectContext return
   the StartTurn-provided values; PersistTurn proxies to the host).
-- **`wire.go`** — the codecs: `MarshalMessage`/`UnmarshalMessage` (lossless
-  `llm.Message ↔ LLMMessage` via `blocks_json`), `MarshalEvent`/`UnmarshalEvent`,
+- **`wire.go`** — the codecs: `MarshalMessage`/`UnmarshalMessage`
+  (`llm.Message ↔ LLMMessage` via JSON-serializable blocks; transient provider
+  extras are excluded), `MarshalEvent`/`UnmarshalEvent` (event subset; see §5),
   `SnapshotConfig`/`ConfigFromSnapshot`.
 - **`host.go`** — the host-side `workerRunner` (see §3.6 / §4-worker).
 - **`spawn.go`** — host-side process lifecycle: `spawnWorker` finds the `cercano`
@@ -252,10 +267,10 @@ turn in isolation and holds **no durable state**. Worker-side files:
 
 ### 3.6 The `workerRunner` (host side) — `internal/worker/host.go`
 
-`workerRunner` implements `runner.TurnRunner`, so the host turn handler is
-**unchanged** — only the concrete `turnRunner` type differs. Its `RunTurn`:
+`workerRunner` implements `runner.TurnRunner`, so both modes use the same
+host front door, with worker-specific setup/bookkeeping around execution. Its `RunTurn`:
 pre-assembles history + project context (it owns the store), builds the
-`ConfigSnapshot` + permission mode, spawns the worker (or uses an injected dial
+`ConfigSnapshot` + permission mode, acquires a pooled worker (or uses an injected dial
 in tests), sends `StartTurn`, then runs a **drain loop** mapping worker→host
 messages onto the host callbacks it was handed. It is the mirror of the worker's
 proxies. §5 details the transport.
@@ -264,10 +279,11 @@ proxies. §5 details the transport.
 
 ## 4. A turn's lifecycle — both modes
 
-The host turn handler (`streamProcessRequestWithToolLoop`) is identical either
-way. The only difference is which `TurnRunner` `RunTurn` runs behind the interface.
+Both modes use `streamProcessRequestWithToolLoop`. The `TurnRunner` interface
+selects execution; worker-specific conversation setup and post-turn bookkeeping
+remain host responsibilities.
 
-### 4.1 IN-PROCESS mode (embedded / test / current default)
+### 4.1 IN-PROCESS mode (embedded / test / explicit opt-in)
 
 1. **Front door.** Client calls `StreamProcessRequest`. The handler calls
    `beginTurn(stream.Context(), convID)` → `broker.BeginTurn`, which supersedes
@@ -287,16 +303,19 @@ way. The only difference is which `TurnRunner` `RunTurn` runs behind the interfa
 
 ### 4.2 WORKER mode (crash-isolated; Phase 5)
 
-Steps 1, 2, 4, 5 are **byte-identical** — same handler, same broker, same
-callbacks. Only step 3 changes: `turnRunner` is a `workerRunner`, and
+Steps 1, 2, 4, 5 share the front door, broker and callbacks, but the handler
+also ensures the worker conversation row and runs host-owned post-turn
+bookkeeping. The execution wrapper in step 3 changes: `turnRunner` is a `workerRunner`, and
 `workerRunner.RunTurn` (host.go):
 
 1. **Pre-assemble.** `history := persist.AssembleHistory(ctx, convID)`;
    `projectCtx := persist.LoadProjectContext(workDir)` — the host owns the store.
-2. **Snapshot.** `snap := SnapshotConfig(cfg, "")` (no credential in the snapshot —
-   the worker fetches on demand); `permMode := perms.Mode()`.
-3. **Spawn.** `spawnWorker(ctx, convID, gen)` → `cercano worker --socket …`,
-   Setpgid + pidfile, poll-to-ready, gRPC-dial. (Test path: injected `dial`.)
+2. **Snapshot.** `snap := SnapshotConfig(cfg, "", w.resolveOpenTiers())`
+   resolves effective Local tier IDs on the host. The host adds a session-pinned
+   profile if absent from global routing references and attaches model evidence
+   when its evidence callback is configured. No credential is supplied in this
+   call — the worker fetches on demand; permission mode is read separately.
+3. **Acquire.** The per-conversation pool reuses a healthy idle worker with matching managed-policy mode, or spawns `cercano worker --socket …` with Setpgid, pidfile, socket readiness and gRPC dial. (Test path: injected `dial`.)
 4. **Start.** Open `client.RunTurn(ctx)` bidi stream; `Send(StartTurn{input,
    images, workDir, gen, config, history, projectContext, permissionMode})`.
 5. **Drain loop.** For each `WorkerToHost` message:
@@ -305,18 +324,26 @@ callbacks. Only step 3 changes: `turnRunner` is a `workerRunner`, and
      must not block the event drain) → send `PermissionResponse`.
    - `CredentialRequest` → `resolveCredential` on the host (keychain / OAuth) →
      send `CredentialResponse`.
-   - `PersistTurn` → `UnmarshalMessage` → host `persist(m)` (fenced by gen).
+   - `PersistTurn` → `UnmarshalMessage` → host `persist(m)` for the main
+     conversation (host callback fenced by the captured turn generation). A
+     supplied sub-conversation ID instead uses host `TurnHistory.PersistTurn`;
+     that branch is best-effort and does not use the main-turn fence.
+   - Session-profile requests → host profile read/switch callbacks → correlated
+     response. Open-inference requests → host runtime provider.
+   - Dispatch-evidence appends → host store write → acknowledgment; unlike
+     ordinary turn persistence, the worker waits for this acknowledgment.
    - `TurnDone` → capture `Result`, keep draining until stream EOF, return nil.
    - `TurnError` → return the error.
 6. **Meanwhile, in the worker:** the `WorkerServer.RunTurn` handler runs the
    **same `runner.Core`** with stream-backed proxies. Its events, permission asks,
    persist calls, and credential asks all go back over the stream — exactly what
    the host drain loop consumes.
-7. **Teardown.** `defer cleanupFn()` (`workerHandle.Kill()`) always fires:
-   process group killed, socket + pidfile removed.
+7. **Release.** Deferred cleanup releases the acquired handle to the pool. `TurnDone` followed by stream closure marks it healthy for warm reuse; cancellation observed before completion or stream failure before `TurnDone` leaves it unhealthy and evicts/kills it. The current receive loop treats any receive error after `TurnDone` as completion, not only EOF. A displaced handle cannot release or evict a newer turn’s worker.
 
-The payoff: identical client-visible behavior, but the entire tool loop + tool
-execution + LLM streaming ran in a process the host can kill without harm.
+The tool loop executes in the child, but host MCP tools, host-managed open
+inference and state/control operations still execute on the host. This is a
+shared execution core, not proof of identical event streams or of isolation from
+failures inside host-executed callbacks.
 
 ---
 
@@ -330,9 +357,10 @@ service Worker {
   rpc RunTurn (stream HostToWorker) returns (stream WorkerToHost) {}
 }
 
-HostToWorker { oneof: StartTurn | PermissionResponse | Cancel | CredentialResponse }
+// Core lifecycle subset, not the complete protocol:
+HostToWorker { oneof: StartTurn | PermissionResponse | Cancel | CredentialResponse | ... }
 WorkerToHost { oneof: WorkerEvent | PermissionRequest | PersistTurn
-                    | TurnDone | TurnError | CredentialRequest }
+                    | TurnDone | TurnError | CredentialRequest | ... }
 ```
 
 `StartTurn` carries `conversation_id`, `input`, `images`, `work_dir`, `gen`,
@@ -342,36 +370,73 @@ default, or a strict host would silently auto-run writes in the worker).
 
 **`LLMMessage`** is the wire form of `llm.Message`: `role` + `blocks_json`
 (`json.Marshal(m.Blocks)`) + `content`. `blocks_json` is the same encoding the
-persistence layer already uses, so round-trip fidelity equals what the DB
-guarantees — lossless for all block kinds. **`ConfigSnapshot`** carries the ~37
-config fields the worker's execution slice reads at turn time (locus mode, the
-active cloud profile, model tiers, compaction knobs, the full watchdog block) —
-and deliberately **excludes** host-only concerns (Port, LlamaServer, Embedding,
-Retention). `WorkerEvent` mirrors `runner.Event` flat (a `WorkerEventKind` enum +
-all fields), so host↔worker event mapping is a trivial inverse.
+persistence layer uses. `content` is informational and ignored on decode. This
+preserves JSON-serializable block fields, not transient `ProviderExtras`
+(`json:"-"`); invalid block JSON fails decoding. **`ConfigSnapshot`** carries the
+worker's execution configuration at turn time, including routing assignments
+and referenced profiles, host-resolved Local tier IDs, model-profile choices,
+compaction knobs and watchdog settings. Host-only Port, LlamaServer and retention
+settings are not reconstructed. See `SnapshotConfig` / `ConfigFromSnapshot` for
+the current inventory rather than relying on a fixed field count.
 
-**The four proxied operations** (worker asks; host owns the state):
+`WorkerEvent` is a flat **subset**, not a lossless mirror of `runner.Event`.
+The codecs carry route/model, text/progress, tool, watchdog, sub-agent and done
+result fields. Task-change and authentication kinds are not mapped by these
+codecs; unsupported outgoing kinds become `UNSPECIFIED` and unsupported incoming
+kinds become `runner.EventKind(-1)`. Task snapshots, authentication payloads and
+runner persistence/epoch/generation/sequence/background metadata are not carried
+by `MarshalEvent` / `UnmarshalEvent`. This boundary does not establish how those
+features are supplied through other host/control paths.
+
+**Core proxied operations** (a subset; worker asks, host owns the state):
 
 1. **Events** — worker `WorkerEvent` → host `sink.Emit` → broker fan-out.
 2. **Permission round-trip** — worker `PermissionRequest{id,…}` blocks on a
    per-id channel; host prompts its client and answers `PermissionResponse{id}`.
-3. **Persist** — worker `PersistTurn{message, gen}` (one-way) → host writes it,
-   fenced by gen. One writer, host-side.
+3. **Persist** — worker `PersistTurn{message, gen}` is one-way/best-effort, not
+   a durable-write acknowledgment. Marshal failures are dropped. Main-turn
+   writes use the host callback’s captured-generation fence; sub-agent turns
+   carry their own conversation ID and bypass that main-turn fence. Sub-agent
+   creation is also best-effort, while dispatch-evidence append is acknowledged.
 4. **Credential-on-demand** — worker `CredentialRequest{id, profile_name}`; host
    `resolveCredential` reads the keychain (static-key route: `secrets.Get`) or
-   refreshes the OAuth token (ChatGPT-subscription route:
-   `chatgptauth.NewSource(...).Token`) and answers `CredentialResponse{id, token,
-   account}`.
+   resolves subscription tokens through the shared host credential owner
+   (`w.cfg.Credentials().ChatGPT/Anthropic(...).Token`) and answers
+   `CredentialResponse{id, token, account}`. Host resolution runs off the drain
+   path; typed sanitized failures cross the stream without a token/account.
 
 **The credential proxy — why it matters.** The worker holds **no durable
 credential**. Earlier design put a resolved credential in the `ConfigSnapshot`
 (the `resolved_credential` field is now deprecated/unread). The proxy supersedes
-it: the worker asks the host over the stream, exactly like permissions. Two
-payoffs — (a) the host stays the sole owner of the keychain and of
-ChatGPT-subscription OAuth refresh (no secret ever sits statically in the child),
-and (b) it dissolves the mid-turn-token-expiry edge and the "ChatGPT-subscription
-loses cloud in the worker" limitation: the worker builds a `streamTokenSource` for
-the subscription route, so the provider gets fresh tokens on demand from the host.
+it: the worker asks the host over the stream. The host owns keychain access and
+subscription refresh, but credentials **do enter child memory**: static keys are
+fetched during provider construction and retained by the provider; subscription
+adapters fetch through the host when their provider requests a token. This does
+not guarantee successful refresh or live mid-turn rotation of static keys.
+Credential, permission and profile requests use correlated IDs and wait for a
+response or context cancellation; stale/unmatched responses are ignored. Their
+shared bounded sender can block on enqueue, so cancellation of a response wait
+is not a guarantee of nonblocking admission or successful delivery.
+
+**Provider construction.** Each turn rebuilds providers from its snapshot.
+`buildWorkerProviders` uses shared `profilechain.Build` independently for Primary
+and Secondary destinations, with task-quality model resolution and ordered
+backups. ChatGPT Responses and Anthropic subscription routes get stream token
+adapters; other non-Bedrock routes fetch a static credential and run
+`ValidateStaticCredential`. A nonempty BaseURL alone does not exempt a canonical
+vendor endpoint from key requirements. Bedrock skips this stream key fetch.
+Cloud providers are vision-guarded with host-supplied evidence. Open inference
+uses the host stream proxy for `llama_server` and `mistralrs`, otherwise a direct
+Ollama client only when an Ollama URL is configured.
+
+**Persistence boundary.** The core assembles history before persisting the
+current user input (avoiding duplication), and persists that input before model
+execution when a persistence callback and conversation ID exist. Worker
+`preloadedHistory` returns the host-supplied history/context, not a fresh database
+read or target-aware history rebuild. Assistant/tool-result callbacks also
+forward to the host. Enqueue/stream completion is not durable-write confirmation;
+this is crash-resilience intent, not a guarantee that every emitted turn survives
+a child/host crash.
 
 ---
 
@@ -384,12 +449,13 @@ The broker fan-out is what makes one conversation watchable from several surface
    subscription, correct for a passive observer.
 2. Send the `replay` buffer first (everything published before this attach) via
    `sendRunnerEvent`.
-3. Forward live events off `ch` until the channel closes (turn ended/superseded)
-   or the client disconnects.
+3. Forward live events off `ch` until the channel closes (subscription detached)
+   or the client disconnects. Ordinary turn release and supersession do not close
+   passive subscriptions: they remain attached across turns until detached.
 
 Because `Attach` snapshots the replay buffer and registers the channel under one
 lock, a second surface that attaches **mid-turn** sees the turn so far (replay)
-then the rest live, with no duplicate and no gap. The runner never knows two
+then live events without an attach-boundary duplicate or gap. The bounded passive channel can still drop subsequent events when full. The runner never knows two
 surfaces exist — attachment is purely a host concern. A surface can attach whether
 or not a runner is currently live; the durable thing is the conversation (store +
 broker), the runner is a transient engine behind it.
@@ -402,13 +468,13 @@ broker), the runner is a transient engine behind it.
   EOF or an error. If `TurnDone` was already seen, that's the normal close →
   return the captured `Result`. If **not** (crash mid-turn: panic that killed the
   process, OOM, kill), the worker died before completing → the host returns
-  `status.Errorf(codes.Unavailable, "worker turn failed: %v", …)`.
-- **Containment.** `defer cleanupFn()` (`workerHandle.Kill()`) kills the worker's
-  process group and cleans up. The error flows back through the *same* host turn
+  `status.Errorf(codes.Unavailable, "worker turn failed: %v", …)`. Cancellation/deadline errors are preserved; unsupported required enterprise-policy or authentication-recovery protocols fail with `FailedPrecondition`.
+- **Containment.** Deferred pool release kills/evicts an unhealthy worker's
+  process group and cleans up. Healthy completion instead retains it warm. The error flows back through the *same* host turn
   handler as an in-process error would: the handler's `defer release()` retires
-  the broker turn, the generation fence guarantees any late/racing event from the
-  dead worker is dropped (`Publish` checks `gen`), and attached surfaces see the
-  turn end (`codes.Unavailable` surfaced like any transport loss).
+  the broker turn, the generation fence rejects events from superseded/canceled generations.
+  Ordinary release clears the active handle but does not advance the generation
+  or close passive subscriptions; it alone is not a late-event fence. Do not equate passive broker-channel closure with receiving the initiating RPC’s gRPC status.
 - **Blast radius = one conversation.** The host process does not exit. Other
   conversations — their own workers, their own broker turns — are untouched. The
   next submit on the crashed conversation spawns a fresh worker. This is the
@@ -431,26 +497,38 @@ broker), the runner is a transient engine behind it.
   workdirs/sessions, concurrent under `-race`, asserting zero cross-talk. That
   test *is* embedded mode; it guards the whole design in milliseconds.
 - **The generation fence.** At most one live turn per conversation; a superseding
-  turn advances the gen; `Publish`/persist check `IsCurrent(conv, gen)`, so a
-  superseded (or dead-worker) turn's late events and writes are dropped, never
-  interleaved.
-- **Host owns all state; worker is stateless compute.** Config, DB (one writer),
+  turn advances the gen. Broker publication and the main-turn persistence callback
+  check the captured conversation/generation, dropping stale work. Sub-agent
+  persistence uses its own conversation ID and bypasses that main-turn fence (§5).
+- **Host owns durable conversation/control state; worker owns transient execution state.** Config, DB (one writer),
   keychain/OAuth, broker, permission decisions all live host-side. The worker
   never opens the DB and never touches the keychain — it proxies.
-- **`workerRunner` implements `TurnRunner` → the host handler is unchanged.**
-  In-process vs worker is a concrete-type swap behind the interface, not a
-  parallel code path with its own bug surface.
+- **`workerRunner` implements `TurnRunner` → a shared front door.**
+  The interface is shared; worker setup, transport and host post-turn bookkeeping
+  are additional paths with their own failure surface.
 - **`WorkDir` + session threaded via ctx/`Request`, never `os.Chdir`.** The turn
   carries its cwd explicitly (`Request.WorkDir`, used by `buildSystemPrompt` and
   the tool loop) and its session id via `anthropic.WithSessionID(ctx, convID)`.
   The process-global `os.Chdir` is gone.
-- **Client-visible behavior is identical in both modes.** A turn produces the
-  same event stream whether it ran in-process or in a worker; the existing turn
-  tests must pass with either runner selected.
+- **Behavioral parity is a goal, not a transport invariant.** Both modes use
+  `runner.Core`, but §5 lists event-codec omissions, persistence guarantees differ
+  from acknowledgments, and worker usage telemetry is aggregate. Source comparison
+  and historical test claims do not certify identical client-visible streams.
 
 ---
 
 ## 9. Phase roadmap / status
+
+**Historical implementation notes.**
+
+The table records historical completion labels, not current acceptance results
+or certification of every invariant. Current provider/watchdog wiring is described
+below; the bounded source-audit evidence and live exclusions are recorded in
+[the isolation closure report](../../audit-core-isolation-closure.md). In particular, orphan cleanup is
+best-effort (malformed pidfiles are left alone; unknown legacy spawners rely on
+the identity guard), not an unconditional no-orphans guarantee. Permission
+updates have a worker receiver but no host-side trigger: a running worker uses
+the permission values pinned at `StartTurn` until the next turn.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -462,8 +540,9 @@ broker), the runner is a transient engine behind it.
 | **6** | equivalence (backup failover, watchdog, MCP fallback) + lifecycle (per-conversation reuse, health/restart, idle-reap, orphan-sweep, graceful drain) | Done |
 
 **Phase 5 sub-status (as-built).** The wire protocol (`proto.Worker`, envelopes,
-`LLMMessage`, `ConfigSnapshot`, credential messages) and codecs are complete and
-round-trip-tested. The worker binary (`worker.go`, `proxies.go`, the `worker`
+`LLMMessage`, `ConfigSnapshot`, credential messages) and codecs are implemented;
+§5 describes their deliberately incomplete mappings. Historical round-trip test
+claims are not complete-field or end-to-end acceptance. The worker binary (`worker.go`, `proxies.go`, the `worker`
 subcommand) is complete, including the credential proxy (`streamCredentialSource`
 / `streamTokenSource`). The host-side `workerRunner` (`host.go`, `spawn.go`) is
 implemented: spawn/dial/drain/crash-detect and host-side credential resolution.
@@ -471,26 +550,24 @@ The config toggle is landed: `config.ExecutionMode` defaults to `worker`, and
 `Server.SelectExecutionMode()` (called from `runServerMode` after config load)
 swaps in `worker.NewWorkerRunner`; the in-process `runner.New(runnerDeps())`
 stays the default for embedded mode + the test suite (which construct `Server`
-directly and never call the selector). Both-modes parity and the crash-isolation
-proof (bufconn + a real spawned-process SIGKILL) are tested.
+directly and never call the selector). Historical parity/crash tests are not rerun or certified by this source audit;
+no spawned-process SIGKILL acceptance was performed.
 
-**Phase 6 as-built — equivalence (Part A).** Worker mode now matches in-process on
-the three axes that previously diverged, so `ExecutionMode: worker` is safe as the
-default:
+**Phase 6 source wiring (Part A).** The following implementation paths exist;
+they do not independently establish parity or operational safety of the default:
 - **Backup-profile failover** — the config snapshot carries both active and backup
-  profiles; the worker wraps them with `wrapWorkerBackup`, mirroring the host's
-  `providers.wrapBackup` (including the ChatGPT-subscription and no-credential
-  carve-outs, in the same order).
+  profiles; `buildWorkerProviders` calls shared `profilechain.Build` separately
+  for Primary and Secondary, rather than the former `wrapWorkerBackup` path.
+  Credential validation and subscription token adapters are described in §5.
 - **Watchdog** — `buildWorkerWatchdog` reconstructs protocol supervision from the
-  snapshot, running its fast-model OneShot lane on the worker's own local engine
-  (`buildWorkerEngine`); model resolution mirrors the host's `watchdogModelFor`,
-  including the everyday-open fallback so a sparse taxonomy never fails supervision
-  open.
+  snapshot (nil when disabled). Its OneShot lane uses the shared worker dispatch
+  engine with `RoutingTask: TaskWatchdog`; the snapshotted task assignment and
+  destination configuration select the route. It is not hardwired to a local
+  fast model or the former `buildWorkerEngine`/`watchdogModelFor` path.
 - **MCP tools** — MCP servers live host-side, so a conversation carrying MCP tools
-  auto-falls-back to the in-process runner. Selection is **per-turn**
-  (`Server.pickTurnRunner` consults `hasMCPTools()`), not a one-time startup check,
-  because MCP loads asynchronously after `SelectExecutionMode`. Built-in/capability
-  turns run in the worker; MCP turns run in-process, transparently.
+  uses worker-side proxies advertised at turn start. `Server.pickTurnRunner`
+  selects the worker whenever configured; `hasMCPTools()` does not change runner
+  selection. MCP calls execute on the host, outside the child failure boundary.
 
 **Phase 6 as-built — lifecycle (Part B).** Workers are pooled per conversation
 (`internal/worker/pool.go`):
@@ -507,8 +584,8 @@ default:
   `cercano worker` cmdline + spawner-dead) so it never kills an unrelated process,
   mirroring the Meridian supervisor.
 - **Graceful drain** — on SIGTERM the host `Shutdown()` drains the pool, killing all
-  cached workers (idempotent). No orphans on clean shutdown (drain) or on hard
-  crash (next-startup sweep).
+  cached workers (idempotent). Drain and next-startup sweep are cleanup mechanisms,
+  not an unconditional no-orphans guarantee; the sweep limitations above apply.
 
 ---
 

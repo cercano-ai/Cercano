@@ -1453,6 +1453,14 @@ func (s *Server) SelectExecutionMode() {
 		s.turnModelEvidence, // host-resolved capability evidence for every model the turn might address
 		s.restartRuntimeTool,
 	)
+	if reader, ok := s.workerRunner.(worker.ProfileReaderSetter); ok {
+		reader.SetProfileReader(func(convID string) agent.Profile {
+			if s.profileBroker == nil {
+				return agent.Profile{}
+			}
+			return s.profileBroker.Active(convID)
+		})
+	}
 	// Bridge host MCP tools into the worker. The host keeps sole ownership of
 	// every MCP subprocess, its ready-state machine and its restart semantics;
 	// the worker gets proxy tools that call back over the turn stream. Both

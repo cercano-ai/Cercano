@@ -1,5 +1,12 @@
 # Compaction 2b-3 — Visibility (Footer + `/c` + Export) — Design
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../../features/README.md) and [routing guide](../../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 **Status:** Design approved. Implementation starting.
 
 Compaction went live in 2b-1 but is **invisible** — long sessions silently

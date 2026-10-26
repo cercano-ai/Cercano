@@ -1,5 +1,12 @@
 # Locus Co-processor Tier — Implementation Plan
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](features/README.md) and [routing guide](../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Cercano's one-shot co-processor model calls (summarize, extract, classify, explain, document, research internals) follow Locus Mode instead of always running local, with the same fallback/hard-fail rules as the main tier and structured per-call routing metadata.

@@ -1,12 +1,21 @@
 ---
 name: cercano-deep-research
-description: Use when the user needs thorough, multi-source research with ranked findings, citations, and synthesis. Use this for literature reviews, competitive analysis, technical deep-dives, or any research that needs more than a quick answer. Prefer this over cercano-research when depth and comprehensiveness matter.
-compatibility: Requires Cercano server running, connected to an Ollama instance, and Python venv with ddgs package (run cercano setup).
+description: Deep multi-source research tool that identifies authoritative sources, systematically searches, analyzes and ranks findings, chases cited references, and compiles a structured report with executive summary, contradiction detection, gap analysis, and follow-up suggestions.
+TRIGGER when: user asks for thorough, multi-source, or literature-review-style research on a topic — anything deeper than a quick lookup. Use this INSTEAD of WebSearch/WebFetch for substantial research tasks.
+DO NOT TRIGGER when: user asks a quick factual question (use cercano-research) or provides a specific URL to read (use cercano-fetch).
+compatibility: Requires Cercano server running, a usable configured model route, and Python venv with ddgs package (run cercano setup).
 ---
 
 # Cercano Deep Research
 
 Multi-source research tool that takes a topic and intent, identifies authoritative sources, systematically searches each one, and compiles a ranked, annotated encyclopedia of findings.
+
+## Routing and data handling
+
+Saved task routing and redirects determine local or cloud execution. Tool names
+do not enforce locality, privacy, cost, or latency. Verify the selected destination
+before supplying sensitive input; web research also contacts external search and
+page servers. Model output and confidence are not independent verification.
 
 ## MCP Tool
 
@@ -38,7 +47,7 @@ Multi-source research tool that takes a topic and intent, identifies authoritati
 
 ## How It Works
 
-1. **Source Planning** — Local model analyzes topic + intent and identifies relevant sources from 25+ options across academic, industry, news, reference, and regulatory categories
+1. **Source Planning** — Configured model analyzes topic + intent and identifies relevant sources from 25+ options across academic, industry, news, reference, and regulatory categories
 2. **Systematic Search** — Searches each source using tailored queries (free APIs for PubMed, arXiv; site-scoped DuckDuckGo for others)
 3. **Content Extraction** — Fetches and extracts readable content from top results
 4. **Analysis & Annotation** — 3-pass pipeline: fact extraction, relevance scoring (1-5), quality gate with retry

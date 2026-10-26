@@ -27,6 +27,16 @@ A complete compaction pass has a shared **six-minute maximum**, including its se
 
 Background scheduling/debouncing and inline scheduling remain different. Compaction algorithms, retention thresholds, token-budget accounting, and dispatch evidence recording are otherwise unchanged. This does not change the cumulative dispatch token cap or fix its estimated-compaction accounting.
 
+## Budget and state boundaries
+
+Dispatch compacted-history budgets use the executing model's window, not an
+unrelated local chat model: the default is 30%, with a 16,000-token floor
+bounded by a known window. Unknown capacity uses that floor. Each dispatch
+gets a fresh compactor; frozen segments are not shared across tasks. Main-chat
+construction uses the configured chat-model window. Local llama-server capacity
+is resolved before packing local summarizer requests. Cloud requests use the
+task-aware prompt directly, not the local capacity-aware chunk packer.
+
 ## Verification
 
 Deterministic tests cover the default and saved assignments, routing UI editing, worker configuration round trips, actual worker-built compaction, cloud backup quality, local-only/cloud-only restrictions, unavailable routes, live host graph reads, retained summarizer evidence, and shared deadlines/cancellation. No live model requests are needed.

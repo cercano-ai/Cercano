@@ -1,5 +1,9 @@
 # AI Assistant Routing Guidelines
 
+> Historical concept/planning record, not a current functionality or release-support
+> guide. Status and architecture statements below describe the original effort.
+> Use the root README and maintained guides in `docs/README.md` for current behavior.
+
 Classify the user request as either `LocalModel` or `CloudModel`.
 
 ## LOCAL MODEL (Operational & Maintenance)

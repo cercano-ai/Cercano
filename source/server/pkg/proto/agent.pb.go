@@ -14821,6 +14821,7 @@ func (x *PermissionResponse) GetMessage() string {
 // mode changes affect the host session and therefore the next turn's tool fence.
 type SessionProfileRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
+	ReadOnly       bool                   `protobuf:"varint,4,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"` // query current state without changing it
 	Id             uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	ConversationId string                 `protobuf:"bytes,3,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"` // scopes the host profile switch to the worker's conversation
@@ -14858,6 +14859,13 @@ func (*SessionProfileRequest) Descriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{199}
 }
 
+func (x *SessionProfileRequest) GetReadOnly() bool {
+	if x != nil {
+		return x.ReadOnly
+	}
+	return false
+}
+
 func (x *SessionProfileRequest) GetId() uint64 {
 	if x != nil {
 		return x.Id
@@ -14881,6 +14889,7 @@ func (x *SessionProfileRequest) GetConversationId() string {
 
 type SessionProfileResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProfileJson   string                 `protobuf:"bytes,4,opt,name=profile_json,json=profileJson,proto3" json:"profile_json,omitempty"` // authoritative capability profile for read_only queries
 	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	Ok            bool                   `protobuf:"varint,2,opt,name=ok,proto3" json:"ok,omitempty"`
 	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
@@ -14916,6 +14925,13 @@ func (x *SessionProfileResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SessionProfileResponse.ProtoReflect.Descriptor instead.
 func (*SessionProfileResponse) Descriptor() ([]byte, []int) {
 	return file_agent_proto_rawDescGZIP(), []int{200}
+}
+
+func (x *SessionProfileResponse) GetProfileJson() string {
+	if x != nil {
+		return x.ProfileJson
+	}
+	return ""
 }
 
 func (x *SessionProfileResponse) GetId() uint64 {
@@ -21656,12 +21672,14 @@ const file_agent_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x14\n" +
 	"\x05allow\x18\x02 \x01(\bR\x05allow\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"d\n" +
-	"\x15SessionProfileRequest\x12\x0e\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"\x81\x01\n" +
+	"\x15SessionProfileRequest\x12\x1b\n" +
+	"\tread_only\x18\x04 \x01(\bR\breadOnly\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
-	"\x0fconversation_id\x18\x03 \x01(\tR\x0econversationId\"N\n" +
-	"\x16SessionProfileResponse\x12\x0e\n" +
+	"\x0fconversation_id\x18\x03 \x01(\tR\x0econversationId\"q\n" +
+	"\x16SessionProfileResponse\x12!\n" +
+	"\fprofile_json\x18\x04 \x01(\tR\vprofileJson\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x0e\n" +
 	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\"u\n" +

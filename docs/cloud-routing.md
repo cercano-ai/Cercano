@@ -1,19 +1,25 @@
 # Model tiers, cloud profiles, and model quality
 
+> **Verification boundary:** Routing defaults and adapter selection are repository-code
+> behavior, not live certification of provider availability, subscription eligibility,
+> model quality, pricing or retention. See [agent audit evidence](audit-agent.md) for
+> the checks run and remaining coverage limits.
+
 ## Two separate choices
 
 A **model tier** (called a `destination` in configuration and APIs) chooses where a task runs. A **quality** chooses a model within that destination. Neither is a tool permission level.
 
 | Task | Default model tier | Default quality |
 | --- | --- | --- |
-| Chat | Primary | Standard |
-| Default dispatch (class omitted) | Secondary | Premium |
+| Chat | Primary | Premium |
+| Compaction | Secondary | Light |
+| Default dispatch (class omitted) | Secondary | Standard |
 | Reconnaissance | Local | Light |
 | Mechanical development | Local | Standard |
-| Investigation | Secondary | Premium |
-| Implementation | Secondary | Premium |
-| Review | Secondary | Premium |
-| Research | Secondary | Premium |
+| Investigation | Secondary | Standard |
+| Implementation | Secondary | Standard |
+| Review | Secondary | Standard |
+| Research | Secondary | Standard |
 | Git land | Local | Premium |
 | Watchdog | Local | Standard |
 
@@ -39,7 +45,7 @@ DeepInfra recommendations are:
 
 These are product defaults, not measured reliability or price claims. Discovery uses the registered DeepInfra catalog and its cache. A selected/custom ID remains editable if discovery fails or omits it.
 
-Image inspection uses the profile's separate `image_model`, never its text quality selection. No image model is invented when the selection is empty. Image bytes are sent only when the selected model has confirmed image-input support for that profile/endpoint. A backup must have its own image choice and confirmation. A confirmed configured backup is considered before Local when the preferred image model is missing or unconfirmed. Inspection remains a separate, tool-free request over the existing conversation-scoped attachment store. Successful-answer cache keys are unchanged; an identical question can reuse a previous answer after a model selection changes.
+Image inspection honors the profile's separate `image_model` override. When it is empty, the account can inherit a confirmed image-capable model: its selected chat quality is considered first, then its provider's image/text recommendations. This derived choice does not save an `image_model` override. Image bytes are sent only with confirmed image-input support for that profile/endpoint. A backup resolves its own explicit or inherited choice and confirmation. A confirmed configured backup is considered before Local when the preferred account has no confirmed image candidate. Inspection remains a separate, tool-free request over the existing conversation-scoped attachment store. Successful-answer cache keys are unchanged; an identical question can reuse a previous answer after a model selection changes.
 
 Legacy profile-wide `model`/`model_pinned` choices no longer override quality selection and are not migrated into every quality slot. The legacy `UpdateConfig.cloud_model` mutation is rejected. Re-select intentional choices in the Cloud profile editor.
 
@@ -55,7 +61,7 @@ Cloud settings and routing selectors show the signed-in email when supplied by t
 
 ChatGPT identity comes from the token claims received at sign-in. Claude identity comes from the token response, with a best-effort OAuth profile lookup if email is missing. That lookup has a two-second deadline, rejects redirects, and cannot invalidate an otherwise successful login. Malformed or absent optional identity is ignored. Refresh responses that omit identity preserve the stored metadata.
 
-Display metadata is saved under the profile's `account_identity` in the local configuration so opening settings does not need to unlock credentials or contact a provider. Treat configuration exports as containing personal information. Existing accounts without this metadata show their configured names until they sign in again. Reauthentication updates the label without renaming the account; if identity is unavailable for the new sign-in, an old email is not displayed as though it belonged to that sign-in.
+Display metadata is saved under the profile's `account_identity` in the local configuration so opening settings does not need to unlock credentials or contact a provider. Treat configuration exports as containing personal information. Existing accounts without this metadata use the configured-name fallback (including the explicit unidentified-account label for subscriptions) until they sign in again. Reauthentication updates the label without renaming the account; if identity is unavailable for the new sign-in, an old email is not displayed as though it belonged to that sign-in.
 
 ## Editing settings
 
@@ -63,7 +69,7 @@ The **Routing** tab has two sections:
 
 ### Model tiers
 
-Primary shows one ordered account list: **Account 1 (first)**, **Account 2**, and so on, with **Move up**, **Move down**, **Remove account**, and **Add account** controls. Moving Account 2 up swaps it into the first position; the previous first account becomes Account 2. The first account can move down or be removed just like any other entry, and removing it promotes the next account. Adding to an empty list fills the first position. These account-order edits save immediately. The **Model tiers** section has no Save routing button. Existing configuration fields remain compatible: the first position is stored as Primary, followed by the ordered backups. Secondary groups its profile and single backup control. Selections show provider and account name, so several accounts from one provider stay distinguishable, and an account already used in that tier is not offered again. An empty Primary account or Secondary **No backup** is an absent binding, not a hidden default selection.
+Primary shows one ordered account list: **Account 1 (first)**, **Account 2**, and so on, with **Move up**, **Move down**, **Remove account**, and **Add account** controls. Moving Account 2 up swaps it into the first position; the previous first account becomes Account 2. The first account can move down or be removed just like any other entry, and removing it promotes the next account. Adding to an empty list fills the first position. These account-order edits save immediately. The **Model tiers** section has no Save routing button. Existing configuration fields remain compatible: the first position is stored as Primary, followed by the ordered backups. Secondary groups its profile and single backup control. Selections show provider and account name, so several accounts from one provider stay distinguishable, and Primary account pickers exclude accounts already used elsewhere in its list. Secondary rejects duplicate account bindings on save. An empty Primary account or Secondary **No backup** is an absent binding, not a hidden default selection.
 
 Secondary and Local each have **Redirect all work to**, with **No redirect** as the normal selection. A redirect always changes where work runs; a backup is tried after a failure. Local's runtime/model setup remains in **Runtime / Local Models**, rather than becoming a cloud-profile binding.
 
@@ -77,9 +83,9 @@ There is no permanent “effective” row. A note such as **Redirected to Primar
 
 In **Model tiers**, account selections, order changes, and redirects save immediately when committed. Unchanged selections send no update; a failed save reports an error and restores the previous selection. These saves do not apply pending task edits. In **Task routing**, **Save routing** applies task edits atomically and **Discard routing** restores saved task assignments without undoing model-tier changes. The page distinguishes **Unsaved changes** from saved overrides. Selecting an unchanged value or undoing edits back to the saved state does not mark the page unsaved. Save/Discard are disabled when there are no pending changes. Failed saves and disconnected-agent errors preserve edits.
 
-In **Cloud**, edit profile credentials, quality and image choices using the separate profile Save/Discard actions. Cloud no longer displays Primary/backup routing badges or supports the obsolete activation/backup actions; authentication and account identity annotations remain. Routing is the sole owner of tier bindings and backups.
+In **Cloud**, committed profile fields, quality and image choices save immediately. Save/Retry and Discard support recovery from failed edits and account setup. Cloud no longer displays Primary/backup routing badges or supports the obsolete activation/backup actions; authentication and account identity annotations remain. Routing is the sole owner of tier bindings and backups.
 
-Cloud model-choice edits and task-routing edits remain drafts, including choices on existing profiles. Cancelling a picker keeps the original value. Unsaved edits prompt before leaving their page or changing profiles; cancelling navigation preserves the draft. Cloud and Routing save/discard operations do not apply or clear each other's draft. Authentication and API-key operations remain separate actions.
+Task-routing edits remain drafts until Save routing. Cloud picker edits remain local until committed, then attempt an immediate profile save, including on existing profiles; failed saves retain the edited draft for retry or discard. Cancelling a picker keeps the original value. Unsaved edits prompt before leaving their page or changing profiles; cancelling navigation preserves the draft. Cloud and Routing save/discard operations do not apply or clear each other's draft. Authentication and API-key operations remain separate actions.
 
 Activating a profile does not silently make the previous Primary its backup. If the requested Primary is already the Primary backup, use **Move up** to promote it; the order saves atomically instead of creating a self-loop.
 
@@ -97,7 +103,7 @@ Each destination fails over only within its own configured chain. Credentials ar
 
 Per-attempt metadata records the actual profile/model and its context evidence, including backup requests. Identical model IDs on different endpoints do not make their capacity or image evidence interchangeable. Unknown context retains the conventional unverified fallback rather than borrowing another endpoint's evidence.
 
-Automatic whole-turn retries and cross-destination fallback stop once visible text or tool execution begins. An interrupted response is reported rather than replaying output or tool side effects. Eligible failures before that boundary retain existing retry behavior.
+Automatic whole-turn retries and cross-destination fallback stop once visible text or tool execution begins. Eligible failures before that boundary retain existing retry behavior. Separately, the provider stream can restart the same request on the same provider once after a retryable interruption of visible text, before message completion. It explicitly narrates that restart; interrupted text can remain visible. This is not a whole-turn replay or cross-destination fallback. Non-retryable failures, completed messages, or an already-used retry surface the interruption instead.
 
 ## YAML example
 
@@ -132,6 +138,6 @@ To add backups, define their profiles and set `backup_cloud_profiles` (ordered l
 
 ## Setup wizard and verification limits
 
-Wizard recommendations shown automatically remain inherited. Only explicit picker edits become profile overrides, and those edit markers survive wizard resume. Rollback snapshots preserve quality/image choices and provider/AWS metadata without capturing credentials. Older snapshots do not clear metadata they never recorded or restore retired profile-wide pins.
+Wizard recommendations shown automatically remain inherited. Only explicit picker edits become profile overrides, and those edit markers survive wizard resume. Confirming **Abandon setup** (press **q** twice) discards unconfirmed selections and clears resume state; completed account connections remain and can be managed in /config. Going back out of the first screen instead preserves progress for resume. Legacy non-secret baseline snapshots remain readable but are not used for rollback; cancellation does not restore overwritten credentials or remove connected accounts.
 
 The implementation is verified with synthetic profiles, loopback HTTP/gRPC fixtures, real worker-process tests, and automated CLI form/transcript checks. Live paid inference and manual terminal visual inspection are separate deployment checks; no reliability or pricing claim follows from the fixtures. Restart the agent and its workers together after rebuilding the changed interfaces.

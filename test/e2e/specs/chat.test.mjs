@@ -15,6 +15,9 @@ test("a chat turn streams the model's reply", async (t) => {
     const turn = ollama.chatRequests().find((r) => r.body?.stream === true);
     assert.ok(turn, "agent should have streamed a /api/chat turn");
     assert.equal(turn.body.model, "fake-model");
+    for (const request of ollama.chatRequests()) {
+      assert.equal(request.body.model, "fake-model", "side calls must also stay on the fake model");
+    }
     const user = turn.body.messages.filter((m) => m.role === "user").at(-1);
     assert.equal(user.content, "hello from the e2e suite");
   });

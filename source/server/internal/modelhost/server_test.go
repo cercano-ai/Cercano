@@ -109,6 +109,9 @@ func (h *harness) call(clientID, method string, req, resp any) error {
 
 func (h *harness) start(clientID, model string) localruntime.InstanceRecord {
 	h.t.Helper()
+	if h.srv.attachedClients(clientID) == 0 {
+		h.attach(clientID)
+	}
 	var rec localruntime.InstanceRecord
 	if err := h.call(clientID, "Start", localruntime.StartRequest{Runtime: "fake", ModelID: model}, &rec); err != nil {
 		h.t.Fatalf("Start: %v", err)
@@ -241,7 +244,10 @@ func TestIdleTimeoutStopsAllAndCallsOnIdle(t *testing.T) {
 	h := newHarness(t)
 	_, cancel := h.attach("A")
 	h.start("A", "m1")
-	h.start("B", "m2") // never attached, so only idle StopAll can stop it
+	// An instance created internally (not by an unattached RPC) is swept on idle.
+	if _, err := h.mgr.Start(context.Background(), localruntime.StartRequest{Runtime: "fake", ModelID: "m2"}); err != nil {
+		t.Fatal(err)
+	}
 	cancel()
 	waitFor(t, "A detached", func() bool { return h.srv.attachedClients("A") == 0 })
 	waitFor(t, "A's hold released", func() bool { return h.provider.StopCalls() == 1 })
@@ -507,6 +513,7 @@ func TestUnreachableInstanceIsSharedAndStopped(t *testing.T) {
 
 func TestSlowStartOfOneModelDoesNotBlockAnother(t *testing.T) {
 	h := newHarness(t)
+	h.attach("A")
 	gate := make(chan struct{})
 	entered := make(chan struct{})
 	h.provider.OnStart = func(req localruntime.StartRequest) {
@@ -573,6 +580,7 @@ func TestResolveOpenModelEnvelope(t *testing.T) {
 
 func TestStopAllDrainsInFlightStartAndRejectsNewOnes(t *testing.T) {
 	h := newHarness(t)
+	h.attach("A")
 	gate := make(chan struct{})
 	entered := make(chan struct{})
 	h.provider.OnStart = func(req localruntime.StartRequest) {
@@ -650,6 +658,7 @@ func TestStopAllRacingClientStopStopsOnce(t *testing.T) {
 
 func TestStopAllSweepsLiveInstanceFromFailedStart(t *testing.T) {
 	h := newHarness(t)
+	h.attach("A")
 	h.provider.FailAfterStart = true
 	gate := make(chan struct{})
 	entered := make(chan struct{})
@@ -711,6 +720,7 @@ func TestIdleStopIsFinal(t *testing.T) {
 
 func TestAliasAndCanonicalModelShareOneInstance(t *testing.T) {
 	h := newHarness(t)
+	h.attach("A")
 	h.provider.Models = append(h.provider.Models, localruntime.ModelRecord{ID: "canon", DisplayName: "alias", Runtime: "fake"})
 	a := h.start("A", "alias")
 	b := h.start("B", "canon")
@@ -726,6 +736,9 @@ func TestAliasAndCanonicalModelShareOneInstance(t *testing.T) {
 // while the launch is in flight, then releases it. It returns restart's error.
 func drainingRestart(t *testing.T, h *harness, req localruntime.RestartRequest) error {
 	t.Helper()
+	if h.srv.attachedClients("A") == 0 {
+		h.attach("A")
+	}
 	h.provider.FailAfterStart = true
 	gate := make(chan struct{})
 	entered := make(chan struct{})

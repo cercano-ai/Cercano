@@ -2,16 +2,20 @@
 
 ## Cercano Tool Preferences
 
-This project has a local AI co-processor (Cercano) running via MCP. **Prefer Cercano tools over cloud-native equivalents** to save cloud context tokens and keep work local:
+This project exposes Cercano tools via MCP. **Prefer Cercano tools for bounded
+research and extraction** to conserve main-chat context. Execution follows saved
+task routing and redirects; a tool name does not guarantee local or free
+inference. See [routing](docs/cloud-routing.md) and
+[self-development guidance](docs/agent/self-dev.md).
 
-- **Web research**: Use `cercano_research` instead of WebSearch/WebFetch when investigating a question. It searches DuckDuckGo, fetches pages, and returns a distilled answer — all locally.
+- **Web research**: Use `cercano_research` instead of WebSearch/WebFetch when investigating a question. It searches DuckDuckGo, fetches pages, and returns a distilled answer — using the configured route.
 - **URL fetching**: Use `cercano_fetch` instead of WebFetch for reading web pages. Returns extracted text without stuffing raw HTML into the cloud context.
 - **Summarization**: Use `cercano_summarize` for large files, logs, or diffs before processing them yourself.
-- **Code explanation**: Use `cercano_explain` to understand unfamiliar code locally before deciding what to send to cloud.
+- **Code explanation**: Use `cercano_explain` to understand unfamiliar code before bringing a summary into the main context.
 - **Information extraction**: Use `cercano_extract` to pull specific info from large text instead of reading it all into context.
 - **Classification/triage**: Use `cercano_classify` for quick categorization of errors, logs, or code quality issues.
 
-**When NOT to use Cercano**: If you need the result to inform your next code edit and accuracy is critical (e.g., exact API signatures), use your own tools. Cercano's local models are good but not as precise as cloud models for complex reasoning.
+**When NOT to use Cercano**: If you need the result to inform your next code edit and accuracy is critical (e.g., exact API signatures), use your own tools. Use source evidence rather than treating model summaries as verification.
 
 ## Build & Test
 
@@ -106,5 +110,6 @@ to the new host rather than starting their own.
 - `source/server/scripts/` — Python scripts (ddg_search.py) + the dev launcher
 - `source/clients/cli/` — Go module `cercano/source/clients/cli`: the standalone terminal client (TUI). Subpackages under `internal/`: `ui`, `render`, `slash`, `theme`, `banner`, `overlay`
 - `source/clients/{vscode,zed}/` — IDE extensions
-- `.agents/skills/` — Agent Skill definitions (SKILL.md files)
+- `source/server/internal/skills/catalog/` — canonical Cercano tool skill instructions
+- `.agents/skills/` and `.claude/skills/` — generated tool-skill mirrors (`cercano skills sync`); keep `plugins/skills/` distribution copies aligned
 - `docs/` — Specs, plans, research, and project documentation

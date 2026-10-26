@@ -49,11 +49,12 @@ func (*subscriptionImageTransport) StreamChat(context.Context, llm.ChatRequest) 
 func TestImageInheritanceDefaultSubscriptionProfiles(t *testing.T) {
 	for _, tc := range []struct{ name, flavor, route, model string }{
 		{"chatgpt", "responses", "chatgpt", "gpt-6-astra"},
-		{"claude", "messages", "subscription", "claude-opus-5"},
+		{"claude", "messages", "subscription", "claude-fable-5"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _ := newTestServer()
-			profile := config.CloudProfile{Name: "account-key", Flavor: tc.flavor, Route: tc.route, TierOverrides: map[config.CostTier]string{config.CostStandard: tc.model}}
+			// No model or task overrides: default Premium chat must be inherited.
+			profile := config.CloudProfile{Name: "account-key", Flavor: tc.flavor, Route: tc.route}
 			c := config.Config{ActiveCloudProfile: profile.Name, ModelProfiles: config.Defaults().ModelProfiles, CloudProfiles: []config.CloudProfile{profile}}
 			snapshot := s.turnModelEvidence(t.Context(), c)
 			raw := &subscriptionImageTransport{}

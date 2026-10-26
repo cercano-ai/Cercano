@@ -1,5 +1,12 @@
 # Context Management — Design
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../features/README.md) and [routing guide](../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 **Status:** Foundation (history replay) design approved. Implementation not started.
 
 Context management for the Cercano agent: maintaining, measuring, compacting, and

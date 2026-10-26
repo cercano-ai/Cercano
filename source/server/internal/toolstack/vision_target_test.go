@@ -53,7 +53,8 @@ func TestImageTargetUsesConfirmedOwnBackupBeforeLocal(t *testing.T) {
 }
 
 func TestCloudImageInspectionWithoutSetupOverride(t *testing.T) {
-	c := config.Config{ActiveCloudProfile: "p", CloudProfiles: []config.CloudProfile{{Name: "p", TierOverrides: map[config.CostTier]string{config.CostStandard: "chat-image"}}}}
+	// Configure the chat quality whose image-capable model this fixture supplies.
+	c := config.Config{TaskAssignments: map[config.Task]config.TaskAssignment{config.TaskChat: {Quality: config.CostStandard}}, ActiveCloudProfile: "p", CloudProfiles: []config.CloudProfile{{Name: "p", TierOverrides: map[config.CostTier]string{config.CostStandard: "chat-image"}}}}
 	raw := &countingProvider{name: "cloud"}
 	chain, err := profilechain.Build(c, config.DestinationPrimary, func(config.CloudProfile) (inference.Provider, error) {
 		return profilechain.GuardVision(raw, func(m string) bool { return m == "chat-image" }), nil

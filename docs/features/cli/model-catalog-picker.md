@@ -43,10 +43,10 @@ Current discovery RPCs do not consistently provide typed authentication/rate-lim
 
 Runtime/download management and conversation-model selection have not been migrated. Their eventual reuse must provide their own selection semantics and discovery adapters; this component does not download models, change routing or bypass permissions.
 
-## Verification
+## Verification coverage
 
 Focused and full affected CLI suites cover selection/cancel, exact account identity, capability/unknown metadata, inheritance, custom IDs, account filters, credential focus, failed/successful save, automatic post-save discovery, stale replies and active-editor preservation. Render fixtures cover six states at 120x36, 100x24, 80x24 and 60x18 across built-in themes.
 
 For fixture exports, set `CERCANO_CATALOG_RENDER_DIR` and run `go test ./internal/overlay -run TestCatalogRenderStates -count=1` from `source/clients/cli`.
 
-`TestCatalogTerminal` is an opt-in real Bubble Tea terminal harness (`CERCANO_CATALOG_TTY=1`) using deterministic model data, not an agent connection. A pseudo-terminal driver verified search/select and resize/details/cancel. This is not a claim of manual end-to-end testing against a user's live configuration or provider account. No paid inference is needed for UI verification.
+`TestCatalogTerminal` is an opt-in real Bubble Tea terminal harness (`CERCANO_CATALOG_TTY=1`) using deterministic model data, not an agent connection. The original feature verification recorded a pseudo-terminal driver exercising search/select and resize/details/cancel; that run is historical, not a result of the current documentation audit. This is not a claim of manual end-to-end testing against a user's live configuration or provider account. No paid inference is needed for UI verification.

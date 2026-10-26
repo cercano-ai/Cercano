@@ -73,7 +73,7 @@ https://github.com/user-attachments/assets/82c65acd-6b7f-4d6e-8a56-dbe0d3133d8c
 ### Local models, less assembly required
 
 **Use your hardware without building an inference stack first.** Cercano's
-managed local mdoel runtime brings open-weight models into the same workflow as your
+managed local model runtime brings open-weight models into the same workflow as your
 cloud providers. Configure a suitable model and let Cercano manage the runtime.
 
 [Explore the integrated runtime →](docs/agent/features/integrated-local-runtime.md)

@@ -1,5 +1,11 @@
 # Online model catalog — design
 
+> **Historical design / implementation record.** The proposals, status labels,
+> commands, paths and test results below belong to this feature’s original work,
+> not a current support or completion claim. Some planned details were superseded.
+> See [the current CLI guide](../README.md) and its implementation map for the
+> current interface; preserve this document as design history.
+
 > **Status (2026-07-12): pluggable catalog backends — shipped on `main`.** Model discovery is
 > abstracted behind a **backend interface** with exactly one **active backend**
 > at a time, selected in config. **HuggingFace** is the default active backend —

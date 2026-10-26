@@ -828,12 +828,19 @@ func (c *Core) runLoop(
 		}
 	}
 
+	var currentProfile func(context.Context) (agent.Profile, error)
+	if c.d.CurrentProfile != nil {
+		currentProfile = func(ctx context.Context) (agent.Profile, error) { return c.d.CurrentProfile(ctx, req.ConversationID) }
+	} else if c.d.Profiles != nil {
+		currentProfile = func(context.Context) (agent.Profile, error) { return c.d.Profiles(req.ConversationID), nil }
+	}
 	return agent.RunToolLoop(ctx, agent.ToolLoopInput{
 		DebugMode:            req.DebugMode,
 		Provider:             provider,
 		Registry:             gateRegistry,
 		Permissions:          permStore,
 		Profile:              profile,
+		CurrentProfile:       currentProfile,
 		UserInput:            req.Input,
 		Images:               req.Images,
 		Model:                model,

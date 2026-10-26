@@ -1,5 +1,12 @@
 # Compaction 2b-1a — Engine + Persistence Implementation Plan
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../../features/README.md) and [routing guide](../../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the deterministic, stateful compaction engine — a `Reduce` helper, the persisted derived layer (`conversation_compaction`), and the pure `Advance`/`BuildSendView` functions that freeze segments and assemble the sent history — all testable with a fake summarizer, no live model, no request-path change yet.

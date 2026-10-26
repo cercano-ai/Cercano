@@ -1,5 +1,11 @@
 # Embedded Inference Runtime
 
+> Historical design, not current setup instructions. Managed llama-server and
+> mistral.rs are implemented under `source/server/internal/localruntime/`.
+> The current config selector is `open_runtime`, not the proposed `local_runtime`.
+> Start with the [runtime guide](../../agent/features/integrated-local-runtime.md);
+> the original proposal below is retained as design history.
+
 ## Overview
 
 Cercano currently talks to local models through external endpoints, primarily

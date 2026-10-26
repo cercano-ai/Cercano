@@ -11,7 +11,8 @@ import (
 func TestImageInheritsConfirmedChatModel(t *testing.T) {
 	for _, destination := range []config.Destination{config.DestinationPrimary, config.DestinationSecondary} {
 		t.Run(string(destination), func(t *testing.T) {
-			c := config.Config{ActiveCloudProfile: "p", SecondaryCloudProfile: "p", CloudProfiles: []config.CloudProfile{{Name: "p", TierOverrides: map[config.CostTier]string{config.CostStandard: "chat-image"}}}}
+			// These fixtures exercise Standard chat inheritance, not the Premium product default.
+			c := config.Config{TaskAssignments: map[config.Task]config.TaskAssignment{config.TaskChat: {Quality: config.CostStandard}}, ActiveCloudProfile: "p", SecondaryCloudProfile: "p", CloudProfiles: []config.CloudProfile{{Name: "p", TierOverrides: map[config.CostTier]string{config.CostStandard: "chat-image"}}}}
 			raw := &capture{}
 			p, err := Build(c, destination, func(config.CloudProfile) (inference.Provider, error) {
 				return GuardVision(raw, func(model string) bool { return model == "chat-image" }), nil
@@ -47,7 +48,8 @@ func TestImageInheritancePolicy(t *testing.T) {
 			{"explicit unknown not replaced", "unknown", "chat", "unknown", map[string]bool{"chat": true}},
 		} {
 			t.Run(string(d)+"/"+tc.name, func(t *testing.T) {
-				c := config.Config{ActiveCloudProfile: "p", SecondaryCloudProfile: "p", CloudProfiles: []config.CloudProfile{{Name: "p", Provider: "test", ImageModel: tc.override, TierOverrides: map[config.CostTier]string{config.CostStandard: tc.chat}}}}
+				// These fixtures exercise Standard chat inheritance, not the Premium product default.
+				c := config.Config{TaskAssignments: map[config.Task]config.TaskAssignment{config.TaskChat: {Quality: config.CostStandard}}, ActiveCloudProfile: "p", SecondaryCloudProfile: "p", CloudProfiles: []config.CloudProfile{{Name: "p", Provider: "test", ImageModel: tc.override, TierOverrides: map[config.CostTier]string{config.CostStandard: tc.chat}}}}
 				c.ModelProfiles.Cloud.Providers = map[string]config.VendorCostTiers{"test": {Standard: config.CostTierModel{Model: "recommended"}}}
 				raw := &capture{}
 				p, err := Build(c, d, func(config.CloudProfile) (inference.Provider, error) {
@@ -72,7 +74,8 @@ func TestImageInheritancePolicy(t *testing.T) {
 }
 
 func TestInheritedImageBackupUsesOwnEvidence(t *testing.T) {
-	c := config.Config{ActiveCloudProfile: "p", BackupCloudProfile: "b", CloudProfiles: []config.CloudProfile{
+	// These fixtures exercise Standard chat inheritance, not the Premium product default.
+	c := config.Config{TaskAssignments: map[config.Task]config.TaskAssignment{config.TaskChat: {Quality: config.CostStandard}}, ActiveCloudProfile: "p", BackupCloudProfile: "b", CloudProfiles: []config.CloudProfile{
 		{Name: "p", TierOverrides: map[config.CostTier]string{config.CostStandard: "primary-chat"}},
 		{Name: "b", TierOverrides: map[config.CostTier]string{config.CostStandard: "backup-chat"}},
 	}}

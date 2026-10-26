@@ -566,13 +566,14 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 	}
 
 	return runner.Deps{
-		Providers: provSvc,
-		Tools:     toolSvc,
-		Persist:   nil, // set by caller after history decode
-		Config:    cfgService,
-		Perms:     permBroker,
-		Agent:     nil,
-		Watchdog:  func() *watchdog.Watchdog { return wd },
+		CurrentProfile: profileCtl.CurrentProfile,
+		Providers:      provSvc,
+		Tools:          toolSvc,
+		Persist:        nil, // set by caller after history decode
+		Config:         cfgService,
+		Perms:          permBroker,
+		Agent:          nil,
+		Watchdog:       func() *watchdog.Watchdog { return wd },
 		// Shared with the worker's inspect_image VisionService (built above): the
 		// runner registers image placeholders here; the tool looks them up.
 		VisionStore: visionStore,

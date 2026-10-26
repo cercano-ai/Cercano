@@ -1,5 +1,12 @@
 # Compaction 2b-1b — Live Wiring Implementation Plan
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../../features/README.md) and [routing guide](../../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make compaction live — a config block, the production local-model summarizer, a debounced background generator that runs `compactor.Advance` and persists, the agent schedule hook, and finally the `server.go` request-path swap (with a synchronous hard-limit override).

@@ -1,5 +1,12 @@
 # Agent Execution Isolation — Phase 6 Implementation Plan (Worker Equivalence + Lifecycle Hardening)
 
+> **Historical record / design context.** Original dates, status labels,
+> proposed APIs and unchecked steps below describe this document’s implementation
+> stage, not a current feature matrix or authorization to execute a plan.
+> Consult the [current feature guides](../features/README.md) and [routing guide](../../cloud-routing.md)
+> for supported behavior. Dated external tests are not fresh provider verification.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make worker-process execution PRODUCTION-READY so `default = worker` is safe: (A) close the three behavior divergences the Phase-5 whole-branch review found (backup-profile failover, watchdog, MCP tools) so a turn in a worker is behavior-equivalent to in-process; (B) harden the worker lifecycle (per-conversation reuse, health/restart, idle-reap, startup orphan-sweep, graceful drain). Phase 5 (unmerged) + Phase 6 then land on main TOGETHER — the default only becomes live when worker mode is genuinely equivalent + hardened, so no silent regression ever reaches main.

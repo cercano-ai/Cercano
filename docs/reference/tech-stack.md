@@ -1,6 +1,10 @@
 # Project Technology Stack
 
-This document outlines the core technologies used in the project.
+This document is a historical technology overview, not a current installation
+checklist. For current module boundaries and builds, see
+[server](../../source/server/README.md) and [self-development](../agent/self-dev.md).
+The managed runtime defaults to llama-server; mistral.rs and Ollama are optional.
+IDE descriptions below should not be interpreted as release support promises.
 
 ## 1. Programming Languages
 *   **Go (Golang)** - The primary programming language for the core application, including the smart router and local model integration.

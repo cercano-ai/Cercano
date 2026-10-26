@@ -15,6 +15,16 @@ The status can already have advanced when the receipt arrives. Use the task hand
 
 Consumers that previously treated dispatch's returned text as the final answer must inspect or wait for the task instead. Synchronous internal consumers, including the dedicated review and research implementations, retain their existing result contracts; the public dispatch/workflow launch contract is the one that changed.
 
+## Launch selection
+
+`class` selects saved task routing; omission uses Default dispatch. Omit `tier`
+to preserve that class's quality. An explicit `light`, `standard`, or `deep`
+overrides quality with Economy, Standard, or Premium respectively, not the
+saved destination. `cwd` (or its `path` alias) selects the working directory;
+otherwise the caller's directory is used. Tool grants use plain registered
+names, default to read-only when omitted, and write-capable grants require
+approval. These are launch inputs, not extra authority conferred by acceptance.
+
 ## Lifetime and permissions
 
 Steering the main conversation, finishing its originating turn, and disconnecting the CLI do not stop delegated work. Closing a child tab dismisses its presentation; it is not a stop request. Restarting the agent does stop unfinished execution: persisted tasks become `interrupted`, with available evidence retained. Tools are never automatically replayed after restart. Partial output is not proof that an interrupted tool had no side effects.
@@ -49,9 +59,9 @@ The progress transport reads durable storage in bounded pages, with a 200 ms tai
 
 Normal main chat hides routine `task_list`, `task_inspect`, and `task_wait`
 activity — their successful/in-progress rows and "running <task tool>" progress
-notes — in every presentation mode, development mode included. Tool failures,
-`task_wait` rows interrupted by a canceled foreground turn (debug mode only),
-and explicit `task_stop` activity remain visible. Retained poll evidence stays
+notes — in every presentation mode, development mode included. Genuine tool failures and explicit `task_stop` activity remain visible.
+Synthetic observer-cancellation rows are hidden in main chat even in development
+mode; their retained data remains available to diagnostic/non-main views. Retained poll evidence stays
 in the entry data, child tabs, and inspection paths; hiding is presentation
 only. Child tabs retain their tool evidence. Persisted host completion and
 autonomous-continuation envelopes are retained as metadata, not rendered as

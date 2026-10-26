@@ -1,5 +1,11 @@
 # Deep Research: How AI coding agents and agent harnesses model, persist, and surface task tracking — with emphasis on task data structure (flat lists vs. hierarchical plan>phase>task), task sources (plan-driven vs. ad-hoc), persistence, and client/UI surfacing
 
+> Historical generated research, not current product documentation. Read
+> [CAVEATS.md](CAVEATS.md) first: it identifies fabricated metrics and explains
+> the intentionally pruned off-topic findings and reference artifacts. Entries
+> marked “pruned” below retain the historical titles, not evidence or live links.
+
+
 ## Research Intent
 Design input for Cercano roadmap item #3 (Task model + tracking + client surfacing). Specifically: (1) How does the Superpowers skill/plugin do task tracking today — data structure, where it's stored, how it's displayed? (2) How does Claude Code's TodoWrite/todo-list task model work — flat vs nested, how state surfaces in the UI? (3) How does Conductor structure plans (tracks>plan>phase>task) and execute them? (4) Do Aider, Cursor, Codex, OpenHands, or others do task tracking, and if so how? (5) Evidence for/against a flat task list vs. a recursive hierarchical model (plan>phase>task where a task is a subtask of a phase). (6) Whether tasks should be plan-driven, ad-hoc, or both, and how existing tools handle task provenance. The goal is to validate or challenge a lean toward a recursive plan>phase>task taxonomy with multiple task sources.
 
@@ -12,9 +18,9 @@ Claude Code’s task tracking operates via a robust hierarchical model (plan>pha
 
 | # | Title | Source | Relevance | Impact |
 |---|-------|--------|-----------|--------|
-| 1 | [Performance of Genetic Algorithms in the Context of Software Model Refactoring](findings/01_performance-of-genetic-algorithms-in-the-context-of.md) | arXiv | ⭐⭐⭐⭐⭐ | high |
-| 2 | [A Survey of Multi-Agent Deep Reinforcement Learning with Communication](findings/02_a-survey-of-multi-agent-deep-reinforcement-learning-with.md) | arXiv | ⭐⭐⭐⭐⭐ | high |
-| 3 | [A Performance Study of GA and LSH in Multiprocessor Job Scheduling](findings/03_a-performance-study-of-ga-and-lsh-in-multiprocessor-job.md) | arXiv | ⭐⭐⭐⭐⭐ | high |
+| 1 | Performance of Genetic Algorithms in the Context of Software Model Refactoring (pruned; see caveats) | arXiv | ⭐⭐⭐⭐⭐ | high |
+| 2 | A Survey of Multi-Agent Deep Reinforcement Learning with Communication (pruned; see caveats) | arXiv | ⭐⭐⭐⭐⭐ | high |
+| 3 | A Performance Study of GA and LSH in Multiprocessor Job Scheduling (pruned; see caveats) | arXiv | ⭐⭐⭐⭐⭐ | high |
 | 4 | [GitHub - withzombies/hyperpowers: Claude Code superpowers with beads task tracking and refinement · GitHub](findings/04_github-withzombies-hyperpowers-claude-code-superpowers-with.md) | GitHub | ⭐⭐⭐⭐⭐ | high |
 | 5 | [GitHub - skainguyen1412/antigravity-superpowers: Bring Superpowers workflows to Antigravity — brainstorming, planning, TDD, code review, and verification skills ported as close to the original as possible.](findings/05_github-skainguyen1412-antigravity-superpowers-bring.md) | GitHub | ⭐⭐⭐⭐⭐ | high |
 | 6 | [TodoWrite vs Task in Claude Code: Which to Use When](findings/06_todowrite-vs-task-in-claude-code-which-to-use-when.md) | arXiv / GitHub (via clone of Claude Code’s public repo) | ⭐⭐⭐⭐⭐ | high |
@@ -27,7 +33,7 @@ Claude Code’s task tracking operates via a robust hierarchical model (plan>pha
 | 13 | [GitHub - hridaya423/conductor-tasks: A task management system designed for AI development · GitHub](findings/13_github-hridaya423-conductor-tasks-a-task-management-system.md) | GitHub | ⭐⭐⭐⭐⭐ | high |
 | 14 | [GitHub - gemini-cli-extensions/conductor: A plugin for AI coding agents (Antigravity, Claude Code) enabling Spec-Driven Development to specify, plan, and implement software features. · GitHub](findings/14_github-gemini-cli-extensions-conductor-a-plugin-for-ai.md) | GitHub | ⭐⭐⭐⭐⭐ | high |
 | 15 | [GitHub - ShepAlderson/copilot-orchestra: Agents and workflow for GitHub Copilot · GitHub](findings/15_github-shepalderson-copilot-orchestra-agents-and-workflow.md) | GitHub | ⭐⭐⭐⭐⭐ | high |
-| 16 | [Performance Comparison on Parallel CPU and GPU Algorithms for Unified Gas-Kinetic Scheme](findings/16_performance-comparison-on-parallel-cpu-and-gpu-algorithms.md) | arXiv | ⭐⭐⭐⭐ | high |
+| 16 | Performance Comparison on Parallel CPU and GPU Algorithms for Unified Gas-Kinetic Scheme (pruned; see caveats) | arXiv | ⭐⭐⭐⭐ | high |
 | 17 | [GitHub - Aider-AI/aider: aider is AI pair programming in your terminal](findings/17_github-aider-ai-aider-aider-is-ai-pair-programming-in-your.md) | GitHub | ⭐⭐⭐⭐ | medium |
 | 18 | [GitHub - pcvelz/superpowers: An agentic skills framework & software development methodology that works - Claude Code task management support · GitHub](findings/18_github-pcvelz-superpowers-an-agentic-skills-framework.md) | GitHub | ⭐⭐⭐⭐ | high |
 
@@ -35,12 +41,12 @@ Claude Code’s task tracking operates via a robust hierarchical model (plan>pha
 
 | # | Title | Source | Relevance | Discovered Via |
 |---|-------|--------|-----------|----------------|
-| 1 | [Ayan Dutta - Google Scholar](references/01_ayan-dutta-google-scholar.md) | Google Scholar | ⭐⭐⭐⭐⭐ | A Survey of Multi-Agent Deep Reinforcement Learning with Communication |
-| 2 | [Francisco Claude](references/02_francisco-claude.md) | Google Scholar | ⭐⭐⭐⭐⭐ | TodoWrite vs Task in Claude Code: Which to Use When |
-| 3 | [Rebecca E. Grinter - Google Scholar](references/03_rebecca-e-grinter-google-scholar.md) | Google Scholar | ⭐⭐⭐⭐⭐ | Tasks API vs TodoWrite | FlorianBruniaux/claude-code-ultimate-guide | DeepWiki |
-| 4 | [Google Scholar Settings](references/04_google-scholar-settings.md) | Google Scholar | ⭐⭐⭐⭐ | claude-code-ultimate-guide/guide/workflows/task-management.md at main · FlorianBruniaux/claude-code-ultimate-guide |
-| 5 | [pi-extension · GitHub Topics · GitHub](references/05_pi-extension-github-topics-github.md) | GitHub | ⭐⭐⭐⭐ | GitHub - coctostan/pi-superpowers · GitHub |
-| 6 | [Академия Google](references/06_google.md) | Google Scholar | ⭐ | A Performance Study of GA and LSH in Multiprocessor Job Scheduling |
+| 1 | Ayan Dutta - Google Scholar (pruned; see caveats) | Google Scholar | ⭐⭐⭐⭐⭐ | A Survey of Multi-Agent Deep Reinforcement Learning with Communication |
+| 2 | Francisco Claude (pruned; see caveats) | Google Scholar | ⭐⭐⭐⭐⭐ | TodoWrite vs Task in Claude Code: Which to Use When |
+| 3 | Rebecca E. Grinter - Google Scholar (pruned; see caveats) | Google Scholar | ⭐⭐⭐⭐⭐ | Tasks API vs TodoWrite | FlorianBruniaux/claude-code-ultimate-guide | DeepWiki |
+| 4 | Google Scholar Settings (pruned; see caveats) | Google Scholar | ⭐⭐⭐⭐ | claude-code-ultimate-guide/guide/workflows/task-management.md at main · FlorianBruniaux/claude-code-ultimate-guide |
+| 5 | pi-extension · GitHub Topics · GitHub (pruned; see caveats) | GitHub | ⭐⭐⭐⭐ | GitHub - coctostan/pi-superpowers · GitHub |
+| 6 | Академия Google (pruned; see caveats) | Google Scholar | ⭐ | A Performance Study of GA and LSH in Multiprocessor Job Scheduling |
 
 ## Other Sections
 

@@ -1,12 +1,19 @@
 ---
 name: cercano-extract
-description: Extract specific information from text using local AI via Cercano. Returns only the relevant sections matching your query. Use this to pull function signatures, error messages, config values, API endpoints, or other targeted information from large text without sending everything to the cloud.
-compatibility: Requires Cercano server running and connected to an Ollama instance.
+description: Extract specific information from text using the configured model route via Cercano. Returns only the relevant sections matching your query. Use this to pull function signatures, error messages, config values, API endpoints, or other targeted information from large text without placing the entire input into the host conversation.
+compatibility: Requires Cercano server running with a usable configured model route.
 ---
 
 # Cercano Extract
 
-Extract targeted information from text using local AI inference.
+Extract targeted information from text using the configured model route.
+
+## Routing and data handling
+
+Saved task routing and redirects determine local or cloud execution. Tool names
+do not enforce locality, privacy, cost, or latency. Verify the selected destination
+before supplying sensitive input; web research also contacts external search and
+page servers. Model output and confidence are not independent verification.
 
 ## MCP Tool
 
