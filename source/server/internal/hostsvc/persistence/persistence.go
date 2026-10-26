@@ -519,6 +519,7 @@ func (x *svc) PersistTurn(ctx context.Context, convID string, m llm.Message) {
 	}
 	blocksJSON, err := json.Marshal(m.Blocks)
 	if err != nil {
+		ReportWriteFailure(ctx, err)
 		fmt.Fprintf(os.Stderr, "[tool-loop] marshal blocks failed: %v\n", err)
 		return
 	}
@@ -535,6 +536,7 @@ func (x *svc) PersistTurn(ctx context.Context, convID string, m llm.Message) {
 		Content:        text,
 		BlocksJSON:     string(blocksJSON),
 	}); err != nil {
+		ReportWriteFailure(ctx, err)
 		fmt.Fprintf(os.Stderr, "[tool-loop] Append(%s, %s) failed: %v\n", role, convID, err)
 	}
 }

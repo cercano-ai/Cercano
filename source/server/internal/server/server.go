@@ -108,7 +108,7 @@ type McpManager interface {
 
 // Server is the gRPC server for the Agent service.
 type Server struct {
-	coexistence *coexistenceLifecycle // explicit lifecycle-only opt-in; never enabled by NewServer
+	coexistence           *coexistenceLifecycle // explicit lifecycle-only opt-in; never enabled by NewServer
 	pendingPrompts        pendingPromptHub
 	mistralMu             sync.Mutex
 	mistralCatalog        *mistralcatalog.Store
@@ -3362,6 +3362,9 @@ func formatRuntimeTime(t time.Time) string {
 
 // ProcessRequest implements proto.AgentServer (Unary).
 func (s *Server) ProcessRequest(ctx context.Context, req *proto.ProcessRequestRequest) (*proto.ProcessRequestResponse, error) {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+		return nil, err
+	}
 	if err := s.persistDevMode(ctx, req); err != nil {
 		return nil, err
 	}
@@ -3381,6 +3384,9 @@ func (s *Server) ProcessRequest(ctx context.Context, req *proto.ProcessRequestRe
 
 // StreamProcessRequest implements proto.AgentServer (Streaming).
 func (s *Server) StreamProcessRequest(req *proto.ProcessRequestRequest, stream proto.Agent_StreamProcessRequestServer) error {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+		return err
+	}
 	fmt.Printf("Received request (Stream): %s\n", req.Input)
 
 	if (s.providerSvc.Cloud() != nil || s.providerSvc.Open() != nil) && s.toolSvc.Registry() != nil {
@@ -3569,6 +3575,9 @@ func gitInfo(dir string) (bool, string) {
 //   - Live pending approvals are replayed independently of historical events.
 //     Attach never grants approval or starts a turn; Allow/Deny remain explicit.
 func (s *Server) AttachConversation(req *proto.AttachConversationRequest, stream proto.Agent_AttachConversationServer) error {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+		return err
+	}
 	convID := req.GetConversationId()
 	if convID == "" {
 		return grpcstatus.Error(codes.InvalidArgument, "conversation_id is required")
@@ -3634,6 +3643,9 @@ func (s *Server) streamProcessRequestWithToolLoop(req *proto.ProcessRequestReque
 // A host completion turn supplies an already acquired idle-only lease. Human
 // requests still use BeginTurn and retain their right to supersede background work.
 func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream proto.Agent_StreamProcessRequestServer, reserved *completionTurnLease) error {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+		return err
+	}
 	// One live turn per conversation. A new turn here supersedes any turn still
 	// running on the same conversation (cancels its ctx); this turn's own ctx
 	// is canceled if a later turn supersedes IT. turnGen fences persistence so

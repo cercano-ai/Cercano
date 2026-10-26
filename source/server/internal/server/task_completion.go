@@ -68,6 +68,10 @@ type completionNotice struct {
 // claims prevent duplicate automatic reactions; pending evidence is cleared
 // only after a successful, still-current completion turn.
 func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string) {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+		log.Printf("task completion admission %s: %v", parent, err)
+		return
+	}
 	if parent == "" || parentCtx.Err() != nil || s.persistSvc == nil || s.persistSvc.Store() == nil {
 		return
 	}
