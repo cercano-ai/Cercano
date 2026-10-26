@@ -39,11 +39,11 @@ Objective: establish a safe prerequisite for all native application tests. Files
 
 Objective: make the store the authoritative stale-write boundary before enabling coexistence. Files: internal/conversation/store.go, tasks.go, other inventoried persistence files and their callers; narrow ownership/lock helpers adjacent to the existing store; fixture preparation and store tests. Tests: exact-match preflight, transaction predicates, stale owner/epoch rejection and lock/crash behavior. Native evidence: dedicated macOS subprocesses contending for stable conversation locks and fixture SQLite writes, including process death and identity-reuse/uncertainty cases; no real store access.
 
-- [~] Implement explicit fixture-store preparation with schema and coexistence representation metadata outside participating-host startup; never adopt or upgrade an existing store automatically
+- [x] Implement explicit fixture-store preparation with schema and coexistence representation metadata outside participating-host startup; never adopt or upgrade an existing store automatically
 - [ ] Add read-only metadata preflight before migration, initialization writes, persistent database setting changes or reconciliation; reject missing or mismatched contracts without mutation
 - [ ] Add stable conversation lock identities and distinct build, host-instance and acquisition-epoch identities; never unlink an in-use lock inode or overload broker generation
 - [ ] Implement durable owned, cleanly released and destination-reserved states and conditional transitions in the existing ownership record
-- [ ] Centralize owner/epoch and contract validation atomically with every inventoried owner-controlled mutation; prohibit transactions spanning model/tool execution
+- [~] Centralize owner/epoch and contract validation atomically with every inventoried owner-controlled mutation; prohibit transactions spanning model/tool execution
 - [ ] Make stale/rejected mutation results explicit to callers so rejected completion cannot trigger wakes or notification effects
 - [ ] Add transaction, fault-injection and subprocess tests for stale writes, clean versus abandoned ownership, process identity reuse and uncertain durability
 - [ ] Prove preflight refusal leaves fixture state unchanged, including logical contents and persistent metadata; round-trip blocks, task outcomes and notification state between the selected contracts

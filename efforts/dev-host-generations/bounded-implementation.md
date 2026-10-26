@@ -43,6 +43,23 @@ Task `task_b50a286491cb0c63d38d3656c877352c` inspected concrete broker/server/ta
 
 Coverage remains incomplete for all autonomous-ledger/prompt callers, recap/retention/compactor scheduling and draining, worker persistence bridges and cross-conversation creation/rollover, and stream detach races. This note does not mark Phase 1 complete.
 
+## Task lifecycle prerequisite
+
+Task `task_afc0d0965c2cce7cf922ef8f2acad737` committed `6486a5f51632`. Its fake-store probe reproduced publication after `FinishTask(false, nil)` before the fix. Rejected terminal transitions now expose `ErrTerminalTransitionRejected`, retain unresolved outcome state, and suppress wakes/notifications. `NewPrepared` skips initialization and global reconciliation; legacy `New` is unchanged. `UnresolvedTerminalOutcomes` exposes blockers for later admission integration. The child reports three focused synthetic tests passed with `-race -count=20`. The parent additionally ran `go test ./internal/taskrun -count=1` successfully (2026-10-26). This is not full quiescence enforcement or native B-startup qualification.
+
+## Additional committed foundations
+
+- `a1d7e119ae50`: strict credential environment parsing and rejecting secrets/enterprise stores before native backend opening. Delegated hermetic opener-trap tests passed; enabled controls use fake stores.
+- `ea6971209636`: startup, config, provider, OAuth and host credential service guards. Child reports focused tests and startup-package compilation passed. Disabled mode may read config YAML bytes (including legacy inline fields) but blocks guarded credential use/migration; no real config was used for verification.
+- `fe9f68faa20b`: policy-only GetCredentialPolicy RPC, generated bindings, single-transport attestation and explicit reconnect reattestation. Child reports full agentclient tests and narrow handler tests passed against synthetic servers. This is not the later per-session no-respawn contract.
+- `7cd8ece11cb9`: local broker admission/work/attachment/destination/retirement accounting. Child reports package and race tests passed. Parent ran `go test -race ./internal/broker ./internal/taskrun -count=1` successfully. The helper is not server integration.
+
+A read-only review identified a copied/stale Closure handle that could remove a reopened session, plus the need for a host lifecycle ticket through post-relinquishment OS unlock/cleanup. Commit `6ce057a6c0de` reproduced and fixed the handle issue, added lifecycle-ticket coverage and passed broker race tests. These tests do not yet establish correct integrated retirement.
+
+Commit `f06464eb15da` adds lock/epoch ownership and transaction-local row guards across the conversation package, with synthetic package/race/vet verification reported by the child. The parent ran `go test -race ./internal/conversation ./internal/broker ./internal/taskrun ./internal/modelhost ./pkg/agentclient -count=1` successfully after the initial foundations. Ownership review then identified missing relationship UPDATE guards and unauthorized-target zero-row success; focused reproduction/fixes are pending. Normal application coexistence remains disabled.
+
+Commit `5caf9c444aab` adds explicit model-host protection options, server-side mutation refusal, reuse-only protected Start, no protected Ensure replacement/launch, and caller-only hold release. The child reports full modelhost and race tests passed and a no-hold Stop bug was reproduced before fixing. Startup must still pass these options and refuse in-process fallback; this is not native shared-backend acceptance. Task terminal failure resolution remains conservative: unresolved outcomes prevent readiness; Close is not a readiness test. Native application startup and credential inheritance instrumentation remain pending.
+
 ## Work in progress
 
 Credential isolation, prepared-store task startup/stale completion handling, and store ownership enforcement have separate delegated file ownership. No application coexistence or crash recovery is enabled by the initial compatibility commit. No real configuration, credentials, databases, current agent/runtime, installation, push or merge is authorized.
