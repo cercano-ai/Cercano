@@ -368,9 +368,15 @@ func helloProof(token string, nonce []byte) []byte {
 
 // Hello implements the version handshake. It needs no token, so a client can
 // authenticate the host (via the proof) before ever sending it the token.
-func (s *Server) Hello(_ context.Context, req *proto.HelloRequest) (*proto.HelloResponse, error) {
+func (s *Server) Hello(ctx context.Context, req *proto.HelloRequest) (*proto.HelloResponse, error) {
 	if s.draining.Load() {
 		return nil, errDraining
+	}
+	// This asserts persistent server-wide mode, not per-request protection.
+	if s.opts.CoexistenceProtection {
+		if err := grpc.SetHeader(ctx, metadata.Pairs(protectionHeader, "true")); err != nil {
+			return nil, err
+		}
 	}
 	return &proto.HelloResponse{
 		ApiVersion: APIVersion,
@@ -485,28 +491,40 @@ func (s *Server) releaseClient(clientID string) {
 				s.mu.Unlock()
 				return
 			}
-			remaining := s.holds.remove(clientID, id)
+			remaining := s.holds.count(id)
+			if remaining > 1 {
+				s.holds.remove(clientID, id)
+			}
 			s.mu.Unlock()
-			if remaining > 0 {
+			if remaining > 1 {
 				return
 			}
 			if err := s.mgr.Stop(ctx, localruntime.StopRequest{InstanceID: id}); err != nil {
 				log.Printf("modelhost: release %s for client %s: %v", id, clientID, err)
+			} else {
+				s.holds.remove(clientID, id)
 			}
 		}()
 	}
 }
 
 // releaseLocked removes clientID's hold on id and stops the instance when no
-// holds remain. The instance's model lock must be held.
+// holds remain. A failed Stop retains the last hold for caller/disconnect retry.
+// The instance's model lock must be held.
 func (s *Server) releaseLocked(ctx context.Context, clientID, id string) error {
 	if !s.holds.has(clientID, id) {
 		return nil
 	}
-	if s.holds.remove(clientID, id) > 0 {
+	if s.holds.count(id) > 1 {
+		s.holds.remove(clientID, id)
 		return nil
 	}
-	return s.mgr.Stop(ctx, localruntime.StopRequest{InstanceID: id})
+	// Keep the last hold visible to disconnect cleanup while Stop is in flight.
+	if err := s.mgr.Stop(ctx, localruntime.StopRequest{InstanceID: id}); err != nil {
+		return err
+	}
+	s.holds.remove(clientID, id)
+	return nil
 }
 
 // OnDownloadStateChange implements localruntime.Observer.

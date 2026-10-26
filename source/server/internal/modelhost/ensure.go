@@ -36,7 +36,8 @@ var ErrNewerModelHost = errors.New("model host is newer than this client")
 
 // EnsureOptions configures Ensure.
 type EnsureOptions struct {
-	// CoexistenceProtection prohibits replacement and shared runtime mutation.
+	// CoexistenceProtection requires Hello to assert persistent server-wide
+	// protection, and prohibits replacement and shared runtime mutation.
 	CoexistenceProtection bool
 	// RunDir holds the host record and launch lock. Default RunDir().
 	RunDir string
@@ -65,8 +66,9 @@ func checkLoopback(addr string) error {
 // dialVerified connects to the host named by r and authenticates it before
 // the token is ever sent: Hello carries a fresh nonce and no token, and the
 // host must answer with HMAC-SHA256(token, nonce). Only afterwards do the
-// returned connection's interceptors attach the token to calls.
-func dialVerified(ctx context.Context, r Record, clientVersion string) (*grpc.ClientConn, *proto.HelloResponse, error) {
+// returned connection's interceptors attach the token to calls. When requested,
+// Hello must also advertise persistent protection; missing assertions fail closed.
+func dialVerified(ctx context.Context, r Record, clientVersion string, requireProtection ...bool) (*grpc.ClientConn, *proto.HelloResponse, error) {
 	if err := checkLoopback(r.Addr); err != nil {
 		return nil, nil, err
 	}
@@ -109,7 +111,8 @@ func dialVerified(ctx context.Context, r Record, clientVersion string) (*grpc.Cl
 	}
 	hctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	resp, err := proto.NewModelHostClient(conn).Hello(hctx, &proto.HelloRequest{ClientVersion: clientVersion, Nonce: nonce})
+	var header metadata.MD
+	resp, err := proto.NewModelHostClient(conn).Hello(hctx, &proto.HelloRequest{ClientVersion: clientVersion, Nonce: nonce}, grpc.Header(&header))
 	if err != nil {
 		conn.Close()
 		return nil, nil, err
@@ -117,6 +120,13 @@ func dialVerified(ctx context.Context, r Record, clientVersion string) (*grpc.Cl
 	if !hmac.Equal(resp.GetProof(), helloProof(r.Token, nonce)) {
 		conn.Close()
 		return nil, nil, errors.New("model host failed to prove it holds the token")
+	}
+	if len(requireProtection) > 0 && requireProtection[0] {
+		mode := header.Get(protectionHeader)
+		if len(mode) != 1 || mode[0] != "true" {
+			conn.Close()
+			return nil, nil, ErrCoexistenceProtected
+		}
 	}
 	verified.Store(true)
 	return conn, resp, nil
@@ -153,12 +163,12 @@ const (
 // verification or handshake failure (including a draining host) is notLive.
 // For an older host the verified connection is returned; the caller closes
 // it. For a newer host the returned error describes it.
-func probe(ctx context.Context, dir, clientVersion string) (Record, probeState, *grpc.ClientConn, error) {
+func probe(ctx context.Context, dir, clientVersion string, requireProtection ...bool) (Record, probeState, *grpc.ClientConn, error) {
 	rec, err := ReadRecord(dir)
 	if err != nil {
 		return Record{}, notLive, nil, nil
 	}
-	conn, resp, err := dialVerified(ctx, rec, clientVersion)
+	conn, resp, err := dialVerified(ctx, rec, clientVersion, requireProtection...)
 	if err != nil {
 		return rec, notLive, nil, nil
 	}
@@ -227,7 +237,7 @@ func Ensure(ctx context.Context, opts EnsureOptions) (Record, error) {
 		}
 
 	}
-	rec, st, conn, err := probe(ctx, dir, opts.ClientVersion)
+	rec, st, conn, err := probe(ctx, dir, opts.ClientVersion, opts.CoexistenceProtection)
 	switch st {
 	case live:
 		return rec, nil
@@ -260,7 +270,7 @@ func Ensure(ctx context.Context, opts EnsureOptions) (Record, error) {
 	defer release()
 
 	// Another Ensure may have launched while we waited for the lock.
-	rec, st, conn, err = probe(ctx, dir, opts.ClientVersion)
+	rec, st, conn, err = probe(ctx, dir, opts.ClientVersion, opts.CoexistenceProtection)
 	if conn != nil {
 		conn.Close()
 	}
@@ -278,7 +288,7 @@ func Ensure(ctx context.Context, opts EnsureOptions) (Record, error) {
 	// replacement publishes its own, so keep polling until the deadline.
 	deadline := time.Now().Add(timeout)
 	for {
-		rec, st, conn, err := probe(ctx, dir, opts.ClientVersion)
+		rec, st, conn, err := probe(ctx, dir, opts.ClientVersion, opts.CoexistenceProtection)
 		if conn != nil {
 			conn.Close()
 		}

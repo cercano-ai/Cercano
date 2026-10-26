@@ -3,6 +3,7 @@ package modelhost
 import (
 	"cercano/source/server/pkg/proto"
 	"context"
+	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"net"
@@ -141,7 +142,7 @@ func (m *protectionManager) ResolveOpenModel(context.Context, string, string) (l
 
 func TestProtectedRemoteCloseAndReconnect(t *testing.T) {
 	dir := t.TempDir()
-	host := startTestHost(t, "protected-token")
+	host := startTestHost(t, "protected-token", true)
 	host.publish(t, dir)
 	opts := remoteOpts(dir, nil)
 	opts.CoexistenceProtection = true
@@ -158,6 +159,9 @@ func TestProtectedRemoteCloseAndReconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
+	if _, err := host.srv.mgr.Start(context.Background(), localruntime.StartRequest{Runtime: "fake", ModelID: "m1"}); err != nil {
+		t.Fatal(err)
+	}
 	b := newTestRemote(t, remoteOpts(dir, nil))
 	inst, err := b.Start(context.Background(), localruntime.StartRequest{Runtime: "fake", ModelID: "m1"})
 	if err != nil {
@@ -178,5 +182,44 @@ func TestProtectedRemoteCloseAndReconnect(t *testing.T) {
 	waitUntil(t, "own holds released", func() bool { return len(host.srv.holds.heldBy(a.ClientID())) == 0 })
 	if host.srv.draining.Load() || host.provider.StopCalls() != 0 || host.provider.StartCalls() != 1 || host.srv.holds.count(inst.ID) != 1 {
 		t.Fatal("Close disturbed sibling runtime")
+	}
+}
+
+func TestProtectedHandshakeRequiresPersistentMode(t *testing.T) {
+	for _, protected := range []bool{false, true} {
+		t.Run(fmt.Sprint(protected), func(t *testing.T) {
+			dir := t.TempDir()
+			host := startTestHost(t, "mode-token", protected)
+			host.publish(t, dir)
+			opts := EnsureOptions{RunDir: dir, CoexistenceProtection: true, Launch: func(context.Context) error { t.Fatal("launched"); return nil }}
+			_, err := Ensure(context.Background(), opts)
+			if protected && err != nil {
+				t.Fatal(err)
+			}
+			if !protected && err != ErrCoexistenceProtected {
+				t.Fatalf("Ensure: %v", err)
+			}
+			// Even a custom Ensure cannot bypass the handshake on Remote's connection.
+			rec, err := ReadRecord(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r, err := newRemote(context.Background(), RemoteOptions{CoexistenceProtection: true}, func(context.Context, EnsureOptions) (Record, error) { return rec, nil })
+			if protected {
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Close()
+			} else if err != ErrCoexistenceProtected {
+				t.Fatalf("Remote: %v", err)
+			}
+			// Default clients continue to accept either server mode.
+			if _, err := Ensure(context.Background(), EnsureOptions{RunDir: dir}); err != nil {
+				t.Fatal(err)
+			}
+			if host.srv.draining.Load() {
+				t.Fatal("host replaced")
+			}
+		})
 	}
 }

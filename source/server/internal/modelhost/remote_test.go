@@ -37,12 +37,12 @@ type testHost struct {
 	rec      Record
 }
 
-func startTestHost(t *testing.T, token string) *testHost {
+func startTestHost(t *testing.T, token string, protected ...bool) *testHost {
 	t.Helper()
 	provider := localruntimetest.NewFakeProvider("fake", remoteModels()...)
 	mgr := localruntime.NewManager()
 	mgr.RegisterProvider(provider)
-	srv := NewServer(mgr, ServerOptions{Token: token, Version: "v-test"})
+	srv := NewServer(mgr, ServerOptions{Token: token, Version: "v-test", CoexistenceProtection: len(protected) > 0 && protected[0]})
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

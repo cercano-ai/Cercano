@@ -41,7 +41,8 @@ var errRemoteClosed = errors.New("model host client is closed")
 
 // RemoteOptions configures a Remote.
 type RemoteOptions struct {
-	// CoexistenceProtection prohibits replacement and shared runtime mutation.
+	// CoexistenceProtection requires Hello to assert persistent server-wide
+	// protection, and prohibits replacement and shared runtime mutation.
 	CoexistenceProtection bool
 	// Ensure finds or launches the model host, on first connect and on every
 	// reconnect.
@@ -275,7 +276,7 @@ func (r *Remote) connectOnce(ctx context.Context, prev *prevConn) error {
 	if rec.Token == "" {
 		return errors.New("model host record has no token")
 	}
-	conn, _, err := dialVerified(ctx, rec, r.opts.Ensure.ClientVersion)
+	conn, _, err := dialVerified(ctx, rec, r.opts.Ensure.ClientVersion, r.opts.CoexistenceProtection)
 	if err != nil {
 		return err
 	}
