@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync/atomic"
 	"time"
 
+	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
+	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	runnersvc "cercano/source/server/internal/runner"
 	"cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
@@ -40,17 +43,30 @@ type completionTurnStream struct {
 
 func (s *completionTurnStream) Context() context.Context { return s.ctx }
 func (s *completionTurnStream) Send(response *proto.StreamProcessResponse) error {
+	if w, _ := s.ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+		if w.failed.Load() {
+			return broker.ErrAdmissionBusy
+		}
+		if _, err := s.server.resolvePreparedTaskOwner(s.ctx, s.parent); err != nil || !s.server.turnIsCurrent(s.parent, s.generation) {
+			w.fail(broker.ErrAdmissionStale)
+			return broker.ErrAdmissionStale
+		}
+	}
 	if err := s.ctx.Err(); err != nil {
 		return err
 	}
 	if final := response.GetFinalResponse(); final != nil && final.GetRoutingMetadata().GetModelName() != "" {
-		s.succeeded = true
 		if s.server != nil {
 			persisted := ""
 			latest := s.server.latestCompletionTurn(s.parent)
 			if latest.ID != s.baselineTurnID && latest.Role == "assistant" {
 				persisted = latest.ID
 			}
+			if w, _ := s.ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil && persisted == "" {
+				w.fail(broker.ErrAdmissionBusy)
+				return broker.ErrAdmissionBusy
+			}
+			s.succeeded = true
 			s.server.turnBroker.Publish(s.parent, s.generation, runnersvc.Event{Kind: runnersvc.EventDone, PersistedTurnID: persisted, Result: runnersvc.Result{FinalText: final.GetOutput(), Model: final.GetRoutingMetadata().GetModelName(), InputTokens: int(final.GetInputTokens()), OutputTokens: int(final.GetOutputTokens()), Notice: final.GetNotice()}})
 		}
 	}
@@ -64,11 +80,12 @@ type completionNotice struct {
 }
 
 // tryTaskCompletionWake never replaces a live turn. A busy conversation is
-// retried by its ordinary release hook, not by a polling timer. Durable wake
+// retried by the legacy release hook, not by a polling timer. Owned attempts
+// leave durable pending evidence without a conversation-ID-only retry. Durable wake
 // claims prevent duplicate automatic reactions; pending evidence is cleared
 // only after a successful, still-current completion turn.
 func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	if err := s.refuseUnintegratedCoexistenceWork(); err != nil && parentCtx.Value(ownedCompletionKey{}) == nil {
 		log.Printf("task completion admission %s: %v", parent, err)
 		return
 	}
@@ -108,6 +125,15 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 		defer finish()
 		parentCtx = scoped
 	}
+	// Admission may add policy values, but must preserve the pinned authority.
+	if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); s.coexistence != nil {
+		if w == nil || w.owner.Conversation != parent || w.failed.Load() {
+			return
+		}
+		if _, err := s.resolvePreparedTaskOwner(parentCtx, parent); err != nil {
+			return
+		}
+	}
 	ctx, gen, release, acquired := s.turnBroker.TryBeginTurn(s.accountingContext(parentCtx, "main", parent), parent)
 	if !acquired {
 		return
@@ -121,23 +147,39 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	}
 	stream := &completionTurnStream{ctx: ctx, server: s, parent: parent, generation: gen, baselineTurnID: s.latestCompletionTurn(parent).ID}
 	err = s.streamConversationTurn(&proto.ProcessRequestRequest{ConversationId: parent, Input: input, WorkDir: info.ProjectDir, DebugMode: info.DevWorkDir != ""}, stream, &completionTurnLease{ctx, gen, release})
-	if !stream.succeeded {
+	if !stream.succeeded && ctx.Value(ownedCompletionKey{}) == nil {
 		s.turnBroker.Publish(parent, gen, runnersvc.Event{Kind: runnersvc.EventDone, Result: runnersvc.Result{Notice: "Automatic follow-up did not finish; task results remain available."}})
 	}
 	if err != nil {
+		if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+			w.fail(err)
+		}
 		log.Printf("task completion turn %s: %v", parent, err)
 		return
 	}
 	if !stream.succeeded || ctx.Err() != nil || !s.turnIsCurrent(parent, gen) {
+		if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+			w.fail(broker.ErrAdmissionBusy)
+		}
 		return
 	}
 	for _, notice := range notices {
 		if err := store.HandleTaskNotification(ctx, parent, notice.TaskID); err != nil {
+			if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+				w.fail(err)
+			}
 			log.Printf("task completion handling %s: %v", notice.TaskID, err)
 		}
 	}
+	if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil && w.failed.Load() {
+		return
+	}
 	if len(notices) == 64 {
-		s.notifyTaskChange(parent)
+		if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+			_ = s.notifyOwnedTaskChange(ctx, w.owner, parent)
+		} else {
+			s.notifyTaskChange(parent)
+		}
 	}
 }
 
@@ -153,6 +195,10 @@ func claimCompletionBatch(ctx context.Context, store conversation.TaskStore, par
 		if !task.WakeClaimed {
 			claimed, err := store.ClaimTaskWake(ctx, parent, task.ID)
 			if err != nil {
+				if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+					w.fail(err)
+					return "", nil
+				}
 				log.Printf("task completion claim %s: %v", task.ID, err)
 				continue
 			}
@@ -203,6 +249,9 @@ func (s *Server) handleCompletionBatch(ctx context.Context, parent string, batch
 	}
 	for _, notice := range batch {
 		if err := store.HandleTaskNotification(ctx, parent, notice.TaskID); err != nil {
+			if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+				w.fail(err)
+			}
 			log.Printf("task completion handling %s: %v", notice.TaskID, err)
 		}
 	}
@@ -228,4 +277,79 @@ func (s *Server) latestCompletionTurn(parent string) conversation.Turn {
 		return conversation.Turn{}
 	}
 	return turns[len(turns)-1]
+}
+
+// Each callback reserves its continuation before returning to taskrun. Queues
+// serialize only an exact epoch; capability values never come from a later lookup.
+type ownedCompletionKey struct{}
+type ownedCompletionWake struct {
+	owner  broker.Owner
+	ctx    context.Context
+	ticket *broker.WorkTicket
+	failed atomic.Bool
+}
+
+func (w *ownedCompletionWake) fail(error) {
+	w.failed.Store(true)
+	_ = w.ticket.Advance(broker.PersistenceWork)
+	_ = w.ticket.PersistenceFailed()
+}
+func (s *Server) notifyOwnedTaskChange(ctx context.Context, owner broker.Owner, parent string) error {
+	if owner.Conversation != parent {
+		return broker.ErrAdmissionStale
+	}
+	cap, err := s.resolvePreparedTaskOwner(ctx, parent)
+	if err != nil || ownerOf(cap) != owner {
+		return broker.ErrAdmissionStale
+	}
+	s.taskRunMu.Lock()
+	defer s.taskRunMu.Unlock()
+	if s.taskManagerClosed || s.taskWakeCtx == nil {
+		return broker.ErrAdmissionClosed
+	}
+	ticket, err := s.coexistence.admission.AdmitWork(owner, broker.CallbackWork)
+	if err != nil {
+		return err
+	}
+	w := &ownedCompletionWake{owner: owner, ticket: ticket}
+	w.ctx = persistsvc.WithWriteFailure(context.WithValue(context.WithoutCancel(ctx), ownedCompletionKey{}, w), w.fail)
+	if s.ownedTaskWakes == nil {
+		s.ownedTaskWakes = make(map[broker.Owner][]*ownedCompletionWake)
+	}
+	_, running := s.ownedTaskWakes[owner]
+	s.ownedTaskWakes[owner] = append(s.ownedTaskWakes[owner], w)
+	if running {
+		return nil
+	}
+	s.taskWakeWG.Add(1)
+	go s.drainOwnedTaskWakes(owner)
+	return nil
+}
+func (s *Server) drainOwnedTaskWakes(owner broker.Owner) {
+	defer s.taskWakeWG.Done()
+	for {
+		s.taskRunMu.Lock()
+		queue := s.ownedTaskWakes[owner]
+		if len(queue) == 0 {
+			delete(s.ownedTaskWakes, owner)
+			s.taskRunMu.Unlock()
+			return
+		}
+		w := queue[0]
+		s.ownedTaskWakes[owner] = queue[1:]
+		shutdown := s.taskWakeCtx
+		s.taskRunMu.Unlock()
+		ctx, cancel := context.WithCancel(w.ctx)
+		stop := context.AfterFunc(shutdown, cancel)
+		// The retained ticket prevents transfer until the broker lease, persistence,
+		// notification acknowledgement and all synchronous callbacks have returned.
+		if _, err := s.resolvePreparedTaskOwner(ctx, owner.Conversation); err == nil {
+			s.tryTaskCompletionWake(ctx, owner.Conversation)
+		}
+		stop()
+		cancel()
+		// Busy foreground means no claims were made: durable outcomes remain pending,
+		// but this scheduling attempt is finished. Never poll an occupied broker.
+		_ = w.ticket.Complete()
+	}
 }

@@ -201,6 +201,7 @@ type Server struct {
 	// unfinished executions are then reconciled at the next start.
 	taskRunMu               sync.RWMutex
 	taskManager             *taskrun.Manager
+	ownedTaskWakes          map[broker.Owner][]*ownedCompletionWake
 	taskManagerClosed       bool
 	taskWakeCtx             context.Context
 	taskWakeCancel          context.CancelFunc
@@ -624,8 +625,7 @@ func (s *Server) ensureTaskManager() bool {
 	var m *taskrun.Manager
 	var err error
 	if s.coexistence != nil {
-		// Foreground/child callback bridging is not enabled yet.
-		m, err = taskrun.NewPreparedOwned(tasks, engine.Dispatch, nil, s.coexistence.admission, s.resolvePreparedTaskOwner)
+		m, err = taskrun.NewPreparedOwnedCompletion(tasks, engine.Dispatch, s.notifyOwnedTaskChange, s.coexistence.admission, s.resolvePreparedTaskOwner)
 	} else {
 		m, err = taskrun.New(tasks, engine.Dispatch, s.notifyTaskChange)
 	}
@@ -3661,8 +3661,10 @@ func (s *Server) streamProcessRequestWithToolLoop(req *proto.ProcessRequestReque
 // A host completion turn supplies an already acquired idle-only lease. Human
 // requests still use BeginTurn and retain their right to supersede background work.
 func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream proto.Agent_StreamProcessRequestServer, reserved *completionTurnLease) error {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
-		return err
+	if reserved == nil || reserved.ctx.Value(ownedCompletionKey{}) == nil {
+		if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+			return err
+		}
 	}
 	// One live turn per conversation. A new turn here supersedes any turn still
 	// running on the same conversation (cancels its ctx); this turn's own ctx
@@ -3747,6 +3749,9 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 	if convID != "" {
 		persist = func(m llm.Message) {
 			if !s.turnIsCurrent(convID, turnGen) {
+				if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+					w.fail(broker.ErrAdmissionStale)
+				}
 				return
 			}
 			s.persistTurn(ctx, convID, m)
