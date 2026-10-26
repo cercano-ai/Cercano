@@ -18,7 +18,13 @@ import (
 )
 
 type Executor func(context.Context, dispatch.Spec) (dispatch.Result, error)
+
+// ErrTerminalTransitionRejected means no durable terminal transition was
+// confirmed. It remains unresolved even if another writer may have finished it.
+var ErrTerminalTransitionRejected = errors.New("task terminal transition was not applied")
+
 type execution struct {
+	parent     string
 	cancel     context.CancelFunc
 	done       chan struct{}
 	stop       bool
@@ -46,17 +52,31 @@ type Manager struct {
 // New reconciles prior unfinished executions exactly once per host lifetime.
 // A manager must not be constructed per tool call or per client attachment.
 func New(store conversation.TaskStore, execute Executor, notify func(string)) (*Manager, error) {
+	return newManagerWithInitialization(store, execute, notify, true)
+}
+
+// NewPrepared constructs a manager without schema initialization or broad
+// reconciliation. The caller must have prepared and validated the store and
+// must enforce ownership before enabling coexistence. This constructor alone
+// provides no ownership fencing or recovery.
+func NewPrepared(store conversation.TaskStore, execute Executor, notify func(string)) (*Manager, error) {
+	return newManagerWithInitialization(store, execute, notify, false)
+}
+
+func newManagerWithInitialization(store conversation.TaskStore, execute Executor, notify func(string), initialize bool) (*Manager, error) {
 	if store == nil || execute == nil {
 		return nil, errors.New("task persistence and executor are required")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := store.InitTasks(ctx); err != nil {
-		cancel()
-		return nil, err
-	}
-	if err := store.ReconcileTasks(ctx); err != nil {
-		cancel()
-		return nil, err
+	if initialize {
+		if err := store.InitTasks(ctx); err != nil {
+			cancel()
+			return nil, err
+		}
+		if err := store.ReconcileTasks(ctx); err != nil {
+			cancel()
+			return nil, err
+		}
 	}
 	return &Manager{store: store, execute: execute, ctx: ctx, cancel: cancel, active: make(map[string]*execution), waitWake: make(map[string][]chan struct{}), notify: notify}, nil
 }
@@ -88,7 +108,7 @@ func (m *Manager) Launch(ctx context.Context, spec dispatch.Spec) (conversation.
 	// deadline. The manager provides the only execution lifetime here.
 	child, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	stopHost := context.AfterFunc(m.ctx, cancel)
-	e := &execution{cancel: cancel, done: make(chan struct{})}
+	e := &execution{parent: t.ParentID, cancel: cancel, done: make(chan struct{})}
 	m.active[t.ID] = e
 	spec.Tools = append([]string(nil), spec.Tools...)
 	spec.SubConversationID = t.ChildID
@@ -132,8 +152,12 @@ func (m *Manager) run(ctx context.Context, t conversation.TaskRecord, spec dispa
 		t.Error = "Agent stopped; execution was not replayed. Inspect partial work before retrying."
 	}
 	persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	_, e.persistErr = m.store.FinishTask(persistCtx, t)
+	var applied bool
+	applied, e.persistErr = m.store.FinishTask(persistCtx, t)
 	cancel()
+	if !applied && e.persistErr == nil {
+		e.persistErr = ErrTerminalTransitionRejected
+	}
 	// Wake task_wait callers blocked in this same conversation: their
 	// foreground turn must yield to the completion boundary so this
 	// completion is delivered promptly instead of waiting out the wait
@@ -283,7 +307,27 @@ func (m *Manager) signalWaitWakeLocked(parent string) {
 	}
 }
 
+// UnresolvedTerminalOutcomes returns a snapshot of failed or rejected terminal
+// writes for parent (empty selects all conversations). These outcomes block
+// safe ownership release even after execution has stopped. No automatic retry
+// or clearing is performed: resolving them requires durable ownership evidence.
+// An empty result is not a full quiescence check; running work, admissions and
+// completion callbacks must also be drained by the ownership integration.
+func (m *Manager) UnresolvedTerminalOutcomes(parent string) map[string]error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]error)
+	for id, e := range m.active {
+		if e.persistErr != nil && (parent == "" || e.parent == parent) {
+			out[id] = e.persistErr
+		}
+	}
+	return out
+}
+
 // Close stops host-owned execution; it does not replay or wait without bounds.
+// Success only means goroutines drained, not durable quiescence; callers must
+// also account for UnresolvedTerminalOutcomes before releasing ownership.
 // The caller must keep persistence open until this returns successfully.
 func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Lock()
