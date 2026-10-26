@@ -71,8 +71,10 @@ func DecodeTokenSet(s string) (TokenSet, error) {
 // Flow performs the device-authorization sign-in. Zero value is usable;
 // Issuer and Client default sensibly.
 type Flow struct {
-	Issuer string       // defaults to DefaultIssuer
-	Client *http.Client // defaults to http.DefaultClient
+	// Options is captured by value by sources and pending login attempts.
+	Options secrets.Options
+	Issuer  string       // defaults to DefaultIssuer
+	Client  *http.Client // defaults to http.DefaultClient
 	// UserAgent identifies us to the endpoints (they reject blank UAs).
 	UserAgent string
 }
@@ -119,7 +121,7 @@ type deviceStartResponse struct {
 // Start begins a device authorization: returns the URL + code to show the
 // user. Poll then blocks until they finish (or ctx cancels).
 func (f Flow) Start(ctx context.Context) (*Pending, error) {
-	if err := secrets.CheckAllowed(); err != nil {
+	if err := f.Options.CheckMutation(); err != nil {
 		return nil, err
 	}
 	body, _ := json.Marshal(map[string]string{"client_id": codexClientID})
@@ -178,6 +180,9 @@ func (p *Pending) Poll(ctx context.Context) (*TokenSet, error) {
 	if err := secrets.CheckAllowed(); err != nil {
 		return nil, err
 	}
+	if err := p.flow.Options.CheckMutation(); err != nil {
+		return nil, err
+	}
 	body, _ := json.Marshal(map[string]string{
 		"device_auth_id": p.deviceAuthID,
 		"user_code":      p.UserCode,
@@ -234,7 +239,7 @@ func (f Flow) exchange(ctx context.Context, dp devicePollResponse) (*TokenSet, e
 
 // Refresh exchanges a refresh token for a fresh access token.
 func (f Flow) Refresh(ctx context.Context, refreshToken string) (*TokenSet, error) {
-	if err := secrets.CheckAllowed(); err != nil {
+	if err := f.Options.CheckMutation(); err != nil {
 		return nil, err
 	}
 	form := url.Values{
@@ -254,7 +259,7 @@ func (f Flow) Refresh(ctx context.Context, refreshToken string) (*TokenSet, erro
 }
 
 func (f Flow) tokenRequest(ctx context.Context, form url.Values) (*TokenSet, error) {
-	if err := secrets.CheckAllowed(); err != nil {
+	if err := f.Options.CheckMutation(); err != nil {
 		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,

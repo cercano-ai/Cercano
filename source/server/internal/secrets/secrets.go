@@ -34,8 +34,16 @@ type keyringStore struct{ kr keyring.Keyring }
 // OpenKeychain returns a rejecting sentinel when credentials are explicitly
 // disabled (or the setting is malformed), before opening any backend. Otherwise
 // it opens the OS keychain and preserves normal backend errors.
-func OpenKeychain() (Store, error) {
-	return openKeychain(keyring.Open)
+func OpenKeychain() (Store, error) { return OpenKeychainWithOptions(Options{}) }
+
+// OpenKeychainWithOptions captures the fixed coexistence mutation boundary.
+func OpenKeychainWithOptions(options Options) (Store, error) {
+	store, err := openKeychain(keyring.Open)
+	if err != nil {
+		return nil, err
+	}
+	store = Guard(store, options)
+	return store, nil
 }
 
 func openKeychain(open func(keyring.Config) (keyring.Keyring, error)) (Store, error) {

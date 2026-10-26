@@ -357,6 +357,7 @@ func vendorByHost(baseURL string) string {
 // strips them so disk reflects the profile-only world. New code should
 // always read through the active profile (see Server.activeCloudModel).
 type Config struct {
+	sharedReadOnly bool // Runtime-only, retained by Clone; never serialized.
 	// CaptureDispatchReasoning records plaintext model reasoning in dispatch
 	// history. Debugging aid, off by default: reasoning restates conversation
 	// and tool content, so it is normally redacted to a byte count. Enable it
@@ -987,11 +988,15 @@ func finalizeModelTiers(cfg *Config) {
 
 // Load reads config from the given path, merges with defaults, then applies
 // environment variable overrides. Returns defaults if the file doesn't exist.
-func Load(path string) (Config, error) {
+func Load(path string) (Config, error) { return LoadWithOptions(path, secrets.Options{}) }
+
+// LoadWithOptions freezes raw persistence before any startup reconciliation.
+func LoadWithOptions(path string, options secrets.Options) (Config, error) {
 	if err := secrets.ValidateEnvironment(); err != nil {
 		return Config{}, err
 	}
 	cfg := Defaults()
+	cfg.sharedReadOnly = options.ReadOnly
 
 	if path != "" {
 		data, err := os.ReadFile(path)
@@ -1299,6 +1304,9 @@ func VenvPython() string {
 // split-state bug that motivated this refactor (cloud_model edited, profile
 // untouched, runtime still on the old model).
 func Save(cfg Config, path string) error {
+	if cfg.sharedReadOnly {
+		return secrets.ErrReadOnly
+	}
 	if cfg.CloudAPIKey != "" {
 		if err := secrets.CheckAllowed(); err != nil {
 			return err
@@ -1349,3 +1357,7 @@ func (c LlamaServerConfig) Validate() error {
 	}
 	return nil
 }
+
+// WithSharedReadOnly freezes persistence on this snapshot and all its clones.
+// Apply before startup reconciliation; it cannot unfreeze an existing snapshot.
+func (c Config) WithSharedReadOnly() Config { c.sharedReadOnly = true; return c }

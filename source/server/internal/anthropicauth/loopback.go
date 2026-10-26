@@ -40,7 +40,7 @@ type Pending struct {
 // pair and CSRF state, and builds both authorize URLs. The listener is held
 // open until Wait/Redeem/Close.
 func (f Flow) Start(ctx context.Context) (*Pending, error) {
-	if err := secrets.CheckAllowed(); err != nil {
+	if err := f.Options.CheckMutation(); err != nil {
 		return nil, err
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -106,6 +106,9 @@ type callbackResult struct {
 // is what renders as "localhost refused to connect".
 func (p *Pending) Wait(ctx context.Context, pasted <-chan PastedCode) (*TokenSet, error) {
 	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
+	if err := p.flow.Options.CheckMutation(); err != nil {
 		return nil, err
 	}
 	done := make(chan callbackResult, 1)
@@ -176,6 +179,9 @@ func (p *Pending) Wait(ctx context.Context, pasted <-chan PastedCode) (*TokenSet
 // serving the loopback. The listener is closed on return.
 func (p *Pending) Redeem(ctx context.Context, pasted string) (*TokenSet, error) {
 	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
+	if err := p.flow.Options.CheckMutation(); err != nil {
 		return nil, err
 	}
 	defer p.listener.Close()

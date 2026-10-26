@@ -21,6 +21,9 @@ type LoginAttempt struct {
 }
 
 func (s *Service) BeginLogin(ctx context.Context, profile, provider string) (*LoginAttempt, error) {
+	if err := s.CheckMutation(); err != nil {
+		return nil, err
+	}
 	if err := secrets.CheckAllowed(); err != nil {
 		return nil, err
 	}

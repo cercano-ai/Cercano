@@ -22,6 +22,7 @@ const refreshTimeout = 30 * time.Second
 // Store facade routes all host writes through the same generation boundary.
 // Do not retain or mutate its raw backing store after handing it to this owner.
 type Service struct {
+	options  secrets.Options
 	mu       sync.Mutex
 	store    secrets.Store
 	profiles map[string]*profileState
@@ -48,8 +49,15 @@ type flight struct {
 	err        error
 }
 
-func New(store secrets.Store) *Service {
-	return &Service{store: store, profiles: make(map[string]*profileState)}
+func New(store secrets.Store, options ...secrets.Options) *Service {
+	o := secrets.Options{}
+	for _, option := range options {
+		o.ReadOnly = o.ReadOnly || option.ReadOnly
+	}
+	if secrets.CheckMutation(store) == secrets.ErrReadOnly {
+		o.ReadOnly = true
+	}
+	return &Service{options: o, store: store, profiles: make(map[string]*profileState)}
 }
 func (s *Service) profile(name string) *profileState {
 	s.mu.Lock()
@@ -108,6 +116,9 @@ func (s *Service) Get(name string) (string, error) {
 	return p.store.Get(name)
 }
 func (s *Service) Set(name, value string) error {
+	if err := s.CheckMutation(); err != nil {
+		return err
+	}
 	if err := secrets.CheckAllowed(); err != nil {
 		return err
 	}
@@ -124,6 +135,9 @@ func (s *Service) Set(name, value string) error {
 	return nil
 }
 func (s *Service) Delete(name string) error {
+	if err := s.CheckMutation(); err != nil {
+		return err
+	}
 	if err := secrets.CheckAllowed(); err != nil {
 		return err
 	}
@@ -156,6 +170,7 @@ func (s *Service) List() ([]string, error) {
 // generation. Sources retain provider-specific parsing/refresh logic but never
 // receive the raw backing store or independently commit refreshed credentials.
 type transaction struct {
+	options      secrets.Options
 	profile, raw string
 	loadErr      error
 	staged       *string
@@ -167,7 +182,11 @@ func (t *transaction) Get(profile string) (string, error) {
 	}
 	return t.raw, t.loadErr
 }
+func (t *transaction) CheckMutation() error { return t.options.CheckMutation() }
 func (t *transaction) Set(profile, value string) error {
+	if err := t.CheckMutation(); err != nil {
+		return err
+	}
 	if profile != t.profile {
 		return errors.New("credential transaction profile mismatch")
 	}
@@ -194,7 +213,10 @@ func (s *Service) acquire(ctx context.Context, profile, provider string, resolve
 			return token{}, &llm.CredentialError{Class: llm.ErrCredential, Provider: provider, Profile: profile, Method: llm.AuthSubscription, Reason: "provider_mismatch"}
 		}
 		if f == nil {
-			snapshot := &transaction{profile: profile}
+			snapshot := &transaction{profile: profile, options: s.options}
+			if errors.Is(secrets.CheckMutation(p.store), secrets.ErrReadOnly) {
+				snapshot.options.ReadOnly = true
+			}
 			if p.store == nil {
 				snapshot.loadErr = errNoStore
 			} else {
@@ -295,3 +317,17 @@ func (s *ChatGPTSource) Token(ctx context.Context) (string, string, error) {
 }
 
 var _ secrets.Store = (*Service)(nil)
+
+// CheckMutation exposes the immutable service boundary to narrow auth stores.
+func (s *Service) CheckMutation() error {
+	if err := secrets.CheckAllowed(); err != nil {
+		return err
+	}
+	if err := s.options.CheckMutation(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	store := s.store
+	s.mu.Unlock()
+	return secrets.CheckMutation(store)
+}

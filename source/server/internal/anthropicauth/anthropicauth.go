@@ -102,6 +102,8 @@ func DecodeTokenSet(s string) (TokenSet, error) {
 // Flow performs the PKCE loopback sign-in and token refresh. Zero value is
 // usable; every endpoint and the client id default to the constants above.
 type Flow struct {
+	// Options is captured by value by sources and pending login attempts.
+	Options      secrets.Options
 	ClientID     string       // defaults to DefaultClientID
 	AuthorizeURL string       // defaults to DefaultAuthorizeURL
 	TokenURL     string       // defaults to DefaultTokenURL
@@ -230,7 +232,7 @@ func (f Flow) exchange(ctx context.Context, code, state, verifier, redirectURI s
 // refresh tokens rotate (single-use); when the response omits a new one we
 // keep the old, but normally a new refresh token replaces it.
 func (f Flow) Refresh(ctx context.Context, refreshToken string) (*TokenSet, error) {
-	if err := secrets.CheckAllowed(); err != nil {
+	if err := f.Options.CheckMutation(); err != nil {
 		return nil, err
 	}
 	ts, err := f.tokenRequest(ctx, map[string]string{
@@ -257,7 +259,7 @@ type tokenResponse struct {
 // tokenRequest POSTs a JSON body to the token endpoint and decodes the token
 // response. Anthropic's token endpoint takes JSON (not form-encoded).
 func (f Flow) tokenRequest(ctx context.Context, body map[string]string) (*TokenSet, error) {
-	if err := secrets.CheckAllowed(); err != nil {
+	if err := f.Options.CheckMutation(); err != nil {
 		return nil, err
 	}
 	buf, err := json.Marshal(body)

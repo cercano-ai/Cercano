@@ -23,7 +23,7 @@ type Store interface {
 // Save stores a token set for a profile, JSON-encoded, in the given store.
 // The sign-in handler calls it once the PKCE flow completes.
 func Save(store Store, profile string, ts TokenSet) error {
-	if err := secrets.CheckAllowed(); err != nil {
+	if err := secrets.CheckMutation(store); err != nil {
 		return err
 	}
 	enc, err := ts.Encode()
@@ -45,6 +45,7 @@ func Save(store Store, profile string, ts TokenSet) error {
 // refresh, not N. This matters because Anthropic's refresh tokens rotate
 // (single-use): concurrent refreshes would invalidate each other.
 type Source struct {
+	options secrets.Options
 	store   Store
 	profile string
 	flow    Flow
@@ -55,8 +56,12 @@ type Source struct {
 
 // NewSource builds a token source for a profile. flow supplies the refresh
 // endpoint (its zero value targets the real endpoints).
-func NewSource(store Store, profile string, flow Flow) *Source {
-	return &Source{store: store, profile: profile, flow: flow, now: time.Now}
+func NewSource(store Store, profile string, flow Flow, options ...secrets.Options) *Source {
+	o := secrets.Options{}
+	for _, option := range options {
+		o.ReadOnly = o.ReadOnly || option.ReadOnly
+	}
+	return &Source{store: store, profile: profile, flow: flow, now: time.Now, options: o}
 }
 
 // Token returns a valid bearer access token for the profile. When the stored
@@ -95,6 +100,12 @@ func (s *Source) Token(ctx context.Context) (string, error) {
 		return "", s.failure(llm.ErrLoginRequired, llm.CredentialExpired, nil)
 	}
 
+	if err := s.options.CheckMutation(); err != nil {
+		return "", err
+	}
+	if err := secrets.CheckMutation(s.store); err != nil {
+		return "", err
+	}
 	refreshed, err := s.flow.Refresh(ctx, ts.Refresh)
 	if err != nil {
 		return "", llm.RefreshFailure(err, "anthropic", s.profile)
