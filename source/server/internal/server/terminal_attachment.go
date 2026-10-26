@@ -43,7 +43,13 @@ func (s *Server) BeginTerminalStream(ctx context.Context, conversation string, k
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	l.mu.Lock()
+	if !l.ready[owner] {
+		l.mu.Unlock()
+		return nil, nil, nil, broker.ErrAdmissionBusy
+	}
 	attachment, err := l.admission.AttachTerminal(owner, id)
+	l.mu.Unlock()
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -86,6 +92,11 @@ func (s *Server) CloseTerminalOwner(ctx context.Context, conversation string) (*
 	l, err := s.lifecycle()
 	if err != nil {
 		return nil, err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.ready[owner] {
+		return nil, broker.ErrAdmissionBusy
 	}
 	return l.admission.CloseTerminal(owner, id)
 }

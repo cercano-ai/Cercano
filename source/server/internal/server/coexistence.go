@@ -25,8 +25,13 @@ type CoexistenceOptions struct {
 	ControlDial        func(context.Context, string) (*grpc.ClientConn, error)
 	Contract           conversation.CoexistenceDeclaration
 	CloseParticipation func(context.Context) error
-	// Reload must inspect durable pending outcomes without replaying live work.
+	// Reload is a read-only legacy reload hook, called under the lifecycle lock
+	// before registration. It must not schedule owned completion; use StageReload
+	// when pending outcomes need admission tickets.
 	Reload func(context.Context, conversation.Store, *conversation.Ownership) error
+	// StageReload reads durable state before registration; its continuation reserves
+	// pending work after registration, outside mu, under the same host ticket.
+	StageReload func(context.Context, conversation.Store, *conversation.Ownership) (func(context.Context) error, error)
 	// Cleanup finishes source callbacks after durable relinquishment and unlock.
 	Cleanup func(context.Context, broker.Owner) error
 }
@@ -38,12 +43,13 @@ type coexistenceLifecycle struct {
 	admission *broker.Admission
 	owners    map[string]*conversation.Ownership
 	incoming  map[broker.IncomingHandover]*IncomingAcceptance
+	ready     map[broker.Owner]bool
 }
 
 // NewCoexistenceServer constructs a lifecycle-only server. Do not serve ordinary
 // requests with it until every work path supplies admission tickets/capabilities.
 func NewCoexistenceServer(ctx context.Context, o CoexistenceOptions) (*Server, error) {
-	if o.Build == "" || o.Host == "" || o.CloseParticipation == nil || o.Reload == nil {
+	if o.Build == "" || o.Host == "" || o.CloseParticipation == nil || (o.Reload == nil && o.StageReload == nil) {
 		return nil, fmt.Errorf("build, exact host, reload and safe participation hook required")
 	}
 	path, err := filepath.Abs(o.StorePath)
@@ -55,7 +61,7 @@ func NewCoexistenceServer(ctx context.Context, o CoexistenceOptions) (*Server, e
 	if err != nil {
 		return nil, err
 	}
-	return &Server{coexistence: &coexistenceLifecycle{options: o, store: store, admission: broker.NewAdmission(o.Host), owners: make(map[string]*conversation.Ownership), incoming: make(map[broker.IncomingHandover]*IncomingAcceptance)}}, nil
+	return &Server{coexistence: &coexistenceLifecycle{options: o, store: store, admission: broker.NewAdmission(o.Host), owners: make(map[string]*conversation.Ownership), ready: make(map[broker.Owner]bool), incoming: make(map[broker.IncomingHandover]*IncomingAcceptance)}}, nil
 }
 func (s *Server) lifecycle() (*coexistenceLifecycle, error) {
 	if s.coexistence == nil {
@@ -78,6 +84,9 @@ func (s *Server) Retain(ctx context.Context, id string) (broker.Owner, error) {
 	return l.acquire(ctx, id, nil)
 }
 func (l *coexistenceLifecycle) acquire(ctx context.Context, id string, accepted *IncomingAcceptance) (broker.Owner, error) {
+	if l.owners[id] != nil {
+		return broker.Owner{}, broker.ErrAdmissionBusy
+	}
 	t, e := l.admission.AdmitHostWork(broker.PersistenceWork)
 	if e != nil {
 		return broker.Owner{}, e
@@ -100,7 +109,14 @@ func (l *coexistenceLifecycle) acquire(ctx context.Context, id string, accepted 
 		return broker.Owner{}, e
 	}
 	identity := ownerOf(o)
-	if e = l.options.Reload(conversation.WithOwnership(ctx, o), l.store, o); e != nil {
+	ctx = conversation.WithOwnership(ctx, o)
+	var schedule func(context.Context) error
+	if l.options.StageReload != nil {
+		schedule, e = l.options.StageReload(ctx, l.store, o)
+	} else {
+		e = l.options.Reload(ctx, l.store, o)
+	}
+	if e != nil {
 		_ = t.PersistenceFailed()
 		return broker.Owner{}, fmt.Errorf("acquired but reload unresolved: %w", e)
 	}
@@ -113,6 +129,16 @@ func (l *coexistenceLifecycle) acquire(ctx context.Context, id string, accepted 
 		_ = t.PersistenceFailed()
 		return broker.Owner{}, e
 	}
+	if schedule != nil {
+		l.mu.Unlock()
+		e = schedule(ctx)
+		l.mu.Lock()
+		if e != nil {
+			_ = t.PersistenceFailed()
+			return broker.Owner{}, fmt.Errorf("acquired but pending scheduling unresolved: %w", e)
+		}
+	}
+	l.ready[identity] = true
 	_ = t.Complete()
 	return identity, nil
 }
@@ -139,12 +165,22 @@ func (s *Server) AttachRetained(o broker.Owner) (*broker.Attachment, error) {
 	if e != nil {
 		return nil, e
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.ready[o] {
+		return nil, broker.ErrAdmissionBusy
+	}
 	return l.admission.AttachOwner(o)
 }
 func (s *Server) AdmitRetainedWork(o broker.Owner, k broker.WorkKind) (*broker.WorkTicket, error) {
 	l, e := s.lifecycle()
 	if e != nil {
 		return nil, e
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.ready[o] {
+		return nil, broker.ErrAdmissionBusy
 	}
 	return l.admission.AdmitWork(o, k)
 }
@@ -219,6 +255,9 @@ func (s *Server) relinquish(ctx context.Context, o broker.Owner, requester *brok
 	return l.relinquishLocked(ctx, o, requester, nil, h)
 }
 func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Owner, requester *broker.Attachment, terminal *string, h *broker.IncomingHandover) error {
+	if !l.ready[o] {
+		return broker.ErrAdmissionBusy
+	}
 	cap := l.owners[o.Conversation]
 	if cap == nil || ownerOf(cap) != o {
 		return broker.ErrAdmissionStale
@@ -253,6 +292,7 @@ func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Ow
 		return e
 	}
 	delete(l.owners, o.Conversation)
+	delete(l.ready, o)
 	if l.options.Cleanup != nil {
 		if e = l.options.Cleanup(ctx, o); e != nil {
 			_ = t.PersistenceFailed()

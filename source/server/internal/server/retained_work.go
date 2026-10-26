@@ -26,6 +26,9 @@ func (s *Server) BeginRetainedWork(ctx context.Context, owner broker.Owner, kind
 	if o == nil || ownerOf(o) != owner {
 		return nil, nil, broker.ErrAdmissionStale
 	}
+	if !l.ready[owner] {
+		return nil, nil, broker.ErrAdmissionBusy
+	}
 	ticket, err := l.admission.AdmitWork(owner, kind)
 	if err != nil {
 		return nil, nil, err

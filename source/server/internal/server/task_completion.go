@@ -90,6 +90,9 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 		return
 	}
 	if parent == "" || parentCtx.Err() != nil || s.persistSvc == nil || s.persistSvc.Store() == nil {
+		if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+			w.fail(broker.ErrAdmissionClosed)
+		}
 		return
 	}
 	store, ok := s.persistSvc.Store().(conversation.TaskStore)
@@ -98,6 +101,9 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	}
 	pending, err := store.PendingTasks(parentCtx, parent)
 	if err != nil {
+		if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+			w.fail(err)
+		}
 		log.Printf("task completion lookup %s: %v", parent, err)
 		return
 	}
@@ -114,11 +120,19 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	// Do not manufacture native chats for unbound external callers or child loops.
 	info, err := s.persistSvc.Store().Get(parentCtx, parent)
 	if err != nil || info.Kind == "subagent" {
+		if err != nil {
+			if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+				w.fail(err)
+			}
+		}
 		return
 	}
 	if s.backgroundWorkAdmission != nil {
 		scoped, finish, admissionErr := s.backgroundWorkAdmission(parentCtx)
 		if admissionErr != nil {
+			if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
+				w.fail(admissionErr)
+			}
 			log.Printf("task completion admission %s: %v", parent, admissionErr)
 			return
 		}
@@ -131,6 +145,7 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 			return
 		}
 		if _, err := s.resolvePreparedTaskOwner(parentCtx, parent); err != nil {
+			w.fail(err)
 			return
 		}
 	}
@@ -177,7 +192,9 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	}
 	if len(notices) == 64 {
 		if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
-			_ = s.notifyOwnedTaskChange(ctx, w.owner, parent)
+			if err := s.notifyOwnedTaskChange(ctx, w.owner, parent); err != nil {
+				w.fail(err)
+			}
 		} else {
 			s.notifyTaskChange(parent)
 		}
@@ -346,6 +363,8 @@ func (s *Server) drainOwnedTaskWakes(owner broker.Owner) {
 		// notification acknowledgement and all synchronous callbacks have returned.
 		if _, err := s.resolvePreparedTaskOwner(ctx, owner.Conversation); err == nil {
 			s.tryTaskCompletionWake(ctx, owner.Conversation)
+		} else {
+			w.fail(err)
 		}
 		stop()
 		cancel()
