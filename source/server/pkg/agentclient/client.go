@@ -94,6 +94,8 @@ func Dial(ctx context.Context, addr string) (*Client, error) {
 		c.stopWatch = make(chan struct{})
 		go c.watchConn(context.Background())
 		return c, nil
+	} else if errors.Is(err, ErrCredentialIsolation) {
+		return nil, err
 	}
 
 	logPath, launched, err := ensureServerLaunched(ctx, addr, 8*time.Second)
@@ -125,25 +127,46 @@ func DialExisting(ctx context.Context, addr string) (*Client, error) {
 }
 
 func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, error) {
+	if err := validateCredentialEnvironment(); err != nil {
+		return nil, err
+	}
+	isolate := credentialIsolationRequired()
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// 64 MiB matches the server recv limit; also future-proofs large responses.
 	const maxGRPCMsgBytes = 64 << 20
-	conn, err := grpc.DialContext(dialCtx, addr,
+	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallSendMsgSize(maxGRPCMsgBytes),
 			grpc.MaxCallRecvMsgSize(maxGRPCMsgBytes),
 		),
-	)
+	}
+	if isolate {
+		opts = append(opts, grpc.WithContextDialer(singleTransportDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+		})))
+	}
+	conn, err := grpc.DialContext(dialCtx, addr, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return &Client{conn: conn, agent: proto.NewAgentClient(conn)}, nil
+	agent := proto.NewAgentClient(conn)
+	if isolate {
+		policy, err := agent.GetCredentialPolicy(dialCtx, &proto.GetCredentialPolicyRequest{})
+		if err != nil || !policy.GetCredentialsDisabled() {
+			_ = conn.Close()
+			return nil, fmt.Errorf("%w: agent did not attest disabled credentials (%v)", ErrCredentialIsolation, err)
+		}
+	}
+	return &Client{conn: conn, agent: agent}, nil
 }
 
 func ensureServerLaunched(ctx context.Context, addr string, timeout time.Duration) (string, bool, error) {
+	if err := validateCredentialEnvironment(); err != nil {
+		return "", false, err
+	}
 	lock, err := acquireAutoLaunchLock()
 	if err != nil {
 		return "", false, err
@@ -155,6 +178,8 @@ func ensureServerLaunched(ctx context.Context, addr string, timeout time.Duratio
 	if c, err := connect(ctx, addr, 600*time.Millisecond); err == nil {
 		_ = c.Close()
 		return "", false, nil
+	} else if errors.Is(err, ErrCredentialIsolation) {
+		return "", false, err
 	}
 
 	logPath, err := autoLaunchServer(addr)
@@ -172,6 +197,9 @@ func ensureServerLaunched(ctx context.Context, addr string, timeout time.Duratio
 // Output is redirected to a log file under $TMPDIR; the process is detached via setsid
 // so it survives a CLI crash and remains available to other clients.
 func autoLaunchServer(addr string) (string, error) {
+	if err := validateCredentialEnvironment(); err != nil {
+		return "", err
+	}
 	bin, err := findCercanoBinary()
 	if err != nil {
 		return "", err

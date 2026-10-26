@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Agent_GetCredentialPolicy_FullMethodName                   = "/agent.Agent/GetCredentialPolicy"
 	Agent_SessionModel_FullMethodName                          = "/agent.Agent/SessionModel"
 	Agent_ProcessRequest_FullMethodName                        = "/agent.Agent/ProcessRequest"
 	Agent_StreamProcessRequest_FullMethodName                  = "/agent.Agent/StreamProcessRequest"
@@ -106,6 +107,8 @@ const (
 //
 // The Agent service definition.
 type AgentClient interface {
+	// Credential policy only: no readiness, lifecycle, or credential access.
+	GetCredentialPolicy(ctx context.Context, in *GetCredentialPolicyRequest, opts ...grpc.CallOption) (*GetCredentialPolicyResponse, error)
 	// Direct, session-only main-chat routing control. No inference required.
 	SessionModel(ctx context.Context, in *SessionModelRequest, opts ...grpc.CallOption) (*SessionModelResponse, error)
 	// ProcessRequest handles AI requests (Unary).
@@ -350,6 +353,16 @@ type agentClient struct {
 
 func NewAgentClient(cc grpc.ClientConnInterface) AgentClient {
 	return &agentClient{cc}
+}
+
+func (c *agentClient) GetCredentialPolicy(ctx context.Context, in *GetCredentialPolicyRequest, opts ...grpc.CallOption) (*GetCredentialPolicyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCredentialPolicyResponse)
+	err := c.cc.Invoke(ctx, Agent_GetCredentialPolicy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *agentClient) SessionModel(ctx context.Context, in *SessionModelRequest, opts ...grpc.CallOption) (*SessionModelResponse, error) {
@@ -1265,6 +1278,8 @@ func (c *agentClient) ExportImage(ctx context.Context, in *ExportImageRequest, o
 //
 // The Agent service definition.
 type AgentServer interface {
+	// Credential policy only: no readiness, lifecycle, or credential access.
+	GetCredentialPolicy(context.Context, *GetCredentialPolicyRequest) (*GetCredentialPolicyResponse, error)
 	// Direct, session-only main-chat routing control. No inference required.
 	SessionModel(context.Context, *SessionModelRequest) (*SessionModelResponse, error)
 	// ProcessRequest handles AI requests (Unary).
@@ -1511,6 +1526,9 @@ type AgentServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAgentServer struct{}
 
+func (UnimplementedAgentServer) GetCredentialPolicy(context.Context, *GetCredentialPolicyRequest) (*GetCredentialPolicyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetCredentialPolicy not implemented")
+}
 func (UnimplementedAgentServer) SessionModel(context.Context, *SessionModelRequest) (*SessionModelResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SessionModel not implemented")
 }
@@ -1767,6 +1785,24 @@ func RegisterAgentServer(s grpc.ServiceRegistrar, srv AgentServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Agent_ServiceDesc, srv)
+}
+
+func _Agent_GetCredentialPolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCredentialPolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).GetCredentialPolicy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_GetCredentialPolicy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).GetCredentialPolicy(ctx, req.(*GetCredentialPolicyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Agent_SessionModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -3107,6 +3143,10 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "agent.Agent",
 	HandlerType: (*AgentServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetCredentialPolicy",
+			Handler:    _Agent_GetCredentialPolicy_Handler,
+		},
 		{
 			MethodName: "SessionModel",
 			Handler:    _Agent_SessionModel_Handler,

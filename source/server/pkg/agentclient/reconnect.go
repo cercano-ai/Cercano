@@ -305,6 +305,9 @@ func (c *Client) watchConn(ctx context.Context) {
 // client is shutting down (ctx cancelled / Close called), which is also
 // the only path that emits ConnStateFailed.
 func (c *Client) reconnect(ctx context.Context) error {
+	if err := validateCredentialEnvironment(); err != nil {
+		return err
+	}
 	// Single-flight: watchConn and the SubscribeEvents drain can both
 	// detect the dead transport and call here concurrently. Whoever
 	// loses the race waits, then returns immediately if the winner
@@ -340,10 +343,16 @@ func (c *Client) reconnect(ctx context.Context) error {
 		// schedule.
 		fresh, err := connect(ctx, c.addr, 2*time.Second)
 		if err != nil {
+			if errors.Is(err, ErrCredentialIsolation) {
+				return err
+			}
 			if !shouldRespawn(attempt) {
 				continue
 			}
 			if _, _, launchErr := ensureServerLaunched(ctx, c.addr, 8*time.Second); launchErr != nil {
+				if errors.Is(launchErr, ErrCredentialIsolation) {
+					return launchErr
+				}
 				// Launch itself failed (missing binary, permission, slow
 				// bind, etc.) — the next scheduled attempt gets another
 				// shot in case the OLD server is coming back up.
@@ -351,6 +360,9 @@ func (c *Client) reconnect(ctx context.Context) error {
 			}
 			fresh, err = connect(ctx, c.addr, 3*time.Second)
 			if err != nil {
+				if errors.Is(err, ErrCredentialIsolation) {
+					return err
+				}
 				continue
 			}
 		}
