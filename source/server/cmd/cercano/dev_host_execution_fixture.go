@@ -42,30 +42,65 @@ func configureDevHostExecution(s *server.Server) {
 	}, func() locus.Mode { return locus.Mode("local") }, nil)
 	s.SetDispatchEngine(engine)
 	engine.SetAgenticRunner(func(ctx context.Context, spec dispatch.Spec, _ inference.Selection, _ string) (dispatch.Result, error) {
-		root := os.Getenv("CERCANO_DEV_FIXTURE_BARRIER")
-		if root == "" {
-			return dispatch.Result{}, fmt.Errorf("missing fixture barrier")
+		if fixtureWorker == nil || spec.Task != "blocked synthetic sibling" || len(spec.Tools) != 1 || spec.Tools[0] != "fixture_read" {
+			return dispatch.Result{}, fmt.Errorf("restricted fixture worker request required")
 		}
-		if err := os.WriteFile(filepath.Join(root, "entered"), []byte(version), 0600); err != nil {
-			return dispatch.Result{}, err
-		}
-		for {
-			if _, err := os.Stat(filepath.Join(root, "release")); err == nil {
-				return dispatch.Result{Text: "independent completed " + version}, nil
-			}
-			select {
-			case <-ctx.Done():
-				return dispatch.Result{}, ctx.Err()
-			case <-time.After(10 * time.Millisecond):
-			}
-		}
+		result, err := fixtureWorker.RunTurn(ctx, runner.Request{ConversationID: spec.ConversationID + "-independent", Input: spec.Task}, devFixtureSink{}, nil, func(llm.Message) {})
+		return dispatch.Result{Text: result.FinalText}, err
 	})
 	s.WireDevHostFixtureTasks()
 }
 func devHostExecutionAllowed(method string) bool {
 	return method == proto.Agent_StreamProcessRequest_FullMethodName
 }
+
+var fixtureWorker runner.TurnRunner
+
+type devFixtureSink struct{}
+
+func (devFixtureSink) Emit(runner.Event) {}
+
+// Validate before listening, constructing the server, or writing barrier files.
+func validateFixtureBarrier(root, barrier string) error {
+	if root == "" || barrier == "" || !filepath.IsAbs(root) || !filepath.IsAbs(barrier) || filepath.Clean(barrier) != barrier {
+		return fmt.Errorf("invalid fixture barrier")
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(barrier)
+	if err != nil {
+		return err
+	}
+	if resolved != resolvedRoot || resolved != barrier {
+		return fmt.Errorf("fixture barrier must be declared canonical fixture root")
+	}
+	for _, name := range []string{"entered", "release"} {
+		if _, err := os.Lstat(filepath.Join(barrier, name)); !os.IsNotExist(err) {
+			return fmt.Errorf("fixture barrier must be fresh")
+		}
+	}
+	return nil
+}
 func init() {
+	if len(os.Args) > 1 && os.Args[1] == "dev-host" && os.Getenv("CERCANO_DISABLE_CREDENTIALS") == "1" {
+		root := ""
+		for i := 2; i+1 < len(os.Args); i++ {
+			if os.Args[i] == "--fixture" {
+				root = os.Args[i+1]
+			}
+		}
+		// B attaches to the same barrier after A has entered it; only path
+		// validation belongs here, freshness is checked by the worker write.
+		barrier := os.Getenv("CERCANO_DEV_FIXTURE_BARRIER")
+		r, e := filepath.EvalSymlinks(root)
+		b, be := filepath.EvalSymlinks(barrier)
+		if e != nil || be != nil || !filepath.IsAbs(barrier) || barrier != filepath.Clean(barrier) || b != r || b != barrier {
+			fmt.Fprintln(os.Stderr, "invalid fixture barrier")
+			os.Exit(91)
+		}
+	}
 	if len(os.Args) != 4 || os.Args[1] != "worker" || os.Args[2] != "--socket" {
 		return
 	}
@@ -147,13 +182,34 @@ func (*devFixtureProvider) Capabilities() inference.Capabilities {
 func (*devFixtureProvider) Chat(context.Context, llm.ChatRequest) (llm.ChatResponse, error) {
 	panic("unexpected nonstream fixture execution")
 }
-func (p *devFixtureProvider) StreamChat(_ context.Context, req llm.ChatRequest) (llm.StreamReader, error) {
+func (p *devFixtureProvider) StreamChat(ctx context.Context, req llm.ChatRequest) (llm.StreamReader, error) {
+	b, _ := json.Marshal(req.Messages[len(req.Messages)-1])
+	if !p.called && strings.Contains(string(b), "blocked synthetic sibling") {
+		root := os.Getenv("CERCANO_DEV_FIXTURE_BARRIER")
+		if err := validateFixtureBarrier(root, root); err != nil {
+			return nil, err
+		}
+		marker := fmt.Sprintf("%s pid=%d", version, os.Getpid())
+		if err := os.WriteFile(filepath.Join(root, "entered"), []byte(marker), 0600); err != nil {
+			return nil, err
+		}
+		for {
+			if _, err := os.Stat(filepath.Join(root, "release")); err == nil {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		return &devFixtureReader{events: []llm.StreamEvent{{Type: llm.EventMessageStart}, {Type: llm.EventTextDelta, TextDelta: "independent completed " + version}, {Type: llm.EventMessageStop, StopReason: "end_turn"}}}, nil
+	}
 	if p.called {
 		return &devFixtureReader{events: []llm.StreamEvent{{Type: llm.EventMessageStart}, {Type: llm.EventTextDelta, TextDelta: version}, {Type: llm.EventMessageStop, StopReason: "end_turn"}}}, nil
 	}
 	p.called = true
 	name := "fixture_read"
-	b, _ := json.Marshal(req.Messages[len(req.Messages)-1])
 	if strings.Contains(string(b), "launch independent") {
 		name = "fixture_launch"
 	}
@@ -198,5 +254,12 @@ func (*devFixtureResolver) SetUsageSink(func(usage.Usage))           {}
 func (*devFixtureResolver) SetModelSupportsVision(func(string) bool) {}
 
 func configureDevHostWorker(w worker.ProfileReaderSetter) {
-	w.SetProfileReader(func(string) agent.Profile { p := agent.PlanProfile(); p.ExtraCaps["fixture_launch"] = true; return p })
+	fixtureWorker = w.(runner.TurnRunner)
+	w.SetProfileReader(func(id string) agent.Profile {
+		p := agent.PlanProfile()
+		if !strings.HasSuffix(id, "-independent") {
+			p.ExtraCaps["fixture_launch"] = true
+		}
+		return p
+	})
 }

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/localruntime"
 	"cercano/source/server/internal/modelhost"
@@ -204,6 +205,16 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 			t.Fatalf("credential gate reached backend: %q %v %s entries=%d", value, err, output, backendEntries.Load())
 		}
 	}
+	if execution {
+		for _, barrier := range []string{"relative", root + "/../outside", t.TempDir()} {
+			bad := exec.CommandContext(ctx, binary, command.Args[1:]...)
+			bad.Env = append(append([]string{}, command.Env...), "CERCANO_DEV_FIXTURE_BARRIER="+barrier)
+			out, err := bad.CombinedOutput()
+			if err == nil || !strings.Contains(string(out), "invalid fixture barrier") || backendEntries.Load() != 0 {
+				t.Fatalf("invalid barrier reached backend: %q %v %s", barrier, err, out)
+			}
+		}
+	}
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	stdout, err := command.StdoutPipe()
@@ -276,10 +287,9 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runForeground := func(c proto.AgentClient, owner *proto.LifecycleOwner, expected string) {
+	runForeground := func(c proto.AgentClient, owner *proto.LifecycleOwner, expected string) context.CancelFunc {
 		t.Helper()
 		callCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
 		bound := metadata.AppendToOutgoingContext(callCtx, "cercano-host-instance", owner.Host, "cercano-conversation-id", owner.Conversation, "cercano-ownership-epoch", owner.Epoch, "cercano-terminal-attachment", "fixture-terminal")
 		stream, e := c.StreamProcessRequest(bound, &proto.ProcessRequestRequest{ConversationId: owner.Conversation, Input: func() string {
 			if owner.Conversation == "sibling" {
@@ -291,6 +301,7 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 			t.Fatal(e)
 		}
 		var output strings.Builder
+		allowed, blocked := false, false
 		for {
 			ev, e := stream.Recv()
 			if e == io.EOF {
@@ -299,10 +310,26 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 			if e != nil {
 				t.Fatal(e)
 			}
+			if done := ev.GetToolExecComplete(); done != nil {
+				if done.ToolUseId == "allowed" && !done.IsError {
+					allowed = true
+				}
+				if done.ToolUseId == "forbidden" && done.IsError && done.Summary == "blocked by plan profile" {
+					blocked = true
+				}
+			}
 			output.WriteString(ev.String())
 		}
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("missing generation %s: %s", expected, output.String())
+		}
+		for _, want := range []string{"blocked by plan profile", "run_command"} {
+			if !strings.Contains(output.String(), want) {
+				t.Fatalf("missing %q: %s", want, output.String())
+			}
+		}
+		if owner.Conversation != "sibling" && (!strings.Contains(output.String(), "fixture_read") || !allowed || !blocked) {
+			t.Fatalf("allowed read not executed: %s", output.String())
 		}
 		turns, e := store.GetTurns(ctx, owner.Conversation)
 		if e != nil {
@@ -317,13 +344,22 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 		if !found {
 			t.Fatalf("generation %s not persisted: %+v", expected, turns)
 		}
+		return cancel
 	}
 	if execution {
-		runForeground(client, owned.Owner, "fixture-build-exact")
-		runForeground(client, sibling.Owner, "fixture-build-exact")
+		runForeground(client, owned.Owner, "fixture-build-exact")()
+		detach := runForeground(client, sibling.Owner, "fixture-build-exact")
 		deadline := time.Now().Add(5 * time.Second)
 		for {
-			if _, e := os.Stat(filepath.Join(root, "entered")); e == nil {
+			if marker, e := os.ReadFile(filepath.Join(root, "entered")); e == nil {
+				var build string
+				var pid int
+				if _, e := fmt.Sscanf(string(marker), "%s pid=%d", &build, &pid); e != nil || build != "fixture-build-exact" || pid <= 0 || pid == command.Process.Pid || pid == os.Getpid() {
+					t.Fatalf("not a worker barrier: %q", marker)
+				}
+				// Foreground has reached EOF. Cancel its context while the
+				// independent subprocess is demonstrably still in flight.
+				detach()
 				break
 			}
 			if time.Now().After(deadline) {
@@ -449,7 +485,7 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 		t.Fatal("wrong claimed ownership", claimed)
 	}
 	if execution {
-		runForeground(bc, claimed.Owner, "fixture-build-B")
+		runForeground(bc, claimed.Owner, "fixture-build-B")()
 	}
 	if err := pinned.ReconnectPinnedSession(ctx); !errors.Is(err, agentclient.ErrPinnedSession) {
 		t.Fatalf("old A reconnect did not refuse: %v", err)
@@ -481,18 +517,20 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 		if live.ID == "" || string(live.Status) != "running" {
 			t.Fatalf("sibling did not survive caller completion/B handover: %+v", live)
 		}
-		if _, e := client.LifecycleRelease(ctx, &proto.LifecycleControlRequest{Target: aIdentity, Owner: sibling.Owner, Management: true}); e == nil {
-			t.Fatal("released busy sibling")
+		if _, e := client.LifecycleRelease(ctx, &proto.LifecycleControlRequest{Target: aIdentity, Owner: sibling.Owner, Management: true}); status.Convert(e).Message() != broker.ErrAdmissionBusy.Error() {
+			t.Fatalf("expected busy release: %v", e)
 		}
 		busy := &proto.LifecycleControlRequest{Target: bIdentity, Source: aIdentity, Destination: bIdentity, DestinationEndpoint: bEndpoint, Owner: sibling.Owner, HandoverId: "busy-sibling", Management: true}
 		prepared, e := bc.LifecyclePrepare(ctx, busy)
-		if e == nil {
-			busy.Receipt = prepared.Receipt
-			busy.Target = aIdentity
-			if _, e = client.LifecycleRelinquish(ctx, busy); e == nil {
-				t.Fatal("transferred busy sibling")
-			}
+		if e != nil {
+			t.Fatalf("busy destination prepare must succeed: %v", e)
 		}
+		busy.Receipt = prepared.Receipt
+		busy.Target = aIdentity
+		if _, e = client.LifecycleRelinquish(ctx, busy); status.Convert(e).Message() != broker.ErrAdmissionBusy.Error() {
+			t.Fatalf("expected source busy refusal: %v", e)
+		}
+
 		if e := os.WriteFile(filepath.Join(root, "release"), []byte("release"), 0600); e != nil {
 			t.Fatal(e)
 		}
@@ -520,8 +558,21 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 			}
 			n := 0
 			for _, turn := range turns {
-				if strings.Contains(turn.Content, "<host:task-completions>") && strings.Contains(turn.Content, live.ID) {
-					n++
+				if _, body, ok := strings.Cut(turn.Content, "<host:task-completions>\n"); ok {
+					payload, _, ok := strings.Cut(body, "\n</host:task-completions>")
+					var notices []struct {
+						TaskID string `json:"task_id"`
+						Status string `json:"status"`
+					}
+					if !ok || json.Unmarshal([]byte(payload), &notices) != nil {
+						t.Fatalf("malformed completion: %s", turn.Content)
+					}
+					for _, notice := range notices {
+						if notice.TaskID != live.ID || notice.Status != "completed" {
+							t.Fatalf("unexpected completion: %+v", notice)
+						}
+						n++
+					}
 				}
 			}
 			return n
@@ -529,9 +580,14 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 		if n := countCompletions(); n != 1 {
 			t.Fatalf("completion count %d", n)
 		}
-		time.Sleep(100 * time.Millisecond)
-		if n := countCompletions(); n != 1 {
-			t.Fatalf("duplicate completion count %d", n)
+		records, e = store.(conversation.TaskStore).ListTasks(ctx, "sibling", 100)
+		if e != nil || len(records) != 2 {
+			t.Fatalf("exact task count after drain: %+v %v", records, e)
+		}
+		for _, r := range records {
+			if r.Status != "completed" || r.NotificationPending {
+				t.Fatalf("undrained task: %+v", r)
+			}
 		}
 	}
 	if _, err := client.LifecycleRelease(ctx, &proto.LifecycleControlRequest{Target: aIdentity, Owner: sibling.Owner, Management: true}); err != nil {
