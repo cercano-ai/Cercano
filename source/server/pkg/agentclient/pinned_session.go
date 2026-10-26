@@ -2,6 +2,8 @@ package agentclient
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -15,6 +17,7 @@ import (
 // to acquire, attach, discover an executable, launch, or migrate to another host.
 // Endpoint is selected by the caller, not discovered during retries.
 type PinnedSessionIntent struct {
+	terminalID                              string
 	Endpoint, HostInstance, Build, Contract string
 	SchemaVersion                           int32
 	ConversationID, OwnershipEpoch          string
@@ -34,6 +37,7 @@ const (
 	PinnedHostMetadata         = "cercano-host-instance"
 	PinnedConversationMetadata = "cercano-conversation-id"
 	PinnedEpochMetadata        = "cercano-ownership-epoch"
+	PinnedTerminalMetadata     = "cercano-terminal-attachment"
 )
 
 // DialPinnedSession performs only TCP + read-only validation. No watcher launches
@@ -43,6 +47,11 @@ func DialPinnedSession(ctx context.Context, intent PinnedSessionIntent) (*Client
 	if intent.Endpoint == "" || intent.HostInstance == "" || intent.Build == "" || intent.Contract == "" || intent.SchemaVersion <= 0 || intent.ConversationID == "" || intent.OwnershipEpoch == "" {
 		return nil, fmt.Errorf("%w: incomplete intent", ErrPinnedSession)
 	}
+	var token [16]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return nil, err
+	}
+	intent.terminalID = hex.EncodeToString(token[:])
 	c, err := connectIntent(ctx, intent.Endpoint, 2*time.Second, &intent)
 	if err != nil {
 		return nil, err
@@ -111,6 +120,7 @@ func pinnedMetadataOptions(p PinnedSessionIntent) []grpc.DialOption {
 		md.Set(PinnedHostMetadata, p.HostInstance)
 		md.Set(PinnedConversationMetadata, p.ConversationID)
 		md.Set(PinnedEpochMetadata, p.OwnershipEpoch)
+		md.Set(PinnedTerminalMetadata, p.terminalID)
 		return metadata.NewOutgoingContext(ctx, md)
 	}
 	return []grpc.DialOption{

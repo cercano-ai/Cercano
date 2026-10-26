@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,6 +20,8 @@ type pinnedFake struct {
 	state                        atomic.Int32
 	identities, checks, requests atomic.Int32
 	host                         string
+	mu                           sync.Mutex
+	terminalIDs                  []string
 }
 
 func (f *pinnedFake) GetDevelopmentHostIdentity(context.Context, *proto.GetDevelopmentHostIdentityRequest) (*proto.GetDevelopmentHostIdentityResponse, error) {
@@ -28,6 +31,13 @@ func (f *pinnedFake) GetDevelopmentHostIdentity(context.Context, *proto.GetDevel
 func (f *pinnedFake) CheckRetainedSession(ctx context.Context, r *proto.CheckRetainedSessionRequest) (*proto.CheckRetainedSessionResponse, error) {
 	f.checks.Add(1)
 	md, _ := metadata.FromIncomingContext(ctx)
+	ids := md.Get(PinnedTerminalMetadata)
+	if len(ids) != 1 || ids[0] == "" {
+		return nil, errors.New("missing terminal identity")
+	}
+	f.mu.Lock()
+	f.terminalIDs = append(f.terminalIDs, ids[0])
+	f.mu.Unlock()
 	if r.HostInstance != "A" || r.ConversationId != "conversation" || r.OwnershipEpoch != "epoch" || len(md.Get(PinnedEpochMetadata)) != 1 || md.Get(PinnedEpochMetadata)[0] != "epoch" {
 		return nil, errors.New("wrong binding")
 	}
@@ -150,5 +160,32 @@ func TestPinnedTransportAndFreshValidation(t *testing.T) {
 	}
 	if replacement.checks.Load() != 0 {
 		t.Fatal("session checked on wrong identity")
+	}
+}
+
+func TestPinnedTerminalIdentityLifetime(t *testing.T) {
+	forbidLaunch(t)
+	f := &pinnedFake{host: "A"}
+	f.state.Store(1)
+	_, addr := pinnedHost(t, "127.0.0.1:0", f)
+	intent := pinAt(addr)
+	c, err := DialPinnedSession(context.Background(), intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.ReconnectPinnedSession(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	d, err := DialPinnedSession(context.Background(), intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ids := f.terminalIDs
+	if len(ids) != 3 || ids[0] != ids[1] || ids[0] == ids[2] {
+		t.Fatalf("terminal identity lifetime: %v", ids)
 	}
 }

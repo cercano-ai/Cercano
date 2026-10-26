@@ -33,6 +33,7 @@ type admissionSession struct {
 	closed      bool
 	closure     *Closure
 	attachments map[*Attachment]bool
+	terminals   map[string]int
 	work        map[*WorkTicket]bool
 }
 
@@ -81,7 +82,7 @@ func (a *Admission) registerLocked(o Owner) error {
 	if a.sessions[o.Conversation] != nil {
 		return ErrAdmissionBusy
 	}
-	a.sessions[o.Conversation] = &admissionSession{owner: o, attachments: make(map[*Attachment]bool), work: make(map[*WorkTicket]bool)}
+	a.sessions[o.Conversation] = &admissionSession{owner: o, terminals: make(map[string]int), attachments: make(map[*Attachment]bool), work: make(map[*WorkTicket]bool)}
 	a.seen[o] = true
 	return nil
 }
@@ -105,11 +106,23 @@ func (a *Admission) CheckRetained(o Owner) (retired, retained, open bool) {
 
 // Attachment is epoch-bound. Detach is transport cleanup, never session release.
 type Attachment struct {
-	a *Admission
-	s *admissionSession
+	a        *Admission
+	s        *admissionSession
+	terminal string
 }
 
 func (a *Admission) AttachOwner(o Owner) (*Attachment, error) {
+	return a.attachTerminal(o, "")
+}
+
+// AttachTerminal adds one stream reference to an exact epoch-bound terminal.
+func (a *Admission) AttachTerminal(o Owner, id string) (*Attachment, error) {
+	if id == "" {
+		return nil, ErrAdmissionStale
+	}
+	return a.attachTerminal(o, id)
+}
+func (a *Admission) attachTerminal(o Owner, id string) (*Attachment, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := a.sessionLocked(o)
@@ -119,14 +132,26 @@ func (a *Admission) AttachOwner(o Owner) (*Attachment, error) {
 	if a.retired || s.closed {
 		return nil, ErrAdmissionClosed
 	}
-	t := &Attachment{a: a, s: s}
+	t := &Attachment{a: a, s: s, terminal: id}
+	if id != "" {
+		s.terminals[id]++
+	}
 	s.attachments[t] = true
 	return t, nil
 }
 func (t *Attachment) Detach() {
 	t.a.mu.Lock()
 	defer t.a.mu.Unlock()
+	if !t.s.attachments[t] {
+		return
+	}
 	delete(t.s.attachments, t)
+	if t.terminal != "" {
+		t.s.terminals[t.terminal]--
+		if t.s.terminals[t.terminal] == 0 {
+			delete(t.s.terminals, t.terminal)
+		}
+	}
 }
 
 // WorkTicket remains live until Complete succeeds. Do not complete on transport
@@ -247,6 +272,50 @@ type Closure struct {
 func (a *Admission) CloseOwner(o Owner, requester *Attachment) (*Closure, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.closeOwnerLocked(o, requester)
+}
+
+// CloseTerminal resolves the live requester and closes admission under one lock.
+// Empty id denotes management, permitted only without any live stream refs.
+func (a *Admission) CloseTerminal(o Owner, id string) (*Closure, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var requester *Attachment
+	if id != "" {
+		s := a.sessionLocked(o)
+		if s == nil {
+			return nil, ErrAdmissionStale
+		}
+		for t := range s.attachments {
+			if t.terminal == id {
+				requester = t
+				break
+			}
+		}
+		if requester == nil {
+			return nil, ErrAttachmentEligibility
+		}
+	}
+	return a.closeOwnerLocked(o, requester)
+}
+
+// ValidateTerminal checks pane identity without enrolling a stream.
+func (a *Admission) ValidateTerminal(o Owner, id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := a.sessionLocked(o)
+	if s == nil {
+		return ErrAdmissionStale
+	}
+	if s.closed || a.retired {
+		return ErrAdmissionClosed
+	}
+	if id == "" || s.terminals[id] == 0 {
+		return ErrAttachmentEligibility
+	}
+	return nil
+}
+func (a *Admission) closeOwnerLocked(o Owner, requester *Attachment) (*Closure, error) {
 	s := a.sessionLocked(o)
 	if s == nil {
 		return nil, ErrAdmissionStale
@@ -257,7 +326,12 @@ func (a *Admission) CloseOwner(o Owner, requester *Attachment) (*Closure, error)
 	s.closed = true
 	eligible := len(s.attachments) == 0 && requester == nil
 	if requester != nil {
-		eligible = len(s.attachments) == 1 && s.attachments[requester]
+		eligible = s.attachments[requester]
+		for t := range s.attachments {
+			if t != requester && (requester.terminal == "" || t.terminal != requester.terminal) {
+				eligible = false
+			}
+		}
 	}
 	if !eligible {
 		s.closed = false
