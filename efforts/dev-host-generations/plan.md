@@ -14,9 +14,9 @@ Foundational stops: if centralized write fencing cannot cover actual persistence
 
 Objective: ground execution in current source before changing behavior. Files to inspect: AGENTS.md, source/server/internal/conversation, internal/taskrun, internal/broker, internal/server, internal/modelhost, internal/worker, internal/secrets, pkg/agentclient, pkg/config, cmd/cercano, source/proto/agent.proto, source/clients/cli, and the development launcher. Historical main and updater references in the specification are leads, not current evidence. Tests to design: admission/write coverage, compatibility-before-open probes, and native identity evidence probes. Native evidence: document the supported macOS process-instance evidence and lock semantics using only dedicated fixtures after isolation is verified; this phase alone does not qualify them.
 
-- [ ] Delegate baseline and worktree inspection, then create a new linked implementation worktree after approval; record branch, SHA and paths without disturbing existing worktrees or changes
-- [ ] Revalidate the credential-isolation source commits and enumerate the minimal production and test dependencies to extract without merging the updater branch
-- [ ] Inventory all conversation-owned writes and dependent effects, including turns, task acceptance/outcomes, notification claims/acknowledgements, autonomous state, deletion, recovery, and indirect persistence callbacks
+- [x] Delegate baseline and worktree inspection, then create a new linked implementation worktree after approval; record branch, SHA and paths without disturbing existing worktrees or changes
+- [x] Revalidate the credential-isolation source commits and enumerate the minimal production and test dependencies to extract without merging the updater branch
+- [-] Inventory all conversation-owned writes and dependent effects, including turns, task acceptance/outcomes, notification claims/acknowledgements, autonomous state, deletion, recovery, and indirect persistence callbacks
 - [ ] Map every work and attachment admission path to the existing broker/server/task manager and define the centralized enforcement seam and lock ordering
 - [ ] Inventory actual shared-configuration writers and disruptive modelhost operations, including startup migrations, download recovery, tool, RPC and setup paths
 - [ ] Document the native instance identity/death evidence contract, process reuse and uncertainty cases, and required crash probes; stop for review if the existing primitives cannot support it safely
