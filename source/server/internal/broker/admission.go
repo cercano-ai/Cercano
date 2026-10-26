@@ -31,6 +31,7 @@ func validWork(k WorkKind) bool { return k >= ForegroundWork && k <= Persistence
 type admissionSession struct {
 	owner       Owner
 	closed      bool
+	closure     *Closure
 	attachments map[*Attachment]bool
 	work        map[*WorkTicket]bool
 }
@@ -144,6 +145,10 @@ func (a *Admission) AdmitWork(o Owner, k WorkKind) (*WorkTicket, error) {
 }
 
 // AdmitHostWork fences acquisition and other non-session lifecycle activity.
+// For release/handover, callers must acquire a lifecycle ticket before starting
+// the transition and hold it through the durable release/reservation commit,
+// Closure.Relinquished, OS unlock, and all cleanup. Only then call Complete:
+// removing the session alone does not mean the host is safe to retire.
 func (a *Admission) AdmitHostWork(k WorkKind) (*WorkTicket, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -219,6 +224,7 @@ func (t *WorkTicket) Complete() error {
 
 // Closure reserves readiness for either explicit release or handover. It is not
 // evidence of durable relinquishment. An uncertain commit must leave it closed.
+// Only the exact active handle may finish the closure; copies are stale.
 type Closure struct {
 	a    *Admission
 	s    *admissionSession
@@ -251,7 +257,9 @@ func (a *Admission) CloseOwner(o Owner, requester *Attachment) (*Closure, error)
 		s.closed = false
 		return nil, ErrAdmissionBusy
 	}
-	return &Closure{a: a, s: s}, nil
+	c := &Closure{a: a, s: s}
+	s.closure = c
+	return c, nil
 }
 
 // Reopen is allowed only after the caller confirms durable ownership is unchanged.
@@ -259,15 +267,17 @@ func (a *Admission) CloseOwner(o Owner, requester *Attachment) (*Closure, error)
 func (c *Closure) Reopen() error { return c.finish(false) }
 
 // Relinquished records a confirmed conditional durable release/reservation commit.
-// The caller, not this method, remains responsible for releasing the OS lock.
+// The caller, not this method, remains responsible for releasing the OS lock
+// and must retain an AdmitHostWork ticket through that unlock and cleanup.
 func (c *Closure) Relinquished() error { return c.finish(true) }
 func (c *Closure) finish(relinquished bool) error {
 	c.a.mu.Lock()
 	defer c.a.mu.Unlock()
-	if c.done || c.a.sessionLocked(c.s.owner) != c.s {
+	if c.done || c.a.sessionLocked(c.s.owner) != c.s || c.s.closure != c {
 		return ErrAdmissionStale
 	}
 	c.done = true
+	c.s.closure = nil
 	if relinquished {
 		delete(c.a.sessions, c.s.owner.Conversation)
 	} else {

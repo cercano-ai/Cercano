@@ -199,3 +199,82 @@ func TestHostWorkRetirementAndExactIncomingResolution(t *testing.T) {
 	mustOK(t, a.ResolveIncomingDurably(h))
 	mustOK(t, a.Retire())
 }
+
+// A copied handle must not remove a reopened session with live work.
+func TestAdmissionCopiedClosureAfterReopen(t *testing.T) {
+	a, o := fixtureAdmission(t)
+	c1, err := a.CloseOwner(o, nil)
+	mustOK(t, err)
+	copied := *c1
+	mustOK(t, c1.Reopen())
+	w, err := a.AdmitWork(o, ForegroundWork)
+	mustOK(t, err)
+	if err := copied.Relinquished(); !errors.Is(err, ErrAdmissionStale) {
+		t.Errorf("copied closure relinquishment = %v, want %v", err, ErrAdmissionStale)
+	}
+	wantErr(t, a.Retire(), ErrAdmissionBusy)
+	mustOK(t, w.Complete())
+	c2, err := a.CloseOwner(o, nil)
+	mustOK(t, err)
+	mustOK(t, c2.Relinquished())
+	mustOK(t, a.Retire())
+}
+
+func TestAdmissionClosureIdentity(t *testing.T) {
+	for _, finish := range []struct {
+		name string
+		call func(*Closure) error
+	}{
+		{"reopen", (*Closure).Reopen},
+		{"relinquish", (*Closure).Relinquished},
+	} {
+		t.Run(finish.name, func(t *testing.T) {
+			a, o := fixtureAdmission(t)
+			c1, err := a.CloseOwner(o, nil)
+			mustOK(t, err)
+			oldCopy := *c1
+			// Even a copy of the currently active closure is not its identity.
+			wantErr(t, finish.call(&oldCopy), ErrAdmissionStale)
+			mustOK(t, c1.Reopen())
+			c2, err := a.CloseOwner(o, nil)
+			mustOK(t, err)
+			wantErr(t, finish.call(c1), ErrAdmissionStale)
+			wantErr(t, finish.call(&oldCopy), ErrAdmissionStale)
+			currentCopy := *c2
+			wantErr(t, finish.call(&currentCopy), ErrAdmissionStale)
+			// Stale completion must neither reopen nor delete c2's closed session.
+			_, err = a.AdmitWork(o, ForegroundWork)
+			wantErr(t, err, ErrAdmissionClosed)
+			wantErr(t, a.Retire(), ErrAdmissionBusy)
+			mustOK(t, c2.Relinquished())
+			wantErr(t, finish.call(&currentCopy), ErrAdmissionStale)
+			mustOK(t, a.Retire())
+		})
+	}
+}
+
+func TestHostLifecycleTicketHeldThroughReleaseCleanup(t *testing.T) {
+	a, o := fixtureAdmission(t)
+	lifecycle, err := a.AdmitHostWork(PersistenceWork)
+	mustOK(t, err)
+	c, err := a.CloseOwner(o, nil)
+	mustOK(t, err)
+	// These checkpoints model caller-owned operations, not real store/OS work.
+	// The caller must retain the ticket for the entire sequence, even after
+	// Relinquished has removed the session from admission accounting.
+	t.Run("durable release committed", func(t *testing.T) {
+		wantErr(t, a.Retire(), ErrAdmissionBusy)
+	})
+	mustOK(t, c.Relinquished())
+	t.Run("relinquished before OS unlock", func(t *testing.T) {
+		wantErr(t, a.Retire(), ErrAdmissionBusy)
+	})
+	t.Run("OS unlocked before cleanup", func(t *testing.T) {
+		wantErr(t, a.Retire(), ErrAdmissionBusy)
+	})
+	t.Run("cleanup finished before ticket completion", func(t *testing.T) {
+		wantErr(t, a.Retire(), ErrAdmissionBusy)
+	})
+	mustOK(t, lifecycle.Complete())
+	mustOK(t, a.Retire())
+}
