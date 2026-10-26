@@ -22,7 +22,7 @@ Artifacts: `/tmp/cp-59arkhbr/` contains verify.py, env.json, commands.jsonl, res
 | Full worker/persistence/config/server package race checks | PASS |
 | Full CLI UI package race check | PASS |
 
-Built-in suite skips remain: 35 server and one CLI, covering live opt-ins, platform/helper cases, unavailable validator tools, network-normalization timeout and catalog terminal driver requirement; exact lists are retained. No test failure was hidden with a new skip.
+Built-in suite skips remain: 35 server and one CLI, covering live opt-ins, platform/helper cases, an explicitly aspirational semantic-collapse case, network-normalization timeout and catalog terminal driver requirement; exact lists are retained. No test failure was hidden with a new skip.
 
 The initial verification at `/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-preland-fbtdarnm/` failed TestSpawnWorker_ProcessOutlivesTurnContext with Unix socket `bind: invalid argument` and readiness timeout under the long temporary root. All checks were rerun without source changes under the short private path above and passed. Unix socket path-length sensitivity remains an observed limitation, not a fixed regression.
 
