@@ -6,12 +6,20 @@ package config
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"cercano/source/server/internal/hostsvc/credentials"
 	"cercano/source/server/internal/secrets"
 	cfg "cercano/source/server/pkg/config"
 )
+
+// ErrFrozen identifies rejected writes to shared configuration during coexistence.
+var ErrFrozen = errors.New("shared configuration is frozen during host coexistence")
+
+// Options is copied at construction; the policy cannot change during service life.
+// The zero value preserves writable behavior.
+type Options struct{ Frozen bool }
 
 // Service is the interface the front door (Server) depends on for config state.
 type Service interface {
@@ -27,16 +35,16 @@ type Service interface {
 	// and broadcasts as needed)
 	Set(c cfg.Config) error
 
-	// Initialization (no persist, no notify)
-	SetPath(path string)
-	SetSecrets(st secrets.Store)
+	// Initialization metadata setters (rejected when frozen; initialize through New).
+	SetPath(path string) error
+	SetSecrets(st secrets.Store) error
 
 	// Locked partial mutations (under internal lock; no persist, no notify —
 	// caller persists explicitly)
-	SetActiveProfile(name string) bool // false if name not found
-	UpsertProfile(p cfg.CloudProfile) (replaced bool, isActive bool)
-	RemoveProfile(name string) (existed, wasActive bool)
-	SetBackupProfile(name string) bool // false if name!="" and not found
+	SetActiveProfile(name string) bool // false if frozen or name not found
+	UpsertProfile(p cfg.CloudProfile) (replaced bool, isActive bool, err error)
+	RemoveProfile(name string) (existed, wasActive bool) // both false if frozen or not found
+	SetBackupProfile(name string) bool                   // false if frozen or name!="" and not found
 	ProfileInfo(name string) (exists bool, isActive bool)
 
 	SetDestinationProfiles(destination cfg.Destination, preferred, backup string) error
@@ -50,13 +58,15 @@ type Service interface {
 	Mutate(fn func(*cfg.Config)) error
 
 	// CloudModel mirror write (rebuildCloud write-back only; no notify, no persist)
-	SetCloudModel(model string)
+	SetCloudModel(model string) error
 
-	// Persist current config to disk (no-op if path empty)
-	Persist()
+	// Persist current config to disk; rejects frozen services even if path is empty.
+	// Otherwise a missing path is a no-op, and file errors are returned.
+	Persist() error
 }
 
 type svc struct {
+	frozen      bool
 	mu          sync.RWMutex
 	current     cfg.Config
 	path        string
@@ -64,9 +74,12 @@ type svc struct {
 	credentials *credentials.Service
 }
 
-// New returns a Service initialized with the given path, config, and secrets.
-func New(path string, c cfg.Config, st secrets.Store) Service {
-	return &svc{path: path, current: c.Clone(), store: st, credentials: credentials.New(st)}
+// New returns a Service initialized with an isolated snapshot, path, and secrets.
+// Omit options for writable behavior; Options{Frozen: true} rejects subsequent
+// mutations without affecting initialization or reads.
+func New(path string, c cfg.Config, st secrets.Store, options ...Options) Service {
+	frozen := len(options) > 0 && options[0].Frozen
+	return &svc{frozen: frozen, path: path, current: c.Clone(), store: st, credentials: credentials.New(st)}
 }
 
 // Get returns a deep copy of the current config. The returned snapshot shares
@@ -111,6 +124,9 @@ func (s *svc) ActiveProfile() (cfg.CloudProfile, bool) {
 // caller retaining c cannot later mutate shared state). Does NOT persist and
 // does NOT notify — caller handles those.
 func (s *svc) Set(c cfg.Config) error {
+	if s.frozen {
+		return ErrFrozen
+	}
 	if err := c.LlamaServer.Validate(); err != nil {
 		return err
 	}
@@ -122,22 +138,33 @@ func (s *svc) Set(c cfg.Config) error {
 	return nil
 }
 
-func (s *svc) SetPath(path string) {
+func (s *svc) SetPath(path string) error {
+	if s.frozen {
+		return ErrFrozen
+	}
 	s.mu.Lock()
 	s.path = path
 	s.mu.Unlock()
+	return nil
 }
 
-func (s *svc) SetSecrets(st secrets.Store) {
+func (s *svc) SetSecrets(st secrets.Store) error {
+	if s.frozen {
+		return ErrFrozen
+	}
 	s.mu.Lock()
 	if st != s.credentials {
 		s.credentials.ReplaceStore(st)
 		s.store = st
 	}
 	s.mu.Unlock()
+	return nil
 }
 
 func (s *svc) SetActiveProfile(name string) bool {
+	if s.frozen {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.setActiveProfileLocked(name)
@@ -155,7 +182,10 @@ func (s *svc) setActiveProfileLocked(name string) bool {
 	return true
 }
 
-func (s *svc) UpsertProfile(p cfg.CloudProfile) (replaced bool, isActive bool) {
+func (s *svc) UpsertProfile(p cfg.CloudProfile) (replaced bool, isActive bool, err error) {
+	if s.frozen {
+		return false, false, ErrFrozen
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	name := p.Name
@@ -166,15 +196,18 @@ func (s *svc) UpsertProfile(p cfg.CloudProfile) (replaced bool, isActive bool) {
 				s.credentials.CancelLogin(name)
 			}
 			s.current.CloudProfiles[i] = p
-			return true, name == s.current.ActiveCloudProfile
+			return true, name == s.current.ActiveCloudProfile, nil
 		}
 	}
 	s.credentials.CancelLogin(name)
 	s.current.CloudProfiles = append(s.current.CloudProfiles, p)
-	return false, name == s.current.ActiveCloudProfile
+	return false, name == s.current.ActiveCloudProfile, nil
 }
 
 func (s *svc) RemoveProfile(name string) (existed, wasActive bool) {
+	if s.frozen {
+		return false, false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, ok := profileByName(s.current.CloudProfiles, name)
@@ -211,6 +244,9 @@ func (s *svc) RemoveProfile(name string) (existed, wasActive bool) {
 }
 
 func (s *svc) SetBackupProfile(name string) bool {
+	if s.frozen {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if name != "" {
@@ -234,6 +270,9 @@ func (s *svc) ProfileInfo(name string) (exists bool, isActive bool) {
 }
 
 func (s *svc) Mutate(fn func(*cfg.Config)) error {
+	if s.frozen {
+		return ErrFrozen
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	candidate := s.current.Clone()
@@ -246,20 +285,28 @@ func (s *svc) Mutate(fn func(*cfg.Config)) error {
 	return nil
 }
 
-func (s *svc) SetCloudModel(model string) {
+func (s *svc) SetCloudModel(model string) error {
+	if s.frozen {
+		return ErrFrozen
+	}
 	s.mu.Lock()
 	s.current.CloudModel = model
 	s.mu.Unlock()
+	return nil
 }
 
-func (s *svc) Persist() {
+func (s *svc) Persist() error {
+	if s.frozen {
+		return ErrFrozen
+	}
 	s.mu.RLock()
 	c := s.current.Clone()
 	p := s.path
 	s.mu.RUnlock()
 	if p != "" {
-		_ = cfg.Save(c, p)
+		return cfg.Save(c, p)
 	}
+	return nil
 }
 
 func profileByName(profiles []cfg.CloudProfile, name string) (cfg.CloudProfile, bool) {
@@ -272,11 +319,17 @@ func profileByName(profiles []cfg.CloudProfile, name string) (cfg.CloudProfile, 
 }
 
 func (s *svc) SetDestinationProfiles(destination cfg.Destination, preferred, backup string) error {
+	if s.frozen {
+		return ErrFrozen
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.current.SetDestinationProfiles(destination, preferred, backup)
 }
 func (s *svc) SetTaskAssignment(task cfg.Task, assignment *cfg.TaskAssignment) error {
+	if s.frozen {
+		return ErrFrozen
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.current.SetTaskAssignment(task, assignment)

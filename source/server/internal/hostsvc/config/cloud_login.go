@@ -27,6 +27,9 @@ type CloudLoginResult struct {
 }
 
 func (s *svc) BeginCloudLogin(ctx context.Context, profile cfg.CloudProfile, activate, reauthenticate bool, createOnly ...bool) (*CloudLogin, error) {
+	if s.frozen {
+		return nil, ErrFrozen
+	}
 	if profile.Name == "" || !cloudfactory.IsSubscription(profile) {
 		return nil, errors.New("subscription profile required")
 	}
@@ -57,6 +60,9 @@ func (l *CloudLogin) Context() context.Context { return l.attempt.Context() }
 func (l *CloudLogin) Close()                   { l.attempt.Close() }
 func (l *CloudLogin) Commit(encoded string, identity ...accountidentity.Identity) (CloudLoginResult, error) {
 	s := l.owner
+	if s.frozen {
+		return CloudLoginResult{}, ErrFrozen
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, exists := profileByName(s.current.CloudProfiles, l.proposed.Name)

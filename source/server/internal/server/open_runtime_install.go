@@ -53,12 +53,18 @@ func (s *Server) InstallOpenRuntime(req *proto.InstallOpenRuntimeRequest, stream
 	cfgCopy := s.cfgSvc.Get()
 	if err := llamaserver.Detect(ctx, &cfgCopy.LlamaServer); err != nil {
 		// Write back the partial detect result so the status shows it.
-		s.cfgSvc.Set(cfgCopy)
+		if setErr := s.cfgSvc.Set(cfgCopy); setErr != nil {
+			return sendTerminalFrame(stream, false, setErr.Error())
+		}
 		s.broadcastOpenRuntimeStatus(buildOpenRuntimeStatusFromDetectError(cfgCopy, err))
 		return sendTerminalFrame(stream, false, fmt.Sprintf("install completed but detection still fails: %v", err))
 	}
-	s.cfgSvc.Set(cfgCopy)
-	s.cfgSvc.Persist()
+	if setErr := s.cfgSvc.Set(cfgCopy); setErr != nil {
+		return sendTerminalFrame(stream, false, setErr.Error())
+	}
+	if err := s.cfgSvc.Persist(); err != nil {
+		return sendTerminalFrame(stream, false, err.Error())
+	}
 	s.broadcastOpenRuntimeStatus(s.openRuntimeStatus(ctx, cfgCopy, "llama_server"))
 	return sendTerminalFrame(stream, true, "")
 }

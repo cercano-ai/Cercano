@@ -17,7 +17,7 @@ func (s *Server) UpdateRoutingAssignments(ctx context.Context, req *proto.Update
 		return &proto.UpdateRoutingAssignmentsResponse{Ok: true}, nil
 	}
 	var validation error
-	s.cfgSvc.Mutate(func(c *config.Config) {
+	err := s.cfgSvc.Mutate(func(c *config.Config) {
 		next := c.Clone()
 		routingwire.ApplyAssignments(&next, req.Assignments)
 		validation = next.ValidateRouting()
@@ -25,10 +25,15 @@ func (s *Server) UpdateRoutingAssignments(ctx context.Context, req *proto.Update
 			*c = next
 		}
 	})
+	if err != nil {
+		return &proto.UpdateRoutingAssignmentsResponse{Error: err.Error()}, nil
+	}
 	if validation != nil {
 		return &proto.UpdateRoutingAssignmentsResponse{Error: validation.Error()}, nil
 	}
-	s.persistConfig()
+	if err := s.cfgSvc.Persist(); err != nil {
+		return &proto.UpdateRoutingAssignmentsResponse{Error: err.Error()}, nil
+	}
 	response := &proto.UpdateRoutingAssignmentsResponse{Ok: true}
 	if err := s.rebuildCloud(); err != nil {
 		response.Warning = err.Error()

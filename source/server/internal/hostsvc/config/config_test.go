@@ -121,7 +121,10 @@ func TestServiceUpsertProfile(t *testing.T) {
 		ActiveCloudProfile: "a",
 	}, nil)
 
-	replaced, isActive := svc.UpsertProfile(cfg.CloudProfile{Name: "a", Model: "m2"})
+	replaced, isActive, err := svc.UpsertProfile(cfg.CloudProfile{Name: "a", Model: "m2"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !replaced {
 		t.Error("UpsertProfile should report replaced=true for existing name")
 	}
@@ -133,7 +136,10 @@ func TestServiceUpsertProfile(t *testing.T) {
 		t.Errorf("got model %q, want %q", c.CloudProfiles[0].Model, "m2")
 	}
 
-	replaced, _ = svc.UpsertProfile(cfg.CloudProfile{Name: "new", Model: "m3"})
+	replaced, _, err = svc.UpsertProfile(cfg.CloudProfile{Name: "new", Model: "m3"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if replaced {
 		t.Error("UpsertProfile should report replaced=false for new name")
 	}

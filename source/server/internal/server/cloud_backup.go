@@ -27,13 +27,19 @@ func (s *Server) SetBackupCloudProfile(ctx context.Context, req *proto.SetBackup
 			return &proto.SetBackupCloudProfileResponse{Ok: false, Error: "backup profile cannot be the active profile"}, nil
 		}
 	}
-	s.cfgSvc.SetBackupProfile(name)
+	if !s.cfgSvc.SetBackupProfile(name) {
+		return &proto.SetBackupCloudProfileResponse{Ok: false, Error: "backup profile update rejected (configuration frozen or profile unavailable)"}, nil
+	}
 	if err := s.rebuildCloud(); err != nil {
 		// The backup name is set but the provider chain couldn't be rebuilt —
 		// report it, keep the config (mirrors SetActiveCloudProfile).
-		s.persistConfig()
+		if persistErr := s.cfgSvc.Persist(); persistErr != nil {
+			return &proto.SetBackupCloudProfileResponse{Ok: false, Error: persistErr.Error()}, nil
+		}
 		return &proto.SetBackupCloudProfileResponse{Ok: false, Error: err.Error()}, nil
 	}
-	s.persistConfig()
+	if persistErr := s.cfgSvc.Persist(); persistErr != nil {
+		return &proto.SetBackupCloudProfileResponse{Ok: false, Error: persistErr.Error()}, nil
+	}
 	return &proto.SetBackupCloudProfileResponse{Ok: true}, nil
 }

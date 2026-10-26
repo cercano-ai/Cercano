@@ -389,7 +389,10 @@ func (p *service) rebuildCloud() error {
 	if p.coordinator != nil {
 		p.coordinator.SetCloudProvider(mp)
 	}
-	p.cfgSvc.SetCloudModel(model)
+	// Frozen shared config must not prevent building the local routing graph.
+	if err := p.cfgSvc.SetCloudModel(model); err != nil && err != cfgsvc.ErrFrozen {
+		return err
+	}
 	return nil
 }
 
