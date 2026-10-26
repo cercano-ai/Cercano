@@ -1574,8 +1574,9 @@ func (x *svc) SetLocalRuntimeContext(fn func(string) (llm.RuntimeContext, error)
 	}
 }
 
-// sharedWritesFrozen follows the immutable credential/config construction policy.
-// No host-count or mutable global switch can enable ID-only background work.
+// sharedWritesFrozen fails closed when the shared-mutation boundary refuses work.
+// In particular, disabled credentials take precedence over ErrReadOnly and must
+// not accidentally enable ID-only background work in a prepared host.
 func (x *svc) sharedWritesFrozen() bool {
-	return x.cfgSvc != nil && secrets.CheckMutation(x.cfgSvc.Secrets()) == secrets.ErrReadOnly
+	return x.cfgSvc != nil && secrets.CheckMutation(x.cfgSvc.Secrets()) != nil
 }

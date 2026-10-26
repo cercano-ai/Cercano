@@ -2,6 +2,7 @@ package server
 
 import (
 	"cercano/source/server/internal/broker"
+	"cercano/source/server/internal/compactiongen"
 	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/proto"
@@ -86,16 +87,49 @@ func TestPreparedAdminWorkAndFailure(t *testing.T) {
 	}
 }
 func TestPreparedRegenerationFailsBeforeScheduling(t *testing.T) {
-	s, _, _, _ := preparedWakeFixture(t)
-	// Nil stream deliberately proves refusal precedes stream access/provider work.
-	if err := s.RegenerateContext(&proto.RegenerateContextRequest{ConversationId: "parent"}, nil); err == nil {
-		t.Fatal("regeneration accepted")
-	}
-	if err := s.persistSvc.RegenerateContext(&proto.RegenerateContextRequest{ConversationId: "parent"}, nil); err == nil {
-		t.Fatal("service regeneration accepted")
-	}
-	if err := s.cfgSvc.Credentials().CheckMutation(); !errors.Is(err, secrets.ErrReadOnly) {
-		t.Fatalf("credentials writable: %v", err)
+	for _, disabled := range []string{"0", "1"} {
+		t.Run("credentials-disabled="+disabled, func(t *testing.T) {
+			// The fixture supplies only an in-memory credential store.
+			t.Setenv("CERCANO_DISABLE_CREDENTIALS", disabled)
+			s, ctx, _, _ := preparedWakeFixture(t)
+			// Even explicit scheduler attachment must stay disabled. A zero-value
+			// generator must never be configured or invoked in this mode.
+			s.persistSvc.SetCompactionGenerator(&compactiongen.Generator{})
+			if s.persistSvc.CompactionGen() != nil {
+				t.Fatal("prepared service accepted a compaction scheduler")
+			}
+			before, err := s.persistSvc.Store().Get(ctx, "parent")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, req := range map[string]*proto.RegenerateContextRequest{
+				"regenerate": {ConversationId: "parent"},
+				"compact":    {ConversationId: "parent", Incremental: true},
+				"clear":      {ConversationId: "parent", ClearOnly: true},
+				"invalid":    {},
+			} {
+				t.Run(name, func(t *testing.T) {
+					// Nil stream proves refusal precedes publication and provider work.
+					for entry, call := range map[string]func(*proto.RegenerateContextRequest, proto.Agent_RegenerateContextServer) error{
+						"server": s.RegenerateContext, "service": s.persistSvc.RegenerateContext,
+					} {
+						if err := call(req, nil); status.Code(err) != codes.FailedPrecondition {
+							t.Fatalf("%s: expected coexistence refusal, got %v", entry, err)
+						}
+					}
+				})
+			}
+			if after, err := s.persistSvc.Store().Get(ctx, "parent"); err != nil || !reflect.DeepEqual(after, before) {
+				t.Fatalf("regeneration effects: %v %v", after, err)
+			}
+			want := secrets.CheckAllowed()
+			if want == nil {
+				want = secrets.ErrReadOnly
+			}
+			if err := s.cfgSvc.Credentials().CheckMutation(); !errors.Is(err, want) {
+				t.Fatalf("credential refusal: got %v, want %v", err, want)
+			}
+		})
 	}
 }
 
