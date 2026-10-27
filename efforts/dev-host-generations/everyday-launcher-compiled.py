@@ -50,7 +50,7 @@ def run(repo,evidence):
         (tools/'python3').symlink_to(sys.executable)
         # Build wrapper delegates EVERY command to Go; only adds explicit build tags.
         wrapper=tools/'go'
-        wrapper.write_text('#!/usr/bin/env python3\nimport os,sys,json\na=sys.argv[1:]\nif a and a[0]=="build":\n a.insert(1,"-tags=developmentfixture,cercano_development_acceptance")\n if os.path.exists('+repr(str(root/'fail-build'))+'): print("injected actual compiler failure before publication",file=sys.stderr);sys.exit(42)\n with open('+repr(str(trace))+',"a") as f:f.write(json.dumps({"cwd":os.getcwd(),"args":a})+"\\n")\nos.execv('+repr(go)+',['+repr(go)+',*a])\n');wrapper.chmod(0o700)
+        wrapper.write_text('#!/usr/bin/env python3\nimport os,sys,json\na=sys.argv[1:]\nif a and a[0]=="build":\n a.insert(1,"-tags=developmentfixture,cercano_development_acceptance")\n with open('+repr(str(trace))+',"a") as f:f.write(json.dumps({"cwd":os.getcwd(),"args":a})+"\\n")\nos.execv('+repr(go)+',['+repr(go)+',*a])\n');wrapper.chmod(0o700)
         env=dict(os.environ)
         for k in list(env):
             if k.startswith(('GO','CGO_')) or k in ('CC','CXX','PKG_CONFIG','SDKROOT','LIBRARY_PATH','CPATH','C_INCLUDE_PATH','CPLUS_INCLUDE_PATH'):env.pop(k)
@@ -155,20 +155,20 @@ def run(repo,evidence):
             control(sa,'transfer',sb,False)
             pending_after=json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)
             record('busy transfer refused with A task held',pending_before=pending_before,pending_after=pending_after)
-            if pending_after!=pending_before:
+            if pending_before != 0 or pending_after != 0:
                 record('NEW PRODUCTION FAILURE: refused busy transfer leaks destination reservation',root='agentclient Transfer prepares destination before source relinquish; source failure returns without canceling destination acceptance')
                 raise AssertionError('busy transfer refusal leaked destination pending_incoming: '+str(pending_before)+' -> '+str(pending_after))
-            # Actual publisher invokes our failing compiler with both real hosts live.
+            # The real Go compiler rejects invalid candidate source while both hosts remain live.
             stable_hosts={f.name:f.read_bytes() for f in (state/'hosts').glob('*') if f.suffix in ('.json','.token')}
             stable_generations={str(f.relative_to(state)):hashlib.sha256(f.read_bytes()).hexdigest() for f in (state/'generations').rglob('*') if f.is_file()}
             stable_selections=selections(); stable_tasks=rows('select * from delegated_tasks')
-            original=change.read_bytes();change.write_bytes(original+b'\n// failed candidate\n');(root/'fail-build').touch()
+            original=change.read_bytes();change.write_bytes(original+b'\nvar acceptanceBuildMustFail =\n')
             failed=Terminal(['bash',str(script)],env,evidence/'failed-build.pty')
             end=time.monotonic()+120
             while failed.p.poll() is None and time.monotonic()<end: failed.pump()
             failed.pump();assert failed.p.wait(timeout=5)!=0
-            assert b'injected actual compiler failure' in failed.data,failed.data
-            os.close(failed.fd);(root/'fail-build').unlink();change.write_bytes(original)
+            assert b'syntax error' in failed.data and b'development_provider_fixture.go' in failed.data,failed.data
+            os.close(failed.fd);change.write_bytes(original)
             assert selections()==stable_selections and rows('select * from delegated_tasks')==stable_tasks
             assert {f.name:f.read_bytes() for f in (state/'hosts').glob('*') if f.suffix in ('.json','.token')}==stable_hosts
             assert {str(f.relative_to(state)):hashlib.sha256(f.read_bytes()).hexdigest() for f in (state/'generations').rglob('*') if f.is_file()}==stable_generations
