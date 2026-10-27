@@ -49,7 +49,7 @@ type serverHandle struct {
 	state   ServerState
 	err     string
 	tools   []string           // registered tool names (for unregister on remove/restart)
-	readyCh chan struct{}       // closed once state reaches Ready or Failed
+	readyCh chan struct{}      // closed once state reaches Ready or Failed
 	defunct bool               // set by teardown; goroutine must not register if true
 	cancel  context.CancelFunc // cancels the in-flight dialFn/listTools context
 }
@@ -75,6 +75,23 @@ func New(reg *agenttools.Registry, dir string, callWait time.Duration) *Manager 
 		servers:  map[string]*serverHandle{},
 	}
 	m.dialFn = m.stdioDial
+	return m
+}
+
+// NewWithTransportFactory retains the production manager and protocol while
+// supplying an invocation-local transport. A nil factory uses ordinary stdio.
+// Non-nil factories must return a fresh transport owned by this manager.
+func NewWithTransportFactory(reg *agenttools.Registry, dir string, callWait time.Duration, factory func(context.Context, ServerConfig) (mcp.Transport, error)) *Manager {
+	m := New(reg, dir, callWait)
+	if factory != nil {
+		m.dialFn = func(ctx context.Context, cfg ServerConfig) (*conn, error) {
+			transport, err := factory(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			return dial(ctx, transport)
+		}
+	}
 	return m
 }
 

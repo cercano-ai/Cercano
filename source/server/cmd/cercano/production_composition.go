@@ -1,7 +1,12 @@
 package main
 
 import (
+	"cercano/source/server/internal/agenttools"
+	mcphost "cercano/source/server/internal/mcp_host"
+	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	projectctx "cercano/source/server/internal/context"
 	"cercano/source/server/internal/locus"
@@ -115,4 +120,40 @@ func composeProductionServices(s *server.Server, a *agent.Agent, loader *project
 	}
 	s.InstallCapabilities()
 	return nil
+}
+
+// productionMCPDependencies creates a fresh, host-owned manager per invocation.
+// The explicit directory is resolved by admission, never by this service factory.
+type productionMCPDependencies struct {
+	newManager func(*agenttools.Registry, string, time.Duration) *mcphost.Manager
+}
+
+// composeProductionMCP preserves ordinary register/start ordering and the
+// manager's asynchronous, log-only configuration/connect failure behavior.
+// Prepared activation remains disabled until shared-definition coordination and
+// exclusive integration ownership are safe; registration parity is not a reason
+// to launch a second user-configured subprocess.
+func composeProductionMCP(s *server.Server, dir string, d productionMCPDependencies, policy productionExecutionPolicy) (func(), error) {
+	if err := policy.validate(); err != nil {
+		return nil, err
+	}
+	if !policy.legacy {
+		return func() {}, nil
+	}
+	if s == nil || dir == "" {
+		return nil, fmt.Errorf("MCP server and configuration directory required")
+	}
+	factory := d.newManager
+	if factory == nil {
+		factory = mcphost.New
+	}
+	manager := factory(s.ToolRegistry(), dir, 10*time.Second)
+	if manager == nil {
+		return nil, fmt.Errorf("MCP factory returned nil manager")
+	}
+	s.SetMcpManager(manager)
+	ctx, cancel := context.WithCancel(context.Background())
+	manager.Start(ctx)
+	var once sync.Once
+	return func() { once.Do(func() { cancel(); manager.Stop() }) }, nil
 }

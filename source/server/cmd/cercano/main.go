@@ -46,7 +46,6 @@ import (
 	"cercano/source/server/internal/locus"
 	"cercano/source/server/internal/loopcompact"
 	mcpserver "cercano/source/server/internal/mcp"
-	mcphost "cercano/source/server/internal/mcp_host"
 	"cercano/source/server/internal/modelcatalog"
 	"cercano/source/server/internal/modelhost"
 	"cercano/source/server/internal/modelpolicy"
@@ -619,10 +618,10 @@ func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *cras
 	// slow/dead server never blocks boot (a call to a not-ready server blocks
 	// only that call — see mcphost).
 	cfgDir := filepath.Dir(admission.paths.config)
-	mcpMgr := mcphost.New(srv.ToolRegistry(), cfgDir, 10*time.Second)
-	srv.SetMcpManager(mcpMgr)
-	mcpCtx, mcpCancel := context.WithCancel(context.Background())
-	mcpMgr.Start(mcpCtx)
+	closeMCP, err := composeProductionMCP(srv, cfgDir, productionMCPDependencies{}, executionPolicy)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Select worker vs in-process turn execution from the loaded config
 	// (default: worker → crash isolation). Runs AFTER config, permissions,
@@ -656,8 +655,7 @@ func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *cras
 		// waits on attached clients forever.
 		srv.BeginShutdown()
 		server.DrainThenStop(s, drainGrace)
-		mcpCancel()
-		mcpMgr.Stop()
+		closeMCP()
 		srv.Shutdown()
 		// Independently scheduled producers must stop before accounting drains.
 		producerCtx, cancelProducers := context.WithTimeout(context.Background(), 2*time.Second)

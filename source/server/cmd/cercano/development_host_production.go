@@ -31,6 +31,7 @@ import (
 // Invocation-local seams: tests never open a native credential backend or attach
 // to a real runtime. There are deliberately no environment-selected fixtures.
 type developmentProductionDependencies struct {
+	mcp             productionMCPDependencies
 	openSecrets     func() (secrets.Store, error)
 	connectRuntime  func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error)
 	newOpenProvider func(localruntime.Manager, config.Config) (inference.Provider, error)
@@ -159,10 +160,12 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 			return nil, nil, fmt.Errorf("runtime connector returned incomplete dependencies")
 		}
 	}
+	closeMCP := func() {}
 	var store conversation.Store
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
+			closeMCP()
 			closeRuntime()
 			if store != nil {
 				_ = store.Close()
@@ -259,6 +262,11 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if err = composeProductionServices(srv, orchestrator, loader, toolstack.EngineDeps{}, executionPolicy); err != nil {
 		return nil, nil, err
 	}
+	mcpCleanup, err := composeProductionMCP(srv, filepath.Dir(configPath), deps.mcp, executionPolicy)
+	if err != nil {
+		return nil, nil, err
+	}
+	closeMCP = mcpCleanup
 	if err = executionPolicy.install(srv); err != nil {
 		return nil, nil, err
 	}

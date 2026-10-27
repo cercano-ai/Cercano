@@ -1,11 +1,13 @@
 package main
 
 import (
+	"cercano/source/server/internal/agenttools"
 	projectctx "cercano/source/server/internal/context"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/engine"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/localruntime"
+	mcphost "cercano/source/server/internal/mcp_host"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/server"
 	"cercano/source/server/internal/toolstack"
@@ -17,6 +19,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"cercano/source/server/internal/agent"
 )
@@ -139,8 +142,10 @@ func TestProductionCompositionServiceParity(t *testing.T) {
 	if a.PersistentStore() != store {
 		t.Fatal("composition replaced caller store")
 	}
+	mcpOpens := 0
 	o, auth := developmentProductionFixture(t)
 	prepared, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+		mcp:         productionMCPDependencies{newManager: func(*agenttools.Registry, string, time.Duration) *mcphost.Manager { mcpOpens++; return nil }},
 		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
 		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
 			return localruntime.NewManager(), func() {}, nil
@@ -154,6 +159,9 @@ func TestProductionCompositionServiceParity(t *testing.T) {
 	}
 	defer cleanup()
 	defer prepared.Shutdown()
+	if mcpOpens != 0 {
+		t.Fatal("prepared composition opened unsafe MCP integration")
+	}
 	names := func(s *server.Server) map[string]bool {
 		listed, err := s.ListTools(context.Background(), &proto.ListToolsRequest{})
 		if err != nil {
