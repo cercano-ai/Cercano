@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +12,15 @@ import (
 
 func policyFixture(t *testing.T) SpawnOptions {
 	t.Helper()
-	// Resolve macOS /var alias; only fixture files are inspected.
-	base, err := filepath.EvalSymlinks(t.TempDir())
+	// A deliberately short private root: Darwin's default TMPDIR can itself
+	// exceed the supported socket budget. No executable fixture is started.
+	base, err := os.MkdirTemp("/tmp", "wp-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	// Resolve macOS /tmp alias; only fixture files are inspected.
+	base, err = filepath.EvalSymlinks(base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,4 +166,92 @@ func TestPinnedCommandInheritsCredentialDisable(t *testing.T) {
 		t.Fatal("credential-disable setting not inherited")
 	}
 	// Never Start: this test constructs only a command descriptor.
+}
+
+func TestPinnedPolicySocketBudget(t *testing.T) {
+	for _, rootBytes := range []int{38, 39} {
+		t.Run(fmt.Sprint(rootBytes), func(t *testing.T) {
+			o := policyFixture(t)
+			base := filepath.Dir(o.ResourceRoot)
+			o.ResourceRoot = filepath.Join(base, strings.Repeat("r", rootBytes-len(base)-1))
+			if err := os.Mkdir(o.ResourceRoot, 0700); err != nil {
+				t.Fatal(err)
+			}
+			p, err := NewSpawnPolicy(o)
+			if rootBytes == 39 {
+				if err == nil || !strings.Contains(err.Error(), "103") {
+					t.Fatalf("oversized root must fail early with socket limit: %v", err)
+				}
+				entries, readErr := os.ReadDir(o.ResourceRoot)
+				if readErr != nil || len(entries) != 0 {
+					t.Fatalf("rejected policy mutated root: %v, %v", entries, readErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			sock, pid, err := p.paths(strings.Repeat("conversation", 100), ^uint64(0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(sock) != 103 || len(filepath.Base(sock)) != 37 || strings.Contains(sock, "conversation") {
+				t.Fatalf("unbounded/nonopaque socket: %q (%d bytes)", sock, len(sock))
+			}
+			listener, listenErr := net.Listen("unix", sock)
+			if listenErr != nil {
+				t.Fatalf("boundary socket cannot bind: %v", listenErr)
+			}
+			listener.Close()
+			if strings.TrimSuffix(sock, ".sock") != strings.TrimSuffix(pid, ".pid") {
+				t.Fatal("socket/pid identity differs")
+			}
+		})
+	}
+}
+
+func TestPinnedSpawnRejectsLongPathBeforeMutation(t *testing.T) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	o := policyFixture(t)
+	p, err := NewSpawnPolicy(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Defense in depth for the spawn path: the fake executable must never be
+	// started, nor may a rejected path create a directory, socket, pid or log.
+	p.dir = filepath.Join(o.ResourceRoot, strings.Repeat("x", MaxWorkerSocketPathBytes))
+	_, err = spawnWorkerWithPolicy(context.Background(), "conversation", 1, p)
+	if err == nil || !strings.Contains(err.Error(), "paths:") || !strings.Contains(err.Error(), "103") {
+		t.Fatalf("expected pre-launch path rejection: %v", err)
+	}
+	if _, err := os.Stat(p.dir); !os.IsNotExist(err) {
+		t.Fatalf("rejected spawn mutated namespace: %v", err)
+	}
+}
+
+func TestPinnedPolicyCountsResolvedRootBytes(t *testing.T) {
+	o := policyFixture(t)
+	base := filepath.Dir(o.ResourceRoot)
+	// 39 bytes but only 38 runes: a rune-count check would wrongly accept it.
+	o.ResourceRoot = filepath.Join(base, strings.Repeat("r", 39-len(base)-3)+"é")
+	if err := os.Mkdir(o.ResourceRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewSpawnPolicy(o); err == nil || !strings.Contains(err.Error(), "39 bytes") {
+		t.Fatalf("multibyte oversized root accepted: %v", err)
+	}
+}
+
+func TestLegacyWorkerPathsKeepNaming(t *testing.T) {
+	o := policyFixture(t)
+	t.Setenv("TMPDIR", o.ResourceRoot)
+	t.Setenv("TMP", o.ResourceRoot)
+	t.Setenv("TEMP", o.ResourceRoot)
+	sock, pid, err := workerPaths("ordinary conversation", 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(sock) != filepath.Join(os.TempDir(), workerSocketDir) || !strings.HasPrefix(filepath.Base(sock), "ordinary_convers-42-") || !strings.HasSuffix(sock, ".sock") || !strings.HasSuffix(pid, ".pid") {
+		t.Fatalf("legacy paths changed: %s, %s", sock, pid)
+	}
 }

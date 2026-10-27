@@ -10,11 +10,22 @@ import (
 	"runtime"
 )
 
+// MaxWorkerSocketPathBytes is the portable pathname budget, excluding the NUL
+// terminator: Darwin's sockaddr_un.sun_path has 104 bytes (Linux allows more).
+const MaxWorkerSocketPathBytes = 103
+
+// MaxWorkerResourceRootBytes reserves separators, a 26-byte host namespace,
+// and a 37-byte opaque socket basename within MaxWorkerSocketPathBytes.
+// This limit applies after symlink resolution and counts bytes, not runes.
+const MaxWorkerResourceRootBytes = MaxWorkerSocketPathBytes - 1 - 26 - 1 - 37
+
 // SpawnOptions selects an immutable published generation for a coexistence host.
 // All fields are required. GenerationDir must be the exact directory, not a
 // mutable current-generation alias. ManifestPath names a nonempty JSON manifest
 // inside it; publication/contract compatibility remains the startup caller's job.
-// ResourceRoot must be dedicated to coexistence, outside the legacy worker dir.
+// ResourceRoot must be an existing directory dedicated to coexistence, outside
+// the legacy worker dir. Its resolved absolute path must be at most
+// MaxWorkerResourceRootBytes bytes; choose a short private root, not a long TMPDIR.
 // HostInstance must be unique for each host lifetime and must never be reused.
 type SpawnOptions struct {
 	GenerationDir string
@@ -60,6 +71,12 @@ func NewSpawnPolicy(o SpawnOptions) (SpawnPolicy, error) {
 	root, err := filepath.EvalSymlinks(o.ResourceRoot)
 	if err != nil {
 		return SpawnPolicy{}, fmt.Errorf("worker policy: resource root must already exist: %w", err)
+	}
+	if len(root) > MaxWorkerResourceRootBytes {
+		return SpawnPolicy{}, fmt.Errorf("worker policy: resolved resource root is %d bytes; maximum is %d bytes to fit %d-byte Unix socket paths; choose a shorter private ResourceRoot", len(root), MaxWorkerResourceRootBytes, MaxWorkerSocketPathBytes)
+	}
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		return SpawnPolicy{}, fmt.Errorf("worker policy: resource root must be an existing directory: %s", root)
 	}
 	legacy, _ := filepath.Abs(workerDir())
 	if resolved, err := filepath.EvalSymlinks(legacy); err == nil {

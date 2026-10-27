@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -231,11 +232,26 @@ func (p SpawnPolicy) paths(conversationID string, gen uint64) (string, string, e
 	if dir == "" {
 		dir = filepath.Join(os.TempDir(), workerSocketDir)
 	}
+	tag := ""
+	if p.pinned {
+		// Fixed-size, opaque identity: neither conversation IDs nor generation
+		// counters may consume the socket pathname budget or leak into names.
+		var nonce [16]byte
+		if _, err := cryptorand.Read(nonce[:]); err != nil {
+			return "", "", fmt.Errorf("socket identity: %w", err)
+		}
+		tag = fmt.Sprintf("%x", nonce)
+	} else {
+		// Keep the legacy naming and resource behavior unchanged.
+		tag = fmt.Sprintf("%s-%d-%08x", sanitizeID(conversationID), gen, rand.Uint32())
+	}
+	sockPath := filepath.Join(dir, tag+".sock")
+	if p.pinned && len(sockPath) > MaxWorkerSocketPathBytes {
+		return "", "", fmt.Errorf("Unix socket path is %d bytes; maximum is %d bytes; choose a shorter private ResourceRoot", len(sockPath), MaxWorkerSocketPathBytes)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	tag := fmt.Sprintf("%s-%d-%08x", sanitizeID(conversationID), gen, rand.Uint32())
-	sockPath := filepath.Join(dir, tag+".sock")
 	pidPath := filepath.Join(dir, tag+".pid")
 	return sockPath, pidPath, nil
 }
