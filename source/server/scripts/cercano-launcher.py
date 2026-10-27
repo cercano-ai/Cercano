@@ -185,5 +185,5 @@ if __name__ == '__main__':
         main()
     except (OSError, ValueError, KeyError, IndexError, sqlite3.Error, subprocess.CalledProcessError) as error:
         print('[cercano] launch refused: ' + str(error), file=sys.stderr)
-        print('Provision once with prepare-development --new-state /absolute/NEW/private/state, then provide explicit config.yaml; no legacy import or native credentials.', file=sys.stderr)
+        print('Provision once with prepare-development --new-state /absolute/NEW/private/state, which copies existing config.yaml privately; no legacy database or native credential import.', file=sys.stderr)
         sys.exit(78)

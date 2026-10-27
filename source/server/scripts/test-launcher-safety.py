@@ -90,6 +90,33 @@ print(json.dumps(sys.argv[1:]))
     def source_launch(self, env, *args):
         return subprocess.run(['/bin/bash', str(SCRIPTS / 'cercano-launcher.sh'), *args], env=env, capture_output=True, text=True)
 
+    def test_later_builds_preserve_development_config_and_default_state(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = self.fixture(root)
+            home = Path(root).resolve() / 'home'
+            (home / '.config').mkdir(parents=True)
+            state = home / '.config/cercano-development'
+            Path(env['CERCANO_DEVELOPMENT_STATE']).rename(state)
+            env['HOME'] = str(home)
+            env.pop('CERCANO_DEVELOPMENT_STATE')
+            # Synthetic original is deliberately different; launcher must never
+            # recopy it over the independently edited development settings.
+            original = home / '.config/cercano/config.yaml'
+            original.parent.mkdir()
+            original.write_bytes(b'# synthetic original settings\n')
+            config = state / 'config.yaml'
+            config.write_bytes(b'# synthetic development settings\n')
+            before = config.stat()
+            for _ in range(2):
+                result = self.source_launch(env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(config.read_bytes(), b'# synthetic development settings\n')
+                self.assertEqual(config.stat().st_mtime_ns, before.st_mtime_ns)
+                self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(original.read_bytes(), b'# synthetic original settings\n')
+            events = [json.loads(line)[0] for line in Path(env['FAKE_ENV_LOG']).read_text().splitlines()]
+            self.assertEqual(events.count('publish'), 2)
+
     def test_runtime_preserves_credential_policy_while_builds_disable_credentials(self):
         # Only these fake-command probes opt out of the outer disabled policy.
         for policy in (None, '0', '1'):
