@@ -110,6 +110,16 @@ func (l *coexistenceLifecycle) acquire(ctx context.Context, id string, accepted 
 	}
 	identity := ownerOf(o)
 	ctx = conversation.WithOwnership(ctx, o)
+	// Production development acquisition explicitly creates a new row under
+	// its exact capability, before reload or dependent writes. Fixture and
+	// handover paths retain their existing semantics. A failed write remains
+	// unresolved and must not be reported as a completed acquisition.
+	if accepted == nil && l.options.Contract == conversation.DevelopmentCoexistenceDeclaration() {
+		if e = l.store.EnsureConversation(ctx, id, "", ""); e != nil {
+			_ = t.PersistenceFailed()
+			return broker.Owner{}, fmt.Errorf("acquired but conversation creation unresolved: %w", e)
+		}
+	}
 	var schedule func(context.Context) error
 	if l.options.StageReload != nil {
 		schedule, e = l.options.StageReload(ctx, l.store, o)
