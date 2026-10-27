@@ -152,7 +152,7 @@ func OpenCoexistence(ctx context.Context, path string, expected CoexistenceDecla
 		db.Close()
 		return nil, err
 	}
-	return &sqliteStore{db: db, coexistencePath: absolute}, nil
+	return &sqliteStore{db: db, coexistencePath: absolute, coexistenceDeclaration: expected}, nil
 }
 
 func coexistenceURI(path, mode string) (string, error) {

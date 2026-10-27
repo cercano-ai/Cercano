@@ -64,7 +64,7 @@ func (s *sqliteStore) beginOwned(ctx context.Context, opts *sql.TxOptions, targe
 			tx.Rollback()
 		}
 	}()
-	if err = checkOwnershipContract(ctx, tx); err != nil {
+	if err = s.checkOwnershipContract(ctx, tx); err != nil {
 		return nil, err
 	}
 	if _, err = tx.ExecContext(ctx, `CREATE TEMP TABLE IF NOT EXISTS ownership_capabilities (conversation_id TEXT PRIMARY KEY, owner TEXT NOT NULL, epoch TEXT NOT NULL); DELETE FROM ownership_capabilities;`); err != nil {

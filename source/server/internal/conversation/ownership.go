@@ -107,7 +107,7 @@ func acquireOwnership(ctx context.Context, store Store, id, host, handover strin
 		return nil, err
 	}
 	defer tx.Rollback()
-	if err := checkOwnershipContract(ctx, tx); err != nil {
+	if err := s.checkOwnershipContract(ctx, tx); err != nil {
 		return nil, err
 	}
 	var state, destination, pending string
@@ -189,7 +189,7 @@ func (o *Ownership) relinquish(ctx context.Context, state, destination, handover
 		return err
 	}
 	defer tx.Rollback()
-	if err = checkOwnershipContract(ctx, tx); err != nil {
+	if err = o.store.checkOwnershipContract(ctx, tx); err != nil {
 		return err
 	}
 	if handover != "" {
@@ -236,8 +236,8 @@ func (o *Ownership) Close() error {
 	return err
 }
 
-func checkOwnershipContract(ctx context.Context, tx *sql.Tx) error {
-	d := CurrentCoexistenceDeclaration()
+func (s *sqliteStore) checkOwnershipContract(ctx context.Context, tx *sql.Tx) error {
+	d := s.coexistenceDeclaration
 	var n int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM coexistence_metadata WHERE singleton=1 AND contract=? AND schema_version=? AND (SELECT user_version FROM pragma_user_version)=?`, d.Contract, d.SchemaVersion, d.SchemaVersion).Scan(&n)
 	if err != nil {

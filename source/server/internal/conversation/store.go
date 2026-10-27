@@ -381,6 +381,8 @@ type sqliteStore struct {
 	mu              sync.Mutex
 	db              *sql.DB
 	coexistencePath string
+	// Exact same-build declaration validated at open; never infer it from mutable metadata.
+	coexistenceDeclaration CoexistenceDeclaration
 }
 
 // Open returns a Store backed by SQLite at the given path. ":memory:" works
