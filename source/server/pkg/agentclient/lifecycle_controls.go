@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"net"
 )
@@ -38,17 +39,24 @@ func (c *LifecycleControls) Close() error { return c.conn.Close() }
 // response is retried explicitly with LifecycleClaim and the same receipt, not
 // by acquiring a fresh owner or canceling the reservation.
 func (c *LifecycleControls) Transfer(ctx context.Context, destination *LifecycleControls, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
-	prepared := proto.Clone(r).(*pb.LifecycleControlRequest)
-	prepared.Target = r.Destination
-	acceptance, err := destination.LifecyclePrepare(ctx, prepared)
-	if err != nil {
-		return nil, err
-	}
 	source := proto.Clone(r).(*pb.LifecycleControlRequest)
-	source.Receipt = acceptance.Receipt
-	if _, err = c.LifecycleRelinquish(ctx, source); err != nil {
+	acceptance, err := c.LifecycleRelinquish(ctx, source)
+	if err != nil {
+		for _, detail := range status.Convert(err).Details() {
+			if response, ok := detail.(*pb.LifecycleControlResponse); ok {
+				acceptance = response
+			}
+		}
+		if acceptance == nil && r.Receipt != "" {
+			acceptance = &pb.LifecycleControlResponse{Receipt: r.Receipt, Pending: true}
+		}
 		return acceptance, err
 	}
+	if acceptance.GetReceipt() == "" {
+		return acceptance, fmt.Errorf("source returned no transfer receipt")
+	}
+	prepared := proto.Clone(r).(*pb.LifecycleControlRequest)
+	prepared.Target = r.Destination
 	prepared.Receipt = acceptance.Receipt
 	claimed, err := destination.LifecycleClaim(ctx, prepared)
 	if err != nil {

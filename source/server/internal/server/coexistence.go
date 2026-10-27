@@ -44,6 +44,7 @@ type coexistenceLifecycle struct {
 	owners    map[string]*conversation.Ownership
 	incoming  map[broker.IncomingHandover]*IncomingAcceptance
 	ready     map[broker.Owner]bool
+	closures  map[broker.Owner]*relinquishReservation
 }
 
 // NewCoexistenceServer constructs a lifecycle-only server. Do not serve ordinary
@@ -264,17 +265,24 @@ func (s *Server) relinquish(ctx context.Context, o broker.Owner, requester *brok
 	}
 	return l.relinquishLocked(ctx, o, requester, nil, h)
 }
-func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Owner, requester *broker.Attachment, terminal *string, h *broker.IncomingHandover) error {
+
+type relinquishReservation struct {
+	control *outgoingControl
+	closure *broker.Closure
+	ticket  *broker.WorkTicket
+}
+
+func (l *coexistenceLifecycle) reserveRelinquishLocked(o broker.Owner, requester *broker.Attachment, terminal *string) (*relinquishReservation, error) {
 	if !l.ready[o] {
-		return broker.ErrAdmissionBusy
+		return nil, broker.ErrAdmissionBusy
 	}
 	cap := l.owners[o.Conversation]
 	if cap == nil || ownerOf(cap) != o {
-		return broker.ErrAdmissionStale
+		return nil, broker.ErrAdmissionStale
 	}
 	t, e := l.admission.AdmitHostWork(broker.PersistenceWork)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	var c *broker.Closure
 	if terminal != nil {
@@ -284,8 +292,32 @@ func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Ow
 	}
 	if e != nil {
 		_ = t.Complete()
+		return nil, e
+	}
+	r := &relinquishReservation{closure: c, ticket: t}
+	if l.closures == nil {
+		l.closures = make(map[broker.Owner]*relinquishReservation)
+	}
+	l.closures[o] = r
+	return r, nil
+}
+func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Owner, requester *broker.Attachment, terminal *string, h *broker.IncomingHandover) error {
+	r, e := l.reserveRelinquishLocked(o, requester, terminal)
+	if e != nil {
 		return e
 	}
+	return l.commitRelinquishLocked(ctx, o, r, h)
+}
+func (l *coexistenceLifecycle) commitRelinquishLocked(ctx context.Context, o broker.Owner, r *relinquishReservation, h *broker.IncomingHandover) error {
+	if r == nil || l.closures[o] != r {
+		return broker.ErrAdmissionStale
+	}
+	cap := l.owners[o.Conversation]
+	if cap == nil || ownerOf(cap) != o {
+		return broker.ErrAdmissionStale
+	}
+	c, t := r.closure, r.ticket
+	var e error
 	if h == nil {
 		e = cap.Release(ctx)
 	} else {
@@ -303,6 +335,9 @@ func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Ow
 	}
 	delete(l.owners, o.Conversation)
 	delete(l.ready, o)
+	if r.control == nil {
+		delete(l.closures, o)
+	} // Controls retain the exact result for explicit lost-response retries.
 	if l.options.Cleanup != nil {
 		if e = l.options.Cleanup(ctx, o); e != nil {
 			_ = t.PersistenceFailed()

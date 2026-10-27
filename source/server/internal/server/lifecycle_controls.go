@@ -117,6 +117,17 @@ func (s *Server) LifecycleClaim(ctx context.Context, r *pb.LifecycleControlReque
 	}
 	return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: wireOwner(o)}, nil
 }
+
+// An uncertain peer response keeps the exact closed source reservation. Only
+// an explicit retry of the same selection may reuse it, never a new transfer.
+type outgoingControl struct {
+	request    *pb.LifecycleControlRequest
+	active     bool
+	committing bool
+	receipt    string
+	completed  bool
+}
+
 func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRequest, transfer bool) (*pb.LifecycleControlResponse, error) {
 	l, e := s.control(ctx, r)
 	if e != nil {
@@ -135,10 +146,45 @@ func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRe
 		terminal = id
 	}
 	var h *broker.IncomingHandover
+	var reserved *relinquishReservation
+	receipt := r.Receipt
 	if transfer {
-		if l.options.ControlDial == nil || !controlLoopback(r.DestinationEndpoint) || !proto.Equal(r.Source, l.controlIdentity()) || r.Destination == nil || r.Destination.Host == l.options.Host || r.Destination.Store != l.options.StorePath || r.Destination.Contract != l.options.Contract.Contract || r.Destination.Schema != int32(l.options.Contract.SchemaVersion) {
+		if r.HandoverId == "" || l.options.ControlDial == nil || !controlLoopback(r.DestinationEndpoint) || !proto.Equal(r.Source, l.controlIdentity()) || r.Destination == nil || r.Destination.Host == l.options.Host || r.Destination.Store != l.options.StorePath || r.Destination.Contract != l.options.Contract.Contract || r.Destination.Schema != int32(l.options.Contract.SchemaVersion) {
 			return nil, fmt.Errorf("authenticated explicit compatible destination required")
 		}
+		// Close/check quiescence and retain persistence participation before ANY
+		// peer RPC. Never hold the lifecycle mutex across a cross-host call.
+		l.mu.Lock()
+		key := proto.Clone(r).(*pb.LifecycleControlRequest)
+		key.Receipt = ""
+		reserved = l.closures[o]
+		if reserved != nil {
+			state := reserved.control
+			if state != nil && !state.active && state.committing && proto.Equal(state.request, key) && (receipt == "" || receipt == state.receipt) {
+				response := &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Receipt: state.receipt, Pending: true}
+				l.mu.Unlock()
+				if state.completed {
+					return response, nil
+				}
+				st, _ := status.New(codes.FailedPrecondition, "source commit outcome unresolved; explicit claim may be retried").WithDetails(response)
+				return nil, st.Err()
+			}
+			if state == nil || state.active || state.committing || !proto.Equal(state.request, key) {
+				e = broker.ErrAdmissionStale
+			} else {
+				state.active = true
+			}
+		} else {
+			reserved, e = l.reserveRelinquishLocked(o, nil, &terminal)
+			if e == nil {
+				reserved.control = &outgoingControl{request: key, active: true}
+			}
+		}
+		l.mu.Unlock()
+		if e != nil {
+			return nil, e
+		}
+		defer func() { l.mu.Lock(); reserved.control.active = false; l.mu.Unlock() }()
 		conn, err := l.options.ControlDial(ctx, r.DestinationEndpoint)
 		if err != nil {
 			return nil, err
@@ -146,21 +192,40 @@ func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRe
 		defer conn.Close()
 		check := proto.Clone(r).(*pb.LifecycleControlRequest)
 		check.Target = check.Destination
-		proof, err := pb.NewAgentClient(conn).LifecycleValidateReceipt(ctx, check)
+		var proof *pb.LifecycleControlResponse
+		client := pb.NewAgentClient(conn)
+		if receipt == "" {
+			proof, err = client.LifecyclePrepare(ctx, check)
+		} else {
+			proof, err = client.LifecycleValidateReceipt(ctx, check)
+		}
 		if err != nil {
 			return nil, err
 		}
-		if !proto.Equal(proof.Identity, r.Destination) || proof.Receipt != r.Receipt || r.Receipt == "" {
+		if !proto.Equal(proof.Identity, r.Destination) || proof.Receipt == "" || (receipt != "" && proof.Receipt != receipt) {
 			return nil, broker.ErrAdmissionStale
 		}
+		receipt = proof.Receipt
 		h = &broker.IncomingHandover{Conversation: o.Conversation, SourceHost: o.Host, SourceEpoch: o.Epoch, HandoverID: r.HandoverId, DestinationHost: r.Destination.Host}
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if e = l.relinquishLocked(ctx, o, nil, &terminal, h); e != nil {
-		return nil, e
+	if transfer {
+		reserved.control.committing = true
+		reserved.control.receipt = receipt
+		e = l.commitRelinquishLocked(ctx, o, reserved, h)
+		reserved.control.completed = e == nil
+	} else {
+		e = l.relinquishLocked(ctx, o, nil, &terminal, h)
 	}
-	return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Pending: transfer}, nil
+	response := &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Receipt: receipt, Pending: transfer}
+	if e != nil {
+		// gRPC discards response messages on error; preserve known receipts in
+		// status details for explicit claim retries, never report early success.
+		st, _ := status.New(codes.FailedPrecondition, e.Error()).WithDetails(response)
+		return nil, st.Err()
+	}
+	return response, nil
 }
 func (s *Server) LifecycleRelease(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	return s.controlRelinquish(ctx, r, false)

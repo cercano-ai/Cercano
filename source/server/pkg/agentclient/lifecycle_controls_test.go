@@ -28,20 +28,17 @@ func TestLifecycleControlsTransferKeepsReceiptOnLostClaim(t *testing.T) {
 	step := 0
 	lost := errors.New("lost claim response")
 	a := &LifecycleControls{AgentClient: lifecycleFake{relinquish: func(r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
-		if step != 1 || r.Receipt != "opaque" {
+		if step != 0 || r.Receipt != "" {
 			t.Fatal("commit before acceptance")
 		}
 		step++
-		return &pb.LifecycleControlResponse{Pending: true}, nil
+		return &pb.LifecycleControlResponse{Receipt: "opaque", Pending: true}, nil
 	}}}
 	b := &LifecycleControls{AgentClient: lifecycleFake{prepare: func(r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
-		if step != 0 {
-			t.Fatal(step)
-		}
-		step++
-		return &pb.LifecycleControlResponse{Receipt: "opaque", Pending: true}, nil
+		t.Fatal("client must not prepare destination")
+		return nil, nil
 	}, claim: func(r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
-		if step != 2 || r.Receipt != "opaque" {
+		if step != 1 || r.Receipt != "opaque" {
 			t.Fatal("claim order")
 		}
 		return nil, lost
@@ -57,5 +54,23 @@ func TestLifecycleControlsRejectsImplicitOrRemoteEndpoint(t *testing.T) {
 		if _, e := DialLifecycleControls(context.Background(), endpoint, nil); e == nil {
 			t.Fatal(endpoint)
 		}
+	}
+}
+
+func TestLifecycleControlsTransferPreservesProvidedReceipt(t *testing.T) {
+	lost := errors.New("source outcome unknown")
+	a := &LifecycleControls{AgentClient: lifecycleFake{relinquish: func(r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+		if r.Receipt != "retry-receipt" {
+			t.Fatal("receipt replaced")
+		}
+		return nil, lost
+	}}}
+	b := &LifecycleControls{AgentClient: lifecycleFake{prepare: func(*pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+		t.Fatal("unexpected prepare")
+		return nil, nil
+	}}}
+	result, err := a.Transfer(context.Background(), b, &pb.LifecycleControlRequest{Receipt: "retry-receipt"})
+	if !errors.Is(err, lost) || result.GetReceipt() != "retry-receipt" || !result.Pending {
+		t.Fatal(result, err)
 	}
 }
