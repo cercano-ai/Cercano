@@ -65,6 +65,9 @@ func (*acceptanceProvider) Chat(ctx context.Context, req inference.Call) (infere
 			}
 		}
 	}
+	if strings.HasPrefix(text, "<host:task-completions>") {
+		fixtureRecord("completion-notice", req)
+	}
 	// Worker prompts contain the marker in the independently dispatched task.
 	kind := ""
 	if strings.Contains(text, "FIXTURE_CHILD") {

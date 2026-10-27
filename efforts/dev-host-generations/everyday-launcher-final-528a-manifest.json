@@ -1,0 +1,97 @@
+{
+  "passed": true,
+  "tested_base_sha": "528a759283db261a9cd47596e2b444da9a483965",
+  "includes_UI_sha": "3c7679ac",
+  "snapshot_commit": "7cd3f4e5392907c380f5743bfbbd6ad4a38aa35b",
+  "snapshot_source_tree": "45420d3e5f31d92800ed6d1f2551578462fceb1c",
+  "fixture_sha256": "adc23a32d8158a92fddd916a59befb0a47618db1a62a57f87078a61bb1e40e86",
+  "private_artifact_directory": "/private/tmp/ca-suu_tvjs",
+  "private_evidence_directory": "/tmp/launcher-final-528a-PASS",
+  "checks": [
+    {
+      "step": "fresh source provenance"
+    },
+    {
+      "step": "fresh bootstrap artifact"
+    },
+    {
+      "step": "fresh bootstrap preparation"
+    },
+    {
+      "step": "explicit tagged real bootstrap and prepared private state"
+    },
+    {
+      "step": "A acquired via ordinary launcher"
+    },
+    {
+      "step": "real independent dispatch running"
+    },
+    {
+      "step": "A physically killed and reconnected through saved selection; same exact host PID; no publication or acquisition"
+    },
+    {
+      "step": "B distinct after source byte change; A CLI and task alive"
+    },
+    {
+      "step": "same generation reuses host"
+    },
+    {
+      "step": "saved selection no-build/no-acquisition management reconnect"
+    },
+    {
+      "step": "concurrent unchanged-source invocations reuse B without rebuild or conflict"
+    },
+    {
+      "step": "unrelated Y transferred A to B while independent A task running"
+    },
+    {
+      "step": "busy transfer refused with A task held",
+      "pending_before": 0,
+      "pending_after": 0
+    },
+    {
+      "step": "actual compiler failure before publication preserves live A/B records, generations, selections and running task"
+    },
+    {
+      "step": "independent task completed"
+    },
+    {
+      "step": "exactly one completion notification delivered and durably acknowledged"
+    },
+    {
+      "step": "A retained sessions explicitly released and retired; B inference still usable"
+    },
+    {
+      "step": "PASS all compiled ordinary-launcher acceptance assertions"
+    }
+  ],
+  "harness_sha256": {
+    "efforts/dev-host-generations/everyday-launcher-compiled.py": "5bd809b9eb7e438c889f6f176895f5b318465d32da09de01de1d43ab59aedcc2",
+    "efforts/dev-host-generations/everyday-launcher-pty.py": "30d2d1537890485eb92ca4b1037714523fac26cd04d6545c4ec0675feac37cc5",
+    "source/server/cmd/cercano/everyday_launcher_acceptance_test.go": "31bc603d052d709b2f3ff762921f7ec550e883bb411faa061bccf4e9d12aa770"
+  },
+  "private_evidence_sha256": {
+    "6b65a0dea1012001ed086a35c04497963fc6a5394050cdcbf2f9d35815a3f5b6.log": "45c978ff3adb3a6c30ea91d86f1d25af2c237cc495b812749d20934c88d759a6",
+    "6b65a0dea1012001ed086a35c04497963fc6a5394050cdcbf2f9d35815a3f5b6.json": "94da74fab3b6494ab20ef939cead009d31f8a42b85ccf462a69dfde0720f4979",
+    "routing-config.json": "80bb49c67aa56a7e7b0137dbdb12ce7e747bceeb061b9e8e82234fa425afcf5b",
+    "go-test.log": "6e05d1dcebd578b1b0f13b4cd9d17afe393fef006cb87c69fd7c55eccf50fa85",
+    "B-reuse.pty": "59f9a820acb2f4fc84b2947af8d3a30b709c6784f15f1424853b10239ba8a799",
+    "3e250ee14f977a713e21a97fa36f2c75a4557d1fa53f69b77de371a3cab7c5d7.log": "21cb7f740b1d30a88aa9e2720d5d0124962d862dcf5f0c00c9d66f86a85abe75",
+    "3e250ee14f977a713e21a97fa36f2c75a4557d1fa53f69b77de371a3cab7c5d7.json": "fcd1186b2480d18416be0783c52415fe1d3f4521b8b8a1ce7720ba3aebc3b72f",
+    "run.log": "90f50f9cc92db80cfed020f7cb8550557d4f046fd105060dc673a9405a972ca3",
+    "provider.jsonl": "008dfd6a09e1848aad2251f429c02994486e533d869f5ea99e9316779c6dbcb7",
+    "dd76908dd7799446b47c242c42c42442bb4d41de84f520d404b526169faf30c7.json": "eb212f18d4ff1f9f4ca1c5c5d6ff1e422ddc5febf84af5d6fb459a133a17bd79",
+    "compiled.json": "5b9c87768fcb6efc27b9b7470f53624153090536852db331d98722a7be75820d",
+    "Y.pty": "59f9a820acb2f4fc84b2947af8d3a30b709c6784f15f1424853b10239ba8a799",
+    "dd76908dd7799446b47c242c42c42442bb4d41de84f520d404b526169faf30c7.log": "13de25290269fd453f7d05f3db0089ca0be32443250f98bf679118e2842f31f0",
+    "B.pty": "0dd533aedc8fda70e1565a8573e0a48488232a506b9f9f3043410d2807f33c39",
+    "A.pty": "a24fdd04196c2a96ba80e66904411cbf02b53fda3fedce253650a62f8e710b8b",
+    "B-concurrent-0.pty": "0512a3f211ecf797886e95756ab38816c1ec996a9033aa0286502bb673444113",
+    "A-reconnect.pty": "c3d907ad3cf455b454eda5f73c2f8f65737b25b0f008e19a9e33e71e92fa236e",
+    "B-concurrent-1.pty": "59f9a820acb2f4fc84b2947af8d3a30b709c6784f15f1424853b10239ba8a799",
+    "4ee38acdb6b712190ad878f122e0dab8deb379951a19ea54c6dce3d40b0f0201.log": "5ead329c27bb3ae35ccddd5159b573fc7d500e2a591f5f55fdaef355d7b9550d",
+    "build.jsonl": "e58b9d47bc1007b81b48392bcf772de86889f2a3eab567ab008d45090cc79ace",
+    "4ee38acdb6b712190ad878f122e0dab8deb379951a19ea54c6dce3d40b0f0201.json": "9eff41114630d8154fa35fe99db0d10aaa547212a8d0bf59d6a9145798ef2a28",
+    "failed-build.pty": "9448d4055c46f44e0643425969b8c0e738d07e64b298233d8226129112cdb92a"
+  }
+}

@@ -38,8 +38,8 @@ def run(repo,evidence):
     terminals=[]; hosts=[]
     def record(step,**kw):
         report['steps'].append(dict(step=step,**kw)); (evidence/'compiled.json').write_text(json.dumps(report,indent=2)+'\n'); print(step,flush=True)
-    with tempfile.TemporaryDirectory(prefix='ca-',dir='/tmp') as tmp:
-        root=P(tmp).resolve(); state=root/'state'; runtime=root/'r'; runtime.mkdir(mode=0o700)
+    with __import__('contextlib').nullcontext(tempfile.mkdtemp(prefix='ca-',dir='/tmp')) as tmp:
+        root=P(tmp).resolve(); os.chmod(root,0o700); report['artifact_directory']=str(root); state=root/'state'; runtime=root/'r'; runtime.mkdir(mode=0o700)
         copy=root/'repo'; copy.mkdir(); shutil.copytree(repo/'source',copy/'source')
         home=root/'home';home.mkdir(); barrier=root/'barrier';barrier.mkdir()
         go=shutil.which('go'); assert go
@@ -50,7 +50,7 @@ def run(repo,evidence):
         (tools/'python3').symlink_to(sys.executable)
         # Build wrapper delegates EVERY command to Go; only adds explicit build tags.
         wrapper=tools/'go'
-        wrapper.write_text('#!/usr/bin/env python3\nimport os,sys,json\na=sys.argv[1:]\nif a and a[0]=="build":\n a.insert(1,"-tags=developmentfixture,cercano_development_acceptance")\n with open('+repr(str(trace))+',"a") as f:f.write(json.dumps({"cwd":os.getcwd(),"args":a})+"\\n")\nos.execv('+repr(go)+',['+repr(go)+',*a])\n');wrapper.chmod(0o700)
+        wrapper.write_text('#!/usr/bin/env python3\nimport os,sys,json\na=sys.argv[1:]\nif a and a[0]=="build":\n a.insert(1,"-tags=developmentfixture,cercano_development_acceptance")\n if os.path.exists('+repr(str(root/'fail-build'))+'): print("injected actual compiler failure before publication",file=sys.stderr);sys.exit(42)\n with open('+repr(str(trace))+',"a") as f:f.write(json.dumps({"cwd":os.getcwd(),"args":a})+"\\n")\nos.execv('+repr(go)+',['+repr(go)+',*a])\n');wrapper.chmod(0o700)
         env=dict(os.environ)
         for k in list(env):
             if k.startswith(('GO','CGO_')) or k in ('CC','CXX','PKG_CONFIG','SDKROOT','LIBRARY_PATH','CPATH','C_INCLUDE_PATH','CPLUS_INCLUDE_PATH'):env.pop(k)
@@ -145,7 +145,8 @@ def run(repo,evidence):
             assert trace.read_text()==builds
             record('concurrent unchanged-source invocations reuse B without rebuild or conflict',selections=[json.loads(s.read_text()) for s in concurrent])
             moved=json.loads(control(sy,'transfer',sb))['Selection'];assert moved and moved['Identity']['host']==B['Identity']['host']
-            sym=state/'Y-moved.json';sym.write_text(json.dumps(moved));sym.chmod(0o600)
+            moved['Generation']=B['Generation']
+            sym=state/'selections'/'Y-moved.json';sym.write_text(json.dumps(moved));sym.chmod(0o600)
             assert rows('select status from delegated_tasks')==[('running',)]
             record('unrelated Y transferred A to B while independent A task running',selection=moved)
             # Detach A physically so refusal tests task ownership, not attachment.
@@ -157,19 +158,51 @@ def run(repo,evidence):
             if pending_after!=pending_before:
                 record('NEW PRODUCTION FAILURE: refused busy transfer leaks destination reservation',root='agentclient Transfer prepares destination before source relinquish; source failure returns without canceling destination acceptance')
                 raise AssertionError('busy transfer refusal leaked destination pending_incoming: '+str(pending_before)+' -> '+str(pending_after))
+            # Actual publisher invokes our failing compiler with both real hosts live.
+            stable_hosts={f.name:f.read_bytes() for f in (state/'hosts').glob('*') if f.suffix in ('.json','.token')}
+            stable_generations={str(f.relative_to(state)):hashlib.sha256(f.read_bytes()).hexdigest() for f in (state/'generations').rglob('*') if f.is_file()}
+            stable_selections=selections(); stable_tasks=rows('select * from delegated_tasks')
+            original=change.read_bytes();change.write_bytes(original+b'\n// failed candidate\n');(root/'fail-build').touch()
+            failed=Terminal(['bash',str(script)],env,evidence/'failed-build.pty')
+            end=time.monotonic()+120
+            while failed.p.poll() is None and time.monotonic()<end: failed.pump()
+            failed.pump();assert failed.p.wait(timeout=5)!=0
+            assert b'injected actual compiler failure' in failed.data,failed.data
+            os.close(failed.fd);(root/'fail-build').unlink();change.write_bytes(original)
+            assert selections()==stable_selections and rows('select * from delegated_tasks')==stable_tasks
+            assert {f.name:f.read_bytes() for f in (state/'hosts').glob('*') if f.suffix in ('.json','.token')}==stable_hosts
+            assert {str(f.relative_to(state)):hashlib.sha256(f.read_bytes()).hexdigest() for f in (state/'generations').rglob('*') if f.is_file()}==stable_generations
+            control(sa,'list');control(sb,'list')
+            record('actual compiler failure before publication preserves live A/B records, generations, selections and running task')
             (barrier/'child.release').touch()
             wait(lambda:rows('select status from delegated_tasks')==[('completed',)],'independent task completion',40)
             wait(lambda:any(x['event']=='child-released' for x in events()),'child release trace')
             record('independent task completed',tasks=rows('select id,status,notification_pending,wake_claimed,result_json,error from delegated_tasks'))
-            # Exit retains, then explicitly release every retained selection.
+            wait(lambda:rows('select notification_pending,wake_claimed from delegated_tasks')==[(0,1)],'exactly one handled completion',40)
+            assert len([e for e in events() if e['event']=='completion-notice'])==1
+            time.sleep(2)
+            assert len([e for e in events() if e['event']=='completion-notice'])==1
+            record('exactly one completion notification delivered and durably acknowledged')
+            control(sa,'retire',success=False)
+            retained=json.loads(control(sa,'list'))['Response']['retained']
+            assert task[0][1] in {r['conversation'] for r in retained}
+            assert {r['conversation'] for r in retained}<={task[0][1],rows('select child_id from delegated_tasks')[0][0]}
+            for i,r in enumerate(retained):
+                release_selection=dict(A,Conversation=r['conversation'],Epoch=r['epoch'])
+                release_path=state/'selections'/('A-release-'+str(i)+'.json');release_path.write_text(json.dumps(release_selection));release_path.chmod(0o600)
+                control(release_path,'release')
+            control(sa,'retire')
+            b.pump(); response_offset=len(b.data)
+            b.send('FIXTURE_B_STILL_USABLE\r')
+            wait(lambda:any('FIXTURE_B_STILL_USABLE' in json.dumps(e['request'].get('Messages')) for e in events() if e['event']=='call'),'B inference after A retirement')
+            wait(lambda:b'FIXTURE_OK' in b.data[response_offset:],'B response')
+            record('A retained sessions explicitly released and retired; B inference still usable')
             for t in terminals:t.stop()
             terminals.clear();time.sleep(1)
-            for s in (sa,sc,sb):control(s,'release')
-            control(sa,'retire');control(sb,'list');control(sb,'retire')
-            record('A retained sessions released and retired; B remained manageable')
-            # Do not upgrade this bounded probe to full acceptance until these
-            # remaining assertions exist, even if the dispatch blocker clears.
-            raise AssertionError('remaining full gate: concurrent reuse, attached saved-selection no-spawn reconnect, unrelated transfer, notification delivery, retained-session retirement refusal, B inference usability')
+            for sel in [sb,sc,sym,*concurrent]:control(sel,'release')
+            control(sb,'retire')
+            report['passed']=True
+            record('PASS all compiled ordinary-launcher acceptance assertions')
         except Exception as e:
             report['failure']=str(e);report['traceback']=traceback.format_exc()
             if (state/'conversations.db').exists():

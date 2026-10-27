@@ -8,11 +8,11 @@ import (
 )
 
 // TestEverydayLauncherCompiledPTY is an explicit, relatively expensive gate. A
-// failure is not replaced by the cheaper refusal coverage below. Its current
-// bounded probe fails before independent dispatch; see the progress artifact.
+// failure is not replaced by the cheaper refusal coverage below. This
+// gate covers live A/B publication, task completion and explicit retirement.
 func TestEverydayLauncherCompiledPTY(t *testing.T) {
 	if os.Getenv("CERCANO_RUN_COMPILED_LAUNCHER_ACCEPTANCE") != "1" {
-		t.Skip("set CERCANO_RUN_COMPILED_LAUNCHER_ACCEPTANCE=1 for real tagged launcher probe")
+		t.Skip("set CERCANO_RUN_COMPILED_LAUNCHER_ACCEPTANCE=1 for real tagged launcher acceptance")
 	}
 	python, err := exec.LookPath("python3")
 	if err != nil {
