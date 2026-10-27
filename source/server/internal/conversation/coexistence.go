@@ -191,6 +191,12 @@ func coexistenceURI(path, mode string) (string, error) {
 	q["_pragma"] = []string{"busy_timeout(5000)"}
 	if mode == "rw" {
 		q["_pragma"] = append(q["_pragma"], "foreign_keys(1)")
+		// Ownership transitions and fenced writes read before writing. Admit the
+		// writer before taking that snapshot: a deferred WAL snapshot cannot be
+		// upgraded after an independent host commits (SQLITE_BUSY_SNAPSHOT).
+		// Keep legacy Open and read-only inspection unchanged; the DSN also
+		// preserves admission on replacement connections.
+		q["_txlock"] = []string{"immediate"}
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
@@ -238,4 +244,18 @@ func validateCoexistence(ctx context.Context, db *sql.DB, expected CoexistenceDe
 		return fmt.Errorf("coexistence mismatch: store=%+v user_version=%d expected=%+v", actual, version, expected)
 	}
 	return tx.Commit()
+}
+
+// beginWrite preserves context errors at writer admission. SQLite's busy wait
+// may finish only at busy_timeout; do not expose that as an ownership refusal
+// or let an already-cancelled caller proceed with a newly admitted transaction.
+func (s *sqliteStore) beginWrite(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	tx, err := s.db.BeginTx(ctx, opts)
+	if s.coexistencePath != "" && ctx.Err() != nil {
+		if tx != nil {
+			tx.Rollback()
+		}
+		return nil, ctx.Err()
+	}
+	return tx, err
 }

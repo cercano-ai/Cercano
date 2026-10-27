@@ -102,7 +102,7 @@ func acquireOwnership(ctx context.Context, store Store, id, host, handover strin
 			o.Close()
 		}
 	}()
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginWrite(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func (o *Ownership) relinquish(ctx context.Context, state, destination, handover
 	if o.lock == nil {
 		return fmt.Errorf("ownership capability is closed")
 	}
-	tx, err := o.store.db.BeginTx(ctx, nil)
+	tx, err := o.store.beginWrite(ctx, nil)
 	if err != nil {
 		return err
 	}

@@ -54,7 +54,7 @@ func (s *sqliteStore) beginOwned(ctx context.Context, opts *sql.TxOptions, targe
 	if len(caps) == 0 {
 		return nil, fmt.Errorf("coexistence write requires explicit ownership capability")
 	}
-	tx, err := s.db.BeginTx(ctx, opts)
+	tx, err := s.beginWrite(ctx, opts)
 	if err != nil {
 		return nil, err
 	}

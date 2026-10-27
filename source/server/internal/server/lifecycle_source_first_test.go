@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -152,7 +151,7 @@ func TestSourceFirstReciprocalNoMutexAcrossRPC(t *testing.T) {
 	}
 	close(proceed)
 	for i := 0; i < 2; i++ {
-		if err := <-done; err != nil && !strings.Contains(err.Error(), "SQLITE_BUSY") {
+		if err := <-done; err != nil {
 			t.Fatal(err)
 		}
 	}
