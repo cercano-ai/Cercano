@@ -24,14 +24,12 @@ import (
 	"time"
 
 	"cercano/source/server/internal/agent"
-	"cercano/source/server/internal/catalog"
 	"cercano/source/server/internal/cloudfactory"
 	"cercano/source/server/internal/compactiongen"
 	projectctx "cercano/source/server/internal/context"
 	"cercano/source/server/internal/contextmeter"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/crashlog"
-	"cercano/source/server/internal/deepinfracatalog"
 	"cercano/source/server/internal/engine"
 	llamaengine "cercano/source/server/internal/engine/llamaserver"
 	mistralengine "cercano/source/server/internal/engine/mistralrs"
@@ -45,10 +43,8 @@ import (
 	"cercano/source/server/internal/locus"
 	"cercano/source/server/internal/loopcompact"
 	mcpserver "cercano/source/server/internal/mcp"
-	"cercano/source/server/internal/modelcatalog"
 	"cercano/source/server/internal/modelhost"
 	"cercano/source/server/internal/modelpolicy"
-	"cercano/source/server/internal/ollamacatalog"
 	"cercano/source/server/internal/openmodels"
 	"cercano/source/server/internal/protocols"
 	"cercano/source/server/internal/recap"
@@ -213,11 +209,21 @@ func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *cras
 }
 
 func startGRPCServerWithRuntime(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies) (string, func(), error) {
+	return startGRPCServerWithServices(cfg, bindAddr, events, credentials, admission, runtimes, productionCatalogDefaults(), productionAccountingDefaults())
+}
+
+func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies, catalogs productionCatalogDependencies, accounting productionAccountingDependencies) (string, func(), error) {
 	if err := admission.validateActivation(); err != nil {
 		return "", nil, err
 	}
 	if err := runtimes.validate(); err != nil {
 		return "", nil, err
+	}
+	if err := catalogs.validate(); err != nil {
+		return "", nil, err
+	}
+	if accounting.open == nil {
+		return "", nil, fmt.Errorf("accounting store opener required")
 	}
 	enterpriseHost, err := composeProductionEnterprise(productionEnterpriseDependencies{}, enterpriseLegacy)
 	if err != nil {
@@ -444,35 +450,16 @@ func startGRPCServerWithRuntime(cfg config.Config, bindAddr string, events *cras
 		})
 	}
 
-	// Attach the online-catalog manager so the runtime dashboard has
-	// Ollama's public library available (in addition to the hardcoded
-	// catalog + files on disk). LoadCache is best-effort — a missing
-	// cache on first run just means the background refresher will
-	// populate it shortly. Start() is what kicks the periodic refresh.
-	catalogCachePath := filepath.Join(filepath.Dir(admission.paths.config), "catalog-cache.json")
-	catalogManager := ollamacatalog.NewManager(&ollamacatalog.Fetcher{}, catalogCachePath)
-	if err := catalogManager.LoadCache(); err != nil {
-		fmt.Fprintf(os.Stderr, "[WARN] Could not load online-catalog cache at %s: %v (starting fresh)\n", catalogCachePath, err)
+	// Preserve catalog startup before producer/configuration and accounting wiring.
+	closeCatalog, err := composeProductionCatalog(srv, admission, catalogs)
+	if err != nil {
+		return "", nil, err
 	}
-	catalogManager.Start(context.Background())
-	srv.SetCatalogManager(catalogManager)
-
-	// Build the catalog registry: HuggingFace and Ollama (wrapping the manager
-	// above), plus DeepInfra. All registered sources are browsed together — a
-	// source is a category of origin, not an alternative to the others — and a
-	// model is addressed by the (source, id) ref that browse returned, so
-	// there is nothing here to select between.
-	//
-	// DeepInfra is the first servable source: its models run on its hardware
-	// and are never downloaded, so it does not implement catalog.Downloadable
-	// and the download path rejects it by type rather than by check. It needs
-	// no credentials to browse — the index is public — so it lists before the
-	// user has configured a key.
-	catalogRegistry := catalog.NewRegistry()
-	catalogRegistry.Register(modelcatalog.NewBackend(&modelcatalog.Client{}))
-	catalogRegistry.Register(ollamacatalog.NewBackend(catalogManager))
-	catalogRegistry.Register(deepinfracatalog.New())
-	srv.SetCatalogRegistry(catalogRegistry)
+	defer func() {
+		if !started {
+			closeCatalog()
+		}
+	}()
 	if sweeper != nil {
 		srv.SetRetentionSweeper(sweeper)
 	}
@@ -520,8 +507,7 @@ func startGRPCServerWithRuntime(cfg config.Config, bindAddr string, events *cras
 	// keeping the server's stored providers raw so the dispatch engine can wrap
 	// them per-dispatch without double-counting.
 	// agentCollector is hoisted so the coproc engine sink can reference it below.
-	agentTelemetryPath := filepath.Join(filepath.Dir(admission.paths.config), "telemetry.db")
-	agentCollector, closeAgentTelemetry, err := startAgentTelemetry(agentTelemetryPath, generateSessionID())
+	agentCollector, closeAgentTelemetry, err := composeProductionAccounting(admission, generateSessionID(), accounting)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to initialize agent telemetry: %v\n", err)
 	} else {
@@ -660,6 +646,7 @@ func startGRPCServerWithRuntime(cfg config.Config, bindAddr string, events *cras
 		server.DrainThenStop(s, drainGrace)
 		closeMCP()
 		srv.Shutdown()
+		closeCatalog()
 		// Independently scheduled producers must stop before accounting drains.
 		producerCtx, cancelProducers := context.WithTimeout(context.Background(), 2*time.Second)
 		for name, closeProducer := range map[string]func(context.Context) error{
