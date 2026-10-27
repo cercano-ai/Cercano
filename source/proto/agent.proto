@@ -2151,6 +2151,10 @@ message ConfigSnapshot {
  // config file contents. Lets the crash-isolated worker offer profile
  // selection even when no DeepInfra profile is the active/backup one.
  repeated string deepinfra_profiles = 53;
+
+ // Preserve explicit runtime admission policy for worker-side readiness checks.
+ // False also remains the fail-closed value for older snapshots.
+ bool llama_server_enabled = 54;
 }
 
 message ModelMetadataEntry {

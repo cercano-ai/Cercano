@@ -300,8 +300,9 @@ func SnapshotConfig(cfg config.Config, cred string, openTiers map[string]string)
 		BackupAwsProfile:   backupAWSProfile,
 		ResolvedCredential: cred,
 
-		OllamaUrl:   cfg.OllamaURL,
-		OpenRuntime: cfg.OpenRuntime,
+		OllamaUrl:          cfg.OllamaURL,
+		OpenRuntime:        cfg.OpenRuntime,
+		LlamaServerEnabled: cfg.LlamaServer.Enabled,
 
 		// Only the open tier slots cross the wire. Cloud resolves via the
 		// vendor-keyed cost-tier path, and the default-provider knob was retired
@@ -432,6 +433,7 @@ func ConfigFromSnapshot(p *proto.ConfigSnapshot) config.Config {
 		BackupCloudProfile: p.BackupCloudProfile,
 		OllamaURL:          p.OllamaUrl,
 		OpenRuntime:        p.OpenRuntime,
+		LlamaServer:        config.LlamaServerConfig{Enabled: p.LlamaServerEnabled},
 		ModelProfiles:      mp,
 		ToolLoop:           config.ToolLoopConfig{MaxIterations: int(p.ToolLoopMaxIterations)},
 
