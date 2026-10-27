@@ -432,12 +432,9 @@ func TestResolveConfirmKey_Y_ClearsAndReturnsCmd(t *testing.T) {
 	}
 }
 
-// PermissionRequired stream-event path: pendingConfirm carries a ToolUseID,
-// so y / n must NOT fire invokeToolCmd (the server already has the call
-// queued); they should clear pendingConfirm and return a nil tea.Cmd. The
-// actual RPC fires in a goroutine and is exercised in integration tests; here
-// we only assert the synchronous UI contract.
-func TestResolveConfirmKey_Y_WithToolUseID_NoCmd(t *testing.T) {
+// Stream-origin decisions return a typed RPC result command, never a local
+// invoke command. Approval is displayed only after an accepted RPC result.
+func TestResolveConfirmKey_Y_WithToolUseID_ResultCmd(t *testing.T) {
 	m := minimalModel()
 	m.pendingConfirm = toolConfirm(&pendingToolCall{
 		ToolUseID:  "tu_123",
@@ -450,13 +447,21 @@ func TestResolveConfirmKey_Y_WithToolUseID_NoCmd(t *testing.T) {
 	if next.pendingConfirm != nil {
 		t.Errorf("y should clear pendingConfirm")
 	}
-	// Stream-event path: server has the call; UI must not double-fire it.
-	if cmd != nil {
-		t.Errorf("y with ToolUseID should NOT return a tea.Cmd; got %v", cmd)
+	if cmd == nil {
+		t.Fatal("missing RPC result command")
+	}
+	result, ok := cmd().(permissionDecisionMsg)
+	if !ok || !result.allow || result.err == nil {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	for _, e := range next.mainChat().Entries() {
+		if strings.Contains(e.Content, "approved") {
+			t.Fatal("false approval before RPC")
+		}
 	}
 }
 
-func TestResolveConfirmKey_N_WithToolUseID_NoCmd(t *testing.T) {
+func TestResolveConfirmKey_N_WithToolUseID_ResultCmd(t *testing.T) {
 	m := minimalModel()
 	m.pendingConfirm = toolConfirm(&pendingToolCall{
 		ToolUseID:  "tu_456",
@@ -469,8 +474,12 @@ func TestResolveConfirmKey_N_WithToolUseID_NoCmd(t *testing.T) {
 	if next.pendingConfirm != nil {
 		t.Errorf("n should clear pendingConfirm")
 	}
-	if cmd != nil {
-		t.Errorf("n should not return a tea.Cmd; got %v", cmd)
+	if cmd == nil {
+		t.Fatal("missing denial result command")
+	}
+	result, ok := cmd().(permissionDecisionMsg)
+	if !ok || result.allow || result.err == nil {
+		t.Fatalf("unexpected result: %+v", result)
 	}
 }
 

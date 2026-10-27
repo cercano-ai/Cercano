@@ -2338,14 +2338,20 @@ func (c *Client) GetSessionProfile(ctx context.Context, conversationID string) (
 // AllowToolCall approves a paused tool call awaiting permission. conversationID
 // scopes the reply so it reaches the waiter in the right conversation.
 func (c *Client) AllowToolCall(ctx context.Context, conversationID, toolUseID string) error {
-	_, err := c.agent.AllowToolCall(ctx, &proto.AllowToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID})
+	resp, err := c.agent.AllowToolCall(ctx, &proto.AllowToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID})
+	if err == nil && !resp.GetOk() {
+		return fmt.Errorf("permission decision was not accepted")
+	}
 	return err
 }
 
 // DenyToolCall rejects a paused tool call awaiting permission. conversationID
 // scopes the reply so it reaches the waiter in the right conversation.
 func (c *Client) DenyToolCall(ctx context.Context, conversationID, toolUseID string) error {
-	_, err := c.agent.DenyToolCall(ctx, &proto.DenyToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID})
+	resp, err := c.agent.DenyToolCall(ctx, &proto.DenyToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID})
+	if err == nil && !resp.GetOk() {
+		return fmt.Errorf("permission decision was not accepted")
+	}
 	return err
 }
 
@@ -2353,7 +2359,10 @@ func (c *Client) DenyToolCall(ctx context.Context, conversationID, toolUseID str
 // this" redirect: the server records message as the tool_result and continues
 // the same turn so the model responds to it inline (no fresh turn).
 func (c *Client) DenyToolCallWithMessage(ctx context.Context, conversationID, toolUseID, message string) error {
-	_, err := c.agent.DenyToolCall(ctx, &proto.DenyToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID, Message: message})
+	resp, err := c.agent.DenyToolCall(ctx, &proto.DenyToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID, Message: message})
+	if err == nil && !resp.GetOk() {
+		return fmt.Errorf("permission decision was not accepted")
+	}
 	return err
 }
 
@@ -2593,7 +2602,10 @@ func (c *Client) RemoveCloudProfile(ctx context.Context, name string) error {
 // AllowToolCallPersist approves a paused tool call and, when persist is true,
 // asks the agent to allowlist it for silent future runs.
 func (c *Client) AllowToolCallPersist(ctx context.Context, conversationID, toolUseID string, persist bool) error {
-	_, err := c.agent.AllowToolCall(ctx, &proto.AllowToolCallRequest{ConversationId: conversationID, ToolUseId: toolUseID, Persist: persist})
+	resp, err := c.agent.AllowToolCall(ctx, &proto.AllowToolCallRequest{ConversationId: conversationID, ToolUseId: toolUseID, Persist: persist})
+	if err == nil && !resp.GetOk() {
+		return fmt.Errorf("permission decision was not accepted")
+	}
 	return err
 }
 

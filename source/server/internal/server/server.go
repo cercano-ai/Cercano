@@ -142,11 +142,13 @@ type Server struct {
 	// lookup agree. Built once in NewServer. Non-persistent (V1): empty on
 	// restart, so a resumed conversation's image IDs resolve to a clear reattach
 	// message rather than crashing.
-	visionStore   *visionattach.Store
-	visionService capabilities.VisionService // caching + locus-aware inspector over visionStore; backs inspect_image
-	toolSvc       toolssvc.Catalog           // owns toolRegistry, capRegistry, dispatchEngine
-	persistSvc    persistsvc.Service         // owns retentionSweeper, compactionGen, contextLoader
-	permBroker    permissions.Broker
+	visionStore     *visionattach.Store
+	visionService   capabilities.VisionService // caching + locus-aware inspector over visionStore; backs inspect_image
+	toolSvc         toolssvc.Catalog           // owns toolRegistry, capRegistry, dispatchEngine
+	persistSvc      persistsvc.Service         // owns retentionSweeper, compactionGen, contextLoader
+	permBroker      permissions.Broker
+	permissionMu    sync.Mutex
+	permissionGates map[permissionGateKey]*permissionGate
 	// profileBroker owns the session's active capability profile — the read-only
 	// planning fence today, and future named modes (brainstorm, execute, …). It
 	// is orthogonal to permBroker (which owns the confirm-aggressiveness mode):
@@ -3833,7 +3835,7 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 				forget()
 			}
 		}()
-		d, err := s.permBroker.WaitWithNotify(ctx, convID, toolUseID, func() error {
+		d, err := s.waitPermission(ctx, convID, toolUseID, func() error {
 			forget = s.pendingPrompts.publish(convID, prompt)
 			return stream.Send(&proto.StreamProcessResponse{Payload: &proto.StreamProcessResponse_PermissionRequired{PermissionRequired: prompt}})
 		})
@@ -4665,25 +4667,19 @@ func (s *Server) GetSessionProfile(ctx context.Context, req *proto.GetSessionPro
 
 // AllowToolCall implements proto.AgentServer.
 func (s *Server) AllowToolCall(ctx context.Context, req *proto.AllowToolCallRequest) (*proto.AllowToolCallResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ok, err := s.resolvePermission(ctx, req.GetConversationId(), req.GetToolUseId(), agent.Decision{Allow: true, Persist: req.GetPersist()})
+	if err != nil {
 		return nil, err
 	}
-	if s.permBroker == nil {
-		return &proto.AllowToolCallResponse{Ok: false}, nil
-	}
-	ok := s.permBroker.Resolve(req.GetConversationId(), req.GetToolUseId(), agent.Decision{Allow: true, Persist: req.GetPersist()})
 	return &proto.AllowToolCallResponse{Ok: ok}, nil
 }
 
 // DenyToolCall implements proto.AgentServer.
 func (s *Server) DenyToolCall(ctx context.Context, req *proto.DenyToolCallRequest) (*proto.DenyToolCallResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ok, err := s.resolvePermission(ctx, req.GetConversationId(), req.GetToolUseId(), agent.Decision{Allow: false, Message: req.GetMessage()})
+	if err != nil {
 		return nil, err
 	}
-	if s.permBroker == nil {
-		return &proto.DenyToolCallResponse{Ok: false}, nil
-	}
-	ok := s.permBroker.Resolve(req.GetConversationId(), req.GetToolUseId(), agent.Decision{Allow: false, Message: req.GetMessage()})
 	return &proto.DenyToolCallResponse{Ok: ok}, nil
 }
 

@@ -1051,6 +1051,20 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case permissionDecisionMsg:
+		text := "canceled."
+		if msg.allow {
+			text = "✓ approved — running…"
+			if msg.persist {
+				text = "✓ always-allowed — running…"
+			}
+		}
+		if msg.err != nil {
+			text = "permission decision failed: " + msg.err.Error()
+		}
+		m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: text})
+		m.refreshViewport()
+		return m, nil
 	case versionIdentityMsg:
 		return m.updateVersionIdentity(msg)
 	case versionPollMsg:
@@ -5074,29 +5088,20 @@ func toolConfirm(tc *pendingToolCall) *confirmRequest {
 		tool: tc,
 		onYes: func(m Model) (Model, tea.Cmd) {
 			m.pendingConfirm = nil
+			if tc.ToolUseID != "" {
+				return m, permissionDecisionCmd(m.agent, m.convID, tc.ToolUseID, true, false)
+			}
 			m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: m.styles.Accent.Render("✓ approved — running…")})
 			m.refreshViewport()
-			if tc.ToolUseID != "" {
-				// Stream-event origin: unblock the server-side tool loop.
-				ag, id, convID := m.agent, tc.ToolUseID, m.convID
-				if ag != nil {
-					go func() { _ = ag.AllowToolCall(context.Background(), convID, id) }()
-				}
-				return m, nil
-			}
-			// Local /tool origin: fire the invoke directly.
 			return m, invokeToolCmd(m.agent, tc.Name, tc.Args)
 		},
 		onNo: func(m Model) (Model, tea.Cmd) {
 			m.pendingConfirm = nil
+			if tc.ToolUseID != "" {
+				return m, permissionDecisionCmd(m.agent, m.convID, tc.ToolUseID, false, false)
+			}
 			m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: m.styles.Muted.Render("canceled.")})
 			m.refreshViewport()
-			if tc.ToolUseID != "" {
-				ag, id, convID := m.agent, tc.ToolUseID, m.convID
-				if ag != nil {
-					go func() { _ = ag.DenyToolCall(context.Background(), convID, id) }()
-				}
-			}
 			return m, nil
 		},
 		extras: map[string]func(Model) (Model, tea.Cmd){
@@ -5127,16 +5132,7 @@ func toolConfirm(tc *pendingToolCall) *confirmRequest {
 	if strings.HasPrefix(tc.Name, "mcp__") {
 		cr.extras["a"] = func(m Model) (Model, tea.Cmd) {
 			m.pendingConfirm = nil
-			m.mainChat().AppendEntry(&Entry{Role: RoleSystem,
-				Content: m.styles.Accent.Render("✓ always-allowed — running…")})
-			m.refreshViewport()
-			if tc.ToolUseID != "" {
-				ag, id, convID := m.agent, tc.ToolUseID, m.convID
-				if ag != nil {
-					go func() { _ = ag.AllowToolCallPersist(context.Background(), convID, id, true) }()
-				}
-			}
-			return m, nil
+			return m, permissionDecisionCmd(m.agent, m.convID, tc.ToolUseID, true, true)
 		}
 	}
 	return cr
