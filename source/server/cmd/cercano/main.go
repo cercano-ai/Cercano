@@ -196,6 +196,10 @@ const drainGrace = 10 * time.Minute
 // events may be nil (MCP embedded mode opens no log); a nil writer makes
 // durable runtime-event recording a no-op rather than a crash.
 func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer) (string, func(), error) {
+	return startGRPCServerWithCredentials(cfg, bindAddr, events, productionCredentialDefaults())
+}
+
+func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies) (string, func(), error) {
 	enterpriseHost, err := newEnterpriseHost()
 	if err != nil {
 		return "", nil, err
@@ -523,7 +527,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 
 	// Open OS keychain and attach it so profile RPCs and rebuildCloud can
 	// read API keys. Failure is non-fatal: cloud stays absent.
-	if store, err := secrets.OpenKeychain(); err == nil {
+	if store, err := credentials.open(secrets.Options{}); err == nil {
 		srv.SetSecrets(store)
 	} else {
 		fmt.Fprintf(os.Stderr, "[WARN] keychain unavailable (%v) — cloud profiles can't load keys; fallback deferred.\n", err)
@@ -537,7 +541,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	//      keychain entry but failed to blank the yaml) → blank+save only.
 	// We NEVER blank the yaml unless the key is confirmed present in the keychain.
 	if secrets.CheckAllowed() == nil && cfg.CloudAPIKey != "" && cfg.ActiveCloudProfile != "" {
-		if store, err := secrets.OpenKeychain(); err == nil {
+		if store, err := credentials.open(secrets.Options{}); err == nil {
 			keySafe := false
 			if _, gerr := store.Get(cfg.ActiveCloudProfile); gerr == nil {
 				// Already in keychain.

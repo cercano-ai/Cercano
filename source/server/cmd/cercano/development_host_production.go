@@ -126,7 +126,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if err := executionPolicy.validate(); err != nil {
 		return nil, nil, err
 	}
-	st, err := deps.openSecrets()
+	st, err := (productionCredentialDependencies{openSecrets: deps.openSecrets}).open(secrets.Options{ReadOnly: true})
 	if err != nil {
 		return nil, nil, fmt.Errorf("open read-only credentials: %w", err)
 	}
