@@ -14,6 +14,25 @@ import (
 	"cercano/source/server/pkg/config"
 )
 
+// validateDevelopmentCloudProfiles runs before credential admission can turn a
+// construction error into a temporarily blocked (but otherwise usable) route.
+func validateDevelopmentCloudProfiles(cfg config.Config) error {
+	seen := make(map[string]bool)
+	for _, p := range cfg.CloudProfiles {
+		if p.Name == "" || seen[p.Name] {
+			return fmt.Errorf("prepared cloud profiles require unique nonempty names")
+		}
+		seen[p.Name] = true
+		if err := cloudfactory.ValidateFlavor(p.Flavor); err != nil {
+			return fmt.Errorf("prepared cloud profile %q: %w", p.Name, err)
+		}
+	}
+	if cfg.ActiveCloudProfile != "" && !seen[cfg.ActiveCloudProfile] {
+		return fmt.Errorf("active prepared cloud profile %q does not exist", cfg.ActiveCloudProfile)
+	}
+	return nil
+}
+
 // developmentCloudFactory resolves the old router callback against the frozen
 // configured profiles, never the callback's loose API-key/endpoint arguments.
 // In particular, a configured responses/Bedrock/subscription route must not be

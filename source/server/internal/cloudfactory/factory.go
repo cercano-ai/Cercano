@@ -64,9 +64,22 @@ func visionConfirmed(opts []Options, model string) bool {
 	return opts[0].ModelSupportsVision(model)
 }
 
-// BuildCloudProvider maps a profile (+ its key) to an inference.Provider. Only the
-// messages (Anthropic) flavor is implemented in the foundation.
+// ValidateFlavor checks static configuration without entering credential or
+// provider dependencies. Credential admission must not mask an invalid route.
+func ValidateFlavor(flavor string) error {
+	switch flavor {
+	case FlavorMessages, FlavorChatCompletions, FlavorResponses, FlavorBedrock:
+		return nil
+	default:
+		return fmt.Errorf("flavor %q not yet supported", flavor)
+	}
+}
+
+// BuildCloudProvider maps a profile (+ its key) to an inference.Provider.
 func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (inference.Provider, error) {
+	if err := ValidateFlavor(p.Flavor); err != nil {
+		return nil, err
+	}
 	if err := secrets.CheckAllowed(); err != nil {
 		return nil, err
 	}

@@ -99,6 +99,9 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, nil, fmt.Errorf("prepared config: %w", err)
 	}
+	if err := validateDevelopmentCloudProfiles(cfg); err != nil {
+		return nil, nil, err
+	}
 	cfg = cfg.WithSharedReadOnly()
 	if _, err := locus.ParseMode(cfg.LocusMode); err != nil {
 		return nil, nil, fmt.Errorf("prepared locus_mode: %w", err)
