@@ -198,15 +198,18 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 }
 
 func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies) (string, func(), error) {
-	return startGRPCServerWithStartup(cfg, bindAddr, events, credentials, legacyProductionStartup())
+	admission, err := legacyProductionStartup().admitActivation(context.Background())
+	if err != nil {
+		return "", nil, err
+	}
+	return startGRPCServerWithStartup(cfg, bindAddr, events, credentials, admission)
 }
 
 // Internal staged entry only: canonical generation startup remains blocked until
 // the ordinary producers and integrations carry lifecycle authority. No CLI or
 // installed launcher selects this policy.
-func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, policy productionStartupPolicy) (string, func(), error) {
-	admission, err := policy.admitActivation(context.Background())
-	if err != nil {
+func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission) (string, func(), error) {
+	if err := admission.validateActivation(); err != nil {
 		return "", nil, err
 	}
 	enterpriseHost, err := composeProductionEnterprise(productionEnterpriseDependencies{}, enterpriseLegacy)
@@ -1139,14 +1142,14 @@ func main() {
 	// The terminal UI lives in cercano-cli; bare cercano, cercano agent,
 	// and cercano --server run this singleton server in the foreground.
 	// All ordinary server/MCP entries share the pre-config startup boundary.
-	if err := runAgentWithStartup(context.Background(), legacyProductionStartup(), config.Load, func(cfg config.Config) {
+	if err := runAgentWithStartup(context.Background(), legacyProductionStartup(), config.Load, func(cfg config.Config, admission productionStartupAdmission) {
 		switch {
 		case *mcpMode:
-			runMCPMode(cfg, *grpcAddr)
+			runMCPMode(cfg, *grpcAddr, admission)
 		case *forceServer:
-			runServerMode(cfg)
+			runServerMode(cfg, admission)
 		default:
-			runServerMode(cfg)
+			runServerMode(cfg, admission)
 		}
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "agent:", err)
@@ -1907,7 +1910,7 @@ func generateSessionID() string {
 }
 
 // runServerMode starts the gRPC server in standalone mode (for IDE clients).
-func runServerMode(cfg config.Config) {
+func runServerMode(cfg config.Config, admission productionStartupAdmission) {
 	// Tee log.Printf diagnostics to ~/.cercano-dispatch.log so they survive
 	// when the CLI auto-launches this agent and swallows its stderr. Without
 	// this, subsystem logs (e.g. [mcphost] connection failures) are lost.
@@ -1916,7 +1919,7 @@ func runServerMode(cfg config.Config) {
 	// Persistent crash log. Sits alongside config.yaml so operators can
 	// find it after the fact. Failure to open the log is non-fatal —
 	// crash recording is nice-to-have; the server should still start.
-	crashLogPath := filepath.Join(filepath.Dir(config.DefaultPath()), "crash.log")
+	crashLogPath := filepath.Join(filepath.Dir(admission.paths.config), "crash.log")
 	crashWriter, cwErr := crashlog.NewWriter(crashLogPath, version)
 	if cwErr != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to open crash log at %s: %v (server continues without crash capture)\n", crashLogPath, cwErr)
@@ -1945,7 +1948,7 @@ func runServerMode(cfg config.Config) {
 		fmt.Printf("Crash log: %s\n", crashLogPath)
 	}
 
-	addr, cleanup, err := startGRPCServer(cfg, ":"+cfg.Port, crashWriter)
+	addr, cleanup, err := startGRPCServerWithStartup(cfg, ":"+cfg.Port, crashWriter, productionCredentialDefaults(), admission)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\n[ERROR] %v\n", err)
 		if crashWriter != nil {
@@ -1997,7 +2000,7 @@ func runtimeStack(all bool) string {
 
 // runMCPMode starts the MCP server. If no external gRPC address is provided,
 // it starts an embedded gRPC server on a random port.
-func runMCPMode(cfg config.Config, externalGRPC string) {
+func runMCPMode(cfg config.Config, externalGRPC string, admission productionStartupAdmission) {
 	// Tee diagnostic logging to a file so it survives Claude Code's stdio
 	// stderr capture window (which closes after the initial connect handshake).
 	setupDispatchLogFile()
@@ -2015,7 +2018,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 
 		// MCP embedded mode opens no crash log; runtime events are a
 		// no-op here rather than a second writer on the same file.
-		addr, _, err := startGRPCServer(cfg, "localhost:0", nil)
+		addr, _, err := startGRPCServerWithStartup(cfg, "localhost:0", nil, productionCredentialDefaults(), admission)
 		if err != nil {
 			// Start in degraded mode so the MCP pipe stays alive and
 			// the client gets a clear error instead of "Failed to reconnect".
