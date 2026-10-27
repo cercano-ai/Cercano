@@ -1,0 +1,219 @@
+{
+  "scope": "actual shell -> real publisher -> compiled production host -> compiled CLI PTY",
+  "steps": [
+    {
+      "step": "fresh source provenance",
+      "checkout": "3158cfa6216f2a2cbe192abb8f93b68259ee5784",
+      "snapshot": "7321165ac14840fbd2da0b58ece4953f064464da",
+      "source_tree": "d96eccded6d8a9f9ff0fa7f94ec560f435a4d51f",
+      "fixture_sha256": "24701e62e9a00577f34fd483cb7acf574daa1714140f855f07d624d4e0531fc5"
+    },
+    {
+      "step": "fresh bootstrap artifact",
+      "sha256": "b327e9aa6324d9972b745ed39d7ca52ea9bb8094fab6814f3aa673ef3a57fe3e",
+      "build_info": "/private/tmp/ca-v_iglp0q/bootstrap: go1.26.3\n\tpath\tcercano/source/server/cmd/cercano\n\tmod\tcercano/source/server\t(devel)\t\n\tdep\tcloud.google.com/go\tv0.123.0\th1:2NAUJwPR47q+E35uaJeYoNhuNEM9kM8SjgRgdeOJUSE=\n\tdep\tcloud.google.com/go/auth\tv0.17.0\th1:74yCm7hCj2rUyyAocqnFzsAYXgJhrG26XCFimrc/Kz4=\n\tdep\tcloud.google.com/go/compute/metadata\tv0.9.0\th1:pDUj4QMoPejqq20dK0Pg2N4yG9zIkYGdBtwLoEkH9Zs=\n\tdep\tgithub.com/99designs/keyring\tv1.2.2\th1:pZd3neh/EmUzWONb35LxQfvuY7kiSXAq3HQd97+XBn0=\n\tdep\tgithub.com/PuerkitoBio/goquery\tv1.12.0\th1:pAcL4g3WRXekcB9AU/y1mbKez2dbY2AajVhtkO8RIBo=\n\tdep\tgithub.com/andybalholm/cascadia\tv1.3.3\th1:AG2YHrzJIm4BZ19iwJ/DAua6Btl3IwJX+VI4kktS1LM=\n\tdep\tgithub.com/anthropics/anthropic-sdk-go\tv1.51.0\th1:eIeH9RexrFU7SXOMm8jlTeDv00WYwXkbDMBhhVjXcVE=\n\tdep\tgithub.com/aws/aws-sdk-go-v2\tv1.42.0\th1:XvXMJTkFQtpBKIWZnmr9ZEOc2InWM2yldjXEJ/bymhA=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/aws/protocol/eventstream\tv1.7.13\th1:p1BBrg/Hhp6uK7zpejeI8QFXHJeC/mynzi04Sl03k9g=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/config\tv1.29.4\th1:ObNqKsDYFGr2WxnoXKOhCvTlf3HhwtoGgc+KmZ4H5yg=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/credentials\tv1.17.57\th1:kFQDsbdBAR3GZsB8xA+51ptEnq9TIj3tS4MuP5b+TcQ=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/feature/ec2/imds\tv1.16.27\th1:7lOW8NUwE9UZekS1DYoiPdVAqZ6A+LheHWb+mHbNOq8=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/internal/configsources\tv1.4.29\th1:f3vKqSo13fhTYb+JEcXwXefZQE26I1FB5eTSniU67ko=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/internal/endpoints/v2\tv2.7.29\th1:RdwIf/CuUsvJX3RgJagbOyotl/cxoLY4xviKuE7p2GY=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/internal/ini\tv1.8.2\th1:Pg9URiobXy85kgFev3og2CuOZ8JZUBENF+dcgWBaYNk=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/bedrockruntime\tv1.54.1\th1:IHduZ37D5CyEPNhdDgNryPGLr3KSF44E3Jt8voULcqs=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/internal/accept-encoding\tv1.12.3\th1:eAh2A4b5IzM/lum78bZ590jy36+d/aFLgKF/4Vd1xPE=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/internal/presigned-url\tv1.12.15\th1:dM9/92u2F1JbDaGooxTq18wmmFzbJRfXfVfy96/1CXM=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/sso\tv1.24.14\th1:c5WJ3iHz7rLIgArznb3JCSQT3uUMiz9DLZhIX+1G8ok=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/ssooidc\tv1.28.13\th1:f1L/JtUkVODD+k1+IiSJUUv8A++2qVr+Xvb3xWXETMU=\n\tdep\tgithub.com/aws/aws-sdk-go-v2/service/sts\tv1.33.12\th1:fqg6c1KVrc3SYWma/egWue5rKI4G2+M4wMQN2JosNAA=\n\tdep\tgithub.com/aws/smithy-go\tv1.27.1\th1:4T340VFndXtADGF52gYa1POyL7s9E4Z1OeZ1hCscIw8=\n\tdep\tgithub.com/bahlo/generic-list-go\tv0.2.0\th1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=\n\tdep\tgithub.com/bryancostanich/Cercano/source/enterpriseapi\tv0.0.0-20261004042338-f8f90faba96f\th1:nXtQswNYUSBX4J4QVVfQxySr+PWFsmSefsk0EHTt2IE=\n\tdep\tgithub.com/buger/jsonparser\tv1.1.2\th1:frqHqw7otoVbk5M8LlE/L7HTnIq2v9RX6EJ48i9AxJk=\n\tdep\tgithub.com/cespare/xxhash/v2\tv2.3.0\th1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=\n\tdep\tgithub.com/dlclark/regexp2\tv1.11.5\th1:Q/sSnsKerHeCkc/jSTNq1oCm7KiVgUMZRDUoRu0JQZQ=\n\tdep\tgithub.com/dustin/go-humanize\tv1.0.1\th1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=\n\tdep\tgithub.com/dvsekhvalnov/jose2go\tv1.5.0\th1:3j8ya4Z4kMCwT5nXIKFSV84YS+HdqSSO0VsTQxaLAeM=\n\tdep\tgithub.com/felixge/httpsnoop\tv1.0.4\th1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=\n\tdep\tgithub.com/fsnotify/fsnotify\tv1.10.1\th1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=\n\tdep\tgithub.com/go-logr/logr\tv1.4.3\th1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=\n\tdep\tgithub.com/go-logr/stdr\tv1.2.2\th1:hSWxHoqTgW2S2qGc0LTAI563KZ5YKYRhT3MFKZMbjag=\n\tdep\tgithub.com/google/go-cmp\tv0.7.0\th1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=\n\tdep\tgithub.com/google/jsonschema-go\tv0.4.2\th1:tmrUohrwoLZZS/P3x7ex0WAVknEkBZM46iALbcqoRA8=\n\tdep\tgithub.com/google/s2a-go\tv0.1.9\th1:LGD7gtMgezd8a/Xak7mEWL0PjoTQFvpRudN895yqKW0=\n\tdep\tgithub.com/google/safehtml\tv0.1.0\th1:EwLKo8qawTKfsi0orxcQAZzu07cICaBeFMegAU9eaT8=\n\tdep\tgithub.com/google/uuid\tv1.6.0\th1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=\n\tdep\tgithub.com/googleapis/enterprise-certificate-proxy\tv0.3.6\th1:GW/XbdyBFQ8Qe+YAmFU9uHLo7OnF5tL52HFAgMmyrf4=\n\tdep\tgithub.com/googleapis/gax-go/v2\tv2.15.0\th1:SyjDc1mGgZU5LncH8gimWo9lW1DtIfPibOG81vgd/bo=\n\tdep\tgithub.com/gorilla/websocket\tv1.5.3\th1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=\n\tdep\tgithub.com/invopop/jsonschema\tv0.14.0\th1:MHQqLhvpNUZfw+hM3AZDYK7jxO8FZoQeQM77g8iyZjg=\n\tdep\tgithub.com/mailru/easyjson\tv0.7.7\th1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=\n\tdep\tgithub.com/mattn/go-isatty\tv0.0.20\th1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=\n\tdep\tgithub.com/modelcontextprotocol/go-sdk\tv1.3.1\th1:TfqtNKOIWN4Z1oqmPAiWDC2Jq7K9OdJaooe0teoXASI=\n\tdep\tgithub.com/mtibben/percent\tv0.2.1\th1:5gssi8Nqo8QU/r2pynCm+hBQHpkB/uNK7BJCFogWdzs=\n\tdep\tgithub.com/ncruces/go-strftime\tv1.0.0\th1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=\n\tdep\tgithub.com/ollama/ollama\tv0.30.10\th1:xeW6KBUqB2g88jSHBoxFiaP1gsLbRIB7LcjTreAFHn8=\n\tdep\tgithub.com/pb33f/ordered-map/v2\tv2.3.1\th1:5319HDO0aw4DA4gzi+zv4FXU9UlSs3xGZ40wcP1nBjY=\n\tdep\tgithub.com/pkoukk/tiktoken-go\tv0.1.8\th1:85ENo+3FpWgAACBaEUVp+lctuTcYUO7BtmfhlN/QTRo=\n\tdep\tgithub.com/remyoudompheng/bigfft\tv0.0.0-20230129092748-24d4a6f8daec\th1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=\n\tdep\tgithub.com/sashabaranov/go-openai\tv1.41.2\th1:vfPRBZNMpnqu8ELsclWcAvF19lDNgh1t6TVfFFOPiSM=\n\tdep\tgithub.com/segmentio/asm\tv1.1.3\th1:WM03sfUOENvvKexOLp+pCqgb/WDjsi7EK8gIsICtzhc=\n\tdep\tgithub.com/segmentio/encoding\tv0.5.4\th1:OW1VRern8Nw6ITAtwSZ7Idrl3MXCFwXHPgqESYfvNt0=\n\tdep\tgithub.com/standard-webhooks/standard-webhooks/libraries\tv0.0.1\th1:uOfcYT+3QungH6tIGSVCR/Y3KJmgJiHcojJbMTPDZAI=\n\tdep\tgithub.com/tidwall/gjson\tv1.18.0\th1:FIDeeyB800efLX89e5a8Y0BNH+LOngJyGrIWxG2FKQY=\n\tdep\tgithub.com/tidwall/match\tv1.1.1\th1:+Ho715JplO36QYgwN9PGYNhgZvoUSc9X2c80KVTi+GA=\n\tdep\tgithub.com/tidwall/pretty\tv1.2.1\th1:qjsOFOWWQl+N3RsoF5/ssm1pHmJJwhjlSbZ51I6wMl4=\n\tdep\tgithub.com/tidwall/sjson\tv1.2.5\th1:kLy8mja+1c9jlljvWTlSazM7cKDRfJuR/bOJhcY5NcY=\n\tdep\tgithub.com/wk8/go-ordered-map/v2\tv2.1.8\th1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc=\n\tdep\tgithub.com/yosida95/uritemplate/v3\tv3.0.2\th1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=\n\tdep\tgo.opentelemetry.io/auto/sdk\tv1.2.1\th1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=\n\tdep\tgo.opentelemetry.io/contrib/instrumentation/net/http/otelhttp\tv0.63.0\th1:RbKq8BG0FI8OiXhBfcRtqqHcZcka+gU3cskNuf05R18=\n\tdep\tgo.opentelemetry.io/otel\tv1.40.0\th1:oA5YeOcpRTXq6NN7frwmwFR0Cn3RhTVZvXsP4duvCms=\n\tdep\tgo.opentelemetry.io/otel/metric\tv1.40.0\th1:rcZe317KPftE2rstWIBitCdVp89A2HqjkxR3c11+p9g=\n\tdep\tgo.opentelemetry.io/otel/trace\tv1.40.0\th1:WA4etStDttCSYuhwvEa8OP8I5EWu24lkOzp+ZYblVjw=\n\tdep\tgo.yaml.in/yaml/v4\tv4.0.0-rc.2\th1:/FrI8D64VSr4HtGIlUtlFMGsm7H7pWTbj6vOLVZcA6s=\n\tdep\tgolang.org/x/crypto\tv0.49.0\th1:+Ng2ULVvLHnJ/ZFEq4KdcDd/cfjrrjjNSXNzxg0Y4U4=\n\tdep\tgolang.org/x/net\tv0.52.0\th1:He/TN1l0e4mmR3QqHMT2Xab3Aj3L9qjbhRm78/6jrW0=\n\tdep\tgolang.org/x/sync\tv0.20.0\th1:e0PTpb7pjO8GAtTs2dQ6jYa5BWYlMuX047Dco/pItO4=\n\tdep\tgolang.org/x/sys\tv0.45.0\th1:dO4czNzziLiiXplLQgBCEpCvXQ3dnkn0SdaZSYdQ+FY=\n\tdep\tgolang.org/x/term\tv0.41.0\th1:QCgPso/Q3RTJx2Th4bDLqML4W6iJiaXFq2/ftQF13YU=\n\tdep\tgolang.org/x/text\tv0.35.0\th1:JOVx6vVDFokkpaq1AEptVzLTpDe9KGpj5tR4/X+ybL8=\n\tdep\tgoogle.golang.org/adk\tv0.5.0\th1:VFwJU8uX+S/wBZH6OatzyIrK6fd0oebVT9TnISb82FA=\n\tdep\tgoogle.golang.org/genai\tv1.40.0\th1:kYxyQSH+vsib8dvsgyLJzsVEIv5k3ZmHJyVqdvGncmc=\n\tdep\tgoogle.golang.org/genproto/googleapis/rpc\tv0.0.0-20251202230838-ff82c1b0f217\th1:gRkg/vSppuSQoDjxyiGfN4Upv/h/DQmIR10ZU8dh4Ww=\n\tdep\tgoogle.golang.org/grpc\tv1.77.0\th1:wVVY6/8cGA6vvffn+wWK5ToddbgdU3d8MNENr4evgXM=\n\tdep\tgoogle.golang.org/protobuf\tv1.36.11\th1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE=\n\tdep\tgopkg.in/yaml.v3\tv3.0.1\th1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=\n\tdep\tmodernc.org/libc\tv1.72.0\th1:IEu559v9a0XWjw0DPoVKtXpO2qt5NVLAnFaBbjq+n8c=\n\tdep\tmodernc.org/mathutil\tv1.7.1\th1:GCZVGXdaN8gTqB1Mf/usp1Y/hSqgI2vAGGP4jZMCxOU=\n\tdep\tmodernc.org/memory\tv1.11.0\th1:o4QC8aMQzmcwCK3t3Ux/ZHmwFPzE6hf2Y5LbkRs+hbI=\n\tdep\tmodernc.org/sqlite\tv1.49.1\th1:dYGHTKcX1sJ+EQDnUzvz4TJ5GbuvhNJa8Fg6ElGx73U=\n\tdep\trsc.io/omap\tv1.2.0\th1:c1M8jchnHbzmJALzGLclfH3xDWXrPxSUHXzH5C+8Kdw=\n\tdep\trsc.io/ordered\tv1.1.1\th1:1kZM6RkTmceJgsFH/8DLQvkCVEYomVDJfBRLT595Uak=\n\tbuild\t-buildmode=exe\n\tbuild\t-compiler=gc\n\tbuild\t-tags=developmentfixture,cercano_development_acceptance\n\tbuild\tCGO_ENABLED=0\n\tbuild\tGOARCH=arm64\n\tbuild\tGOOS=darwin\n\tbuild\tGOARM64=v8.0\n\tbuild\tvcs=git\n\tbuild\tvcs.revision=7321165ac14840fbd2da0b58ece4953f064464da\n\tbuild\tvcs.time=2026-10-27T05:56:49Z\n\tbuild\tvcs.modified=false\n"
+    },
+    {
+      "step": "fresh bootstrap preparation",
+      "output": "Prepared new development store: /private/tmp/ca-v_iglp0q/state\nNo legacy state imported or changed.\n",
+      "files": [
+        "/private/tmp/ca-v_iglp0q/state/conversations.db"
+      ]
+    },
+    {
+      "step": "explicit tagged real bootstrap and prepared private state",
+      "files": [
+        "/private/tmp/ca-v_iglp0q/state/conversations.db",
+        "/private/tmp/ca-v_iglp0q/state/config.yaml"
+      ],
+      "sqlite": [
+        [
+          2
+        ]
+      ]
+    },
+    {
+      "step": "A acquired via ordinary launcher",
+      "selection": {
+        "Endpoint": "127.0.0.1:49827",
+        "TokenFile": "/private/tmp/ca-v_iglp0q/state/hosts/fbad7824751f8454e50ce1e980ba64358ff036a874ca7b8aa258db08d36ccfc5.token",
+        "Identity": {
+          "host": "184e78a6a2747bda09077ae464c72a9d",
+          "build": "693569b9-f857-48ca-92d7-4167c2452d92",
+          "contract": "cercano-development-owned-v2",
+          "schema": 2,
+          "store": "/private/tmp/ca-v_iglp0q/state/conversations.db"
+        },
+        "Conversation": "768e61bfc6d62f99137d4d306169d79a",
+        "Epoch": "d9f87ad9b7ca72ab0b7e4747",
+        "Generation": "/private/tmp/ca-v_iglp0q/state/generations/573920babb0c4e8cd011ff54a280d7f10f61a49fc39497e20fa440f533b7b43c"
+      },
+      "artifacts": [
+        {
+          "path": "generations/573920babb0c4e8cd011ff54a280d7f10f61a49fc39497e20fa440f533b7b43c/cercano",
+          "sha256": "581dcc3ab2b60055b79c09316d1e36ce71e136920b21eb7cfc38abec65daa232"
+        },
+        {
+          "path": "generations/573920babb0c4e8cd011ff54a280d7f10f61a49fc39497e20fa440f533b7b43c/cercano-cli",
+          "sha256": "4fa40b6af1b9fe82af3aa203dcb350159979e9c0d26a622387601f5de1c5fa04"
+        }
+      ]
+    },
+    {
+      "step": "real independent dispatch running",
+      "tasks": [
+        [
+          "task_3bd1e32ce975b57e9a1a182b2d898cd8",
+          "768e61bfc6d62f99137d4d306169d79a",
+          "running",
+          "91d47316474646e49b868b1f"
+        ]
+      ]
+    },
+    {
+      "step": "A physically killed and reconnected through saved selection; same exact host PID; no publication or acquisition",
+      "pid": 29022
+    },
+    {
+      "step": "B distinct after source byte change; A CLI and task alive",
+      "selection": {
+        "Endpoint": "127.0.0.1:49835",
+        "TokenFile": "/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token",
+        "Identity": {
+          "host": "b6fbc18814565ce61d90d5f4260ee1ab",
+          "build": "aca3262d-f96a-4dc6-a756-4afef378994f",
+          "contract": "cercano-development-owned-v2",
+          "schema": 2,
+          "store": "/private/tmp/ca-v_iglp0q/state/conversations.db"
+        },
+        "Conversation": "1d4e0f5e357034363809520f4d90ce17",
+        "Epoch": "5bd95b5c6c15179aa8bfef07",
+        "Generation": "/private/tmp/ca-v_iglp0q/state/generations/9f755fbe2a7aba5cfff2daf9d7ac922aff15e431e54d603babfba2947c7c85e7"
+      },
+      "tasks": [
+        [
+          "task_3bd1e32ce975b57e9a1a182b2d898cd8",
+          "running"
+        ]
+      ]
+    },
+    {
+      "step": "same generation reuses host"
+    },
+    {
+      "step": "control list",
+      "exit": 0,
+      "output": "{\"Response\":{\"identity\":{\"host\":\"184e78a6a2747bda09077ae464c72a9d\",\"build\":\"693569b9-f857-48ca-92d7-4167c2452d92\",\"contract\":\"cercano-development-owned-v2\",\"schema\":2,\"store\":\"/private/tmp/ca-v_iglp0q/state/conversations.db\"},\"retained\":[{\"conversation\":\"768e61bfc6d62f99137d4d306169d79a\",\"host\":\"184e78a6a2747bda09077ae464c72a9d\",\"epoch\":\"d9f87ad9b7ca72ab0b7e4747\"},{\"conversation\":\"91d47316474646e49b868b1f\",\"host\":\"184e78a6a2747bda09077ae464c72a9d\",\"epoch\":\"5411789420cb4aaeda5fc5fe\"},{\"conversation\":\"59cfe4e0cc35f8bab99b1fe383f7e246\",\"host\":\"184e78a6a2747bda09077ae464c72a9d\",\"epoch\":\"cf3ddd4dc93c1d8749e08cc0\"}],\"open_owners\":[{\"conversation\":\"768e61bfc6d62f99137d4d306169d79a\",\"host\":\"184e78a6a2747bda09077ae464c72a9d\",\"epoch\":\"d9f87ad9b7ca72ab0b7e4747\"},{\"conversation\":\"59cfe4e0cc35f8bab99b1fe383f7e246\",\"host\":\"184e78a6a2747bda09077ae464c72a9d\",\"epoch\":\"cf3ddd4dc93c1d8749e08cc0\"}]},\"Selection\":null}\n"
+    },
+    {
+      "step": "saved selection no-build/no-acquisition management reconnect"
+    },
+    {
+      "step": "concurrent unchanged-source invocations reuse B without rebuild or conflict",
+      "selections": [
+        {
+          "Endpoint": "127.0.0.1:49835",
+          "TokenFile": "/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token",
+          "Identity": {
+            "host": "b6fbc18814565ce61d90d5f4260ee1ab",
+            "build": "aca3262d-f96a-4dc6-a756-4afef378994f",
+            "contract": "cercano-development-owned-v2",
+            "schema": 2,
+            "store": "/private/tmp/ca-v_iglp0q/state/conversations.db"
+          },
+          "Conversation": "5a2ab17e4d7bd376477fb9e5db19214f",
+          "Epoch": "3b87b3ec9d88e1bfb7e359b3",
+          "Generation": "/private/tmp/ca-v_iglp0q/state/generations/9f755fbe2a7aba5cfff2daf9d7ac922aff15e431e54d603babfba2947c7c85e7"
+        },
+        {
+          "Endpoint": "127.0.0.1:49835",
+          "TokenFile": "/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token",
+          "Identity": {
+            "host": "b6fbc18814565ce61d90d5f4260ee1ab",
+            "build": "aca3262d-f96a-4dc6-a756-4afef378994f",
+            "contract": "cercano-development-owned-v2",
+            "schema": 2,
+            "store": "/private/tmp/ca-v_iglp0q/state/conversations.db"
+          },
+          "Conversation": "47e6a2736da2e36f728442ce0fc560d4",
+          "Epoch": "829212703c09ed7b695b96a3",
+          "Generation": "/private/tmp/ca-v_iglp0q/state/generations/9f755fbe2a7aba5cfff2daf9d7ac922aff15e431e54d603babfba2947c7c85e7"
+        }
+      ]
+    },
+    {
+      "step": "control transfer",
+      "exit": 0,
+      "output": "{\"Response\":{\"identity\":{\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"build\":\"aca3262d-f96a-4dc6-a756-4afef378994f\",\"contract\":\"cercano-development-owned-v2\",\"schema\":2,\"store\":\"/private/tmp/ca-v_iglp0q/state/conversations.db\"},\"owner\":{\"conversation\":\"59cfe4e0cc35f8bab99b1fe383f7e246\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"d80364ba474220f07c3a302a\"}},\"Selection\":{\"Endpoint\":\"127.0.0.1:49835\",\"TokenFile\":\"/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token\",\"Identity\":{\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"build\":\"aca3262d-f96a-4dc6-a756-4afef378994f\",\"contract\":\"cercano-development-owned-v2\",\"schema\":2,\"store\":\"/private/tmp/ca-v_iglp0q/state/conversations.db\"},\"Conversation\":\"59cfe4e0cc35f8bab99b1fe383f7e246\",\"Epoch\":\"d80364ba474220f07c3a302a\"}}\n"
+    },
+    {
+      "step": "unrelated Y transferred A to B while independent A task running",
+      "selection": {
+        "Endpoint": "127.0.0.1:49835",
+        "TokenFile": "/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token",
+        "Identity": {
+          "host": "b6fbc18814565ce61d90d5f4260ee1ab",
+          "build": "aca3262d-f96a-4dc6-a756-4afef378994f",
+          "contract": "cercano-development-owned-v2",
+          "schema": 2,
+          "store": "/private/tmp/ca-v_iglp0q/state/conversations.db"
+        },
+        "Conversation": "59cfe4e0cc35f8bab99b1fe383f7e246",
+        "Epoch": "d80364ba474220f07c3a302a"
+      }
+    },
+    {
+      "step": "control list",
+      "exit": 0,
+      "output": "{\"Response\":{\"identity\":{\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"build\":\"aca3262d-f96a-4dc6-a756-4afef378994f\",\"contract\":\"cercano-development-owned-v2\",\"schema\":2,\"store\":\"/private/tmp/ca-v_iglp0q/state/conversations.db\"},\"retained\":[{\"conversation\":\"5a2ab17e4d7bd376477fb9e5db19214f\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"3b87b3ec9d88e1bfb7e359b3\"},{\"conversation\":\"59cfe4e0cc35f8bab99b1fe383f7e246\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"d80364ba474220f07c3a302a\"},{\"conversation\":\"1d4e0f5e357034363809520f4d90ce17\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"5bd95b5c6c15179aa8bfef07\"},{\"conversation\":\"78a5224917f74dbfc13f11592ce622b0\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"a31f8a957f029e2dc82bd3dd\"},{\"conversation\":\"47e6a2736da2e36f728442ce0fc560d4\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"829212703c09ed7b695b96a3\"}],\"open_owners\":[{\"conversation\":\"5a2ab17e4d7bd376477fb9e5db19214f\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"3b87b3ec9d88e1bfb7e359b3\"},{\"conversation\":\"59cfe4e0cc35f8bab99b1fe383f7e246\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"d80364ba474220f07c3a302a\"},{\"conversation\":\"1d4e0f5e357034363809520f4d90ce17\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"5bd95b5c6c15179aa8bfef07\"},{\"conversation\":\"78a5224917f74dbfc13f11592ce622b0\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"a31f8a957f029e2dc82bd3dd\"},{\"conversation\":\"47e6a2736da2e36f728442ce0fc560d4\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"829212703c09ed7b695b96a3\"}]},\"Selection\":null}\n"
+    },
+    {
+      "step": "control transfer",
+      "exit": 1,
+      "output": "{\"Response\":{\"identity\":{\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"build\":\"aca3262d-f96a-4dc6-a756-4afef378994f\",\"contract\":\"cercano-development-owned-v2\",\"schema\":2,\"store\":\"/private/tmp/ca-v_iglp0q/state/conversations.db\"},\"receipt\":\"dd1f31de4c40fc0ce82695584c104e4c2a27659a029b567285187a37059c6142\",\"pending\":true},\"Selection\":null}\ncercano: rpc error: code = Unknown desc = retained sessions or work prevent transition\n"
+    },
+    {
+      "step": "control list",
+      "exit": 0,
+      "output": "{\"Response\":{\"identity\":{\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"build\":\"aca3262d-f96a-4dc6-a756-4afef378994f\",\"contract\":\"cercano-development-owned-v2\",\"schema\":2,\"store\":\"/private/tmp/ca-v_iglp0q/state/conversations.db\"},\"retained\":[{\"conversation\":\"47e6a2736da2e36f728442ce0fc560d4\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"829212703c09ed7b695b96a3\"},{\"conversation\":\"5a2ab17e4d7bd376477fb9e5db19214f\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"3b87b3ec9d88e1bfb7e359b3\"},{\"conversation\":\"59cfe4e0cc35f8bab99b1fe383f7e246\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"d80364ba474220f07c3a302a\"},{\"conversation\":\"1d4e0f5e357034363809520f4d90ce17\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"5bd95b5c6c15179aa8bfef07\"},{\"conversation\":\"78a5224917f74dbfc13f11592ce622b0\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"a31f8a957f029e2dc82bd3dd\"}],\"open_owners\":[{\"conversation\":\"47e6a2736da2e36f728442ce0fc560d4\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"829212703c09ed7b695b96a3\"},{\"conversation\":\"5a2ab17e4d7bd376477fb9e5db19214f\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"3b87b3ec9d88e1bfb7e359b3\"},{\"conversation\":\"59cfe4e0cc35f8bab99b1fe383f7e246\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"d80364ba474220f07c3a302a\"},{\"conversation\":\"1d4e0f5e357034363809520f4d90ce17\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"5bd95b5c6c15179aa8bfef07\"},{\"conversation\":\"78a5224917f74dbfc13f11592ce622b0\",\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"epoch\":\"a31f8a957f029e2dc82bd3dd\"}],\"pending_incoming\":1},\"Selection\":null}\n"
+    },
+    {
+      "step": "busy transfer refused with A task held",
+      "pending_before": 0,
+      "pending_after": 1
+    },
+    {
+      "step": "NEW PRODUCTION FAILURE: refused busy transfer leaks destination reservation",
+      "root": "agentclient Transfer prepares destination before source relinquish; source failure returns without canceling destination acceptance"
+    },
+    {
+      "step": "failure task observation",
+      "tasks": [
+        [
+          "task_3bd1e32ce975b57e9a1a182b2d898cd8",
+          "768e61bfc6d62f99137d4d306169d79a",
+          "running",
+          "91d47316474646e49b868b1f",
+          "",
+          "null"
+        ]
+      ]
+    },
+    {
+      "step": "private token hashes only",
+      "tokens": [
+        {
+          "name": "be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token",
+          "sha256": "43bf8e76114244f48fa86d2b56e9a8b8b96a0edd0fdb50f1a1d7d36bc4275040"
+        },
+        {
+          "name": "fbad7824751f8454e50ce1e980ba64358ff036a874ca7b8aa258db08d36ccfc5.token",
+          "sha256": "9697156dbd74a27551b29b8f1687fde02ad5e8e7a7f9353dd7334e4496c5db0c"
+        }
+      ]
+    }
+  ],
+  "passed": false,
+  "failure": "busy transfer refusal leaked destination pending_incoming: 0 -> 1",
+  "traceback": "Traceback (most recent call last):\n  File \"/Users/bryancostanich/git_repos/cercano-ai/Cercano-everyday-dev-launcher/efforts/dev-host-generations/everyday-launcher-compiled.py\", line 159, in run\n    raise AssertionError('busy transfer refusal leaked destination pending_incoming: '+str(pending_before)+' -> '+str(pending_after))\nAssertionError: busy transfer refusal leaked destination pending_incoming: 0 -> 1\n"
+}

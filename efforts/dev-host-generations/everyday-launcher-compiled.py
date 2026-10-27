@@ -106,7 +106,7 @@ def run(repo,evidence):
             record('fresh bootstrap artifact', sha256=hashlib.sha256(bootstrap.read_bytes()).hexdigest(), build_info=call([go,'version','-m',bootstrap]))
             prepared=call([bootstrap,'prepare-development','--new-state',state])
             record('fresh bootstrap preparation',output=prepared,files=[str(x) for x in state.iterdir()])
-            cfg=state/'config.yaml';cfg.write_text('open_runtime: llama_server\nlocus_mode: open_only\nllama_server:\n  enabled: true\n  default_model: offline-fixture\nmodels:\n  open:\n    overrides:\n      llama_server:\n        everyday: offline-fixture\n        most_capable: offline-fixture\n        fast_light: offline-fixture\n        fast_light_text: offline-fixture\n        embedding: offline-fixture\nouter:\n  enabled: false\n');cfg.chmod(0o600)
+            cfg=state/'config.yaml';cfg.write_text('open_runtime: llama_server\nlocus_mode: open_only\ntask_assignments:\n  dispatch: {destination: local, quality: standard}\nllama_server:\n  enabled: true\n  default_model: offline-fixture\nmodels:\n  open:\n    overrides:\n      llama_server:\n        everyday: offline-fixture\n        most_capable: offline-fixture\n        fast_light: offline-fixture\n        fast_light_text: offline-fixture\n        embedding: offline-fixture\nouter:\n  enabled: false\n');cfg.chmod(0o600)
             record('explicit tagged real bootstrap and prepared private state', files=[str(x) for x in state.iterdir()], sqlite=rows('pragma user_version'))
             assert rows('pragma user_version')==[(2,)]
             a,sa,A=launch('A');record('A acquired via ordinary launcher',selection=A,artifacts=[dict(path=str(f.relative_to(state)),sha256=hashlib.sha256(f.read_bytes()).hexdigest()) for f in (state/'generations').glob('*/cercano*') if f.is_file()])
@@ -116,6 +116,18 @@ def run(repo,evidence):
             wait(lambda:any(x['event']=='child-entered' for x in events()),'independent dispatch reached provider barrier',40)
             task=rows('select id,parent_id,status,child_id from delegated_tasks');assert len(task)==1 and task[0][2]=='running',task
             record('real independent dispatch running',tasks=task)
+            # A physically disconnects while its independent task remains running.
+            a.p.kill();a.p.wait();a.pump();os.close(a.fd);terminals.remove(a)
+            builds=trace.read_text();sels=selections(); pidA=[e['pid'] for e in events() if e['event']=='child-entered'][0]
+            a=Terminal(['bash',str(script),'--dev-host',str(sa)],env,evidence/'A-reconnect.pty');terminals.append(a)
+            wait(lambda:b'\x1b[?1049h' in a.data,'A physical reconnect TUI')
+            a.send('FIXTURE_RECONNECTED\r')
+            wait(lambda:any('FIXTURE_RECONNECTED' in json.dumps(e['request'].get('Messages')) for e in events() if e['event']=='call'),'A reconnect inference')
+            assert trace.read_text()==builds and selections()==sels
+            assert {e['pid'] for e in events() if e['event']=='call'}=={pidA}
+            assert rows('select status from delegated_tasks')==[('running',)]
+            record('A physically killed and reconnected through saved selection; same exact host PID; no publication or acquisition',pid=pidA)
+            y,sy,Y=launch('Y');y.stop();terminals.remove(y)
             # Change actual snapshotted source bytes; no factory/runtime substitution.
             change=copy/'source/server/cmd/cercano/development_provider_fixture.go';change.write_text(change.read_text()+'\n// generation B source byte change\n')
             b,sb,B=launch('B');assert A['Identity']['host']!=B['Identity']['host'] and A['Generation']!=B['Generation'];assert a.p.poll() is None
@@ -124,8 +136,27 @@ def run(repo,evidence):
             # Existing selections must not publish or spawn. Management has no attachment.
             builds=trace.read_text(); sels=selections();control(sa,'list');assert trace.read_text()==builds and selections()==sels
             record('saved selection no-build/no-acquisition management reconnect')
+            # Two ordinary wrappers race unchanged-source acquisition.
+            before=selections();builds=trace.read_text()
+            racers=[Terminal(['bash',str(script)],env,evidence/('B-concurrent-'+str(i)+'.pty')) for i in range(2)];terminals.extend(racers)
+            wait(lambda:len(selections()-before)==2,'concurrent unchanged-source selections',120)
+            concurrent=selections()-before
+            assert all(json.loads(s.read_text())['Identity']['host']==B['Identity']['host'] for s in concurrent)
+            assert trace.read_text()==builds
+            record('concurrent unchanged-source invocations reuse B without rebuild or conflict',selections=[json.loads(s.read_text()) for s in concurrent])
+            moved=json.loads(control(sy,'transfer',sb))['Selection'];assert moved and moved['Identity']['host']==B['Identity']['host']
+            sym=state/'Y-moved.json';sym.write_text(json.dumps(moved));sym.chmod(0o600)
+            assert rows('select status from delegated_tasks')==[('running',)]
+            record('unrelated Y transferred A to B while independent A task running',selection=moved)
+            # Detach A physically so refusal tests task ownership, not attachment.
+            a.p.kill();a.p.wait();a.pump();os.close(a.fd);terminals.remove(a);time.sleep(1)
+            pending_before=json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)
             control(sa,'transfer',sb,False)
-            record('busy transfer refused with A task held')
+            pending_after=json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)
+            record('busy transfer refused with A task held',pending_before=pending_before,pending_after=pending_after)
+            if pending_after!=pending_before:
+                record('NEW PRODUCTION FAILURE: refused busy transfer leaks destination reservation',root='agentclient Transfer prepares destination before source relinquish; source failure returns without canceling destination acceptance')
+                raise AssertionError('busy transfer refusal leaked destination pending_incoming: '+str(pending_before)+' -> '+str(pending_after))
             (barrier/'child.release').touch()
             wait(lambda:rows('select status from delegated_tasks')==[('completed',)],'independent task completion',40)
             wait(lambda:any(x['event']=='child-released' for x in events()),'child release trace')
@@ -142,7 +173,7 @@ def run(repo,evidence):
         except Exception as e:
             report['failure']=str(e);report['traceback']=traceback.format_exc()
             if (state/'conversations.db').exists():
-                record('failure task observation',tasks=rows('select id,parent_id,status,child_id from delegated_tasks'))
+                record('failure task observation',tasks=rows('select id,parent_id,status,child_id,error,result_json from delegated_tasks'))
             raise
         finally:
             for t in terminals:
@@ -152,7 +183,8 @@ def run(repo,evidence):
             for name,source in [('provider.jsonl',barrier/'provider.jsonl'),('routing-config.json',barrier/'routing-config.json'),('build.jsonl',trace)]:
                 if source.exists():shutil.copyfile(source,evidence/name)
             if state.exists():
-                if (state/'hosts').exists():shutil.copytree(state/'hosts', evidence/'host-diagnostics', dirs_exist_ok=True)
+                # Never export host token files, even to local evidence.
+                record('private token hashes only', tokens=[{'name': f.name, 'sha256': hashlib.sha256(f.read_bytes()).hexdigest()} for f in (state/'hosts').glob('*.token')])
                 for h in (state/'hosts').glob('*'):
                     if h.is_file() and h.suffix in ('.log','.json'):shutil.copyfile(h,evidence/h.name)
             for e in events():

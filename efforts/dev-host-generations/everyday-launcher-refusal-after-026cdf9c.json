@@ -1,0 +1,21 @@
+{
+  "scope": "negative entrypoint only; compiled production A/B journey NOT verified",
+  "results": [
+    {
+      "case": "legacy-state actual entrypoint PTY",
+      "exit": 78,
+      "unchanged_state": true,
+      "output": "[cercano] launch refused: no such table: coexistence_metadata\r\nProvision once with prepare-development --new-state /absolute/NEW/private/state, then provide explicit config.yaml; no legacy import or native credentials.\r\n"
+    },
+    {
+      "case": "mock publication failure actual entrypoint PTY",
+      "exit": 78,
+      "unchanged_file_contents": true,
+      "output": "injected publication failure\r\n[cercano] launch refused: Command '['/opt/homebrew/opt/python@3.14/bin/python3.14', '/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/everyday-refusal-59k12n_o/mock-repo/source/server/scripts/publish-dev-generation.py', 'publish', '--repo', '/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/everyday-refusal-59k12n_o/mock-repo', '--sign', '--root', '/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/everyday-refusal-59k12n_o/state/generations', '--generation', 'synthetic-fingerprint', '--fingerprint', 'synthetic-fingerprint', '--reuse']' returned non-zero exit status 42.\r\nProvision once with prepare-development --new-state /absolute/NEW/private/state, then provide explicit config.yaml; no legacy import or native credentials.\r\n",
+      "publisher_calls": [
+        "['/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/everyday-refusal-59k12n_o/mock-repo/source/server/scripts/publish-dev-generation.py', 'fingerprint', '--repo', '/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/everyday-refusal-59k12n_o/mock-repo', '--sign']",
+        "['/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/everyday-refusal-59k12n_o/mock-repo/source/server/scripts/publish-dev-generation.py', 'publish', '--repo', '/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/everyday-refusal-59k12n_o/mock-repo', '--sign', '--root', '/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/everyday-refusal-59k12n_o/state/generations', '--generation', 'synthetic-fingerprint', '--fingerprint', 'synthetic-fingerprint', '--reuse']"
+      ]
+    }
+  ]
+}

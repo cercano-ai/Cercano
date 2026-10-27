@@ -113,7 +113,7 @@ func (p *acceptanceProvider) StreamChat(ctx context.Context, req inference.Call)
 		if b.Type == llm.BlockText {
 			events = append(events, llm.StreamEvent{Type: llm.EventTextDelta, TextDelta: b.Text})
 		} else {
-			events = append(events, llm.StreamEvent{Type: llm.EventToolUseStart, ToolUseID: b.ToolUseID, ToolName: b.ToolName}, llm.StreamEvent{Type: llm.EventToolUseInputDelta, ToolInputRaw: b.ToolInput}, llm.StreamEvent{Type: llm.EventToolUseStop})
+			events = append(events, llm.StreamEvent{Type: llm.EventToolUseStart, ToolUseID: b.ToolUseID, ToolName: b.ToolName}, llm.StreamEvent{Type: llm.EventToolUseInputDelta, TextDelta: string(b.ToolInput)}, llm.StreamEvent{Type: llm.EventToolUseStop})
 		}
 	}
 	events = append(events, llm.StreamEvent{Type: llm.EventMessageStop, StopReason: r.StopReason})
