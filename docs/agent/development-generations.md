@@ -2,7 +2,7 @@
 
 ## Current boundary
 
-The source launcher publishes immutable generations and acquires an authenticated development host; it no longer uses the earlier fail-closed-only stub. This is a development workflow, not the packaged singleton launcher. **The installed `/Users/bryancostanich/bin/cercano` remains the old script. Live cutover is not complete and requires approval.** Actual A/B acceptance is ongoing; this guide does not assert that it or any tests passed.
+The source launcher publishes immutable generations and acquires an authenticated development host; it no longer uses the earlier fail-closed-only stub. This is a development workflow, not the packaged singleton launcher. **The installed `/Users/bryancostanich/bin/cercano` remains the old script. Live cutover is not complete and requires approval.** The actual ordinary-launcher A/B acceptance has passed with compiled hosts/workers and injected synthetic providers; see [acceptance evidence](../../efforts/dev-host-generations/everyday-launcher-acceptance-evidence.md). This is not real-model or native-credential qualification.
 
 The workflow never implicitly stops the old app, imports its database, or migrates its configuration. The one-time transition creates **separate new state**, not a replacement for or loss of the old data. Do not point it at your existing Cercano state, copy a legacy database into it, or use a running production launcher to provision it. Existing sessions continue on their original hosts until explicitly managed.
 
@@ -43,7 +43,7 @@ cloud_profiles:
     model: your-configured-model
 ```
 
-Replace the model/profile with an intentionally configured supported route. Credentials must already be provisioned separately for that profile. Production dependency construction can read native credentials **read-only**, after store preflight; it is not credential-free just because the child environment disables ordinary credential startup. Shared configuration/auth mutation, credential migration, login/refresh writes and setup changes are not supported through this host. Do not use this guide's examples to touch real credentials during candidate validation. Build commands do not need them.
+Replace the model/profile with an intentionally configured supported route. Credentials must already be provisioned separately for that profile. Production dependency construction can read native credentials **read-only**, after store preflight. Runtime processes preserve the caller's credential policy: `CERCANO_DISABLE_CREDENTIALS=1` still blocks access, while an absent variable or `0` permits credential admission. Build subprocesses are credential-disabled; this does not make an ordinary production run credential-free. Shared configuration/auth mutation, credential migration, login/refresh writes and setup changes are not supported through this host. Do not use this guide's examples to touch real credentials during candidate validation. Build commands do not need them.
 
 ### Cloud versus local prerequisites
 
@@ -100,13 +100,17 @@ Transfer requires an exact compatible destination selection and unique handover 
 ```bash
 "$LAUNCHER" --dev-host "$SELECTION" --dev-host-action transfer \
   --dev-host-destination "$DESTINATION_SELECTION" --dev-host-handover "$HANDOVER_ID"
-# Only if the result is pending: preserve the returned receipt and retry claim explicitly.
+# If source relinquishment is uncertain, explicitly retry the SAME transfer/receipt:
+"$LAUNCHER" --dev-host "$SELECTION" --dev-host-action transfer \
+  --dev-host-destination "$DESTINATION_SELECTION" --dev-host-handover "$HANDOVER_ID" \
+  --dev-host-receipt "$RECEIPT"
+# If source relinquishment succeeded but the destination claim response was lost:
 "$LAUNCHER" --dev-host "$SELECTION" --dev-host-action claim \
   --dev-host-destination "$DESTINATION_SELECTION" --dev-host-handover "$HANDOVER_ID" \
   --dev-host-receipt "$RECEIPT"
 ```
 
-Pending is unresolved work, not success. Preserve the receipt/ID; do not begin a fresh transfer to bypass it. Successful CLI transfer/claim returns `Selection` in its JSON output; it does **not** rewrite the original selection file. Save the returned selection privately as a new file under this state's `selections/` for subsequent exact reconnect, or use the TUI's updated in-memory selection. Old epochs are not valid substitutes.
+Pending is unresolved work, not success. Preserve the exact source/destination, receipt and ID; do not begin a fresh transfer to bypass it. Source-first orchestration checks and fences source quiescence before preparing B, so a definite busy refusal creates no B participation. Unknown prepare/commit outcomes remain fenced rather than being canceled on a timeout. An explicit destination claim alone cannot complete a transfer that the source has not yet relinquished. Successful CLI transfer/claim returns `Selection` in its JSON output; it does **not** rewrite the original selection file. Save the returned selection privately as a new file under this state's `selections/` for subsequent exact reconnect, or use the TUI's updated in-memory selection. Old epochs are not valid substitutes.
 
 A recorded host that is unreachable or retired is **never automatically respawned**. A failed start retains a durable `.starting` intent and logs; later calls refuse replacement. Even after retirement, a plain same-generation invocation is not a restart mechanism. There is no documented automatic repair/garbage-collection command here: preserve evidence and resolve the record deliberately under a separately reviewed recovery procedure. Do not delete locks, intents, host records, tokens, generations or state to force retry. There is no automatic deletion or retention sweep of published generations or old data.
 
@@ -150,4 +154,4 @@ printf 'Review candidate and evidence in %s; installed path untouched\n' "$STAGE
 
 These are **commands to prepare**, not evidence of execution. They stage only in a new private temp directory, inspect the original read-only, and perform syntax/static checks without executing either launcher. Static success does not demonstrate isolation, A/B behavior, credential safety or runtime acceptance. Main can perform actual artifact validation after landing. Retain the original hash, diff and candidate hash for review.
 
-Stop before activation. Approval must cover acceptance evidence (including the ongoing actual A/B exercise), the landed revision, embedded main path, candidate hash and a separately agreed replacement/rollback operation preserving the original script. No replacement command is authorized here. Until then the installed script remains old, and the everyday workflow/live cutover is **not complete**.
+Stop before activation. Approval must cover acceptance evidence (including the completed synthetic actual-launcher A/B exercise), the landed revision, embedded main path, candidate hash and a separately agreed replacement/rollback operation preserving the original script. No replacement command is authorized here. Until then the installed script remains old, and the everyday workflow/live cutover is **not complete**.
