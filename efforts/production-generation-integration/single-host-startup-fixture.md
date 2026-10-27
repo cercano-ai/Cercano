@@ -41,7 +41,7 @@ From `source/server`, passed on 2026-10-27:
 GOPROXY=off GOSUMDB=off CERCANO_DISABLE_CREDENTIALS=1 go test -race ./cmd/cercano ./internal/server ./internal/hostsvc/permissions ./internal/hostsvc/providers -run '^Test(ProductionSingleHostStartupShutdown|ProductionCredentialRefusesBeforeOpen|ProductionListenerFailureClosesOwnedStore|ProductionFailureStages|ProductionStartupGenerationRejectsLegacyBeforeEffects|ProductionProviderActivationBeforeDependencies|SelectExecutionMode_InProcessLeavesWorkerNil|StartConfigWatcher.*|WaitWithNotify.*|Broker.*|BuilderCredentialAdmission|CloudBuilderInvocationAndCredentialBoundary)$' -count=5 -timeout=120s
 ```
 
-All four packages passed. `git diff --check` passed. This is targeted offline
+All four packages passed. `git diff --check` passed. Parent verification reran the same focused race command at `-count=2` after completion: exit 0, all four packages passed (cmd/cercano 2.930s, server 3.310s, permissions 1.543s, providers 1.978s). A separate shutdown-join review is pending. This is targeted offline
 race validation, not a full-suite run. No multi-authority fixture, enabled
 production startup, compiled acceptance, live qualification, launcher change,
 native credential access, worker backend, push or merge was performed.
