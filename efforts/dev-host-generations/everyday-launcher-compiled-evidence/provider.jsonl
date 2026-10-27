@@ -1,0 +1,1 @@
+{"conversation":"","event":"constructed","pid":12345,"request":{"Model":"llama_server:offline-fixture","System":"","Messages":null,"Tools":null,"ToolChoice":{"Type":"","Name":""},"MaxTokens":0,"DisableThinking":false,"ConversationID":"","RequestID":"","Temperature":null,"Tier":"","FallbackTier":""}}

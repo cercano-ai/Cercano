@@ -1,0 +1,37 @@
+{
+  "scope": "actual shell -> real publisher -> compiled production host -> compiled CLI PTY",
+  "steps": [
+    {
+      "step": "explicit tagged real bootstrap and prepared private state",
+      "files": [
+        "/private/tmp/ca-ehwggq0u/state/conversations.db",
+        "/private/tmp/ca-ehwggq0u/state/config.yaml"
+      ],
+      "sqlite": [
+        [
+          2
+        ]
+      ]
+    },
+    {
+      "step": "A acquired via ordinary launcher",
+      "selection": {
+        "Endpoint": "127.0.0.1:57826",
+        "TokenFile": "/private/tmp/ca-ehwggq0u/state/hosts/b098c7331e6f60498a7ace82bc2cc1e85ed8b96df6fc05f70235dab19b537a8c.token",
+        "Identity": {
+          "host": "fbd5dc2092183b45f5a4e7a0b63ec6e6",
+          "build": "b18a261b-e659-4886-97ef-4bf8e0e4e086",
+          "contract": "cercano-development-owned-v2",
+          "schema": 2,
+          "store": "/private/tmp/ca-ehwggq0u/state/conversations.db"
+        },
+        "Conversation": "b68fd80fda5b7186e5191813c33882ef",
+        "Epoch": "65d82f38d7dd1e052ae3927b",
+        "Generation": "/private/tmp/ca-ehwggq0u/state/generations/b3d880a47e7a97e276881e79dc65410a0e751589ec5e7e6873092ff0134ffc7b"
+      }
+    }
+  ],
+  "passed": false,
+  "failure": "timeout independent dispatch reached provider barrier",
+  "traceback": "Traceback (most recent call last):\n  File \"/Users/bryancostanich/git_repos/cercano-ai/Cercano-everyday-dev-launcher/efforts/dev-host-generations/everyday-launcher-compiled.py\", line 106, in run\n    wait(lambda:any(x['event']=='child-entered' for x in events()),'independent dispatch reached provider barrier',40)\n    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/bryancostanich/git_repos/cercano-ai/Cercano-everyday-dev-launcher/efforts/dev-host-generations/everyday-launcher-compiled.py\", line 81, in wait\n    raise AssertionError('timeout '+label)\nAssertionError: timeout independent dispatch reached provider barrier\n"
+}
