@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline compiled production A/B acceptance. Never substitutes a server/CLI."""
-import argparse, errno, fcntl, json, os, pathlib, pty, select, shutil, signal, sqlite3, struct, subprocess, tempfile, termios, time, traceback
+import argparse, errno, fcntl, hashlib, json, os, pathlib, pty, select, shutil, signal, sqlite3, struct, subprocess, sys, tempfile, termios, time, traceback
 P=pathlib.Path
 
 class Terminal:
@@ -45,12 +45,15 @@ def run(repo,evidence):
         go=shutil.which('go'); assert go
         def goenv(key): return subprocess.check_output([go,'env',key],text=True).strip()
         tools=root/'tools';tools.mkdir(); trace=root/'build.jsonl'
+        # Bypass /usr/bin/python3's xcrun shim, which injects CPATH after
+        # sanitization and is correctly refused by the real publisher.
+        (tools/'python3').symlink_to(sys.executable)
         # Build wrapper delegates EVERY command to Go; only adds explicit build tags.
         wrapper=tools/'go'
         wrapper.write_text('#!/usr/bin/env python3\nimport os,sys,json\na=sys.argv[1:]\nif a and a[0]=="build":\n a.insert(1,"-tags=developmentfixture,cercano_development_acceptance")\n with open('+repr(str(trace))+',"a") as f:f.write(json.dumps({"cwd":os.getcwd(),"args":a})+"\\n")\nos.execv('+repr(go)+',['+repr(go)+',*a])\n');wrapper.chmod(0o700)
         env=dict(os.environ)
         for k in list(env):
-            if k.startswith(('GO','CGO_')) or k in ('CC','CXX','PKG_CONFIG','SDKROOT'):env.pop(k)
+            if k.startswith(('GO','CGO_')) or k in ('CC','CXX','PKG_CONFIG','SDKROOT','LIBRARY_PATH','CPATH','C_INCLUDE_PATH','CPLUS_INCLUDE_PATH'):env.pop(k)
         env.update(HOME=str(home),XDG_CONFIG_HOME=str(home/'config'),XDG_DATA_HOME=str(home/'data'),XDG_CACHE_HOME=str(home/'cache'),PATH=str(tools)+':'+env['PATH'],GOPATH=goenv('GOPATH'),GOCACHE=goenv('GOCACHE'),GOPROXY='off',GOSUMDB='off',CGO_ENABLED='0',VERSION='compiled-acceptance',TERM='xterm-256color',CERCANO_DISABLE_CREDENTIALS='1',CERCANO_OUTER_ENABLED='0',CERCANO_REPO=str(copy),CERCANO_DEVELOPMENT_STATE=str(state),CERCANO_RUNTIME_ROOT=str(runtime),CERCANO_FIXTURE_BARRIER=str(barrier))
         script=copy/'source/server/scripts/cercano-launcher.sh'
         def call(args,cwd=None,timeout=240):
@@ -87,7 +90,9 @@ def run(repo,evidence):
             assert (p.returncode==0)==success,p.stdout.decode(errors='replace')
             return p.stdout.decode()
         def rows(sql):
-            with sqlite3.connect('file:'+str(state/'conversations.db')+'?mode=ro',uri=True) as db:return db.execute(sql).fetchall()
+            # Python's macOS SQLite cannot open a fresh WAL database read-only
+            # before -shm exists. rw forbids creation; SQL remains observation only.
+            with sqlite3.connect('file:'+str(state/'conversations.db')+'?mode=rw',uri=True) as db:return db.execute(sql).fetchall()
         def events():
             f=barrier/'provider.jsonl'
             return [json.loads(x) for x in f.read_text().splitlines()] if f.exists() else []
@@ -95,14 +100,19 @@ def run(repo,evidence):
             call(['git','init','-q',copy])
             call(['git','add','source'],copy)
             call(['git','-c','user.name=Offline Fixture','-c','user.email=fixture@invalid','commit','-qm','Snapshot actual acceptance inputs'],copy)
+            record('fresh source provenance', checkout=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip(), snapshot=call(['git','rev-parse','HEAD'],copy).strip(), source_tree=call(['git','rev-parse','HEAD:source'],copy).strip(), fixture_sha256=hashlib.sha256((copy/'source/server/cmd/cercano/development_provider_fixture.go').read_bytes()).hexdigest())
             bootstrap=root/'bootstrap'
             call([wrapper,'build','-o',bootstrap,'./cmd/cercano/'],copy/'source/server')
-            call([bootstrap,'prepare-development','--new-state',state])
+            record('fresh bootstrap artifact', sha256=hashlib.sha256(bootstrap.read_bytes()).hexdigest(), build_info=call([go,'version','-m',bootstrap]))
+            prepared=call([bootstrap,'prepare-development','--new-state',state])
+            record('fresh bootstrap preparation',output=prepared,files=[str(x) for x in state.iterdir()])
             cfg=state/'config.yaml';cfg.write_text('open_runtime: llama_server\nlocus_mode: open_only\nllama_server:\n  enabled: true\n  default_model: offline-fixture\nmodels:\n  open:\n    overrides:\n      llama_server:\n        everyday: offline-fixture\n        most_capable: offline-fixture\n        fast_light: offline-fixture\n        fast_light_text: offline-fixture\n        embedding: offline-fixture\nouter:\n  enabled: false\n');cfg.chmod(0o600)
             record('explicit tagged real bootstrap and prepared private state', files=[str(x) for x in state.iterdir()], sqlite=rows('pragma user_version'))
-            call(['python3','-c', 'import sqlite3,sys; print(sqlite3.connect(sys.argv[1],uri=True).execute("pragma user_version").fetchall())', (state/'conversations.db').as_uri()+'?mode=ro'])
-            a,sa,A=launch('A');record('A acquired via ordinary launcher',selection=A)
+            assert rows('pragma user_version')==[(2,)]
+            a,sa,A=launch('A');record('A acquired via ordinary launcher',selection=A,artifacts=[dict(path=str(f.relative_to(state)),sha256=hashlib.sha256(f.read_bytes()).hexdigest()) for f in (state/'generations').glob('*/cercano*') if f.is_file()])
             a.send('FIXTURE_DISPATCH\r')
+            wait(lambda:b'wants to run a delegated agent' in a.data,'ordinary dispatch permission prompt')
+            a.send('y\r')
             wait(lambda:any(x['event']=='child-entered' for x in events()),'independent dispatch reached provider barrier',40)
             task=rows('select id,parent_id,status,child_id from delegated_tasks');assert len(task)==1 and task[0][2]=='running',task
             record('real independent dispatch running',tasks=task)
@@ -130,7 +140,10 @@ def run(repo,evidence):
             # remaining assertions exist, even if the dispatch blocker clears.
             raise AssertionError('remaining full gate: concurrent reuse, attached saved-selection no-spawn reconnect, unrelated transfer, notification delivery, retained-session retirement refusal, B inference usability')
         except Exception as e:
-            report['failure']=str(e);report['traceback']=traceback.format_exc();raise
+            report['failure']=str(e);report['traceback']=traceback.format_exc()
+            if (state/'conversations.db').exists():
+                record('failure task observation',tasks=rows('select id,parent_id,status,child_id from delegated_tasks'))
+            raise
         finally:
             for t in terminals:
                 try:t.stop()
@@ -139,7 +152,7 @@ def run(repo,evidence):
             for name,source in [('provider.jsonl',barrier/'provider.jsonl'),('routing-config.json',barrier/'routing-config.json'),('build.jsonl',trace)]:
                 if source.exists():shutil.copyfile(source,evidence/name)
             if state.exists():
-                shutil.copytree(state/'hosts', evidence/'host-diagnostics', dirs_exist_ok=True)
+                if (state/'hosts').exists():shutil.copytree(state/'hosts', evidence/'host-diagnostics', dirs_exist_ok=True)
                 for h in (state/'hosts').glob('*'):
                     if h.is_file() and h.suffix in ('.log','.json'):shutil.copyfile(h,evidence/h.name)
             for e in events():

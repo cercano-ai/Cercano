@@ -35,7 +35,13 @@ func developmentProductionDefaults() developmentProductionDependencies {
 
 type acceptanceProvider struct{}
 
-func (*acceptanceProvider) Name() string { return "offline-compiled-acceptance" }
+// The production worker requires the owning provider to confirm live capacity.
+// This is synthetic capacity for the synthetic provider, not a model launch.
+func (*acceptanceProvider) RuntimeContext(context.Context, string, bool) (llm.RuntimeContext, error) {
+	return llm.RuntimeContext{Window: 32768, InstanceID: "offline-compiled-acceptance"}, nil
+}
+
+func (*acceptanceProvider) Name() string { return "llama_server" }
 func (*acceptanceProvider) Capabilities() inference.Capabilities {
 	return inference.Capabilities{SupportsTools: true}
 }
