@@ -32,6 +32,7 @@ def selection_file(path, state):
 
 
 def main():
+    runtime_env = dict(os.environ)
     repo = Path(sys.argv[2]).resolve()
     args = sys.argv[3:]
     state = private(os.environ['CERCANO_DEVELOPMENT_STATE'])
@@ -54,7 +55,7 @@ def main():
         generation = Path(selection['Generation'])
         if generation.parent != state / 'generations' or generation.resolve() != generation:
             raise ValueError('selection must name an exact generation in this state')
-        os.execve(str(generation / 'cercano-cli'), [str(generation / 'cercano-cli'), *args], dict(os.environ, CERCANO_DISABLE_CREDENTIALS='1'))
+        os.execve(str(generation / 'cercano-cli'), [str(generation / 'cercano-cli'), *args], runtime_env)
     runtime = os.environ.get('CERCANO_RUNTIME_ROOT')
     if runtime is None:
         fd = os.open(state / 'runtime-root.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
@@ -80,16 +81,17 @@ def main():
     private(root)
     publisher = [sys.executable, str(repo / 'source/server/scripts/publish-dev-generation.py')]
     common = ['--repo', str(repo), '--sign']
-    env = dict(os.environ, CERCANO_DISABLE_CREDENTIALS='1')
-    fingerprint = subprocess.check_output([*publisher, 'fingerprint', *common], env=env, text=True).strip()
-    generation = subprocess.check_output([*publisher, 'publish', *common, '--root', str(root), '--generation', fingerprint, '--fingerprint', fingerprint, '--reuse'], env=env, text=True).strip()
+    # Build tooling may not access credentials; runtime policy belongs to the caller.
+    build_env = dict(runtime_env, CERCANO_DISABLE_CREDENTIALS='1')
+    fingerprint = subprocess.check_output([*publisher, 'fingerprint', *common], env=build_env, text=True).strip()
+    generation = subprocess.check_output([*publisher, 'publish', *common, '--root', str(root), '--generation', fingerprint, '--fingerprint', fingerprint, '--reuse'], env=build_env, text=True).strip()
     if generation != str(root / fingerprint):
         raise ValueError('publisher returned noncanonical generation')
     binary = str(Path(generation) / 'cercano')
-    selection = subprocess.check_output([binary, 'development-launch', '--state', str(state), '--generation', generation, '--runtime-root', str(runtime)], env=env, text=True).strip()
+    selection = subprocess.check_output([binary, 'development-launch', '--state', str(state), '--generation', generation, '--runtime-root', str(runtime)], env=runtime_env, text=True).strip()
     selection_file(selection, state)
     cli = str(Path(generation) / 'cercano-cli')
-    os.execve(cli, [cli, '--dev-host', selection, *args], env)
+    os.execve(cli, [cli, '--dev-host', selection, *args], runtime_env)
 
 
 if __name__ == '__main__':

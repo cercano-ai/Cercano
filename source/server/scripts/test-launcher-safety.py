@@ -42,7 +42,10 @@ class LauncherSafety(unittest.TestCase):
         shutil.copy(SCRIPTS / 'cercano-launcher.py', scripts)
         # Fake publisher and generation binaries; the actual source shell and
         # orchestration helper execute, never a replacement launcher.
-        (scripts / 'publish-dev-generation.py').write_text('''import sys, pathlib, os, fcntl
+        (scripts / 'publish-dev-generation.py').write_text('''import sys, pathlib, os, fcntl, json
+with open(os.environ['FAKE_ENV_LOG'], 'a') as log:
+ log.write(json.dumps([sys.argv[1], os.environ.get('CERCANO_DISABLE_CREDENTIALS')])+'\\n')
+assert os.environ['CERCANO_DISABLE_CREDENTIALS']=='1'
 assert '--sign' in sys.argv
 state=pathlib.Path(os.environ['CERCANO_DEVELOPMENT_STATE'])
 if sys.argv[1]=='fingerprint': print('abc'); sys.exit()
@@ -60,7 +63,8 @@ print(gen)
         (state / 'cercano').write_text('''#!/usr/bin/env python3
 import sys, os, pathlib, tempfile, json
 assert sys.argv[1]=='development-launch'
-assert os.environ['CERCANO_DISABLE_CREDENTIALS']=='1'
+with open(os.environ['FAKE_ENV_LOG'], 'a') as log:
+ log.write(json.dumps(['development-launch', os.environ.get('CERCANO_DISABLE_CREDENTIALS')])+'\\n')
 state=pathlib.Path(sys.argv[sys.argv.index('--state')+1])
 assert pathlib.Path(sys.argv[sys.argv.index('--generation')+1])==pathlib.Path(sys.argv[0]).parent
 if os.environ.get('FAKE_HOST_FAIL'): sys.exit(9)
@@ -71,13 +75,40 @@ print(path)
 ''')
         (state / 'cercano-cli').write_text('''#!/usr/bin/env python3
 import sys, json, os
-assert os.environ['CERCANO_DISABLE_CREDENTIALS']=='1'
+with open(os.environ['FAKE_ENV_LOG'], 'a') as log:
+ log.write(json.dumps(['cli', os.environ.get('CERCANO_DISABLE_CREDENTIALS')])+'\\n')
 print(json.dumps(sys.argv[1:]))
 ''')
-        return dict(os.environ, CERCANO_REPO=str(root / 'repo'), CERCANO_DEVELOPMENT_STATE=str(state))
+        return dict(os.environ, CERCANO_REPO=str(root / 'repo'),
+                    CERCANO_DEVELOPMENT_STATE=str(state), CERCANO_DISABLE_CREDENTIALS='1',
+                    FAKE_ENV_LOG=str(root / 'child-environments.jsonl'))
 
     def source_launch(self, env, *args):
         return subprocess.run(['/bin/bash', str(SCRIPTS / 'cercano-launcher.sh'), *args], env=env, capture_output=True, text=True)
+
+    def test_runtime_preserves_credential_policy_while_builds_disable_credentials(self):
+        # Only these fake-command probes opt out of the outer disabled policy.
+        for policy in (None, '0', '1'):
+            with self.subTest(policy=policy), tempfile.TemporaryDirectory() as root:
+                env = self.fixture(root)
+                if policy is None:
+                    env.pop('CERCANO_DISABLE_CREDENTIALS')
+                else:
+                    env['CERCANO_DISABLE_CREDENTIALS'] = policy
+                result = self.source_launch(env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                log = Path(env['FAKE_ENV_LOG'])
+                with self.subTest(phase='launch'):
+                    self.assertEqual([json.loads(line) for line in log.read_text().splitlines()], [
+                        ['fingerprint', '1'], ['publish', '1'],
+                        ['development-launch', policy], ['cli', policy],
+                    ])
+                selection = json.loads(result.stdout)[1]
+                log.write_text('')
+                result = self.source_launch(env, '--dev-host', selection)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([json.loads(line) for line in log.read_text().splitlines()],
+                                 [['cli', policy]])
 
     def test_source_launch_concurrent_selections_and_argument_boundaries(self):
         with tempfile.TemporaryDirectory() as root:
