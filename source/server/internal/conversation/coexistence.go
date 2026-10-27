@@ -30,6 +30,42 @@ func CurrentCoexistenceDeclaration() CoexistenceDeclaration {
 // On failure the exclusively created file is left unprepared for inspection;
 // callers must not retry by adopting it. This is not an application startup API.
 func PrepareCoexistence(ctx context.Context, path string) error {
+	return prepareCoexistence(ctx, path, CurrentCoexistenceDeclaration())
+}
+
+// DevelopmentCoexistenceDeclaration is the production development-store
+// contract. It shares the ownership schema with fixtures but cannot be mistaken
+// for a fixture declaration. It does not authorize adopting legacy databases.
+func DevelopmentCoexistenceDeclaration() CoexistenceDeclaration {
+	return CoexistenceDeclaration{"cercano-development-owned-v2", 2}
+}
+
+// PrepareDevelopmentStore exclusively creates a new development database.
+// The caller must explicitly select a separate destination with an existing
+// private parent. Existing files, including empty files and symlinks, are refused.
+func PrepareDevelopmentStore(ctx context.Context, path string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("development store requires a clean absolute new path")
+	}
+	parent := filepath.Dir(path)
+	resolved, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		return err
+	}
+	if resolved != parent {
+		return fmt.Errorf("development store parent must not contain aliases")
+	}
+	info, err := os.Stat(parent)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		return fmt.Errorf("development store parent must be private")
+	}
+	return prepareCoexistence(ctx, path, DevelopmentCoexistenceDeclaration())
+}
+
+func prepareCoexistence(ctx context.Context, path string, d CoexistenceDeclaration) error {
 	uri, err := coexistenceURI(path, "rw")
 	if err != nil {
 		return err
@@ -50,7 +86,6 @@ func PrepareCoexistence(ctx context.Context, path string) error {
 	if err := store.InitTasks(ctx); err != nil {
 		return err
 	}
-	d := CurrentCoexistenceDeclaration()
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -84,7 +119,7 @@ func PreflightCoexistence(ctx context.Context, path string, expected Coexistence
 	return validateCoexistence(ctx, db, expected)
 }
 
-// OpenCoexistence opens only an explicitly prepared fixture, never running Open
+// OpenCoexistence opens only an explicitly prepared declared store, never running Open
 // migrations or task initialization/reconciliation. It rechecks metadata on the
 // writable connection before setting connection-local options. Mutations require
 // explicit capabilities supplied by WithOwnership. This is a storage foundation,
@@ -155,7 +190,7 @@ func openCoexistenceDB(path, mode string) (*sql.DB, error) {
 }
 
 func validateCoexistence(ctx context.Context, db *sql.DB, expected CoexistenceDeclaration) error {
-	if expected != CurrentCoexistenceDeclaration() {
+	if expected != CurrentCoexistenceDeclaration() && expected != DevelopmentCoexistenceDeclaration() {
 		return fmt.Errorf("unsupported coexistence declaration: %+v", expected)
 	}
 	// A single read transaction gives the marker and SQLite version one snapshot.
