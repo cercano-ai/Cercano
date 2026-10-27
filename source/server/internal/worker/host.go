@@ -1025,27 +1025,7 @@ func (w *workerRunner) RunTurn(
 			// the capability can report success/failure to the model.
 			pr := m.ProfileRequest
 			go func() {
-				resp := &proto.SessionProfileResponse{Id: pr.GetId(), Ok: true}
-				if pr.GetReadOnly() {
-					if w.currentProfile == nil {
-						resp.Ok = false
-						resp.Error = "session profile reader not configured"
-					} else {
-						data, err := json.Marshal(w.currentProfile(req.ConversationID))
-						if err != nil {
-							resp.Ok = false
-							resp.Error = err.Error()
-						} else {
-							resp.ProfileJson = string(data)
-						}
-					}
-				} else if w.setProfile == nil {
-					resp.Ok = false
-					resp.Error = "session profile control not configured"
-				} else if err := w.setProfile(ctx, pr.GetConversationId(), pr.GetName()); err != nil {
-					resp.Ok = false
-					resp.Error = err.Error()
-				}
+				resp := w.handleProfileRequest(ctx, req.ConversationID, pr)
 				if sendErr := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_ProfileResponse{ProfileResponse: resp}}); sendErr != nil {
 					log.Printf("[workerRunner] send profile response id=%d: %v", pr.GetId(), sendErr)
 				}
@@ -1294,4 +1274,37 @@ func withInitialProfileMetadata(ctx context.Context, profileJSON string) context
 	md = md.Copy()
 	md.Set("cercano-initial-profile", profileJSON)
 	return metadata.NewOutgoingContext(ctx, md)
+}
+
+// handleProfileRequest binds session control to the host turn, never a worker-selected session.
+// The installed mutation callback must additionally validate exact ownership and current epoch.
+func (w *workerRunner) handleProfileRequest(ctx context.Context, turnID string, pr *proto.SessionProfileRequest) *proto.SessionProfileResponse {
+	resp := &proto.SessionProfileResponse{Id: pr.GetId(), Ok: true}
+	if !pr.GetReadOnly() && (turnID == "" || pr.GetConversationId() != turnID) {
+		resp.Ok = false
+		resp.Error = "session profile conversation not authorized for this turn"
+	} else if err := ctx.Err(); err != nil {
+		resp.Ok = false
+		resp.Error = err.Error()
+	} else if pr.GetReadOnly() {
+		if w.currentProfile == nil {
+			resp.Ok = false
+			resp.Error = "session profile reader not configured"
+		} else {
+			data, err := json.Marshal(w.currentProfile(turnID))
+			if err != nil {
+				resp.Ok = false
+				resp.Error = err.Error()
+			} else {
+				resp.ProfileJson = string(data)
+			}
+		}
+	} else if w.setProfile == nil {
+		resp.Ok = false
+		resp.Error = "session profile control not configured"
+	} else if err := w.setProfile(ctx, turnID, pr.GetName()); err != nil {
+		resp.Ok = false
+		resp.Error = err.Error()
+	}
+	return resp
 }
