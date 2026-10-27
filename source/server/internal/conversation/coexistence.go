@@ -3,10 +3,12 @@ package conversation
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // CoexistenceDeclaration is an exact-match development declaration, not version
@@ -116,7 +118,25 @@ func PreflightCoexistence(ctx context.Context, path string, expected Coexistence
 		return err
 	}
 	defer db.Close()
-	return validateCoexistence(ctx, db, expected)
+	// WAL recovery can return SQLITE_BUSY_RECOVERY without invoking SQLite's
+	// busy handler. Retry only reads, with a fresh snapshot after rollback, and
+	// bound the entire preflight (including busy-handler waits).
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		err = validateCoexistence(ctx, db, expected)
+		var coded interface{ Code() int }
+		if !errors.As(err, &coded) || coded.Code()&0xff != 5 { // SQLITE_BUSY and its extended codes
+			return err
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("coexistence preflight busy: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
 }
 
 // OpenCoexistence opens only an explicitly prepared declared store, never running Open
@@ -168,8 +188,9 @@ func coexistenceURI(path, mode string) (string, error) {
 	q := url.Values{"mode": {mode}}
 	// Connection-local settings must also apply to replacement connections. These
 	// do not migrate schema or modify persistent SQLite settings.
+	q["_pragma"] = []string{"busy_timeout(5000)"}
 	if mode == "rw" {
-		q["_pragma"] = []string{"foreign_keys(1)", "busy_timeout(5000)"}
+		q["_pragma"] = append(q["_pragma"], "foreign_keys(1)")
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
