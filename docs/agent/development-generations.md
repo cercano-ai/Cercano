@@ -2,7 +2,7 @@
 
 ## Current boundary
 
-The source launcher publishes immutable generations and acquires an authenticated development host; it no longer uses the earlier fail-closed-only stub. This is a development workflow, not the packaged singleton launcher. **The installed `/Users/bryancostanich/bin/cercano` remains the old script. Live cutover is not complete and requires approval.** The actual ordinary-launcher A/B acceptance has passed with compiled hosts/workers and injected synthetic providers; see [acceptance evidence](../../efforts/dev-host-generations/everyday-launcher-acceptance-evidence.md). This is not real-model or native-credential qualification.
+The source launcher publishes immutable generations and acquires an authenticated development host; it no longer uses the earlier fail-closed-only stub. This is a development workflow, not the packaged singleton launcher. **The approved launcher cutover completed on 2026-10-27:** `~/bin/cercano` was replaced using static-only checks, without executing either launcher. The installed launcher's SHA-256 is `99f14bdf3815401086a283e23aaf6e344991968d95c31fcd0a77640a48d4b4ce`. The original is preserved at `~/bin/.cercano-launcher-backup-65xn2gpz/cercano`, SHA-256 `d37ee44856fd8ef34aaec5091a5c9ad265bfc67378d847edde0cdc67459256fc`. No native credentials were accessed, no real-model test was performed, and no agent was stopped during this cutover. The packaged launcher path was not changed. The actual ordinary-launcher A/B acceptance has passed with compiled hosts/workers and injected synthetic providers; see [acceptance evidence](../../efforts/dev-host-generations/everyday-launcher-acceptance-evidence.md). This is not real-model or native-credential qualification.
 
 The workflow never implicitly stops the old app, imports its database, or migrates its configuration. The one-time transition creates **separate new state**, not a replacement for or loss of the old data. Do not point it at your existing Cercano state, copy a legacy database into it, or use a running production launcher to provision it. Existing sessions continue on their original hosts until explicitly managed.
 
@@ -59,7 +59,7 @@ This pins the exact protected record directory. Ordinary pre-existing unprotecte
 
 ## Everyday launch, reuse, and exact reconnect
 
-Set `CERCANO_DEVELOPMENT_STATE` and, when intentionally overriding the embedded checkout, `CERCANO_REPO` in every shell. Invoke the reviewed source entrypoint, or the installed launcher only **after approved cutover**:
+Set `CERCANO_DEVELOPMENT_STATE` and, when intentionally overriding the embedded checkout, `CERCANO_REPO` in every shell. Invoke the reviewed source entrypoint, or the installed launcher following the approved 2026-10-27 cutover:
 
 ```bash
 "$CERCANO_REPO/source/server/scripts/cercano-launcher.sh"
@@ -114,11 +114,13 @@ Pending is unresolved work, not success. Preserve the exact source/destination, 
 
 A recorded host that is unreachable or retired is **never automatically respawned**. A failed start retains a durable `.starting` intent and logs; later calls refuse replacement. Even after retirement, a plain same-generation invocation is not a restart mechanism. There is no documented automatic repair/garbage-collection command here: preserve evidence and resolve the record deliberately under a separately reviewed recovery procedure. Do not delete locks, intents, host records, tokens, generations or state to force retry. There is no automatic deletion or retention sweep of published generations or old data.
 
-## Live launcher cutover: preparation only, approval still required
+## Launcher cutover reference: historical preparation and future replacements
 
-Target: `/Users/bryancostanich/bin/cercano`. **Do not execute the old script, install over it, or run a candidate against production.** Do not touch real application state or native credentials. The installer is explicit and no-clobber; it cannot replace an existing file or symlink and has no `--force` path.
+The approved 2026-10-27 replacement is recorded above. The procedure below preserves the pre-cutover preparation reference for future replacements; it is not a statement that the installed launcher is still old, nor authorization for another replacement.
 
-After the implementation lands in the **main repository**, the main operator can prepare a candidate with the following commands. Confirm `MAIN` is the actual canonical main checkout containing the landed revision, not this feature worktree. The example main path is intentional and must be verified by the operator; it was not inspected for this documentation task. The installer embeds its own checkout root, so invoking the worktree installer and planning to override `CERCANO_REPO` later is not an acceptable installed artifact.
+Target: `/Users/bryancostanich/bin/cercano`. The historical pre-approval warning was: **Do not execute the old script, install over it, or run a candidate against production.** For future preparation, do not touch real application state or native credentials. The installer is explicit and no-clobber; it cannot replace an existing file or symlink and has no `--force` path.
+
+For a future replacement after the implementation lands in the **main repository**, the main operator can prepare a candidate with the following commands. Confirm `MAIN` is the actual canonical main checkout containing the landed revision, not a feature worktree. The example main path is intentional and must be verified by the operator. The installer embeds its own checkout root, so invoking a worktree installer and planning to override `CERCANO_REPO` later is not an acceptable installed artifact.
 
 ```bash
 MAIN=/Users/bryancostanich/git_repos/cercano-ai/Cercano
@@ -152,6 +154,6 @@ shasum -a 256 "$STAGE/cercano" > "$STAGE/candidate.sha256"
 printf 'Review candidate and evidence in %s; installed path untouched\n' "$STAGE"
 ```
 
-These are **commands to prepare**, not evidence of execution. They stage only in a new private temp directory, inspect the original read-only, and perform syntax/static checks without executing either launcher. Static success does not demonstrate isolation, A/B behavior, credential safety or runtime acceptance. Main can perform actual artifact validation after landing. Retain the original hash, diff and candidate hash for review.
+These are **reference commands to prepare**, not evidence that these exact commands were executed. They stage only in a new private temp directory, inspect the installed file read-only, and perform syntax/static checks without executing either launcher. Static success does not demonstrate isolation, A/B behavior, credential safety or runtime acceptance. Retain the original hash, diff and candidate hash for review.
 
-Stop before activation. Approval must cover acceptance evidence (including the completed synthetic actual-launcher A/B exercise), the landed revision, embedded main path, candidate hash and a separately agreed replacement/rollback operation preserving the original script. No replacement command is authorized here. Until then the installed script remains old, and the everyday workflow/live cutover is **not complete**.
+For any future replacement, stop before activation. Approval must cover acceptance evidence (including the completed synthetic actual-launcher A/B exercise), the landed revision, embedded main path, candidate hash and a separately agreed replacement/rollback operation preserving the original script. This reference authorizes no new replacement. The earlier approval-pending warning applied before the approved 2026-10-27 cutover; that installation is complete, but it did not qualify native credentials or real-model operation.

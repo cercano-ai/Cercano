@@ -33,9 +33,14 @@ You need Go plus one model source. Everything else is optional.
 
 ### 2. Build the dev launcher
 
-The launcher script rebuilds the binaries when they're stale and kills any
-stale agent on each invocation — so you never debug a ghost process. Generate
-it once; it bakes in this clone's path and exports `CERCANO_REPO`:
+The normal development launcher publishes immutable generations and acquires
+an authenticated development host; it does not rebuild shared binaries or kill
+existing agents on invocation. See [development generations](development-generations.md)
+for required isolated-state preparation, exact reconnect, and the approved
+2026-10-27 static-only installed-launcher cutover (no launcher execution, native
+credential access, real-model test, or agent stop). This does not change the
+packaged launcher path. Generate the launcher once; it bakes in this clone's
+path and exports `CERCANO_REPO`:
 
 ```bash
 cd source/server && make launcher
@@ -102,7 +107,9 @@ piece.
 
 ### Install the dev launcher
 
-The launcher rebuilds-if-stale and kills stale agents on each invocation.
+The normal development launcher publishes immutable generations without
+rebuilding shared binaries or killing existing agents. Follow the isolated-state
+prerequisites in [development generations](development-generations.md).
 Generate it (bakes this clone's path in, exports `CERCANO_REPO`):
 
 ```bash
