@@ -1,5 +1,7 @@
 # Watchdog and provider construction — bounded Phase 1 slice
 
+> **Superseded credential-boundary evidence:** Review of `12b5499319ac` found that subscription/Bedrock injection bypassed the disabled-credential gate inside the replaced default builder. Checkpoint `b67b431d` reproduced and corrected this. The paired startup fixture now asserts refusal and zero builder calls while credentials are disabled; the successful paired-cloud behavior described below is historical and **not valid admission-preserving acceptance evidence**. Enabled positive coverage is restricted to fully memory-injected provider unit tests. See `docs/credential-builder-admission-regression.md`. Parent reran the focused builder/provider race gate after that fix: both packages passed. Successful full-startup safety remains pending.
+
 2026-10-27. Continuation from e406d06ab7e2; candidate is the explicit-path checkpoint containing this evidence. Phase 1 remains in progress. No canonical activation, live launch, push, migration or native credential access was performed.
 
 ## Actual wiring and defaults
