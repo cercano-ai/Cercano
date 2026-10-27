@@ -10,8 +10,9 @@ import (
 	"cercano/source/server/internal/engine"
 	cfgsvc "cercano/source/server/internal/hostsvc/config"
 	"cercano/source/server/internal/hostsvc/permissions"
-	runnersvc "cercano/source/server/internal/runner"
+	"cercano/source/server/internal/hostsvc/providers"
 	"cercano/source/server/internal/loop"
+	runnersvc "cercano/source/server/internal/runner"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/config"
 )
@@ -21,6 +22,8 @@ import (
 // called only after read-only contract preflight and must use the supplied store.
 // Normal request admission remains disabled pending foreground/context bridging.
 type PreparedServerOptions struct {
+	Watchdog                 WatchdogDependencies
+	CloudBuilder             providers.CloudBuilder
 	Coexistence              CoexistenceOptions
 	Config                   config.Config
 	ConfigPath               string
@@ -60,6 +63,8 @@ func NewPreparedServer(ctx context.Context, o PreparedServerOptions, router Rout
 	} // No native backend fallback.
 	cfg := cfgsvc.New(o.ConfigPath, o.Config.WithSharedReadOnly(), secrets.Guard(o.Secrets, secrets.Options{ReadOnly: true}), cfgsvc.Options{Frozen: true})
 	s := newServerWithConfig(a, router, coordinator, cloudFactory, registry, o.RoutingPath, o.FailurePath, cfg)
+	s.SetCloudProviderBuilder(o.CloudBuilder)
+	s.SetWatchdogDependencies(o.Watchdog)
 	s.coexistence = lifecycle.coexistence
 	if o.WorkerRunner != nil {
 		s.workerRunner = o.WorkerRunner(s.persistSvc, s.cfgSvc, s.permBroker)

@@ -293,9 +293,13 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// the OS keychain and installs the real provider.
 	cloudProvider := agent.AbsentCloud("pending profile resolution")
 
+	cloudBuilder := lifecycle.cloudBuilder
+	if cloudBuilder == nil {
+		cloudBuilder = cloudfactory.BuildCloudProvider
+	}
 	cloudFactory := func(ctx context.Context, provider, model, apiKey, baseURL string) (agent.TurnRunner, error) {
 		prof := cloudfactory.LegacyProfile(provider, model, baseURL)
-		p, err := cloudfactory.BuildCloudProvider(prof, apiKey)
+		p, err := cloudBuilder(prof, apiKey)
 		if err != nil {
 			return nil, err
 		}
@@ -499,6 +503,8 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	const maxGRPCMessageBytes = 64 << 20
 	s := grpc.NewServer(append(enterpriseHost.serverOptions(), grpc.MaxRecvMsgSize(maxGRPCMessageBytes))...)
 	srv := server.NewServer(orchestrator, lazyRouter, coordinator, cloudFactory, registry)
+	srv.SetCloudProviderBuilder(lifecycle.cloudBuilder)
+	srv.SetWatchdogDependencies(lifecycle.watchdog)
 	defer func() {
 		if !started {
 			s.Stop()

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"cercano/source/server/internal/engine"
 	llamaengine "cercano/source/server/internal/engine/llamaserver"
 	mistralengine "cercano/source/server/internal/engine/mistralrs"
+	"cercano/source/server/internal/hostsvc/providers"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/localruntime"
 	"cercano/source/server/internal/locus"
@@ -25,12 +27,13 @@ import (
 	"cercano/source/server/internal/worker"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/devhostauth"
-	"gopkg.in/yaml.v3"
 )
 
 // Invocation-local seams: tests never open a native credential backend or attach
 // to a real runtime. There are deliberately no environment-selected fixtures.
 type developmentProductionDependencies struct {
+	watchdog        server.WatchdogDependencies
+	cloudBuilder    providers.CloudBuilder
 	mcp             productionMCPDependencies
 	openSecrets     func() (secrets.Store, error)
 	connectRuntime  func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error)
@@ -223,8 +226,10 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		return nil, nil, err
 	}
 	srv, err := server.NewPreparedDurableServer(ctx, server.PreparedServerOptions{
-		Coexistence: server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(context.Context) error { cleanup(); return nil }},
-		Config:      cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
+		Watchdog:     deps.watchdog,
+		CloudBuilder: deps.cloudBuilder,
+		Coexistence:  server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(context.Context) error { cleanup(); return nil }},
+		Config:       cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
 		Agent: func(prepared conversation.Store) (*agent.Agent, error) {
 			store, err = admission.conversationStore(prepared, nil)
 			if err != nil {

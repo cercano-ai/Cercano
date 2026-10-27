@@ -122,7 +122,7 @@ type Server struct {
 	chatgptCatalogBase string
 	proto.UnimplementedAgentServer
 	agent       *agent.Agent
-	providerSvc providers.Resolver // owns cloud/open providers, router, coordinator, registry, catalogManager
+	providerSvc providers.ComposableResolver // owns cloud/open providers, router, coordinator, registry, catalogManager
 	// catalogRegistry is the pluggable model-catalog registry (HuggingFace /
 	// Ollama backends, one active). Held on Server directly — browse runs
 	// host-side; the worker doesn't discover models.
@@ -159,9 +159,10 @@ type Server struct {
 	// enforces the decline/re-arm hysteresis. nil (or a zero-threshold config)
 	// means the feature is off and no offer is ever emitted. Wired via
 	// SetRolloverConfig from main.go.
-	rollover    *rolloverManager
-	runtimesSvc runtimessvc.Supervisors // owns meridianMgr, runtimeManager, mcpManager
-	watchdog    *watchdog.Watchdog      // protocol-supervision gate; nil = disabled (default)
+	rollover     *rolloverManager
+	runtimesSvc  runtimessvc.Supervisors // owns meridianMgr, runtimeManager, mcpManager
+	watchdogDeps WatchdogDependencies
+	watchdog     *watchdog.Watchdog // protocol-supervision gate; nil = disabled (default)
 	// Two runners coexist so the front door can pick per turn. inProcessRunner is
 	// always built (NewServer / SetPermissions) and is the embedded runnersvc.Core
 	// the test suite constructs. workerRunner is nil until SelectExecutionMode
@@ -4919,4 +4920,10 @@ func sendAttachedEvent(stream streamResponseSender, ev runnersvc.Event) error {
 		return sendRunnerEvent(stream, ev)
 	}
 	return (identifiedStreamSender{streamResponseSender: stream, event: ev}).Send(&proto.StreamProcessResponse{Payload: &proto.StreamProcessResponse_FinalResponse{FinalResponse: &proto.ProcessRequestResponse{Output: ev.Result.FinalText, InputTokens: int32(ev.Result.InputTokens), OutputTokens: int32(ev.Result.OutputTokens), Notice: ev.Result.Notice, RoutingMetadata: &proto.RoutingMetadata{ModelName: ev.Result.Model, IsCloud: ev.Result.IsCloud}}}})
+}
+
+// SetCloudProviderBuilder installs an invocation-local transport constructor.
+// Call only during composition, before RebuildCloud or request admission.
+func (s *Server) SetCloudProviderBuilder(build providers.CloudBuilder) {
+	s.providerSvc.SetCloudBuilder(build)
 }

@@ -1,16 +1,21 @@
 package main
 
 import (
-	"cercano/source/server/internal/conversation"
-	"cercano/source/server/internal/worker"
 	"net"
+
+	"cercano/source/server/internal/conversation"
+	"cercano/source/server/internal/hostsvc/providers"
+	"cercano/source/server/internal/server"
+	"cercano/source/server/internal/worker"
 )
 
 type productionLifecycleDependencies struct {
-	enterprise productionEnterpriseDependencies
-	openStore  func(string) (conversation.Store, error)
-	listen     func(string, string) (net.Listener, error)
-	reap       func() int
+	watchdog     server.WatchdogDependencies
+	cloudBuilder providers.CloudBuilder
+	enterprise   productionEnterpriseDependencies
+	openStore    func(string) (conversation.Store, error)
+	listen       func(string, string) (net.Listener, error)
+	reap         func() int
 }
 
 func productionLifecycleDefaults() productionLifecycleDependencies {

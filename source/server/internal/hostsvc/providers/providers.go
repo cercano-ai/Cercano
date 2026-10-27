@@ -136,7 +136,19 @@ type cloudRoutingState struct {
 }
 type providerSlot struct{ provider inference.Provider }
 
+// CloudBuilder is invoked after credential validation and token-source selection.
+// Injection changes transport construction, not credential admission.
+type CloudBuilder func(cfg.CloudProfile, string, ...cloudfactory.Options) (inference.Provider, error)
+
+// ComposableResolver adds startup-only wiring without granting worker resolvers
+// transport-construction authority.
+type ComposableResolver interface {
+	Resolver
+	SetCloudBuilder(CloudBuilder)
+}
+
 type service struct {
+	cloudBuilder         CloudBuilder
 	rebuildMu            sync.Mutex
 	cloudState           atomic.Pointer[cloudRoutingState]
 	openState            atomic.Pointer[providerSlot]
@@ -178,7 +190,7 @@ func New(
 	cloudFactory agent.CloudFactory,
 	registry *engine.EngineRegistry,
 	usageSink func(usage.Usage),
-) Resolver {
+) ComposableResolver {
 	return &service{
 		cfgSvc:       cfgSvc,
 		openModels:   openModels,
@@ -419,7 +431,11 @@ func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error
 	if prof.Flavor == cloudfactory.FlavorMessages && prof.Route == cloudfactory.RouteSubscription {
 		opts.AnthropicTokenSource = p.cfgSvc.Credentials().Anthropic(prof.Name, anthropicauth.Flow{})
 	}
-	provider, err := cloudfactory.BuildCloudProvider(prof, key, opts)
+	build := p.cloudBuilder
+	if build == nil {
+		build = cloudfactory.BuildCloudProvider
+	}
+	provider, err := build(prof, key, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -592,3 +608,6 @@ func (p *service) RunReasoningDiagnostic(ctx context.Context, spec reasoningexpe
 func (p *service) ResolveChatRoute(ctx context.Context, route chatroute.Route) (inference.Provider, error) {
 	return chatroute.Build(p.cfgSvc.Get(), route, p.buildProfile)
 }
+
+// SetCloudBuilder must be called during composition, before serving or rebuilding.
+func (p *service) SetCloudBuilder(build CloudBuilder) { p.cloudBuilder = build }
