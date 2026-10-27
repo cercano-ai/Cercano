@@ -18,16 +18,13 @@ import (
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/localruntime"
 	"cercano/source/server/internal/locus"
-	"cercano/source/server/internal/loop"
 	"cercano/source/server/internal/modelhost"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/server"
-	"cercano/source/server/internal/tools"
 	"cercano/source/server/internal/toolstack"
 	"cercano/source/server/internal/worker"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/devhostauth"
-	"google.golang.org/adk/session"
 	"gopkg.in/yaml.v3"
 )
 
@@ -193,14 +190,12 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	}
 	cloud := agent.AbsentCloud("prepared cloud profile not configured")
 	cloudFactory := developmentCloudFactory(cfg, st)
-	sessions := session.InMemoryService()
-	coordinator := loop.NewADKCoordinator(openRunner, cloud, tools.NewAutoValidator(tools.DefaultLoader(), tools.DefaultKindToValidator()), sessions)
-	router := agent.NewLazyRouter(func() (*agent.SmartRouter, error) {
-		if !local {
-			return nil, fmt.Errorf("cloud_only requires configured managed routing; local embedding classification is disabled")
-		}
-		return agent.NewSmartRouterFromBytes(openRunner, cloud, openEmbeddingModel(cfg), embedder, agent.DefaultPrototypes(), cloudFactory)
-	}, openRunner, cloud)
+	routing := composeProductionRouting(productionRoutingDependencies{
+		open: openRunner, cloud: cloud, cloudFactory: cloudFactory,
+		embeddingModel: openEmbeddingModel(cfg), embedder: embedder, classificationDisabled: !local,
+	})
+	sessions, coordinator, router := routing.sessions, routing.coordinator, routing.router
+
 	loader := projectctx.NewLoader()
 	var orchestrator *agent.Agent
 	diagnostics := filepath.Join(o.State, "hosts", o.Host)

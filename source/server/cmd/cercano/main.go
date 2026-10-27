@@ -44,7 +44,6 @@ import (
 	runtimellama "cercano/source/server/internal/localruntime/llamaserver"
 	runtimemistralrs "cercano/source/server/internal/localruntime/mistralrs"
 	"cercano/source/server/internal/locus"
-	"cercano/source/server/internal/loop"
 	"cercano/source/server/internal/loopcompact"
 	mcpserver "cercano/source/server/internal/mcp"
 	mcphost "cercano/source/server/internal/mcp_host"
@@ -61,14 +60,12 @@ import (
 	"cercano/source/server/internal/skills"
 	"cercano/source/server/internal/sysram"
 	"cercano/source/server/internal/telemetry"
-	"cercano/source/server/internal/tools"
 	"cercano/source/server/internal/toolstack"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 	"cercano/source/server/pkg/update"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/adk/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -262,10 +259,6 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// the OS keychain and installs the real provider.
 	cloudProvider := agent.AbsentCloud("pending profile resolution")
 
-	validator := tools.NewAutoValidator(tools.DefaultLoader(), tools.DefaultKindToValidator())
-	sessionSvc := session.InMemoryService()
-	coordinator := loop.NewADKCoordinator(openProvider, cloudProvider, validator, sessionSvc)
-
 	cloudFactory := func(ctx context.Context, provider, model, apiKey, baseURL string) (agent.TurnRunner, error) {
 		prof := cloudfactory.LegacyProfile(provider, model, baseURL)
 		p, err := cloudfactory.BuildCloudProvider(prof, apiKey)
@@ -275,14 +268,11 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 		return agent.InferenceTurnRunner(p, model), nil
 	}
 
-	// SmartRouter is built lazily on first use. This keeps MCP-only deployments
-	// working even when the embedding model (nomic-embed-text) is not installed,
-	// since MCP tools never classify intent. Prototypes are embedded in the
-	// binary (see //go:embed in internal/agent/router.go). See GitHub issue #5.
-	routerFactory := func() (*agent.SmartRouter, error) {
-		return agent.NewSmartRouterFromBytes(openProvider, cloudProvider, openEmbeddingModel(cfg), selectEmbedEngine(cfg, ollamaEng, llamaEng), agent.DefaultPrototypes(), cloudFactory)
-	}
-	lazyRouter := agent.NewLazyRouter(routerFactory, openProvider, cloudProvider)
+	routing := composeProductionRouting(productionRoutingDependencies{
+		open: openProvider, cloud: cloudProvider, cloudFactory: cloudFactory,
+		embeddingModel: openEmbeddingModel(cfg), embedder: selectEmbedEngine(cfg, ollamaEng, llamaEng),
+	})
+	sessionSvc, coordinator, lazyRouter := routing.sessions, routing.coordinator, routing.router
 
 	convStore := agent.NewConversationStore(sessionSvc, 3)
 
