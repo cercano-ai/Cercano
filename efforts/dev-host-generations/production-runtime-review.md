@@ -1,0 +1,7 @@
+# Production integration review checkpoint
+
+Current factory inspected during implementation requires protected modelhost for ALL routes, including cloud-only. Existing `cmd/cercano/modelhost.go` defaults to an unprotected server and has no inspected ordinary command option that provisions protected service. A usable production path must not depend on an unstartable protected runtime: support cloud-only without local runtime dependency, and provide explicitly scoped protected runtime setup or clearly bounded local-runtime transition instructions. Do NOT silently connect/replace legacy modelhost or start real-model inference in tests. Default factory's `EnsureOptions.RunDir` currently discovers ambient default modelhost; prefer state-declared exact protected participant rather than unpinned backend replacement across generations.
+
+Readiness success for injected synthetic runtime does not establish real runtime setup. Keep model-host and agent-generation compatibility claims separate. One-time new-state provisioning needs explicit config.yaml and safe runtime configuration, not just an empty DB.
+
+Actual-entrypoint acceptance worker has created refusal tests but was blocked by missing ConfigurePreparedWorker. It needs compile-time injected dependencies through the REAL production graph (memory secrets, synthetic provider/runtime, barrier tool), not a toy replacement host. Factory needs to expose this clean seam without any environment-enabled production bypass.
