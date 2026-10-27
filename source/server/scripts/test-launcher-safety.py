@@ -9,6 +9,7 @@ import sqlite3
 import json
 import shutil
 import concurrent.futures
+from contextlib import closing
 
 SCRIPTS = Path(__file__).resolve().parent
 
@@ -31,7 +32,7 @@ class LauncherSafety(unittest.TestCase):
         state = root / 'state'
         state.mkdir(mode=0o700)
         (state / 'config.yaml').write_text('{}')
-        with sqlite3.connect(state / 'conversations.db') as db:
+        with closing(sqlite3.connect(state / 'conversations.db')) as db, db:
             db.execute('create table coexistence_metadata(contract, schema_version)')
             db.execute("insert into coexistence_metadata values ('cercano-development-owned-v2', 2)")
             db.execute('pragma user_version=2')
@@ -42,7 +43,7 @@ class LauncherSafety(unittest.TestCase):
         shutil.copy(SCRIPTS / 'cercano-launcher.py', scripts)
         # Fake publisher and generation binaries; the actual source shell and
         # orchestration helper execute, never a replacement launcher.
-        (scripts / 'publish-dev-generation.py').write_text('''import sys, pathlib, os, fcntl, json
+        (scripts / 'publish-dev-generation.py').write_text('''import sys, pathlib, os, fcntl, json, hashlib
 with open(os.environ['FAKE_ENV_LOG'], 'a') as log:
  log.write(json.dumps([sys.argv[1], os.environ.get('CERCANO_DISABLE_CREDENTIALS')])+'\\n')
 assert os.environ['CERCANO_DISABLE_CREDENTIALS']=='1'
@@ -58,6 +59,8 @@ with (state/'publish.lock').open('w') as lock:
   target=gen/name
   if not target.exists():
    target.write_bytes((state/name).read_bytes()); target.chmod(0o755)
+ manifest={'schema':1, 'generation':'abc', 'build_id':'fake', 'binaries':{name:{'sha256':hashlib.sha256((gen/name).read_bytes()).hexdigest(), 'size':(gen/name).stat().st_size} for name in ['cercano', 'cercano-cli']}}
+ if not (gen/'manifest.json').exists(): (gen/'manifest.json').write_text(json.dumps(manifest))
 print(gen)
 ''')
         (state / 'cercano').write_text('''#!/usr/bin/env python3
@@ -75,6 +78,7 @@ print(path)
 ''')
         (state / 'cercano-cli').write_text('''#!/usr/bin/env python3
 import sys, json, os
+assert os.environ['CERCANO_LAUNCHED_DEVELOPMENT']=='1'
 with open(os.environ['FAKE_ENV_LOG'], 'a') as log:
  log.write(json.dumps(['cli', os.environ.get('CERCANO_DISABLE_CREDENTIALS')])+'\\n')
 print(json.dumps(sys.argv[1:]))
@@ -114,13 +118,13 @@ print(json.dumps(sys.argv[1:]))
         with tempfile.TemporaryDirectory() as root:
             env = self.fixture(root)
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                results = list(pool.map(lambda _: self.source_launch(env, 'one argument', '--flag=x'), range(2)))
+                results = list(pool.map(lambda _: self.source_launch(env, 'one argument'), range(2)))
             paths = []
             for result in results:
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = json.loads(result.stdout)
                 self.assertEqual(args[0], '--dev-host')
-                self.assertEqual(args[2:], ['one argument', '--flag=x'])
+                self.assertEqual(args[2:], ['one argument'])
                 paths.append(args[1])
             self.assertNotEqual(*paths)
             self.assertTrue(all(Path(p).is_file() for p in paths))
@@ -138,6 +142,69 @@ print(json.dumps(sys.argv[1:]))
             self.assertEqual(json.loads(result.stdout), ['--dev-host', str(selection), 'reconnect argument'])
             self.assertEqual(selection.read_bytes(), before)
             self.assertEqual(list(selection.parent.iterdir()), [selection])
+
+    def test_flag_preflight_has_no_side_effects(self):
+        for args in [('--dev-host=',), ('-dev-host=',), ('--dev-host', ''),
+                     ('--dev-host', 'a', '-dev-host=b'), ('--dev-host=a', '--dev-host=a'),
+                     ('positional', '--dev-host='), ('--unknown',),
+                     ('--help',), ('-help',), ('--version',), ('-version',)]:
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as root:
+                env = self.fixture(root)
+                result = self.source_launch(env, *args)
+                self.assertEqual(result.returncode, 0 if 'help' in args[0] or 'version' in args[0] else 78, result.stderr)
+                self.assertFalse(Path(env['FAKE_ENV_LOG']).exists())
+                self.assertFalse((Path(env['CERCANO_DEVELOPMENT_STATE']) / 'generations').exists())
+
+    def test_equals_reconnect_and_tampering(self):
+        for damage in ('none', 'cli', 'server', 'cli-symlink', 'manifest-symlink', 'manifest', 'selection-type', 'generation-type'):
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as root:
+                env = self.fixture(root)
+                initial = self.source_launch(env)
+                self.assertEqual(initial.returncode, 0, initial.stderr)
+                selection = Path(json.loads(initial.stdout)[1])
+                generation = Path(json.loads(selection.read_text())['Generation'])
+                log = Path(env['FAKE_ENV_LOG']); log.write_text('')
+                if damage in ('cli', 'server'):
+                    with (generation / ('cercano-cli' if damage == 'cli' else 'cercano')).open('a') as f:
+                        f.write('\n# tampered\n')
+                elif damage.endswith('-symlink'):
+                    target = generation / ('cercano-cli' if damage == 'cli-symlink' else 'manifest.json')
+                    copy = generation.parent / 'copy'; copy.write_bytes(target.read_bytes()); copy.chmod(0o755)
+                    target.unlink(); target.symlink_to(copy)
+                elif damage == 'manifest':
+                    (generation / 'manifest.json').write_text('[]')
+                elif damage == 'selection-type':
+                    selection.write_text('[]')
+                elif damage == 'generation-type':
+                    selection.write_text('{"Generation": []}')
+                result = self.source_launch(env, '-dev-host=' + str(selection))
+                self.assertEqual(result.returncode, 0 if damage == 'none' else 78, result.stderr)
+                self.assertNotIn('Traceback', result.stderr)
+                events = [json.loads(line)[0] for line in log.read_text().splitlines()]
+                self.assertEqual(events, ['cli'] if damage == 'none' else [])
+
+    def test_reconnect_all_go_spellings(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = self.fixture(root)
+            initial = self.source_launch(env)
+            self.assertEqual(initial.returncode, 0, initial.stderr)
+            selection = json.loads(initial.stdout)[1]
+            for args in [('--dev-host', selection), ('-dev-host', selection),
+                         ('--dev-host=' + selection,), ('-dev-host=' + selection,)]:
+                log = Path(env['FAKE_ENV_LOG']); log.write_text('')
+                result = self.source_launch(env, *args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), ['--dev-host', selection])
+                self.assertEqual([json.loads(line)[0] for line in log.read_text().splitlines()], ['cli'])
+
+    def test_information_without_prepared_state(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = self.fixture(root)
+            env.pop('CERCANO_DEVELOPMENT_STATE')
+            for flag in ('--version', '--help', '-h'):
+                result = self.source_launch(env, flag)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(Path(env['FAKE_ENV_LOG']).exists())
 
     def test_host_failure_never_executes_cli(self):
         with tempfile.TemporaryDirectory() as root:
@@ -158,7 +225,7 @@ print(json.dumps(sys.argv[1:]))
             self.assertIn('38 resolved bytes', result.stderr)
             self.assertFalse((Path(env['CERCANO_DEVELOPMENT_STATE']) / 'generations').exists())
             env.pop('CERCANO_RUNTIME_ROOT')
-            with sqlite3.connect(Path(env['CERCANO_DEVELOPMENT_STATE']) / 'conversations.db') as db:
+            with closing(sqlite3.connect(Path(env['CERCANO_DEVELOPMENT_STATE']) / 'conversations.db')) as db, db:
                 db.execute('delete from coexistence_metadata')
             result = self.source_launch(env)
             self.assertEqual(result.returncode, 78)

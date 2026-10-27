@@ -45,6 +45,14 @@ func main() {
 		return
 	}
 
+	// Set only by the source development launcher. Even an empty override or
+	// a selector hidden behind a positional must never reach legacy auto-launch.
+	// Ordinary packaged CLI invocations retain their existing behavior.
+	if os.Getenv("CERCANO_LAUNCHED_DEVELOPMENT") == "1" && *devHost == "" {
+		fmt.Fprintln(os.Stderr, "cercano: development launcher requires nonempty --dev-host; legacy fallback refused")
+		os.Exit(78)
+	}
+
 	if *devHost != "" {
 		s, err := cliui.ReadDevHostSelection(*devHost)
 		if err == nil {

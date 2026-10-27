@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Source entrypoint and no-clobber installer template. Never singleton startup.
 set -euo pipefail
-if [[ -z "${CERCANO_DEVELOPMENT_STATE:-}" || ! -f "${CERCANO_DEVELOPMENT_STATE}/config.yaml" || ! -f "${CERCANO_DEVELOPMENT_STATE}/conversations.db" ]]; then
+# Informational invocations reach the same central parser without prepared state.
+INFO_ONLY=0
+if [[ $# == 1 ]]; then
+    case "$1" in -h|--h|-help|--help|-version|--version) INFO_ONLY=1 ;; esac
+fi
+if [[ "$INFO_ONLY" == 0 ]] && [[ -z "${CERCANO_DEVELOPMENT_STATE:-}" || ! -f "${CERCANO_DEVELOPMENT_STATE}/config.yaml" || ! -f "${CERCANO_DEVELOPMENT_STATE}/conversations.db" ]]; then
     printf '%s\n' '[cercano] Prepared separate development state and explicit config.yaml required.' 'Provision once, exclusively: /absolute/generation/cercano prepare-development --new-state /absolute/NEW/private/state' 'Then supply an explicit config.yaml (no legacy data or native credentials) and set CERCANO_DEVELOPMENT_STATE.' 'No database or running session has been changed.' >&2
     exit 78
 fi
