@@ -1,6 +1,16 @@
-# Everyday launcher integration — implementation evidence
+# Everyday launcher integration — current guide and historical evidence
 
-## Implemented safety slices
+## Current operating guide and cutover status
+
+Use [Everyday development launcher: operation and live cutover](docs/agent/development-generations.md) for current user-facing bootstrap, configuration, exact reconnect, lifecycle management and candidate preparation instructions. Current source orchestrates immutable publication and authenticated host acquisition; the fail-closed-only stub described below is an earlier implementation stage, not the current source behavior.
+
+**`/Users/bryancostanich/bin/cercano` remains the old installed script. Live cutover is not complete and is pending approval.** Actual A/B acceptance is ongoing; no completion or passing-test claim is made here. Candidate preparation must happen from the main checkout after landing, into a new private temporary destination with the explicit no-clobber installer. Do not execute the old script, overwrite the installed path, access real application state/native credentials, or run the candidate against production during preparation. The guide provides read-only hash comparison and static-check commands for the main operator; those commands have not been executed as part of this documentation update.
+
+## Historical audit evidence — earlier safety-stub stage
+
+The remainder is preserved as historical audit evidence, including its then-current blockers, future-tense contracts and reported verification. It does **not** describe the current implementation or establish present acceptance. In particular, the old “remaining implementation” and “source launcher disabled” statements below are historical, and the test results are the earlier slice's reports, not tests rerun or newly verified by this documentation task.
+
+### Implemented safety slices (historical)
 
 - Normal source launcher now **fails closed (exit 78)** with an explicit transition diagnostic. Removed stale-process killing, singleton startup, mutable libexec builds and PATH/sibling fallback. It does not yet publish or launch generations. This is a deliberate unavailable state, NOT a working everyday launcher.
 - Installer requires `--destination /absolute/new/path`; no implicit `~/bin/cercano`, `--force`, replacement, symlink overwrite or nonexclusive publication. `make launcher` requires `LAUNCHER_DEST`. Installation was tested only in temporary directories. `/Users/bryancostanich/bin/cercano` was neither modified nor executed.
