@@ -27,6 +27,9 @@ Darwin cgo fingerprints SDK and developer-toolchain contents; other cgo platform
 fail closed pending system-header/library identity support. Trusted installations
 are assumed, not concurrent adversarial toolchain mutation.
 Builds use a private content snapshot and recheck live inputs before publication.
+Known performance limitation: full SDK/toolchain hashing is repeated (two passes
+on reuse, four for a new generation including the launcher's fingerprint query).
+No persistent identity cache is used.
 GOFLAGS and other unsupported Go/compiler overrides fail closed; builds force
 native Go cgo defaults (or explicit CGO_ENABLED=0/1), GOENV=off, GOWORK=off, GOTOOLCHAIN=local, readonly modules and no VCS
 stamping. Local module replacements must stay inside source/. Dependency versions
@@ -146,8 +149,13 @@ def tree_identity(root):
     return digest.hexdigest()
 
 
-def effective_identity(go, env):
-    effective = json.loads(subprocess.check_output([go, "env", "-json"], env=env, text=True))
+def effective_identity(go, env, module):
+    # Query in the fixed source module, not the launcher's runtime caller cwd.
+    effective = json.loads(subprocess.check_output(
+        [go, "env", "-json"], env=env, cwd=module, text=True))
+    # Diagnostic module location is not a build input; source module bytes are
+    # already hashed below. Retain all other effective toolchain/native inputs.
+    effective.pop("GOMOD", None)
     # Go creates a random scratch path for this diagnostic flag on every query.
     # Normalize only that generated prefix, not caller-controlled compiler flags.
     if "GOGCCFLAGS" in effective:
@@ -216,7 +224,7 @@ def inputs(args, snapshot=None):
     if not re.fullmatch(r"[A-Za-z0-9._+/-]+", version):
         raise ValueError("VERSION must contain only letters, digits, . _ + / -")
     metadata = {"format": 2, "version": version, "flags": flags,
-                "effective": effective_identity(go, env),
+                "effective": effective_identity(go, env, repo / "source/server"),
                 "policy": "native-cgo GOENV=off GOWORK=off GOTOOLCHAIN=local -mod=readonly -buildvcs=false",
                 "go": go, "go_sha256": hashlib.sha256(Path(go).read_bytes()).hexdigest(),
                 "toolchain": subprocess.check_output([go, "version"], env=env, text=True).strip(),

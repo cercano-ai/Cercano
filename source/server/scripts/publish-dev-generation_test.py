@@ -37,7 +37,13 @@ class PublicationTests(unittest.TestCase):
 from pathlib import Path
 if sys.argv[1] == "env":
     import json
-    print(json.dumps({"CGO_ENABLED": os.environ.get("CGO_ENABLED", "0"), "GOARCH": os.environ.get("GOARCH", "native")}))
+    print(json.dumps({"CGO_ENABLED": os.environ.get("CGO_ENABLED", "0"),
+                      "GOARCH": os.environ.get("GOARCH", "native"),
+                      "GOMOD": str(Path.cwd() / "go.mod"),
+                      "GOGCCFLAGS": "-O2 -ffile-prefix-map=/tmp/go-build%d=/tmp/go-build" % os.getpid()}))
+    if os.environ.get("ENV_LOG"):
+        with Path(os.environ["ENV_LOG"]).open("a") as log:
+            log.write(str(Path.cwd()) + "\\n")
     sys.exit(0)
 if sys.argv[1:3] == ["mod", "edit"]:
     import subprocess
@@ -90,10 +96,61 @@ output.chmod(0o755)
         self.assertEqual(list(self.root.glob(".building-*")), [])
         return result
 
-    def fingerprint(self):
+    def fingerprint(self, cwd=None):
         return subprocess.run([sys.executable, str(PUBLISHER), "fingerprint",
                                "--repo", str(self.repo), "--go", str(self.fake)],
-                              env=self.env, text=True, capture_output=True)
+                              env=self.env, cwd=cwd, text=True, capture_output=True)
+
+    def test_fingerprint_independent_of_caller_module(self):
+        unrelated = self.base / "unrelated project"
+        unrelated.mkdir()
+        (unrelated / "go.mod").write_text("module unrelated\n")
+        self.env["ENV_LOG"] = str(self.home / "env-log")
+        first = self.fingerprint(cwd=self.repo / "source/server")
+        second = self.fingerprint(cwd=unrelated)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(first.stdout, second.stdout)
+        self.assertEqual((self.home / "env-log").read_text().splitlines(),
+                         [str(self.repo / "source/server")] * 2)
+        (self.repo / "source/server/go.mod").write_text("module changed\n")
+        changed = self.fingerprint(cwd=unrelated)
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        self.assertNotEqual(first.stdout, changed.stdout)
+        self.env["GOARCH"] = "arm64"
+        changed_toolchain = self.fingerprint(cwd=unrelated)
+        self.assertEqual(changed_toolchain.returncode, 0, changed_toolchain.stderr)
+        self.assertNotEqual(changed.stdout, changed_toolchain.stdout)
+
+    def test_native_go_module_diagnostic(self):
+        # Diagnostic only: no compilation, SDK hashing, credentials, or app launch.
+        go = shutil.which("go")
+        if not go:
+            self.skipTest("Go unavailable")
+        import importlib.util
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(publisher)
+        env = {**self.env, "CGO_ENABLED": "0", "GOENV": "off",
+               "GOWORK": "off", "GOTOOLCHAIN": "local"}
+        modules = [self.repo / "source/server", self.repo / "source/clients/cli"]
+        diagnostics = [json.loads(subprocess.check_output(
+            [go, "env", "-json"], env=env, cwd=module, text=True))
+            for module in modules]
+        self.assertNotEqual(diagnostics[0]["GOMOD"], diagnostics[1]["GOMOD"])
+        # Keep this a cheap native diagnostic test, not a full toolchain hash.
+        identities = []
+        original_cwd = Path.cwd()
+        try:
+            with patch.object(publisher, "tree_identity", return_value="fixture-goroot"):
+                for module in modules:
+                    os.chdir(module)
+                    identities.append(publisher.effective_identity(go, env, modules[0]))
+        finally:
+            os.chdir(original_cwd)
+        self.assertEqual(identities[0], identities[1])
+        self.assertNotIn("GOMOD", identities[0]["go_env"])
 
     def test_native_cgo_default_and_explicit_values(self):
         import importlib.util
