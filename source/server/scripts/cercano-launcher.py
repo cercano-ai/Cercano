@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import shutil
 
 
 def private(path):
@@ -112,6 +113,54 @@ def validate_generation(generation, state):
     return generation
 
 
+def prepare_if_absent(state, repo, env):
+    """Serialize first setup outside the exclusively-created destination.
+
+    Never adopt even an empty existing directory. The early Go command owns
+    source discovery, config copying and exclusive database provisioning.
+    """
+    if not state.is_absolute() or state.resolve() != state:
+        raise ValueError('state must be canonical and absolute')
+    parent = state.parent
+    mode = parent.stat()
+    if mode.st_uid != os.getuid() or mode.st_mode & 0o022:
+        raise ValueError('state parent must be owned and not writable by others')
+    fd = os.open(parent / ('.' + state.name + '.setup.lock'),
+                 os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'r+') as lock:
+        mode = os.fstat(lock.fileno())
+        if not stat.S_ISREG(mode.st_mode) or mode.st_uid != os.getuid() or mode.st_mode & 0o077 or mode.st_nlink != 1:
+            raise ValueError('private owned setup lock required')
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if os.path.lexists(state):
+            return
+        bootstrap = Path(tempfile.mkdtemp(prefix='.' + state.name + '-bootstrap-', dir=parent))
+        try:
+            root = bootstrap / 'generations'
+            publisher = [sys.executable, str(repo / 'source/server/scripts/publish-dev-generation.py')]
+            common = ['--repo', str(repo), '--sign']
+            build_env = dict(env, CERCANO_DISABLE_CREDENTIALS='1')
+            # Do not relay build/preparation output: config bytes and credentials
+            # must never escape via a failing child or build diagnostic.
+            def run(argv):
+                result = subprocess.run(argv, env=build_env, stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL, text=True)
+                if result.returncode:
+                    raise ValueError('automatic development preparation failed; existing files preserved (check source config and build prerequisites)')
+                return result.stdout.strip()
+            fingerprint = run([*publisher, 'fingerprint', *common])
+            if not fingerprint or Path(fingerprint).name != fingerprint or fingerprint in {'.', '..'}:
+                raise ValueError('invalid bootstrap fingerprint')
+            generation = run([*publisher, 'publish', *common, '--root', str(root),
+                              '--generation', fingerprint, '--fingerprint', fingerprint, '--reuse'])
+            if generation != str(root / fingerprint):
+                raise ValueError('publisher returned noncanonical bootstrap generation')
+            validate_generation(generation, bootstrap)
+            run([str(Path(generation) / 'cercano'), 'prepare-development', '--new-state', str(state)])
+        finally:
+            shutil.rmtree(bootstrap)
+
+
 def main():
     selected, args, info = parse_args(sys.argv[3:])
     if info:
@@ -122,7 +171,10 @@ def main():
         return
     runtime_env = dict(os.environ, CERCANO_LAUNCHED_DEVELOPMENT='1')
     repo = Path(sys.argv[2]).resolve()
-    state = private(os.environ['CERCANO_DEVELOPMENT_STATE'])
+    state = Path(os.environ['CERCANO_DEVELOPMENT_STATE'])
+    if selected is None:
+        prepare_if_absent(state, repo, runtime_env)
+    state = private(state)
     # Read-only prerequisite check before any build; authoritative Go preflight follows.
     db = state / 'conversations.db'
     if db.is_symlink() or not db.is_file() or not (state / 'config.yaml').is_file():
@@ -185,5 +237,5 @@ if __name__ == '__main__':
         main()
     except (OSError, ValueError, KeyError, IndexError, sqlite3.Error, subprocess.CalledProcessError) as error:
         print('[cercano] launch refused: ' + str(error), file=sys.stderr)
-        print('Provision once with prepare-development --new-state /absolute/NEW/private/state, which copies existing config.yaml privately; no legacy database or native credential import.', file=sys.stderr)
+        print('Absent state is prepared automatically from existing config.yaml. Existing partial/incompatible state is never adopted; originals and legacy databases are preserved.', file=sys.stderr)
         sys.exit(78)

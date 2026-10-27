@@ -6,31 +6,15 @@ The source launcher publishes immutable generations and acquires an authenticate
 
 The workflow never implicitly stops the old app, imports its database, or mutates its original configuration. Initial provisioning copies only the existing server config YAML into the separate development state. The one-time transition creates **separate new state**, not a replacement for or loss of the old data. Do not point it at your existing Cercano state, copy a legacy database into it, or use a running production launcher to provision it. Existing sessions continue on their original hosts until explicitly managed.
 
-## Bootstrap once, in a new private state
+## Automatic first-launch preparation
 
-Prerequisites: Python 3.9+, the supported native Go build toolchain, and on macOS working ad-hoc codesigning. Use canonical absolute paths without symlink aliases. The state parent must already exist; the state directory itself must **not** exist (even an empty directory is rejected).
+Prerequisites: Python 3.9+, the supported native Go build toolchain, and on macOS working ad-hoc codesigning. Use canonical absolute paths without symlink aliases. The state parent must already exist, be owned by you, and not writable by others.
 
-The normal launcher requires a prepared store before it can build. Break that bootstrap dependency with the **build-only publisher outside the new state**, then invoke that published binary's early `prepare-development` command. That command calls `PrepareDevelopmentStore`, creates the directory with mode 0700 and a development-owned v2 store, and copies existing server config YAML privately, without entering ordinary startup, reading legacy databases, or resolving native credentials. Discovery reuses `config.DefaultPath()`: `~/.config/cercano/config.yaml` (not `XDG_CONFIG_HOME`). Missing or unreadable source config is an error before creating the destination; it does not silently generate defaults.
+The updated **source launcher on this branch** automatically bootstraps an absent default `~/.config/cercano-development` (or an explicitly selected new state). No provisioning command or environment variable is needed for the default. It serializes setup using a persistent private sibling lock, publishes a signed build-only generation in a temporary private sibling directory, then invokes that binary's early `prepare-development --new-state` command before normal publication/acquisition. Concurrent first invocations wait for preparation; they never inspect a half-written state. Temporary bootstrap builds are removed; the lock file remains to preserve lock identity.
 
-Example, to run only when explicitly ready to provision isolated development state (not as part of the static cutover checks below):
+The early command creates mode-0700 state and a development-owned v2 store and copies mode-0600 config through the existing implementation. Discovery remains `config.DefaultPath()`: `~/.config/cercano/config.yaml` (not `XDG_CONFIG_HOME`). It does not enter normal startup, open legacy databases, or resolve native credentials. Build/preparation output is captured rather than relayed to avoid secret disclosure.
 
-```bash
-# Set REPO to the reviewed source checkout you intend to use.
-REPO=/absolute/canonical/repository
-export CERCANO_REPO="$REPO"
-umask 077
-BOOTSTRAP=$(mktemp -d /tmp/cercano-bootstrap.XXXXXX)
-BOOTSTRAP=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$BOOTSTRAP")
-GEN=$(CERCANO_DISABLE_CREDENTIALS=1 python3 \
-  "$REPO/source/server/scripts/publish-dev-generation.py" publish \
-  --repo "$REPO" --root "$BOOTSTRAP" --generation bootstrap --sign)
-# Default launcher state; parent must exist and this leaf must be NEW.
-# For a custom canonical path, keep CERCANO_DEVELOPMENT_STATE exported.
-export CERCANO_DEVELOPMENT_STATE="$HOME/.config/cercano-development"
-"$GEN/cercano" prepare-development --new-state "$CERCANO_DEVELOPMENT_STATE"
-```
-
-Do not `mkdir` the NEW leaf yourself. Failed provisioning leaves it for inspection; retry cannot adopt it. Choose another new destination only after understanding the failure. Nothing automatically deletes the bootstrap publication or partially prepared state.
+Missing source config or failed bootstrap build leaves the destination absent. Existing destinations, including empty, partial, incompatible, and legacy stores, are never adopted, overwritten, migrated, or repaired. Failure after exclusive creation leaves partial state for inspection and future launches refuse it. Diagnose that failure and deliberately choose a new destination rather than deleting or repurposing original data. Existing valid state is reused without recopying config.
 
 Preparation automatically creates `$CERCANO_DEVELOPMENT_STATE/config.yaml` as a
 private regular file (0600) in the private state directory (0700). It copies the
@@ -42,7 +26,7 @@ overwritten, even on repeated preparation. Later launcher builds use this same
 development config, not another copy of the original. Edit the development copy
 privately if you want different settings; re-running preparation is not an update
 mechanism. An already prepared state missing its config is not automatically
-adopted or repaired; provision a new state with this command instead.
+adopted or repaired; inspect the failure before selecting a new destination.
 
 Credentials must already be provisioned separately for that profile. Production dependency construction can read native credentials **read-only**, after store preflight. Runtime processes preserve the caller's credential policy: `CERCANO_DISABLE_CREDENTIALS=1` still blocks access, while an absent variable or `0` permits credential admission. Build subprocesses are credential-disabled; this does not make an ordinary production run credential-free. Shared configuration/auth mutation, credential migration, login/refresh writes and setup changes are not supported through this host. Do not use this guide's examples to touch real credentials during candidate validation. Build commands do not need them.
 
@@ -60,7 +44,7 @@ This pins the exact protected record directory. Ordinary pre-existing unprotecte
 
 ## Everyday launch, reuse, and exact reconnect
 
-The source launcher defaults to `$HOME/.config/cercano-development`, so no state variable is needed after provisioning that path. For a custom state, set `CERCANO_DEVELOPMENT_STATE` in every shell. Set `CERCANO_REPO` only when intentionally overriding the embedded checkout. First-run build-only publication and explicit provisioning above are still required: a plain launcher invocation does not bootstrap a missing store. These config-onboarding/default-state changes apply to the updated source template; they do not update an already installed launcher. Until a separately reviewed replacement, use the reviewed source entrypoint (or explicitly export the custom state for an older installed launcher):
+The source launcher defaults to `$HOME/.config/cercano-development` and automatically prepares it if absent. For a custom state, set `CERCANO_DEVELOPMENT_STATE`. Set `CERCANO_REPO` only when intentionally overriding the embedded checkout. These changes are unlanded source-template changes, not an update to the installed command. Until a separately reviewed replacement, use the reviewed source entrypoint:
 
 ```bash
 "$CERCANO_REPO/source/server/scripts/cercano-launcher.sh"

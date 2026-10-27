@@ -15,18 +15,6 @@ SCRIPTS = Path(__file__).resolve().parent
 
 
 class LauncherSafety(unittest.TestCase):
-    def test_blocked_launcher_does_not_execute_external_commands(self):
-        with tempfile.TemporaryDirectory() as root:
-            # cat is the only external dependency in the refusal path.
-            bin_dir = Path(root) / 'bin'
-            bin_dir.mkdir()
-            (bin_dir / 'cat').symlink_to('/bin/cat')
-            result = subprocess.run(['/bin/bash', str(SCRIPTS / 'cercano-launcher.sh')],
-                                    env={'HOME': root, 'PATH': str(bin_dir)}, capture_output=True)
-            self.assertEqual(result.returncode, 78, result.stderr)
-            self.assertIn(b'No database or running session has been changed', result.stderr)
-            self.assertEqual(sorted(p.name for p in Path(root).iterdir()), ['bin'])
-
     def fixture(self, root):
         root = Path(root).resolve()
         state = root / 'state'
@@ -51,20 +39,38 @@ assert '--sign' in sys.argv
 state=pathlib.Path(os.environ['CERCANO_DEVELOPMENT_STATE'])
 if sys.argv[1]=='fingerprint': print('abc'); sys.exit()
 assert '--reuse' in sys.argv and '--fingerprint' in sys.argv
-gen=state/'generations/abc'
-with (state/'publish.lock').open('w') as lock:
+if os.environ.get('FAKE_BUILD_FAIL'): print('synthetic-secret', file=sys.stderr); sys.exit(42)
+gen=pathlib.Path(sys.argv[sys.argv.index('--root')+1])/'abc'
+gen.parent.mkdir(mode=0o700, exist_ok=True)
+templates=pathlib.Path(os.environ.get('FAKE_TEMPLATES', str(state)))
+with (templates/'publish.lock').open('w') as lock:
  fcntl.flock(lock, fcntl.LOCK_EX)
  gen.mkdir(exist_ok=True)
  for name in ['cercano', 'cercano-cli']:
   target=gen/name
   if not target.exists():
-   target.write_bytes((state/name).read_bytes()); target.chmod(0o755)
+   target.write_bytes((templates/name).read_bytes()); target.chmod(0o755)
  manifest={'schema':1, 'generation':'abc', 'build_id':'fake', 'binaries':{name:{'sha256':hashlib.sha256((gen/name).read_bytes()).hexdigest(), 'size':(gen/name).stat().st_size} for name in ['cercano', 'cercano-cli']}}
  if not (gen/'manifest.json').exists(): (gen/'manifest.json').write_text(json.dumps(manifest))
 print(gen)
 ''')
         (state / 'cercano').write_text('''#!/usr/bin/env python3
-import sys, os, pathlib, tempfile, json
+import sys, os, pathlib, tempfile, json, sqlite3, time
+if sys.argv[1]=='prepare-development':
+ assert os.environ['CERCANO_DISABLE_CREDENTIALS']=='1'
+ state=pathlib.Path(sys.argv[sys.argv.index('--new-state')+1])
+ source=pathlib.Path(os.environ['HOME'])/'.config/cercano/config.yaml'
+ data=source.read_bytes()
+ state.mkdir(mode=0o700)
+ time.sleep(0.1)
+ (state/'config.yaml').write_bytes(data); (state/'config.yaml').chmod(0o600)
+ with sqlite3.connect(state/'conversations.db') as db:
+  db.execute('create table coexistence_metadata(contract, schema_version)')
+  db.execute("insert into coexistence_metadata values ('cercano-development-owned-v2', 2)")
+  db.execute('pragma user_version=2')
+ (state/'conversations.db').chmod(0o600)
+ with open(os.environ['FAKE_ENV_LOG'], 'a') as log: log.write(json.dumps(['prepare', '1'])+'\\n')
+ sys.exit()
 assert sys.argv[1]=='development-launch'
 with open(os.environ['FAKE_ENV_LOG'], 'a') as log:
  log.write(json.dumps(['development-launch', os.environ.get('CERCANO_DISABLE_CREDENTIALS')])+'\\n')
@@ -89,6 +95,78 @@ print(json.dumps(sys.argv[1:]))
 
     def source_launch(self, env, *args):
         return subprocess.run(['/bin/bash', str(SCRIPTS / 'cercano-launcher.sh'), *args], env=env, capture_output=True, text=True)
+
+    def absent_fixture(self, root):
+        env = self.fixture(root)
+        state = Path(env['CERCANO_DEVELOPMENT_STATE'])
+        templates = state.with_name('templates')
+        state.rename(templates)
+        env['FAKE_TEMPLATES'] = str(templates)
+        home = Path(root).resolve() / 'home'
+        source = home / '.config/cercano/config.yaml'
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b'# synthetic-secret config\n')
+        (source.parent / 'conversations.db').write_bytes(b'legacy sentinel')
+        env['HOME'] = str(home)
+        env.pop('CERCANO_DEVELOPMENT_STATE')
+        return env, home / '.config/cercano-development', source
+
+    def test_automatic_first_launch_concurrent_and_reuse(self):
+        with tempfile.TemporaryDirectory() as root:
+            env, state, source = self.absent_fixture(root)
+            before = source.read_bytes()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                results = list(pool.map(lambda _: self.source_launch(env), range(4)))
+            for result in results:
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn('synthetic-secret', result.stdout + result.stderr)
+            events = [json.loads(line) for line in Path(env['FAKE_ENV_LOG']).read_text().splitlines()]
+            self.assertEqual(events.count(['prepare', '1']), 1)
+            self.assertEqual((state / 'config.yaml').read_bytes(), before)
+            self.assertEqual(state.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((state / 'config.yaml').stat().st_mode & 0o777, 0o600)
+            (state / 'config.yaml').write_bytes(b'edited development')
+            self.assertEqual(self.source_launch(env).returncode, 0)
+            self.assertEqual((state / 'config.yaml').read_bytes(), b'edited development')
+            self.assertEqual(source.read_bytes(), before)
+            self.assertEqual((source.parent / 'conversations.db').read_bytes(), b'legacy sentinel')
+
+    def test_automatic_custom_new_state(self):
+        with tempfile.TemporaryDirectory() as root:
+            env, _, source = self.absent_fixture(root)
+            state = Path(root).resolve() / 'custom-new-state'
+            env['CERCANO_DEVELOPMENT_STATE'] = str(state)
+            result = self.source_launch(env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((state / 'config.yaml').read_bytes(), source.read_bytes())
+
+    def test_automatic_setup_failure_preserves_originals(self):
+        for failure in ('missing-source', 'build', 'partial', 'legacy', 'incompatible'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as root:
+                env, state, source = self.absent_fixture(root)
+                if failure == 'missing-source': source.unlink()
+                if failure == 'build': env['FAKE_BUILD_FAIL'] = '1'
+                if failure in ('partial', 'legacy', 'incompatible'):
+                    state.mkdir(mode=0o700)
+                    (state / 'sentinel').write_bytes(b'unchanged')
+                    if failure in ('legacy', 'incompatible'):
+                        (state / 'config.yaml').write_bytes(b'{}')
+                        (state / 'config.yaml').chmod(0o600)
+                        with sqlite3.connect(state / 'conversations.db') as db:
+                            db.execute('create table legacy(value)')
+                            if failure == 'incompatible':
+                                db.execute('create table coexistence_metadata(contract, schema_version)')
+                                db.execute("insert into coexistence_metadata values ('wrong-contract', 1)")
+                        (state / 'conversations.db').chmod(0o600)
+                snapshot = {p.name: p.read_bytes() for p in state.iterdir()} if state.exists() else None
+                result = self.source_launch(env)
+                self.assertEqual(result.returncode, 78, result.stderr)
+                self.assertNotIn('synthetic-secret', result.stdout + result.stderr)
+                if snapshot is None: self.assertFalse(state.exists())
+                else: self.assertEqual({p.name: p.read_bytes() for p in state.iterdir()}, snapshot)
+                self.assertEqual((source.parent / 'conversations.db').read_bytes(), b'legacy sentinel')
+                if source.exists(): self.assertEqual(source.read_bytes(), b'# synthetic-secret config\n')
+                self.assertFalse(list(state.parent.glob('.*-bootstrap-*')))
 
     def test_later_builds_preserve_development_config_and_default_state(self):
         with tempfile.TemporaryDirectory() as root:

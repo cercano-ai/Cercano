@@ -98,13 +98,14 @@ version ldflags reports `dev` and does not run this signing helper.
 
 **Development launcher:** the source launcher publishes immutable generations
 and uses separate prepared development state; it does not kill singleton agents.
-Follow [development generations](development-generations.md) for one-time
-build-only bootstrap and `prepare-development`. Preparation carries forward
+Follow [development generations](development-generations.md) for automatic first-launch
+build-only bootstrap and early `prepare-development`. Preparation carries forward
 `~/.config/cercano/config.yaml` privately without modifying the original or
 copying databases/native credentials; later builds reuse the development copy.
 The source launcher's default state is `~/.config/cercano-development`;
-`CERCANO_DEVELOPMENT_STATE` selects a custom prepared state. It still refuses an
-unprepared store rather than silently creating or migrating one. Template changes
+`CERCANO_DEVELOPMENT_STATE` optionally selects a custom state. Absent state is
+prepared automatically; existing partial/incompatible stores are refused, never
+adopted or migrated. No provisioning commands are needed for the default. Template changes
 require an explicitly reviewed installed-launcher replacement; the no-clobber
 installer only creates a new destination (`make launcher LAUNCHER_DEST=...`).
 
