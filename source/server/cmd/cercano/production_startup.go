@@ -77,21 +77,49 @@ func (a productionStartupAdmission) conversationStore(prepared conversation.Stor
 // its warning/default fallback) unchanged; generation admission and the parity
 // gate must run before even attempting config.Load, which may migrate and save.
 // Dependencies are invocation-local so tests cannot change another invocation.
-func runAgentWithStartup(ctx context.Context, policy productionStartupPolicy, load func(string) (config.Config, error), run func(config.Config)) error {
-	// Do not move legacy authority resolution ahead of loading: it historically
-	// happens during server startup, after config warning/default fallback.
-	// A mixed legacy/generation declaration must still fail before loading.
+func runAgentWithStartup(ctx context.Context, policy productionStartupPolicy, load func(string) (config.Config, error), run func(config.Config, productionStartupAdmission)) error {
+	var admission productionStartupAdmission
 	if !policy.legacy || policy.contract != (conversation.CoexistenceDeclaration{}) {
-		if _, err := policy.admitActivation(ctx); err != nil {
+		var err error
+		admission, err = policy.admitActivation(ctx)
+		if err != nil {
 			return err
 		}
 	}
-	cfg, err := load(policy.authorities.configPath())
+	configPath := admission.paths.config
+	if policy.legacy {
+		if policy.authorities.configPath == nil {
+			return fmt.Errorf("authority resolvers required")
+		}
+		configPath = policy.authorities.configPath()
+	}
+	cfg, err := load(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
 		cfg = config.Defaults()
 	}
-	run(cfg)
+	if policy.legacy {
+		// Preserve legacy DB resolution after config warning/default fallback,
+		// but pin the config authority actually loaded, never resolve it again.
+		policy.authorities.configPath = func() string { return configPath }
+		admission, err = policy.admitActivation(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	run(cfg, admission)
+	return nil
+}
+
+// validateActivation also guards downstream entries: an explicit generation
+// admission must never be reinterpreted as legacy by a convenience wrapper.
+func (a productionStartupAdmission) validateActivation() error {
+	if a.paths.config == "" || a.paths.conversations == "" {
+		return fmt.Errorf("startup admission required")
+	}
+	if !a.legacy {
+		return fmt.Errorf("canonical generation startup requires service parity; activation disabled")
+	}
 	return nil
 }
 
@@ -100,8 +128,8 @@ func (p productionStartupPolicy) admitActivation(ctx context.Context) (productio
 	if err != nil {
 		return productionStartupAdmission{}, err
 	}
-	if !a.legacy {
-		return productionStartupAdmission{}, fmt.Errorf("canonical generation startup requires service parity; activation disabled")
+	if err := a.validateActivation(); err != nil {
+		return productionStartupAdmission{}, err
 	}
 	return a, nil
 }

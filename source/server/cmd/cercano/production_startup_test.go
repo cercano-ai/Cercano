@@ -77,12 +77,13 @@ func TestProductionStartupGenerationRejectsLegacyBeforeEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	// This calls the real shared startup entry. Enterprise and runtime are below
-	// admission; even the supplied credential trap must remain unreachable.
-	_, _, err = startGRPCServerWithStartup(config.Defaults(), "invalid address", nil,
-		productionCredentialDependencies{openSecrets: func() (secrets.Store, error) {
-			t.Fatal("credential stage entered")
-			return nil, nil
-		}}, p)
+	// admission; neither config nor the service callback may be reached.
+	err = runAgentWithStartup(context.Background(), p, func(string) (config.Config, error) {
+		t.Fatal("config stage entered")
+		return config.Config{}, nil
+	}, func(config.Config, productionStartupAdmission) {
+		t.Fatal("service stage entered")
+	})
 	if err == nil || !strings.Contains(err.Error(), "generation authority admission") {
 		t.Fatalf("admission: %v", err)
 	}
@@ -125,7 +126,10 @@ func TestProductionStartupPreparedExactStore(t *testing.T) {
 		t.Fatal("missing supplied store accepted")
 	}
 	// Compatible authority alone is not service parity or permission to activate.
-	_, _, err = startGRPCServerWithStartup(config.Defaults(), "invalid address", nil, productionCredentialDependencies{}, p)
+	_, _, err = startGRPCServerWithStartup(config.Defaults(), "invalid address", nil, productionCredentialDependencies{openSecrets: func() (secrets.Store, error) {
+		t.Fatal("credential stage entered")
+		return nil, nil
+	}}, a)
 	if err == nil || !strings.Contains(err.Error(), "service parity") {
 		t.Fatalf("activation gate: %v", err)
 	}
@@ -167,7 +171,7 @@ func TestRunAgentStartupAdmissionBeforeConfigAndServices(t *testing.T) {
 			err := runAgentWithStartup(context.Background(), p, func(string) (config.Config, error) {
 				configLoads++
 				return config.Config{}, nil
-			}, func(config.Config) {
+			}, func(config.Config, productionStartupAdmission) {
 				// runServerMode owns crash logging and all later enterprise/runtime,
 				// credential, store opening and task reconciliation stages.
 				serviceStarts++
@@ -236,14 +240,13 @@ func TestRunAgentStartupLegacyConfigAndOverrideOrder(t *testing.T) {
 			t.Fatalf("load path: %s", path)
 		}
 		return config.Load(path)
-	}, func(cfg config.Config) {
+	}, func(cfg config.Config, a productionStartupAdmission) {
 		order = append(order, "server")
 		if cfg.Port != "54321" {
 			t.Fatalf("loaded config lost: %s", cfg.Port)
 		}
-		a, err := p.admitActivation(context.Background())
-		if err != nil {
-			t.Fatal(err)
+		if a.paths != paths || !a.legacy {
+			t.Fatalf("admission lost: %+v", a)
 		}
 		st, err := a.conversationStore(nil, func(path string) (conversation.Store, error) {
 			order = append(order, "store")
@@ -260,7 +263,7 @@ func TestRunAgentStartupLegacyConfigAndOverrideOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(order, ","); got != "config-path,load,server,config-path,conversation-path,store" {
+	if got := strings.Join(order, ","); got != "config-path,load,conversation-path,server,store" {
 		t.Fatalf("order: %s", got)
 	}
 }
@@ -279,7 +282,7 @@ func TestRunAgentStartupLegacyWarningDefaults(t *testing.T) {
 	err = runAgentWithStartup(context.Background(), p, func(string) (config.Config, error) {
 		loads++
 		return config.Config{Port: "invalid-partial"}, fmt.Errorf("fixture load failure")
-	}, func(cfg config.Config) {
+	}, func(cfg config.Config, a productionStartupAdmission) {
 		runs++
 		if !reflect.DeepEqual(cfg, config.Defaults()) {
 			t.Fatal("load failure did not use defaults")
@@ -294,5 +297,61 @@ func TestRunAgentStartupLegacyWarningDefaults(t *testing.T) {
 	}
 	if string(warning) != "[WARN] Failed to load config: fixture load failure (using defaults)\n" {
 		t.Fatalf("warning: %q", warning)
+	}
+}
+
+func TestRunAgentStartupPinsAuthorityAcrossDispatch(t *testing.T) {
+	p := fixtureStartupPolicy(t, true)
+	paths, _ := p.authorities.resolve()
+	configResolves, dbResolves, loads, dispatches, opens := 0, 0, 0, 0, 0
+	p.authorities.configPath = func() string {
+		configResolves++
+		if configResolves > 1 {
+			t.Fatal("config authority re-resolved")
+		}
+		return paths.config
+	}
+	p.authorities.conversationPath = func() (string, error) {
+		dbResolves++
+		if dbResolves > 1 {
+			t.Fatal("DB authority re-resolved")
+		}
+		return paths.conversations, nil
+	}
+	err := runAgentWithStartup(context.Background(), p, func(path string) (config.Config, error) {
+		loads++
+		if path != paths.config {
+			t.Fatalf("config path %q", path)
+		}
+		return config.Defaults(), nil
+	}, func(cfg config.Config, a productionStartupAdmission) {
+		dispatches++
+		if a.paths != paths || !a.legacy {
+			t.Fatalf("dispatch authority: %+v", a)
+		}
+		// Changing ambient defaults after admission cannot redirect store opening.
+		t.Setenv("CERCANO_CONVERSATIONS_DB", filepath.Join(t.TempDir(), "wrong.db"))
+		_, err := a.conversationStore(nil, func(path string) (conversation.Store, error) {
+			opens++
+			if path != paths.conversations {
+				t.Fatalf("store path %q", path)
+			}
+			return nil, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// An explicitly supplied generation admission cannot silently fall back
+		// to the legacy convenience wrapper at the actual downstream boundary.
+		a.legacy = false
+		_, _, err = startGRPCServerWithStartup(cfg, "invalid", nil, productionCredentialDependencies{
+			openSecrets: func() (secrets.Store, error) { t.Fatal("credentials opened"); return nil, nil },
+		}, a)
+		if err == nil || !strings.Contains(err.Error(), "activation disabled") {
+			t.Fatalf("downstream gate: %v", err)
+		}
+	})
+	if err != nil || configResolves != 1 || dbResolves != 1 || loads != 1 || dispatches != 1 || opens != 1 {
+		t.Fatalf("err=%v resolves=%d/%d loads=%d dispatches=%d opens=%d", err, configResolves, dbResolves, loads, dispatches, opens)
 	}
 }
