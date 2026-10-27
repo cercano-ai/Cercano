@@ -12,16 +12,16 @@ Phases 2–6 may proceed in bounded parallel slices after the shared composition
 
 Objective: make generation lifecycle a policy of the existing full application, not a second feature graph. Files: cmd/cercano/main.go, development_host_production.go, development_provider*.go, internal/server/prepared*.go, worker policy/factory seams and effort evidence. Tests: paired composition tests, configured-authority resolution, fail-before-open and fake-backend trap tests. Existing integration findings are task inputs, not another audit request.
 
-- [ ] Create a dedicated execution worktree from the approved planning commit and preserve unrelated working-tree changes
-- [ ] Convert the specification's functionality list into an acceptance matrix with ordinary baseline behavior, affected implementation, automated test and explicit qualification boundary
-- [ ] Factor ordinary startup dependency composition so ordinary and generation-aware hosts use the same production services and provider/tool graph
+- [x] Create a dedicated execution worktree from the approved planning commit and preserve unrelated working-tree changes
+- [x] Convert the specification's functionality list into an acceptance matrix with ordinary baseline behavior, affected implementation, automated test and explicit qualification boundary
+- [~] Factor ordinary startup dependency composition so ordinary and generation-aware hosts use the same production services and provider/tool graph
   - [ ] Inject store/lifecycle, generation-pinned worker and service authority policies without invoking legacy opening, global reconciliation or unpinned runner replacement
   - [ ] Preserve authoritative path resolution and supported overrides without creating another copied config/history authority
   - [ ] Require compatibility preflight before any schema, persistent-setting, credential-migration or task-reconciliation side effect
-- [ ] Provide invocation-local test seams for credential stores, issuer/provider transports, runtime managers, MCP and enterprise fixtures without altering the production graph
-- [ ] Add native-opener traps and child-environment checks before enabling any credential-dependent test scope; verify enabled fake positive controls without calling a native backend
+- [~] Provide invocation-local test seams for credential stores, issuer/provider transports, runtime managers, MCP and enterprise fixtures without altering the production graph
+- [~] Add native-opener traps and child-environment checks before enabling any credential-dependent test scope; verify enabled fake positive controls without calling a native backend
 - [ ] Establish private short runtime roots, bounded subprocess lifetimes and owned-child-only cleanup for all acceptance harnesses
-- [ ] Demonstrate equivalent service registration and explicit failure handling for both composition modes; retain existing startup behavior until subsequent gates pass
+- [~] Demonstrate equivalent service registration and explicit failure handling for both composition modes; retain existing startup behavior until subsequent gates pass
 
 ## Phase 2 — Complete ownership-aware foreground, descendant and background execution
 
@@ -41,7 +41,7 @@ Objective: preserve ordinary execution features under exact conversation ownersh
 
 Objective: retain writable ordinary settings and credential behavior at existing authorities with both serialization and cross-host visibility. Files: pkg/config, internal/hostsvc/config, agent/permissions.go, server/config_watcher.go, hostsvc/credentials, secrets, anthropicauth, chatgptauth, cloudfactory and provider rebuild paths. Tests: two-host mutations, stale-save conflicts, fake rotating issuers, delayed callbacks and invalidation acknowledgements.
 
-- [ ] Introduce narrowly scoped cross-process mutation coordination using existing lock patterns and fresh reads; publish config and permissions atomically without stale whole-file overwrites
+- [~] Introduce narrowly scoped cross-process mutation coordination using existing lock patterns and fresh reads; publish config and permissions atomically without stale whole-file overwrites
 - [ ] Reuse ordinary watchers and apply/rebuild paths with revision/conflict handling, loop prevention and explicit durable-save versus live-application results
 - [ ] Preserve supported environment resolution, hot reload and explicit restart requirements without surprise generation replacement
 - [ ] Restore ordinary session and shared settings controls without treating credential disabling as a history/config freeze signal
