@@ -66,6 +66,8 @@ type dialFunc func(ctx context.Context) (*grpc.ClientConn, error)
 
 // workerRunner implements runner.TurnRunner by running turns in a child process.
 type workerRunner struct {
+	prepared       bool
+	turnAuthority  func(context.Context, string) (TurnAuthority, error)
 	accountingMu   sync.RWMutex
 	accounting     *accountingConnections
 	sessionModel   chatroute.Control
@@ -207,6 +209,7 @@ func NewWorkerRunnerWithPolicy(
 		openTierModel:  openTierModel,
 		modelEvidence:  modelEvidence,
 		pool:           pool,
+		prepared:       policy.pinned,
 	}
 }
 
@@ -545,7 +548,23 @@ func (w *workerRunner) RunTurn(
 	sink runner.EventSink,
 	requester runner.PermissionRequester,
 	persist runner.PersistFunc,
-) (runner.Result, error) {
+) (turnResult runner.Result, turnErr error) {
+	var authority TurnAuthority
+	if w.turnAuthority != nil {
+		var err error
+		authority, err = w.turnAuthority(ctx, req.ConversationID)
+		if err != nil {
+			return runner.Result{}, err
+		}
+		defer func() { authority.Close(turnErr) }()
+		ctx, err = authority.Context(ctx, req.ConversationID)
+		if err != nil {
+			return runner.Result{}, err
+		}
+	}
+	if w.prepared {
+		ctx = metadata.AppendToOutgoingContext(ctx, preparedCredentialPolicyHeader, "true")
+	}
 	// ── 1. Pre-assemble history + project context ──────────────────────────
 	history := []llm.Message(nil)
 	if w.persist != nil {
@@ -892,13 +911,24 @@ func (w *workerRunner) RunTurn(
 			if m.Persist != nil && m.Persist.Message != nil {
 				lm, err := UnmarshalMessage(m.Persist.Message)
 				if err != nil {
+					if authority != nil {
+						return runner.Result{}, fmt.Errorf("prepared worker invalid persistence message: %w", err)
+					}
 					log.Printf("[workerRunner] unmarshal persist message: %v", err)
 				} else if cid := m.Persist.GetConversationId(); cid != "" {
 					// Sub-agent turn: persist to its own sub-conversation. Best-effort
 					// and unfenced — the sub-conversation is unique per dispatch, so
 					// there is no supersession race the main-turn fence guards against.
 					if w.persist != nil {
-						w.persist.PersistTurn(ctx, cid, lm)
+						writeCtx := ctx
+						if authority != nil {
+							var err error
+							writeCtx, err = authority.Context(ctx, cid)
+							if err != nil {
+								return runner.Result{}, err
+							}
+						}
+						w.persist.PersistTurn(writeCtx, cid, lm)
 					}
 				} else if persist != nil {
 					persist(lm) // main conversation, fenced
@@ -909,6 +939,9 @@ func (w *workerRunner) RunTurn(
 			// A worker-side dispatch created a sub-agent: persist its conversation
 			// row on the host so the tab survives restart and is post-mortemable.
 			if err := w.ensureDispatchChild(ctx, m.EnsureSubagent, req.ConversationID, dispatchScope); err != nil {
+				if authority != nil {
+					return runner.Result{}, err
+				}
 				log.Print("[workerRunner] dispatch child creation failed")
 			}
 
@@ -923,6 +956,12 @@ func (w *workerRunner) RunTurn(
 				resp := w.handleDispatchEvent(ctx, m.DispatchEvent, dispatchScope)
 				if err := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_DispatchEventResponse{DispatchEventResponse: resp}}); err != nil {
 					log.Printf("[workerRunner] send dispatch event response: %v", err)
+					if authority != nil {
+						return runner.Result{}, err
+					}
+				}
+				if authority != nil && resp.Error != "" {
+					return runner.Result{}, fmt.Errorf("prepared worker evidence: %s", resp.Error)
 				}
 			}
 

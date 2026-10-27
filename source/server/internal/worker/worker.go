@@ -563,13 +563,11 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 		if visionStore != nil {
 			workerAttachments = visionStore
 		}
-		openSecrets := w.secretOpener
-		if openSecrets == nil {
-			openSecrets = openWorkerSecrets
-		}
+		openSecrets := workerSecretOpener(ctx, w.secretOpener)
 		toolSvc = buildWorkerToolSvcWithSecrets(permBroker, engine, ctxLoader, provSvc.Cloud(), provSvc.Open(), cfg, subPersist, profileCtl.SetProfile, visionSvc, workerAttachments, failureLog, diagnostic, autonomy, provSvc.Candidates, sessionModel, tasks, openSecrets, restart...)
 	}
 
+	configurePreparedDispatch(ctx, toolSvc)
 	configureDevHostFixtureTasks(toolSvc, tasks)
 
 	// Register a proxy per host-advertised MCP tool. Done AFTER the built-in

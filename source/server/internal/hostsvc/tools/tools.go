@@ -7,6 +7,7 @@
 package tools
 
 import (
+	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"context"
 	"encoding/json"
 	"errors"
@@ -77,7 +78,13 @@ type Catalog interface {
 }
 
 // Service is the concrete implementation of Catalog.
+type DispatchScope func(context.Context, string, string) (context.Context, func(error) error, error)
+
+// SetDispatchScope installs a startup-only, fail-closed persistence authority.
+func (x *Service) SetDispatchScope(scope DispatchScope) { x.dispatchScope = scope }
+
 type Service struct {
+	dispatchScope  DispatchScope
 	toolRegistry   *agenttools.Registry
 	capRegistry    *capabilities.Registry
 	dispatchEngine *dispatch.Engine
@@ -574,14 +581,37 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 	if subConvID == "" {
 		subConvID = conversation.NewID()
 	}
+	if x.dispatchScope != nil {
+		scoped, complete, err := x.dispatchScope(ctx, spec.ConversationID, subConvID)
+		if err != nil {
+			return dispatch.Result{}, err
+		}
+		if scoped == nil || complete == nil {
+			return dispatch.Result{}, fmt.Errorf("dispatch: invalid authority scope")
+		}
+		ctx = scoped
+		defer func() {
+			if err := complete(dispatchErr); err != nil {
+				dispatchErr = err
+			}
+		}()
+	}
 	var onTurn func(m llm.Message)
 	// persisted reports whether the sub-agent conversation ROW was created (a
 	// store in-process, or the worker's host proxy). subConvID still identifies
 	// the tab regardless; the Result's SubConversationID reflects persistence only.
 	persisted := x.ensureSubagentConv(ctx, subConvID, spec.ConversationID, spec.WorkDir, model, granted)
+	if !persisted && x.dispatchScope != nil {
+		return dispatch.Result{}, fmt.Errorf("dispatch: authorized child persistence failed")
+	}
 	if persisted && x.persistTurn != nil {
 		x.persistTurn(ctx, subConvID, agent.UserMessage(spec.Task, nil))
 		onTurn = func(m llm.Message) { x.persistTurn(ctx, subConvID, m) }
+	}
+	if x.dispatchScope != nil {
+		if err := persistsvc.WriteFailure(ctx); err != nil {
+			return dispatch.Result{}, err
+		}
 	}
 	provider := ""
 	if sel.Provider != nil {
