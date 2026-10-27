@@ -1,8 +1,20 @@
 package main
 
 import (
+	projectctx "cercano/source/server/internal/context"
+	"cercano/source/server/internal/conversation"
+	"cercano/source/server/internal/engine"
+	"cercano/source/server/internal/inference"
+	"cercano/source/server/internal/localruntime"
+	"cercano/source/server/internal/secrets"
+	"cercano/source/server/internal/server"
+	"cercano/source/server/internal/toolstack"
+	"cercano/source/server/internal/worker"
+	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/proto"
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -101,5 +113,82 @@ func TestProductionCompositionFailureAndIsolation(t *testing.T) {
 	second.router.SetOpenProvider(replacement)
 	if first.router.Tiers().Open.Name() != "first" || second.router.Tiers().Open != replacement {
 		t.Fatal("provider update leaked across compositions")
+	}
+}
+
+func TestProductionCompositionServiceParity(t *testing.T) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	t.Setenv("HOME", t.TempDir())
+	routing := composeProductionRouting(productionRoutingDependencies{open: &compositionRunner{name: "memory"}, classificationDisabled: true})
+	store, err := conversation.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	a := agent.NewAgent(routing.router, routing.coordinator, agent.WithPersistentStore(store))
+	ordinary := server.NewServer(a, routing.router, routing.coordinator, nil, engine.NewEngineRegistry())
+	defer ordinary.Shutdown()
+	ordinary.SetSecrets(secrets.NewMemory())
+	ordinary.SetOpenLLMProvider(&developmentSyntheticProvider{})
+	loader := projectctx.NewLoader()
+	bindProductionAgent(ordinary, a, loader, agent.NewStaticPermissionStore(agent.ModeStrict), agent.NewPendingDecisions())
+	if err := composeProductionServices(ordinary, a, loader, toolstack.EngineDeps{}, productionExecutionPolicy{legacy: true}); err != nil {
+		t.Fatal(err)
+	}
+	if a.PersistentStore() != store {
+		t.Fatal("composition replaced caller store")
+	}
+	o, auth := developmentProductionFixture(t)
+	prepared, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
+			return localruntime.NewManager(), func() {}, nil
+		},
+		newOpenProvider: func(localruntime.Manager, config.Config) (inference.Provider, error) {
+			return &developmentSyntheticProvider{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	defer prepared.Shutdown()
+	names := func(s *server.Server) map[string]bool {
+		listed, err := s.ListTools(context.Background(), &proto.ListToolsRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := map[string]bool{}
+		for _, tool := range listed.Tools {
+			result[tool.Name] = true
+		}
+		return result
+	}
+	left, right := names(ordinary), names(prepared)
+	if len(left) == 0 || !reflect.DeepEqual(left, right) {
+		t.Fatalf("service registrations differ: ordinary=%v prepared=%v", left, right)
+	}
+}
+
+func TestProductionCompositionPolicyFailsBeforeAssembly(t *testing.T) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	for _, policy := range []productionExecutionPolicy{{}, {legacy: true, prepared: &worker.SpawnPolicy{}}, {prepared: &worker.SpawnPolicy{}}} {
+		// Nil dependencies would panic if dispatch/capability assembly or worker
+		// installation ran before policy validation.
+		if err := composeProductionServices(nil, nil, nil, toolstack.EngineDeps{}, policy); err == nil || strings.Contains(err.Error(), "dependencies required") {
+			t.Fatalf("policy must fail before service dependencies: %v", err)
+		}
+		if err := policy.install(nil); err == nil {
+			t.Fatal("invalid worker policy accepted")
+		}
+	}
+	o, auth := developmentProductionFixture(t)
+	o.Generation = "relative-invalid-generation"
+	calls := 0
+	_, _, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+		openSecrets: func() (secrets.Store, error) { calls++; return secrets.NewMemory(), nil },
+	})
+	if err == nil || calls != 0 {
+		t.Fatalf("worker preflight did not precede dependencies: calls=%d err=%v", calls, err)
 	}
 }

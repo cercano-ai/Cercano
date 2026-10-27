@@ -468,7 +468,6 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	if newLoopCompactor != nil {
 		srv.SetLoopCompactorFactory(newLoopCompactor)
 	}
-	srv.SetContextLoader(ctxLoader)
 	// Wire agent-offered session rollover (D). Zero thresholds leave it fully
 	// off, so this is safe to call unconditionally.
 	srv.SetRolloverConfig(
@@ -478,7 +477,6 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 		cfg.Compaction.RolloverVerbatimTurns,
 	)
 	srv.SetConfigPersistence(config.DefaultPath(), cfg)
-	orchestrator.SetLocusModeGetter(srv.LocusMode)
 
 	// Permission store + pending-decisions barrier for the native tool-calling
 	// loop. Path mirrors config.yaml: ~/.config/cercano/permissions.yaml.
@@ -489,7 +487,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 		permStore, _ = agent.LoadPermissionStore(permsPath)
 	}
 	pending := agent.NewPendingDecisions()
-	srv.SetPermissions(permStore, pending)
+	bindProductionAgent(srv, orchestrator, ctxLoader, permStore, pending)
 	// Watch permissions.yaml for out-of-band edits (hand-edits, tools) and push
 	// the change to connected clients. Non-fatal: the SetPermissionMode RPC path
 	// still broadcasts, and the gate re-reads the file on every decision.
@@ -594,39 +592,15 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// dispatch from the server's RAW (unwrapped) providers, so a runtime cloud
 	// swap (cloud-profile change → RebuildCloud) is honored and the engine's
 	// own per-dispatch usage.Wrap doesn't double-count.
-	engineDeps := toolstack.EngineDeps{
-		Providers: func() inference.Tiers {
-			return srv.DispatchCandidates()
-		},
-		LocusMode: func() locus.Mode { m, _ := locus.ParseMode(srv.LocusMode()); return m },
-		CtxLoader: ctxLoader,
-		// Model resolution is tier-aware and live: DispatchModelFor reads the
-		// taxonomy under the config lock per dispatch, so runtime tier/profile
-		// changes are honored and no startup-captured cfg value can go stale.
-		ModelFor:            srv.DispatchModelFor,
-		TaskAssignment:      srv.TaskAssignment,
-		DestinationModelFor: srv.DestinationModelFor,
-	}
-	// Activate the usage sink so capabilities that set RecordUsage=true (the coproc
-	// caps) emit one event per dispatch. processCoproc/research/document leave
-	// RecordUsage false, so they stay MCP-side — no double-counting.
+	engineDeps := toolstack.EngineDeps{}
 	if agentCollector != nil {
 		engineDeps.UsageSink = server.UsageEventSink(agentCollector.Emit)
 		engineDeps.AttemptSink = agentCollector.EmitAttempt
 	}
-	coprocEngine := toolstack.NewEngine(engineDeps)
-	orchestrator.SetDispatchEngine(coprocEngine)
-	srv.SetDispatchEngine(coprocEngine)
-
-	// Build the protocol-supervision watchdog from config (default-OFF). Must run
-	// after SetDispatchEngine — the watchdog's fast-model OneShot lane routes
-	// through the dispatch engine.
-	srv.InitWatchdog()
-
-	// Build the capability registry with live Services (providers, config, and
-	// context loader all set above) and wire it as the server's tool registry.
-	// Must run after the provider setters so Services carries real values.
-	srv.InstallCapabilities()
+	executionPolicy := productionExecutionPolicy{legacy: true}
+	if err := composeProductionServices(srv, orchestrator, ctxLoader, engineDeps, executionPolicy); err != nil {
+		log.Fatal(err)
+	}
 
 	// MCP host: load global servers and connect them in the background. Tools
 	// register into the same agenttools.Registry as each server lists; a
@@ -644,7 +618,9 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// pre-assemble history, build the ConfigSnapshot, and resolve credentials.
 	// Tests never reach this path (they build Server directly), so they stay
 	// in-process and never spawn worker processes.
-	srv.SelectExecutionMode()
+	if err := executionPolicy.install(srv); err != nil {
+		log.Fatal(err)
+	}
 
 	proto.RegisterAgentServer(s, srv)
 	proto.RegisterEnterpriseServer(s, enterprise.NewRPCServer(enterpriseHost, openEnterpriseBrowser))

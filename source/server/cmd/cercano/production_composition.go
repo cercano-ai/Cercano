@@ -3,6 +3,12 @@ package main
 import (
 	"fmt"
 
+	projectctx "cercano/source/server/internal/context"
+	"cercano/source/server/internal/locus"
+	"cercano/source/server/internal/server"
+	"cercano/source/server/internal/toolstack"
+	"cercano/source/server/internal/worker"
+
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/engine"
 	"cercano/source/server/internal/loop"
@@ -12,8 +18,8 @@ import (
 
 // productionRoutingDependencies is invocation-local: callers supply resolved
 // providers and embedding transport, never ambient credential/runtime openers.
-// Store opening, compatibility preflight, worker and background-work policies
-// deliberately remain with the host until their ownership contracts are ready.
+// Store opening and compatibility preflight remain host responsibilities;
+// execution policy below keeps prepared background producers disabled.
 type productionRoutingDependencies struct {
 	open, cloud    agent.TurnRunner
 	cloudFactory   agent.CloudFactory
@@ -43,4 +49,70 @@ func composeProductionRouting(d productionRoutingDependencies) productionRouting
 		return agent.NewSmartRouterFromBytes(d.open, d.cloud, d.embeddingModel, d.embedder, agent.DefaultPrototypes(), d.cloudFactory)
 	}, d.open, d.cloud)
 	return productionRouting{sessions: sessions, coordinator: coordinator, router: router}
+}
+
+// productionExecutionPolicy is explicit: a zero value cannot silently select
+// legacy discovery. Prepared policy validation precedes graph mutation.
+type productionExecutionPolicy struct {
+	legacy   bool
+	prepared *worker.SpawnPolicy
+}
+
+func (p productionExecutionPolicy) validate() error {
+	if p.legacy == (p.prepared != nil) {
+		return fmt.Errorf("exactly one production execution policy required")
+	}
+	if p.prepared != nil {
+		return p.prepared.ValidatePrepared()
+	}
+	return nil
+}
+
+func (p productionExecutionPolicy) install(s *server.Server) error {
+	if err := p.validate(); err != nil {
+		return err
+	}
+	if p.prepared != nil {
+		return s.ConfigurePreparedWorker(*p.prepared)
+	}
+	s.SelectExecutionMode()
+	return nil
+}
+
+// Permission policy is supplied by the host: ordinary file-backed decisions
+// and prepared strict session-local decisions retain their distinct authority.
+func bindProductionAgent(s *server.Server, a *agent.Agent, loader *projectctx.Loader, store *agent.PermissionStore, pending *agent.PendingDecisions) {
+	s.SetContextLoader(loader)
+	a.SetLocusModeGetter(s.LocusMode)
+	s.SetPermissions(store, pending)
+}
+
+// composeProductionServices installs the real shared dispatch/capability graph
+// onto the caller's exact server and agent; it never opens or replaces a store.
+// Worker installation remains a separate final startup step so ordinary MCP
+// registration keeps its historical ordering. No background producers are
+// enabled for prepared hosts. Accounting sinks are invocation-local inputs.
+func composeProductionServices(s *server.Server, a *agent.Agent, loader *projectctx.Loader, accounting toolstack.EngineDeps, policy productionExecutionPolicy) error {
+	if err := policy.validate(); err != nil {
+		return err
+	}
+	if s == nil || a == nil || loader == nil {
+		return fmt.Errorf("production service dependencies required")
+	}
+	deps := toolstack.EngineDeps{
+		// Resolve providers and models live, never from a captured startup config.
+		Providers: s.DispatchCandidates,
+		LocusMode: func() locus.Mode { m, _ := locus.ParseMode(s.LocusMode()); return m },
+		CtxLoader: loader, ModelFor: s.DispatchModelFor,
+		TaskAssignment: s.TaskAssignment, DestinationModelFor: s.DestinationModelFor,
+		UsageSink: accounting.UsageSink, AttemptSink: accounting.AttemptSink,
+	}
+	dispatch := toolstack.NewEngine(deps)
+	a.SetDispatchEngine(dispatch)
+	s.SetDispatchEngine(dispatch)
+	if policy.legacy {
+		s.InitWatchdog()
+	}
+	s.InstallCapabilities()
+	return nil
 }

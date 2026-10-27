@@ -117,6 +117,15 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if !config.ValidateToolLoopMaxIterations(cfg.ToolLoop.MaxIterations) {
 		return nil, nil, fmt.Errorf("invalid tool loop iteration limit")
 	}
+	policy, err := worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: o.Generation, ManifestPath: filepath.Join(o.Generation, "manifest.json"), HostInstance: o.Host, ResourceRoot: o.RuntimeRoot})
+	if err != nil {
+		return nil, nil, err
+	}
+	executionPolicy := productionExecutionPolicy{prepared: &policy}
+
+	if err := executionPolicy.validate(); err != nil {
+		return nil, nil, err
+	}
 	st, err := deps.openSecrets()
 	if err != nil {
 		return nil, nil, fmt.Errorf("open read-only credentials: %w", err)
@@ -221,11 +230,9 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	}()
 	srv.SetBuildVersion(version)
 	srv.SetRuntimeManager(manager)
-	srv.SetContextLoader(loader)
-	orchestrator.SetLocusModeGetter(srv.LocusMode)
 	// Prepared hosts must not load/watch the legacy permissions file. Start
 	// conservatively with session-local decisions and no persisted allowlist.
-	srv.SetPermissions(agent.NewStaticPermissionStore(agent.ModeStrict), agent.NewPendingDecisions())
+	bindProductionAgent(srv, orchestrator, loader, agent.NewStaticPermissionStore(agent.ModeStrict), agent.NewPendingDecisions())
 	srv.SetOpenLLMProvider(open)
 	if setFailureLog != nil {
 		setFailureLog(srv)
@@ -238,18 +245,10 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	} else if cfg.LocusMode != "open_only" {
 		return nil, nil, fmt.Errorf("cloud routing selected without an active prepared cloud profile")
 	}
-	dispatch := toolstack.NewEngine(toolstack.EngineDeps{
-		Providers: srv.DispatchCandidates, LocusMode: func() locus.Mode { m, _ := locus.ParseMode(srv.LocusMode()); return m }, CtxLoader: loader,
-		ModelFor: srv.DispatchModelFor, TaskAssignment: srv.TaskAssignment, DestinationModelFor: srv.DestinationModelFor,
-	})
-	orchestrator.SetDispatchEngine(dispatch)
-	srv.SetDispatchEngine(dispatch)
-	srv.InstallCapabilities()
-	policy, err := worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: o.Generation, ManifestPath: filepath.Join(o.Generation, "manifest.json"), HostInstance: o.Host, ResourceRoot: o.RuntimeRoot})
-	if err != nil {
+	if err = composeProductionServices(srv, orchestrator, loader, toolstack.EngineDeps{}, executionPolicy); err != nil {
 		return nil, nil, err
 	}
-	if err = srv.ConfigurePreparedWorker(policy); err != nil {
+	if err = executionPolicy.install(srv); err != nil {
 		return nil, nil, err
 	}
 	return srv, cleanup, nil
