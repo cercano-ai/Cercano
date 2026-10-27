@@ -52,6 +52,9 @@ with (templates/'publish.lock').open('w') as lock:
    target.write_bytes((templates/name).read_bytes()); target.chmod(0o755)
  manifest={'schema':1, 'generation':'abc', 'build_id':'fake', 'binaries':{name:{'sha256':hashlib.sha256((gen/name).read_bytes()).hexdigest(), 'size':(gen/name).stat().st_size} for name in ['cercano', 'cercano-cli']}}
  if not (gen/'manifest.json').exists(): (gen/'manifest.json').write_text(json.dumps(manifest))
+ if os.environ.get('FAKE_IMMUTABLE'):
+  for child in gen.iterdir(): child.chmod(0o444 if child.name=='manifest.json' else 0o555)
+  gen.chmod(0o555)
 print(gen)
 ''')
         (state / 'cercano').write_text('''#!/usr/bin/env python3
@@ -110,6 +113,44 @@ print(json.dumps(sys.argv[1:]))
         env['HOME'] = str(home)
         env.pop('CERCANO_DEVELOPMENT_STATE')
         return env, home / '.config/cercano-development', source
+
+    def test_immutable_bootstrap_success_and_preparation_failure(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('launcher', SCRIPTS / 'cercano-launcher.py')
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        from unittest.mock import patch
+        for failure, cleanup_failure in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(failure=failure, cleanup_failure=cleanup_failure), tempfile.TemporaryDirectory() as root:
+                env, state, source = self.absent_fixture(root)
+                env.update(FAKE_IMMUTABLE='1', CERCANO_DEVELOPMENT_STATE=str(state))
+                if failure:
+                    source.unlink()
+                cleanup = launcher.remove_owned_bootstrap
+                try:
+                    with patch.object(launcher, 'remove_owned_bootstrap',
+                                      side_effect=PermissionError('fixture') if cleanup_failure else cleanup):
+                        if failure:
+                            with self.assertRaisesRegex(ValueError, 'automatic development preparation failed'):
+                                launcher.prepare_if_absent(state, Path(env['CERCANO_REPO']), env)
+                            self.assertFalse(state.exists())
+                        else:
+                            launcher.prepare_if_absent(state, Path(env['CERCANO_REPO']), env)
+                            self.assertTrue((state / 'conversations.db').is_file())
+                    self.assertEqual(bool(list(state.parent.glob('.*-bootstrap-*'))), cleanup_failure)
+                    # Symlink targets outside invocation scratch must remain immutable.
+                    outside = Path(root) / 'published'
+                    outside.mkdir(mode=0o555)
+                    scratch = Path(root) / 'scratch'
+                    scratch.mkdir(mode=0o700)
+                    (scratch / 'generation').symlink_to(outside, target_is_directory=True)
+                    cleanup(scratch)
+                    self.assertEqual(outside.stat().st_mode & 0o777, 0o555)
+                    self.assertTrue(outside.is_dir())
+                finally:
+                    # Test-owned leftovers only, including the pre-fix reproducer.
+                    for directory, _, _ in os.walk(root):
+                        Path(directory).chmod(0o700)
 
     def test_automatic_first_launch_concurrent_and_reuse(self):
         with tempfile.TemporaryDirectory() as root:

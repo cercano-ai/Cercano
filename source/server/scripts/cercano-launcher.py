@@ -113,6 +113,23 @@ def validate_generation(generation, state):
     return generation
 
 
+def remove_owned_bootstrap(bootstrap):
+    """Remove only this invocation's scratch tree, never published state.
+
+    Publisher directories are 0555. Change directory permissions through open
+    descriptors, not paths, and never follow symlinks (including the root).
+    Files need no chmod; unlinking them requires a writable parent only.
+    """
+    if not shutil.rmtree.avoids_symlink_attacks:
+        raise OSError('safe bootstrap cleanup unavailable')
+    for _, _, _, fd in os.fwalk(bootstrap, follow_symlinks=False):
+        mode = os.fstat(fd)
+        if mode.st_uid != os.getuid():
+            raise OSError('bootstrap directory is not owned')
+        os.fchmod(fd, stat.S_IMODE(mode.st_mode) | 0o700)
+    shutil.rmtree(bootstrap)
+
+
 def prepare_if_absent(state, repo, env):
     """Serialize first setup outside the exclusively-created destination.
 
@@ -158,7 +175,12 @@ def prepare_if_absent(state, repo, env):
             validate_generation(generation, bootstrap)
             run([str(Path(generation) / 'cercano'), 'prepare-development', '--new-state', str(state)])
         finally:
-            shutil.rmtree(bootstrap)
+            # Cleanup must not mask preparation errors or turn successful
+            # provisioning into a refused launch. Leave failed cleanup intact.
+            try:
+                remove_owned_bootstrap(bootstrap)
+            except OSError:
+                print('[cercano] warning: temporary bootstrap cleanup failed; scratch directory retained', file=sys.stderr)
 
 
 def main():
