@@ -56,14 +56,15 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	tempRoot := t.TempDir()
+	// The fixture root also contains pinned worker resources, whose resolved
+	// root must fit the Unix socket budget; t.TempDir includes a long test name.
+	// Keep all fixture resources contained in this private, fixture-owned root.
+	tempRoot, err := os.MkdirTemp("/tmp", "dh-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempRoot)
 	if execution {
-		var e error
-		tempRoot, e = os.MkdirTemp("/tmp", "dh-")
-		if e != nil {
-			t.Fatal(e)
-		}
-		defer os.RemoveAll(tempRoot)
 		defer func() {
 			if t.Failed() {
 				paths, _ := filepath.Glob(filepath.Join(tempRoot, "w-*", "*.log"))
