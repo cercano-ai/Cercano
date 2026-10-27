@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-# Fail closed until the production prepared-store contract and host orchestration
-# are available. In particular, never invoke the old singleton launcher or kill
-# a process merely because a newer binary exists.
+# Source entrypoint and no-clobber installer template. Never singleton startup.
 set -euo pipefail
-REPO="${CERCANO_REPO:-$HOME/git_repos/bryan_costanich/cercano}"
-cat >&2 <<'MESSAGE'
-[cercano] Generation launcher integration is not yet available; refusing legacy singleton startup.
-The existing conversation database cannot be implicitly adopted or migrated to
-an immutable-generation host. No database or running session has been changed.
-A separately provisioned development store with an approved coexistence contract
-and authenticated production host orchestration is required before launch.
-See everyday-launcher-integration.md in this worktree for implementation status.
-MESSAGE
-exit 78
+if [[ -z "${CERCANO_DEVELOPMENT_STATE:-}" || ! -f "${CERCANO_DEVELOPMENT_STATE}/config.yaml" || ! -f "${CERCANO_DEVELOPMENT_STATE}/conversations.db" ]]; then
+    printf '%s\n' '[cercano] Prepared separate development state and explicit config.yaml required.' 'Provision once, exclusively: /absolute/generation/cercano prepare-development --new-state /absolute/NEW/private/state' 'Then supply an explicit config.yaml (no legacy data or native credentials) and set CERCANO_DEVELOPMENT_STATE.' 'No database or running session has been changed.' >&2
+    exit 78
+fi
+REPO="${CERCANO_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+exec python3 "$REPO/source/server/scripts/cercano-launcher.py" --repo "$REPO" "$@"
