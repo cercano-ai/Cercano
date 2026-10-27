@@ -1,0 +1,11 @@
+# Credential admission at injected builder boundaries
+
+Review of `12b5499319ac` identified that provider-service subscription and Bedrock profiles skip static-key lookup, while credential admission lived inside the default cloud factory. An injected builder could therefore bypass that admission. Static inspection also found the legacy `main.go` cloud-runner closure calling the injected builder directly. This finding does **not** demonstrate actual native credential access, user-data access, or network activity.
+
+Before the fix, the memory-only `TestBuilderCredentialAdmission` reproduced one fake-builder invocation (expected zero) for Messages subscription, Responses ChatGPT, and Bedrock under disabled, empty, and malformed credential policy. It also reproduced loss of invalid-flavor error precedence. No native backend or transport was needed for this reproduction. The legacy closure finding is static-review evidence, not a reproduced production-startup exploit.
+
+Both boundaries now validate flavor, then call `secrets.CheckAllowed`, before credential lookup/token-source construction or any injected/default builder. Existing static-key validation and read-only subscription token-source wiring are unchanged.
+
+The former subscription fixtures incorrectly treated disabled policy as permission to invoke a fake builder. The isolated provider unit positive now enables policy only within its memory-store/fake-builder scope, and separately checks enabled missing-key failure. The paired ordinary/prepared composition fixture remains disabled and asserts refusal and zero builder calls; with the preserved partial startup edits, prepared startup refuses at read-only credential admission. It is not evidence of successful paired cloud construction. Native opener/transport coverage has not been proven sufficient to enable that startup fixture.
+
+Validation (offline: `GOPROXY=off GOSUMDB=off CERCANO_DISABLE_CREDENTIALS=1`): focused provider/composition tests passed normally and with `-race`; the entire provider package passed normally. Focused selection: `Test(BuilderCredentialAdmission|CloudBuilderInvocationAndCredentialBoundary|ProductionProvider)`. No enabled production startup was run. This is a minimal admission-boundary correction, not expanded startup fixture or model-policy work.

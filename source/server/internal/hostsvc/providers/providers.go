@@ -13,6 +13,7 @@ import (
 	"cercano/source/server/internal/managedrouting"
 	"cercano/source/server/internal/modelmetadata"
 	"cercano/source/server/internal/reasoningexperiment"
+	"cercano/source/server/internal/secrets"
 	"context"
 	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
 	"log"
@@ -409,6 +410,12 @@ func (p *service) rebuildCloud() error {
 }
 
 func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error) {
+	if err := cloudfactory.ValidateFlavor(prof.Flavor); err != nil {
+		return nil, err
+	}
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	st := p.cfgSvc.Secrets()
 	key := ""
 	var keyErr error

@@ -13,8 +13,9 @@ import (
 )
 
 func TestCloudBuilderInvocationAndCredentialBoundary(t *testing.T) {
-	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
-	// Subscription route uses a memory token source; the fake builder never invokes it.
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
+	// Enabled only in this isolated memory-store/fake-builder unit scope.
+	// Subscription token sources remain read-only and the fake never invokes them.
 	prof := config.CloudProfile{Name: "fixture", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription, Backend: "anthropic", BaseURL: "http://127.0.0.1:1/v1", Model: "fixture"}
 	calls := [2]int{}
 	services := [2]*service{}
@@ -56,8 +57,8 @@ func TestCloudBuilderInvocationAndCredentialBoundary(t *testing.T) {
 	required.Route = ""
 	required.Provider = "deepinfra"
 	required.BaseURL = "https://api.deepinfra.com/v1/openai"
-	if _, err := services[1].buildProfile(required); err == nil {
-		t.Fatal("missing credential accepted")
+	if _, err := services[1].buildProfile(required); err == nil || errors.Is(err, secrets.ErrDisabled) {
+		t.Fatalf("enabled missing-key must fail independently of disabled policy: %v", err)
 	}
 	if calls != before {
 		t.Fatal("builder ran before credential validation")

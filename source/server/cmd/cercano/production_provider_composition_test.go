@@ -38,16 +38,12 @@ func TestProductionProviderPairedRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := [2]int{}
-	fail := false
 	builder := func(i int) func(config.CloudProfile, string, ...cloudfactory.Options) (inference.Provider, error) {
 		return func(p config.CloudProfile, _ string, _ ...cloudfactory.Options) (inference.Provider, error) {
 			if p.Name != "fixture" {
 				t.Fatalf("unexpected profile %q", p.Name)
 			}
 			calls[i]++
-			if fail && i == 0 {
-				return nil, errors.New("fixture transport construction failed")
-			}
 			return &compositionCloudProvider{}, nil
 		}
 	}
@@ -77,35 +73,34 @@ func TestProductionProviderPairedRebuild(t *testing.T) {
 			return &compositionCloudProvider{}, nil
 		},
 	})
+	// Startup itself may refuse before publishing a prepared server. Do not
+	// enable policy merely to let the subscription fixture reach its fake.
 	if err != nil {
-		t.Fatal(err)
-	}
-	defer cleanup()
-	defer prepared.Shutdown()
-	for _, s := range []*server.Server{ordinary, prepared} {
-		if err := s.RebuildCloud(); err != nil {
+		if !errors.Is(err, secrets.ErrDisabled) {
 			t.Fatal(err)
 		}
-		if _, err := s.CloudLLMProvider().Chat(context.Background(), inference.Call{Model: "fixture"}); err != nil {
-			t.Fatal(err)
+		if cleanup != nil {
+			cleanup()
+		}
+	} else {
+		defer cleanup()
+		defer prepared.Shutdown()
+		if err := prepared.RebuildCloud(); !errors.Is(err, secrets.ErrDisabled) {
+			t.Fatalf("prepared credential refusal: %v", err)
+		}
+		if prepared.CloudLLMProvider() != nil {
+			t.Fatal("disabled prepared graph published provider")
 		}
 	}
-	if calls[0] == 0 || calls[1] == 0 {
-		t.Fatalf("builder not wired: %v", calls)
-	}
-	before := calls[1]
-	fail = true
-	if err := ordinary.RebuildCloud(); err == nil {
-		t.Fatal("failure hidden")
+	if err := ordinary.RebuildCloud(); !errors.Is(err, secrets.ErrDisabled) {
+		t.Fatalf("ordinary credential refusal: %v", err)
 	}
 	if ordinary.CloudLLMProvider() != nil {
-		t.Fatal("failed graph retained provider")
+		t.Fatal("disabled ordinary graph published provider")
 	}
-	if _, err := prepared.CloudLLMProvider().Chat(context.Background(), inference.Call{Model: "fixture"}); err != nil {
-		t.Fatal(err)
-	}
-	if calls[1] != before {
-		t.Fatal("ordinary failure rebuilt prepared graph")
+
+	if calls != [2]int{} {
+		t.Fatalf("disabled policy invoked builders: %v", calls)
 	}
 }
 

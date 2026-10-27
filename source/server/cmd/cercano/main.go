@@ -299,6 +299,12 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	}
 	cloudFactory := func(ctx context.Context, provider, model, apiKey, baseURL string) (agent.TurnRunner, error) {
 		prof := cloudfactory.LegacyProfile(provider, model, baseURL)
+		if err := cloudfactory.ValidateFlavor(prof.Flavor); err != nil {
+			return nil, err
+		}
+		if err := secrets.CheckAllowed(); err != nil {
+			return nil, err
+		}
 		p, err := cloudBuilder(prof, apiKey)
 		if err != nil {
 			return nil, err
