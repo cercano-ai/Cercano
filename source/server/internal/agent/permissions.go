@@ -101,6 +101,8 @@ type PermissionStore struct {
 	path     string
 	mode     PermissionMode
 	mcpAllow []string
+	// authority records an observed or successfully committed backing policy.
+	authority bool
 }
 
 type permsFile struct {
@@ -142,17 +144,11 @@ func LoadPermissionStore(filePath string) (*PermissionStore, error) {
 		}
 		return nil, err
 	}
-	var f permsFile
-	if err := yaml.Unmarshal(data, &f); err != nil {
+	f, err := decodePermissions(data)
+	if err != nil {
 		return nil, err
 	}
-	if f.Mode != "" {
-		m, err := ParseMode(f.Mode)
-		if err == nil {
-			s.mode = m
-		}
-	}
-	s.mcpAllow = f.MCPAllow
+	s.install(f)
 	return s, nil
 }
 
@@ -166,15 +162,50 @@ func LoadPermissionStore(filePath string) (*PermissionStore, error) {
 func (s *PermissionStore) Mode() PermissionMode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if data, err := os.ReadFile(s.path); err == nil {
-		var f permsFile
-		if yaml.Unmarshal(data, &f) == nil && f.Mode != "" {
-			if m, perr := ParseMode(f.Mode); perr == nil {
-				s.mode = m
-			}
-		}
-	}
+	s.refresh()
 	return s.mode
+}
+
+// decodePermissions is shared by every reader and writer. An existing file
+// must explicitly identify its mode; only a never-created file defaults to
+// permissive. Unknown compatible fields are retained on mutation.
+func decodePermissions(data []byte) (permsFile, error) {
+	var f permsFile
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&f); err != nil {
+		return f, fmt.Errorf("read permissions: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return f, fmt.Errorf("permissions must contain a single YAML document")
+	}
+	if _, err := ParseMode(f.Mode); err != nil {
+		return f, err
+	}
+	return f, nil
+}
+
+// install and refresh require mu. Always replace the whole validated policy,
+// never combine a stale mode with an unvalidated allowlist (or vice versa).
+func (s *PermissionStore) install(f permsFile) {
+	s.mode = PermissionMode(f.Mode)
+	s.mcpAllow = append([]string(nil), f.MCPAllow...)
+	s.authority = true
+}
+
+func (s *PermissionStore) refresh() {
+	if s.path == "" {
+		return
+	}
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return
+	}
+	// Even malformed existing authority is not an invitation to recreate it.
+	s.authority = true
+	if f, err := decodePermissions(data); err == nil {
+		s.install(f)
+	}
 }
 
 // mutate serializes cooperating processes on a stable sidecar (never the
@@ -207,21 +238,13 @@ func (s *PermissionStore) mutate(apply func(*permsFile) bool) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	if os.IsNotExist(err) && s.authority {
+		return fmt.Errorf("established permissions file is missing")
+	}
 	if err == nil {
-		decoder := yaml.NewDecoder(bytes.NewReader(data))
-		if err := decoder.Decode(&f); err != nil && err != io.EOF {
-			return fmt.Errorf("read permissions: %w", err)
-		}
-		// Unmarshal accepts only the first document; never discard trailing
-		// state when rewriting a file supplied by an external editor.
-		var trailing any
-		if err := decoder.Decode(&trailing); err != io.EOF {
-			return fmt.Errorf("permissions must contain a single YAML document")
-		}
-		if f.Mode == "" {
-			f.Mode = string(ModePermissive)
-		}
-		if _, err := ParseMode(f.Mode); err != nil {
+		s.authority = true
+		f, err = decodePermissions(data)
+		if err != nil {
 			return err
 		}
 		info, err := os.Stat(dst)
@@ -240,8 +263,7 @@ func (s *PermissionStore) mutate(apply func(*permsFile) bool) error {
 		}
 	}
 	// Failed writes must never install an uncommitted local policy.
-	s.mode = PermissionMode(f.Mode)
-	s.mcpAllow = append([]string(nil), f.MCPAllow...)
+	s.install(f)
 	return nil
 }
 
@@ -323,33 +345,14 @@ func (s *PermissionStore) ApplyRuntimeUpdate(m PermissionMode, mcpAllow []string
 func (s *PermissionStore) MCPAllowPatterns() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.path != "" {
-		if data, err := os.ReadFile(s.path); err == nil {
-			var f permsFile
-			if yaml.Unmarshal(data, &f) == nil {
-				s.mcpAllow = f.MCPAllow
-			}
-		}
-	}
+	s.refresh()
 	return append([]string(nil), s.mcpAllow...)
 }
 
 func (s *PermissionStore) IsMCPAllowed(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// File-backed stores re-read so a live permissions.yaml edit takes effect
-	// without a restart. File-less stores (the worker's) keep the allowlist they
-	// were constructed with: reading the empty path always fails, which would
-	// otherwise clobber nothing but also never populate, making every
-	// allowlisted tool re-prompt.
-	if s.path != "" {
-		if data, err := os.ReadFile(s.path); err == nil {
-			var f permsFile
-			if yaml.Unmarshal(data, &f) == nil {
-				s.mcpAllow = f.MCPAllow
-			}
-		}
-	}
+	s.refresh()
 	for _, pat := range s.mcpAllow {
 		if ok, _ := path.Match(pat, name); ok {
 			return true
