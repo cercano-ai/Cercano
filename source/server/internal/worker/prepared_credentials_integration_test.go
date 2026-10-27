@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cercano/source/server/internal/capabilities"
+	"cercano/source/server/internal/credentialtest"
 	cfgsvc "cercano/source/server/internal/hostsvc/config"
 	providerssvc "cercano/source/server/internal/hostsvc/providers"
 	"cercano/source/server/internal/llm/openai"
@@ -69,8 +70,12 @@ func (s *preparedCredentialStream) Context() context.Context { return s.ctx }
 // Explicit injection is authoritative even for prepared turns. No test enables
 // credentials around openWorkerSecrets or calls that production opener.
 func TestPreparedCredentialsRealWorkerIsolation(t *testing.T) {
-	for _, policy := range []string{"valid", "missing", "malformed", "duplicate", "empty"} {
+	for _, policy := range []string{"valid", "inherited", "missing", "malformed", "duplicate", "empty"} {
 		t.Run(policy, func(t *testing.T) {
+			// Both in-process workers below have authoritative memory-store
+			// injections; no child process or native opener is used. Enable only
+			// admission to the loopback fake provider, independent of outer policy.
+			credentialtest.Enable(t)
 			var httpCalls, openerCalls, credentialRequests atomic.Int32
 			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				httpCalls.Add(1)
@@ -131,8 +136,11 @@ func TestPreparedCredentialsRealWorkerIsolation(t *testing.T) {
 			host.SetTurnAuthority(func(context.Context, string) (TurnAuthority, error) { return authority, nil })
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
+			if policy == "inherited" {
+				ctx = metadata.AppendToOutgoingContext(ctx, preparedCredentialPolicyHeader, "true")
+			}
 			result, err := host.RunTurn(ctx, runner.Request{ConversationID: "prepared", Input: "hello", WorkDir: t.TempDir()}, nil, nil, nil)
-			if policy != "valid" {
+			if policy != "valid" && policy != "inherited" {
 				if err == nil || openerCalls.Load() != 0 || httpCalls.Load() != 0 {
 					t.Fatalf("explicit prepared session did not fail closed after %s metadata: err=%v capability opens=%d provider requests=%d result=%q", policy, err, openerCalls.Load(), httpCalls.Load(), result.FinalText)
 				}
@@ -162,7 +170,8 @@ func TestPreparedCredentialsRealWorkerIsolation(t *testing.T) {
 			defer ordinaryServer.Stop()
 			defer ordinaryListener.Close()
 			sibling := newWorkerRunnerWithDial(nil, service, nil, testDialUnix(ordinaryListener))
-			result, err = sibling.RunTurn(ctx, runner.Request{ConversationID: "ordinary", Input: "hello", WorkDir: t.TempDir()}, nil, nil, nil)
+			siblingCtx := metadata.NewOutgoingContext(ctx, metadata.MD{})
+			result, err = sibling.RunTurn(siblingCtx, runner.Request{ConversationID: "ordinary", Input: "hello", WorkDir: t.TempDir()}, nil, nil, nil)
 			if err != nil || result.FinalText != "isolated" || ordinarySeen.Load() != 1 || preparedSeen.Load() != 1 || openerCalls.Load() != 2 {
 				t.Fatalf("ordinary sibling leaked policy: result=%+v err=%v ordinary=%d prepared=%d opens=%d", result, err, ordinarySeen.Load(), preparedSeen.Load(), openerCalls.Load())
 			}

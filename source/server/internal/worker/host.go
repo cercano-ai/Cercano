@@ -563,7 +563,12 @@ func (w *workerRunner) RunTurn(
 		}
 	}
 	if w.prepared {
-		ctx = metadata.AppendToOutgoingContext(ctx, preparedCredentialPolicyHeader, "true")
+		// Independent work and completion turns retain the launching context.
+		// Replace our authoritative key rather than duplicating inherited policy.
+		md, _ := metadata.FromOutgoingContext(ctx)
+		md = md.Copy()
+		md.Set(preparedCredentialPolicyHeader, "true")
+		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 	// ── 1. Pre-assemble history + project context ──────────────────────────
 	history := []llm.Message(nil)

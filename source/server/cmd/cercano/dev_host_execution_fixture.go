@@ -109,15 +109,23 @@ func init() {
 			os.Exit(91)
 		}
 	}
-	if len(os.Args) != 4 || os.Args[1] != "worker" || os.Args[2] != "--socket" {
+	if len(os.Args) < 2 || os.Args[1] != "worker" {
 		return
+	}
+	socket, prepared, err := parseWorkerArgs(os.Args[2:])
+	if err != nil {
+		panic(err)
+	}
+	var options []worker.Option
+	if prepared {
+		options = append(options, worker.WithPrepared())
 	}
 	if os.Getenv("CERCANO_DISABLE_CREDENTIALS") != "1" {
 		os.Exit(90)
 	}
-	os.Setenv("HOME", filepath.Dir(os.Args[3]))
-	os.Setenv("XDG_CONFIG_HOME", filepath.Dir(os.Args[3]))
-	l, err := net.Listen("unix", os.Args[3])
+	os.Setenv("HOME", filepath.Dir(socket))
+	os.Setenv("XDG_CONFIG_HOME", filepath.Dir(socket))
+	l, err := net.Listen("unix", socket)
 	if err != nil {
 		panic(err)
 	}
@@ -129,7 +137,7 @@ func init() {
 		r.Register(devFixtureRead{})
 		r.Register(devFixtureSentinel{})
 		return &devFixtureTools{r: r, parent: start.GetConversationId()}, nil
-	}))
+	}, options...))
 	if err := g.Serve(l); err != nil {
 		panic(err)
 	}
