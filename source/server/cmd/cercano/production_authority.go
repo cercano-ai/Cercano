@@ -46,6 +46,10 @@ func productionCredentialDefaults() productionCredentialDependencies {
 }
 
 func (d productionCredentialDependencies) open(options secrets.Options) (secrets.Store, error) {
+	// Admission must precede even construction of a native credential backend.
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	if d.openSecrets == nil {
 		return nil, fmt.Errorf("credential opener required")
 	}

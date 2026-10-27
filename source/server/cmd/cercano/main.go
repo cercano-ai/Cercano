@@ -274,17 +274,20 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	mistralEng := mistralengine.NewEngine(runtimeManager)
 	registry.RegisterEngine(mistralEng)
 
-	openProviderFor := func(c config.Config) inference.Provider {
-		if strings.EqualFold(c.OpenRuntime, "llama_server") {
-			return llamaengine.NewLLMProvider(llamaEng)
+	openProviderFor := lifecycle.openProvider
+	if openProviderFor == nil {
+		openProviderFor = func(c config.Config) inference.Provider {
+			if strings.EqualFold(c.OpenRuntime, "llama_server") {
+				return llamaengine.NewLLMProvider(llamaEng)
+			}
+			if strings.EqualFold(c.OpenRuntime, "mistralrs") {
+				return mistralengine.NewLLMProvider(mistralEng)
+			}
+			return ollamallm.NewClient(ollamallm.Config{
+				BaseURL: c.OllamaURL,
+				Model:   openChatModel(c),
+			})
 		}
-		if strings.EqualFold(c.OpenRuntime, "mistralrs") {
-			return mistralengine.NewLLMProvider(mistralEng)
-		}
-		return ollamallm.NewClient(ollamallm.Config{
-			BaseURL: c.OllamaURL,
-			Model:   openChatModel(c),
-		})
 	}
 	openProvider := agent.InferenceTurnRunner(openProviderFor(cfg), openTurnModel(cfg))
 
@@ -704,7 +707,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// slow/dead server never blocks boot (a call to a not-ready server blocks
 	// only that call — see mcphost).
 	cfgDir := filepath.Dir(admission.paths.config)
-	closeMCP, err := composeProductionMCP(srv, cfgDir, productionMCPDependencies{}, executionPolicy)
+	closeMCP, err := composeProductionMCP(srv, cfgDir, lifecycle.mcp, executionPolicy)
 	if err != nil {
 		return "", nil, err
 	}

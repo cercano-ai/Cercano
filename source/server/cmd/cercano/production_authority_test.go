@@ -89,3 +89,26 @@ func TestProductionCredentialErrors(t *testing.T) {
 		t.Fatal("nil store accepted")
 	}
 }
+
+// Admission is checked before calling even an injected opener, not merely
+// before the returned store's first operation. No enabled scope is needed.
+func TestProductionCredentialRefusesBeforeOpen(t *testing.T) {
+	for _, policy := range []string{"1", "", "malformed"} {
+		t.Run("policy="+policy, func(t *testing.T) {
+			t.Setenv(secrets.DisableEnv, policy)
+			calls := 0
+			d := productionCredentialDependencies{openSecrets: func() (secrets.Store, error) {
+				calls++
+				return nil, errors.New("opener must remain unreachable")
+			}}
+			for _, readOnly := range []bool{false, true} {
+				if _, err := d.open(secrets.Options{ReadOnly: readOnly}); !errors.Is(err, secrets.ErrDisabled) {
+					t.Fatalf("readOnly=%v: admission error = %v", readOnly, err)
+				}
+			}
+			if calls != 0 {
+				t.Fatalf("opener called %d times", calls)
+			}
+		})
+	}
+}

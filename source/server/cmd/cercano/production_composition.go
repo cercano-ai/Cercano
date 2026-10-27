@@ -126,6 +126,8 @@ func composeProductionServices(s *server.Server, a *agent.Agent, loader *project
 // The explicit directory is resolved by admission, never by this service factory.
 type productionMCPDependencies struct {
 	newManager func(*agenttools.Registry, string, time.Duration) *mcphost.Manager
+	start      func(*mcphost.Manager, context.Context)
+	stop       func(*mcphost.Manager)
 }
 
 // composeProductionMCP preserves ordinary register/start ordering and the
@@ -153,7 +155,14 @@ func composeProductionMCP(s *server.Server, dir string, d productionMCPDependenc
 	}
 	s.SetMcpManager(manager)
 	ctx, cancel := context.WithCancel(context.Background())
-	manager.Start(ctx)
+	start, stop := d.start, d.stop
+	if start == nil {
+		start = (*mcphost.Manager).Start
+	}
+	if stop == nil {
+		stop = (*mcphost.Manager).Stop
+	}
+	start(manager, ctx)
 	var once sync.Once
-	return func() { once.Do(func() { cancel(); manager.Stop() }) }, nil
+	return func() { once.Do(func() { cancel(); stop(manager) }) }, nil
 }

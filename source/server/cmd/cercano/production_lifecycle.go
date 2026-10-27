@@ -1,6 +1,8 @@
 package main
 
 import (
+	"cercano/source/server/internal/inference"
+	"cercano/source/server/pkg/config"
 	"net"
 
 	"cercano/source/server/internal/conversation"
@@ -10,6 +12,9 @@ import (
 )
 
 type productionLifecycleDependencies struct {
+	// Optional invocation-local external dependencies; nil retains real defaults.
+	openProvider func(config.Config) inference.Provider
+	mcp          productionMCPDependencies
 	watchdog     server.WatchdogDependencies
 	cloudBuilder providers.CloudBuilder
 	enterprise   productionEnterpriseDependencies

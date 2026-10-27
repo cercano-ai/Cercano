@@ -4,6 +4,7 @@ import (
 	"cercano/source/server/internal/catalog"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/enterprise"
+	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/localruntime"
 	"cercano/source/server/internal/ollamacatalog"
 	"cercano/source/server/pkg/config"
@@ -27,13 +28,18 @@ func TestProductionListenerFailureClosesOwnedStore(t *testing.T) {
 	store := &startupStoreFake{}
 	d, runtime, _ := runtimeFixture(t)
 	a := productionStartupAdmission{legacy: true, paths: productionAuthorityPaths{config: filepath.Join(dir, "config.yaml"), conversations: filepath.Join(dir, "history.db")}}
+	providerOpens := 0
 	deps := productionLifecycleDependencies{
-		enterprise: productionEnterpriseDependencies{options: &enterprise.HostOptions{Directory: filepath.Join(dir, "enterprise"), OpenStore: func() (enterprise.CredentialStore, error) { t.Fatal("native opener"); return nil, nil }}},
-		openStore:  func(string) (conversation.Store, error) { return store, nil },
-		listen:     func(string, string) (net.Listener, error) { return nil, errors.New("injected listener failure") },
-		reap:       func() int { return 0 },
+		openProvider: func(config.Config) inference.Provider { providerOpens++; return &compositionCloudProvider{} },
+		enterprise:   productionEnterpriseDependencies{options: &enterprise.HostOptions{Directory: filepath.Join(dir, "enterprise"), OpenStore: func() (enterprise.CredentialStore, error) { t.Fatal("native opener"); return nil, nil }}},
+		openStore:    func(string) (conversation.Store, error) { return store, nil },
+		listen:       func(string, string) (net.Listener, error) { return nil, errors.New("injected listener failure") },
+		reap:         func() int { return 0 },
 	}
 	_, cleanup, err := startGRPCServerWithLifecycle(config.Defaults(), "fixture", nil, productionCredentialDependencies{}, a, d, productionCatalogDefaults(), productionAccountingDefaults(), deps)
+	if providerOpens != 1 {
+		t.Fatalf("open provider calls = %d", providerOpens)
+	}
 	if err == nil || cleanup != nil {
 		t.Fatal("expected startup failure")
 	}
@@ -73,8 +79,10 @@ func TestProductionFailureStages(t *testing.T) {
 				start:    func(_ *ollamacatalog.Manager, ctx context.Context) { catalogCtx = ctx },
 				stop:     func(*ollamacatalog.Manager) { catalogStops++ },
 			}
+			providerOpens := 0
 			deps := productionLifecycleDependencies{
-				enterprise: productionEnterpriseDependencies{options: &enterprise.HostOptions{Directory: filepath.Join(filepath.Dir(a.paths.config), "enterprise"), OpenStore: func() (enterprise.CredentialStore, error) { t.Fatal("credential opener"); return nil, nil }}},
+				openProvider: func(config.Config) inference.Provider { providerOpens++; return &compositionCloudProvider{} },
+				enterprise:   productionEnterpriseDependencies{options: &enterprise.HostOptions{Directory: filepath.Join(filepath.Dir(a.paths.config), "enterprise"), OpenStore: func() (enterprise.CredentialStore, error) { t.Fatal("credential opener"); return nil, nil }}},
 				openStore: func(path string) (conversation.Store, error) {
 					if path != a.paths.conversations {
 						t.Fatal("store authority changed")
@@ -87,6 +95,9 @@ func TestProductionFailureStages(t *testing.T) {
 				listen: func(string, string) (net.Listener, error) { return listener, nil }, reap: func() int { return 0 },
 			}
 			_, cleanup, err := startGRPCServerWithLifecycle(config.Defaults(), "fixture", nil, productionCredentialDependencies{}, a, d, catalogs, productionAccountingDefaults(), deps)
+			if providerOpens != 1 {
+				t.Fatalf("open provider calls = %d", providerOpens)
+			}
 			if err == nil || cleanup != nil {
 				t.Fatal("expected failed composition")
 			}
