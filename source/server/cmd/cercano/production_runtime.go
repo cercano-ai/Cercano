@@ -49,15 +49,16 @@ func (d productionRuntimeDependencies) validate() error {
 	return nil
 }
 
-// connect preserves ordinary fallback and warming order. Cleanup releases only
-// this invocation's attachment, after Server.Shutdown; it never stops shared
-// resources. Once guards duplicate cleanup within this invocation, not siblings.
+// connect preserves ordinary fallback and warming order. Cleanup closes the
+// invocation-owned local manager or releases its remote attachment after
+// Server.Shutdown; it never stops shared resources. Once guards duplicate
+// cleanup within this invocation, not siblings.
 func (d productionRuntimeDependencies) connect(ctx context.Context, cfg config.Config, events *crashlog.Writer) (localruntime.Manager, func(), error) {
 	if err := d.validate(); err != nil {
 		return nil, nil, err
 	}
 	if strings.EqualFold(strings.TrimSpace(d.mode()), "inprocess") {
-		return d.local(cfg, events), func() {}, nil
+		return ownedProductionRuntime(d.local(cfg, events))
 	}
 	remote, err := d.remote(ctx)
 	if err != nil {
@@ -66,7 +67,7 @@ func (d productionRuntimeDependencies) connect(ctx context.Context, cfg config.C
 		}
 		log.Printf("[WARN] shared model host unavailable (%v); hosting local models in this process", err)
 		events.LogRuntimeEvent(crashlog.EventModelHostUnavailable, err.Error(), crashlog.RuntimeInfo{}, map[string]any{"fallback": "inprocess"})
-		return d.local(cfg, events), func() {}, nil
+		return ownedProductionRuntime(d.local(cfg, events))
 	}
 	if remote == nil {
 		return nil, nil, fmt.Errorf("runtime connector returned nil manager")
@@ -78,6 +79,25 @@ func (d productionRuntimeDependencies) connect(ctx context.Context, cfg config.C
 		once.Do(func() {
 			if err := remote.Close(); err != nil {
 				log.Printf("[WARN] closing model host connection: %v", err)
+			}
+		})
+	}, nil
+}
+
+// Local factories transfer ownership; remote cleanup remains attachment-only.
+func ownedProductionRuntime(manager localruntime.Manager) (localruntime.Manager, func(), error) {
+	if manager == nil {
+		return nil, nil, fmt.Errorf("local runtime factory returned nil manager")
+	}
+	closer, ok := manager.(interface{ Close() error })
+	if !ok {
+		return nil, nil, fmt.Errorf("owned local runtime requires Close")
+	}
+	var once sync.Once
+	return manager, func() {
+		once.Do(func() {
+			if err := closer.Close(); err != nil {
+				log.Printf("[WARN] closing local runtime: %v", err)
 			}
 		})
 	}, nil

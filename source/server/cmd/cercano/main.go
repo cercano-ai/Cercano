@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -213,6 +214,10 @@ func startGRPCServerWithRuntime(cfg config.Config, bindAddr string, events *cras
 }
 
 func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies, catalogs productionCatalogDependencies, accounting productionAccountingDependencies) (string, func(), error) {
+	return startGRPCServerWithLifecycle(cfg, bindAddr, events, credentials, admission, runtimes, catalogs, accounting, productionLifecycleDefaults())
+}
+
+func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies, catalogs productionCatalogDependencies, accounting productionAccountingDependencies, lifecycle productionLifecycleDependencies) (string, func(), error) {
 	if err := admission.validateActivation(); err != nil {
 		return "", nil, err
 	}
@@ -225,7 +230,7 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 	if accounting.open == nil {
 		return "", nil, fmt.Errorf("accounting store opener required")
 	}
-	enterpriseHost, err := composeProductionEnterprise(productionEnterpriseDependencies{}, enterpriseLegacy)
+	enterpriseHost, err := composeProductionEnterprise(lifecycle.enterprise, enterpriseLegacy)
 	if err != nil {
 		return "", nil, err
 	}
@@ -309,11 +314,30 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 	// The public agent must not bind without it: otherwise /resume renders an
 	// empty picker while a degraded singleton owns the port.
 	persistentStorePath := admission.paths.conversations
-	persistentStore, err := admission.conversationStore(nil, openAgentConversationStore)
+	persistentStore, err := admission.conversationStore(nil, lifecycle.openStore)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w; refusing to start agent without /history and /resume persistence", err)
 	}
 	fmt.Fprintf(os.Stderr, "Conversation store: %s\n", persistentStorePath)
+	var cancelSweeper context.CancelFunc
+	var sweeperDone <-chan struct{}
+	var dataOnce sync.Once
+	closeData := func() {
+		dataOnce.Do(func() {
+			if cancelSweeper != nil {
+				cancelSweeper()
+				<-sweeperDone
+			}
+			if persistentStore != nil {
+				_ = persistentStore.Close()
+			}
+		})
+	}
+	defer func() {
+		if !started {
+			closeData()
+		}
+	}()
 
 	// Context-window meter: per-conversation running token counters keyed
 	// by conversation id. The CLI polls GetContextUsage after each turn.
@@ -410,6 +434,41 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 		// compaction is disabled in config.
 		newLoopCompactor = loopcompact.NewFactory(loopDeps)
 	}
+	var markIncomplete func()
+	var producersOnce sync.Once
+	closeProducers := func() {
+		producersOnce.Do(func() {
+			// Independently scheduled producers must stop before accounting drains.
+			producerCtx, cancelProducers := context.WithTimeout(context.Background(), 2*time.Second)
+			for name, closeProducer := range map[string]func(context.Context) error{
+				"recap": func(ctx context.Context) error {
+					if recapGen != nil {
+						return recapGen.Close(ctx)
+					}
+					return nil
+				},
+				"compaction": func(ctx context.Context) error {
+					if compGen != nil {
+						return compGen.Close(ctx)
+					}
+					return nil
+				},
+			} {
+				if err := closeProducer(producerCtx); err != nil {
+					fmt.Fprintf(os.Stderr, "accounting: %s producer shutdown incomplete: %v\n", name, err)
+					if markIncomplete != nil {
+						markIncomplete()
+					}
+				}
+			}
+			cancelProducers()
+		})
+	}
+	defer func() {
+		if !started {
+			closeProducers()
+		}
+	}()
 	var sweeper *retention.Sweeper
 	if persistentStore != nil {
 		sweeper = retention.New(persistentStore, retention.Config{
@@ -417,7 +476,9 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 			CompactedRetentionDays: cfg.Compaction.Retention.CompactedRetentionDays,
 			KeepForever:            cfg.Compaction.Retention.KeepForever,
 		}, 12*time.Hour)
-		sweeper.Start(context.Background())
+		sweepCtx, cancel := context.WithCancel(context.Background())
+		cancelSweeper = cancel
+		sweeperDone = sweeper.Start(sweepCtx)
 	}
 	orchestrator := agent.NewAgent(lazyRouter, coordinator, agentOpts...)
 
@@ -425,11 +486,11 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 	// groups + pidfiles/sockets behind. Reap the ones still alive that identify
 	// as cercano workers before we start serving (and before this host spawns
 	// any worker of its own). Best-effort — never blocks startup.
-	if n := worker.ReapOrphanWorkers(); n > 0 {
+	if n := lifecycle.reap(); n > 0 {
 		fmt.Fprintf(os.Stderr, "reaped %d orphaned worker(s) from a previous run\n", n)
 	}
 
-	lis, err := net.Listen("tcp", bindAddr)
+	lis, err := lifecycle.listen("tcp", bindAddr)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to listen on %s: %v", bindAddr, err)
 	}
@@ -438,6 +499,13 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 	const maxGRPCMessageBytes = 64 << 20
 	s := grpc.NewServer(append(enterpriseHost.serverOptions(), grpc.MaxRecvMsgSize(maxGRPCMessageBytes))...)
 	srv := server.NewServer(orchestrator, lazyRouter, coordinator, cloudFactory, registry)
+	defer func() {
+		if !started {
+			s.Stop()
+			_ = lis.Close()
+			srv.Shutdown()
+		}
+	}()
 	enterpriseHost.bindAdmission(srv)
 	srv.SetBuildVersion(version)
 	compactionCandidates = srv.DispatchCandidates
@@ -492,12 +560,18 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 	// Watch permissions.yaml for out-of-band edits (hand-edits, tools) and push
 	// the change to connected clients. Non-fatal: the SetPermissionMode RPC path
 	// still broadcasts, and the gate re-reads the file on every decision.
-	if err := srv.StartPermissionWatcher(context.Background(), permsPath); err != nil {
+	watchCtx, cancelWatchers := context.WithCancel(context.Background())
+	defer func() {
+		if !started {
+			cancelWatchers()
+		}
+	}()
+	if err := srv.StartPermissionWatcher(watchCtx, permsPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] permission file watcher not started (%v) — /strict etc. still push; hand-edits won't.\n", err)
 	}
 	// Watch config.yaml for out-of-band edits and replay hot-reloadable fields
 	// through UpdateConfig. Non-fatal: the /config RPC path still works.
-	if err := srv.StartConfigWatcher(context.Background(), admission.paths.config); err != nil {
+	if err := srv.StartConfigWatcher(watchCtx, admission.paths.config); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] config file watcher not started (%v) — /config still applies live; hand-edits won't.\n", err)
 	}
 
@@ -521,6 +595,17 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 		}
 	}
 
+	if agentCollector != nil {
+		markIncomplete = func() { agentCollector.MarkAccountingIncomplete("background producer shutdown incomplete") }
+	}
+	defer func() {
+		if !started {
+			closeProducers()
+			if closeAgentTelemetry != nil {
+				closeAgentTelemetry()
+			}
+		}
+	}()
 	// Open OS keychain and attach it so profile RPCs and rebuildCloud can
 	// read API keys. Failure is non-fatal: cloud stays absent.
 	if store, err := credentials.open(secrets.Options{}); err == nil {
@@ -599,7 +684,7 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 	}
 	executionPolicy := productionExecutionPolicy{legacy: true}
 	if err := composeProductionServices(srv, orchestrator, ctxLoader, engineDeps, executionPolicy); err != nil {
-		log.Fatal(err)
+		return "", nil, err
 	}
 
 	// MCP host: load global servers and connect them in the background. Tools
@@ -609,8 +694,13 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 	cfgDir := filepath.Dir(admission.paths.config)
 	closeMCP, err := composeProductionMCP(srv, cfgDir, productionMCPDependencies{}, executionPolicy)
 	if err != nil {
-		log.Fatal(err)
+		return "", nil, err
 	}
+	defer func() {
+		if !started {
+			closeMCP()
+		}
+	}()
 
 	// Select worker vs in-process turn execution from the loaded config
 	// (default: worker → crash isolation). Runs AFTER config, permissions,
@@ -619,7 +709,7 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 	// Tests never reach this path (they build Server directly), so they stay
 	// in-process and never spawn worker processes.
 	if err := executionPolicy.install(srv); err != nil {
-		log.Fatal(err)
+		return "", nil, err
 	}
 
 	proto.RegisterAgentServer(s, srv)
@@ -631,50 +721,32 @@ func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *cra
 		}
 	}()
 
+	var cleanupOnce sync.Once
 	cleanup := func() {
-		defer restorePolicy()
-		defer enterpriseHost.Close()
-		// Runs after the body: srv.Shutdown has stopped in-process runtime
-		// instances and the producers that use them. For the shared model
-		// host, closing releases this agent's holds.
-		defer closeRuntime()
-		// Drain before teardown: in-flight turns still need the MCP manager
-		// and providers, so those stop only after the streams finish. The
-		// standing SubscribeEvents streams must end first or GracefulStop
-		// waits on attached clients forever.
-		srv.BeginShutdown()
-		server.DrainThenStop(s, drainGrace)
-		closeMCP()
-		srv.Shutdown()
-		closeCatalog()
-		// Independently scheduled producers must stop before accounting drains.
-		producerCtx, cancelProducers := context.WithTimeout(context.Background(), 2*time.Second)
-		for name, closeProducer := range map[string]func(context.Context) error{
-			"recap": func(ctx context.Context) error {
-				if recapGen != nil {
-					return recapGen.Close(ctx)
-				}
-				return nil
-			},
-			"compaction": func(ctx context.Context) error {
-				if compGen != nil {
-					return compGen.Close(ctx)
-				}
-				return nil
-			},
-		} {
-			if err := closeProducer(producerCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "accounting: %s producer shutdown incomplete: %v\n", name, err)
-				if agentCollector != nil {
-					agentCollector.MarkAccountingIncomplete("background producer shutdown incomplete")
-				}
+		cleanupOnce.Do(func() {
+			cancelWatchers()
+			defer restorePolicy()
+			defer enterpriseHost.Close()
+			// Runs after the body: srv.Shutdown has stopped in-process runtime
+			// instances and the producers that use them. For the shared model
+			// host, closing releases this agent's holds.
+			defer closeRuntime()
+			// Drain before teardown: in-flight turns still need the MCP manager
+			// and providers, so those stop only after the streams finish. The
+			// standing SubscribeEvents streams must end first or GracefulStop
+			// waits on attached clients forever.
+			srv.BeginShutdown()
+			server.DrainThenStop(s, drainGrace)
+			closeMCP()
+			srv.Shutdown()
+			closeCatalog()
+			closeProducers()
+			closeData()
+			// Usage producers have stopped; drain before closing the database.
+			if closeAgentTelemetry != nil {
+				closeAgentTelemetry()
 			}
-		}
-		cancelProducers()
-		// Usage producers have stopped; drain before closing the database.
-		if closeAgentTelemetry != nil {
-			closeAgentTelemetry()
-		}
+		})
 	}
 
 	started = true

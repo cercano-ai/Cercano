@@ -108,7 +108,7 @@ func TestProductionRuntimeFallbackAndCancellation(t *testing.T) {
 			if mode == "remote-error" {
 				want = []string{"remote", "local"}
 			}
-			if !reflect.DeepEqual(*calls, want) || f.closed != 0 {
+			if !reflect.DeepEqual(*calls, want) || f.closed != 1 {
 				t.Fatalf("fallback ordering/cleanup: %v", *calls)
 			}
 		})

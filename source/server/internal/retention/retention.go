@@ -94,8 +94,10 @@ func (s *Sweeper) Sweep(ctx context.Context, now time.Time) {
 
 // Start runs an initial sweep shortly after startup, then every interval, until
 // ctx is cancelled. Non-blocking.
-func (s *Sweeper) Start(ctx context.Context) {
+func (s *Sweeper) Start(ctx context.Context) <-chan struct{} {
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		select {
 		case <-time.After(30 * time.Second):
 		case <-ctx.Done():
@@ -113,4 +115,5 @@ func (s *Sweeper) Start(ctx context.Context) {
 			}
 		}
 	}()
+	return done
 }
