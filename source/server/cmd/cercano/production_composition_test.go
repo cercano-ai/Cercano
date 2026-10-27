@@ -21,8 +21,9 @@ import (
 	"cercano/source/server/internal/agent"
 )
 
-// All inference/embedding calls terminate in these in-memory transports. Tests
-// never call either host startup (store/runtime/native credential admission).
+// Inference/embedding calls terminate in these in-memory transports. Prepared
+// constructor tests use temporary stores and injected credential/runtime factories;
+// they do not use native credentials or production runtime services.
 type compositionRunner struct {
 	name  string
 	calls int
