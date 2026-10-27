@@ -54,6 +54,7 @@ import (
 
 // WorkerServer implements the gRPC Worker service (worker-side).
 type WorkerServer struct {
+	prepared            bool // immutable constructor contract, independent of RPC metadata
 	managed             atomic.Bool
 	processGuard        bool
 	guardOnce           sync.Once
@@ -81,26 +82,45 @@ type WorkerServer struct {
 	secretOpener func() capabilities.SecretStore
 }
 
-// New creates the server for a dedicated worker process. Its first managed turn
-// also installs a process guard, so losing turn context cannot bypass policy.
-func New() *WorkerServer { return &WorkerServer{processGuard: true} }
+// Option configures immutable worker identity at construction time.
+type Option func(*WorkerServer)
+
+// WithPrepared requires the prepared session protocol on every turn.
+func WithPrepared() Option { return func(w *WorkerServer) { w.prepared = true } }
+
+func workerOptions(w *WorkerServer, options []Option) *WorkerServer {
+	for _, option := range options {
+		option(w)
+	}
+	return w
+}
+
+// New creates a dedicated worker process server. Its first managed turn also
+// installs a process guard, so losing turn context cannot bypass policy.
+func New(options ...Option) *WorkerServer {
+	return workerOptions(&WorkerServer{processGuard: true}, options)
+}
+
+// NewPrepared creates a dedicated prepared worker; metadata cannot downgrade it.
+func NewPrepared() *WorkerServer { return New(WithPrepared()) }
 
 // NewWithSecretStore creates an in-process worker with an explicitly supplied
 // capability credential store. It retains the full production tool stack, but
 // cannot fall back to native credentials, even when the store returns errors.
-func NewWithSecretStore(store capabilities.SecretStore) *WorkerServer {
+func NewWithSecretStore(store capabilities.SecretStore, options ...Option) *WorkerServer {
 	if store == nil {
 		panic("worker: injected secret store must not be nil")
 	}
-	return &WorkerServer{secretOpener: func() capabilities.SecretStore { return store }}
+	return workerOptions(&WorkerServer{secretOpener: func() capabilities.SecretStore { return store }}, options)
 }
 
 // NewWithFactories creates a WorkerServer with injected factories for testing.
 func NewWithFactories(
 	pf func(*proto.StartTurn) (providerssvc.Resolver, error),
 	tf func(*proto.StartTurn) (runner.ToolSvc, error),
+	options ...Option,
 ) *WorkerServer {
-	return &WorkerServer{providerFactory: pf, toolsFactory: tf}
+	return workerOptions(&WorkerServer{providerFactory: pf, toolsFactory: tf}, options)
 }
 
 // RunTurn is the bidi RPC handler.
@@ -108,6 +128,10 @@ func (w *WorkerServer) RunTurn(stream proto.Worker_RunTurnServer) error {
 	return w.runTurn(stream, false, false)
 }
 func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, managed bool) error {
+	// Validate before dependency assembly, capability access, or provider work.
+	if err := validatePreparedSession(stream.Context(), w.prepared); err != nil {
+		return err
+	}
 	// First message must be StartTurn.
 	firstMsg, err := stream.Recv()
 	if err != nil {
@@ -563,11 +587,11 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 		if visionStore != nil {
 			workerAttachments = visionStore
 		}
-		openSecrets := workerSecretOpener(ctx, w.secretOpener)
+		openSecrets := workerSecretOpener(ctx, w.secretOpener, w.prepared)
 		toolSvc = buildWorkerToolSvcWithSecrets(permBroker, engine, ctxLoader, provSvc.Cloud(), provSvc.Open(), cfg, subPersist, profileCtl.SetProfile, visionSvc, workerAttachments, failureLog, diagnostic, autonomy, provSvc.Candidates, sessionModel, tasks, openSecrets, restart...)
 	}
 
-	configurePreparedDispatch(ctx, toolSvc)
+	configurePreparedDispatch(ctx, toolSvc, w.prepared)
 	configureDevHostFixtureTasks(toolSvc, tasks)
 
 	// Register a proxy per host-advertised MCP tool. Done AFTER the built-in

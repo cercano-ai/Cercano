@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	"cercano/source/server/internal/capabilities"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 const preparedCredentialPolicyHeader = "cercano-worker-host-credentials-only"
@@ -35,15 +37,29 @@ func (w *workerRunner) SetTurnAuthority(f func(context.Context, string) (TurnAut
 	w.turnAuthority = f
 }
 
-// The flag travels on the worker session, not in ambient process configuration.
-// It only removes direct capability keychain access; provider credential requests
+// validatePreparedSession never infers prepared process identity from metadata.
+// Ordinary workers still accept legacy sessions without this header.
+func validatePreparedSession(ctx context.Context, prepared bool) error {
+	md, _ := metadata.FromIncomingContext(ctx)
+	values := md.Get(preparedCredentialPolicyHeader)
+	if !prepared && len(values) == 0 {
+		return nil
+	}
+	if len(values) != 1 || values[0] != "true" {
+		return status.Error(codes.FailedPrecondition, "worker: prepared credential policy must be exactly true")
+	}
+	return nil
+}
+
+// Prepared identity is constructor-pinned; the session header is validated
+// separately. Both suppress direct capability keychain access; provider requests
 // continue to use the existing host credential proxy. Explicit injection wins.
-func workerSecretOpener(ctx context.Context, injected func() capabilities.SecretStore) func() capabilities.SecretStore {
+func workerSecretOpener(ctx context.Context, injected func() capabilities.SecretStore, prepared ...bool) func() capabilities.SecretStore {
 	if injected != nil {
 		return injected
 	}
 	md, _ := metadata.FromIncomingContext(ctx)
-	if len(md.Get(preparedCredentialPolicyHeader)) != 0 {
+	if (len(prepared) > 0 && prepared[0]) || len(md.Get(preparedCredentialPolicyHeader)) != 0 {
 		return func() capabilities.SecretStore { return nil }
 	}
 	return openWorkerSecrets
@@ -51,9 +67,9 @@ func workerSecretOpener(ctx context.Context, injected func() capabilities.Secret
 
 // Prepared worker-local dispatch is nested, not the host independent task path.
 // Reject before the legacy asynchronous ensure proxy can start provider work.
-func configurePreparedDispatch(ctx context.Context, tools any) {
+func configurePreparedDispatch(ctx context.Context, tools any, prepared ...bool) {
 	md, _ := metadata.FromIncomingContext(ctx)
-	if len(md.Get(preparedCredentialPolicyHeader)) == 0 {
+	if !(len(prepared) > 0 && prepared[0]) && len(md.Get(preparedCredentialPolicyHeader)) == 0 {
 		return
 	}
 	if scoped, ok := tools.(interface{ SetDispatchScope(toolssvc.DispatchScope) }); ok {

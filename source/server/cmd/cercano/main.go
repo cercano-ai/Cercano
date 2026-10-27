@@ -2111,19 +2111,43 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 	}
 }
 
+// parseWorkerArgs consumes every argument; unknown, duplicate, and positional
+// arguments fail rather than silently dropping the prepared launch contract.
+func parseWorkerArgs(args []string) (socket string, prepared bool, err error) {
+	seen := map[string]bool{}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if seen[arg] {
+			return "", false, fmt.Errorf("duplicate worker flag %q", arg)
+		}
+		seen[arg] = true
+		switch arg {
+		case "--socket":
+			i++
+			if i >= len(args) || strings.HasPrefix(args[i], "--") {
+				return "", false, fmt.Errorf("--socket requires a path")
+			}
+			socket = args[i]
+		case "--prepared":
+			prepared = true
+		default:
+			return "", false, fmt.Errorf("unknown worker argument %q", arg)
+		}
+	}
+	if socket == "" {
+		return "", false, fmt.Errorf("--socket <path> required")
+	}
+	return socket, prepared, nil
+}
+
 // runWorkerMode serves the Worker gRPC service over a Unix-domain socket until
 // killed. The host launches this process with --socket <path> and connects to
 // it; with per-conversation worker reuse the host drives many sequential
 // RunTurn streams over one connection to a warm worker.
 func runWorkerMode(args []string) {
-	var socketPath string
-	for i, arg := range args {
-		if arg == "--socket" && i+1 < len(args) {
-			socketPath = args[i+1]
-		}
-	}
-	if socketPath == "" {
-		fmt.Fprintln(os.Stderr, "worker: --socket <path> required")
+	socketPath, prepared, err := parseWorkerArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "worker: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -2141,7 +2165,11 @@ func runWorkerMode(args []string) {
 		grpc.MaxRecvMsgSize(worker.MaxMsgBytes),
 		grpc.MaxSendMsgSize(worker.MaxMsgBytes),
 	)
-	proto.RegisterWorkerServer(srv, worker.New())
+	ws := worker.New()
+	if prepared {
+		ws = worker.NewPrepared()
+	}
+	proto.RegisterWorkerServer(srv, ws)
 
 	log.Printf("[worker] serving on unix:%s", socketPath)
 	if err := srv.Serve(ln); err != nil {

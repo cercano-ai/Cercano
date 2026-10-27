@@ -141,7 +141,7 @@ func spawnWorkerWithPolicy(ctx context.Context, conversationID string, gen uint6
 	// Kill() / Shutdown() / idle-reap / startup orphan-sweep. The turn ctx still
 	// bounds STARTUP via waitForSocket(ctx, …) below, so a hung spawn during this
 	// turn is still abortable (and the partial handle is Killed on that path).
-	cmd := workerCommand(bin, sockPath)
+	cmd := workerCommand(bin, sockPath, policy.pinned)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
@@ -370,8 +370,12 @@ func forwardWorkerOutput(r io.ReadCloser, pid int, logf func(string, ...any)) {
 
 // workerCommand deliberately leaves Env nil, inheriting all host isolation
 // settings (including credential-disable), rather than rebuilding an allowlist.
-func workerCommand(binary, socket string) *exec.Cmd {
-	cmd := exec.Command(binary, "worker", "--socket", socket)
+func workerCommand(binary, socket string, prepared ...bool) *exec.Cmd {
+	args := []string{"worker", "--socket", socket}
+	if len(prepared) > 0 && prepared[0] {
+		args = append(args, "--prepared")
+	}
+	cmd := exec.Command(binary, args...)
 	setProcessGroup(cmd)
 	return cmd
 }
