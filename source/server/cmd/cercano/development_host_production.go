@@ -34,26 +34,42 @@ import (
 // Invocation-local seams: tests never open a native credential backend or attach
 // to a real runtime. There are deliberately no environment-selected fixtures.
 type developmentProductionDependencies struct {
-	openSecrets    func() (secrets.Store, error)
-	connectRuntime func(context.Context, config.Config, string) (localruntime.Manager, func(), error)
+	openSecrets     func() (secrets.Store, error)
+	connectRuntime  func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error)
+	newOpenProvider func(localruntime.Manager, config.Config) (inference.Provider, error)
 }
 
 func newProductionDevelopmentHost(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth) (*server.Server, func(), error) {
-	return newProductionDevelopmentHostWithDependencies(ctx, o, auth, developmentProductionDependencies{
-		openSecrets:    func() (secrets.Store, error) { return secrets.OpenKeychainWithOptions(secrets.Options{ReadOnly: true}) },
-		connectRuntime: connectDevelopmentRuntime,
-	})
+	return newProductionDevelopmentHostWithDependencies(ctx, o, auth, developmentProductionDefaults())
 }
 
-func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, host string) (localruntime.Manager, func(), error) {
+func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, state, host string) (localruntime.Manager, func(), error) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv(modelHostEnv)), "inprocess") {
 		return nil, nil, fmt.Errorf("development host requires protected shared modelhost; inprocess is forbidden")
+	}
+	// A separate state resource pins attachment; never discover the ambient host.
+	attachmentPath := filepath.Join(state, "modelhost.yaml")
+	if err := developmentPrivatePath(attachmentPath, false); err != nil {
+		return nil, nil, fmt.Errorf("local runtime requires private prepared modelhost.yaml: %w", err)
+	}
+	data, err := os.ReadFile(attachmentPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("local runtime requires prepared modelhost.yaml: %w", err)
+	}
+	var attachment struct {
+		RunDir string `yaml:"run_dir"`
+	}
+	if err := yaml.Unmarshal(data, &attachment); err != nil {
+		return nil, nil, err
+	}
+	if err := developmentPrivatePath(attachment.RunDir, true); err != nil {
+		return nil, nil, fmt.Errorf("prepared modelhost run_dir: %w", err)
 	}
 	bounded, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	remote, err := modelhost.NewRemote(bounded, modelhost.RemoteOptions{
 		CoexistenceProtection: true, ClientID: host, Profile: "development",
-		Ensure: modelhost.EnsureOptions{CoexistenceProtection: true, ClientVersion: version},
+		Ensure: modelhost.EnsureOptions{RunDir: attachment.RunDir, CoexistenceProtection: true, ClientVersion: version},
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("attach protected modelhost (no launch/replacement/fallback): %w", err)
@@ -69,7 +85,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if err := conversation.PreflightCoexistence(ctx, database, conversation.DevelopmentCoexistenceDeclaration()); err != nil {
 		return nil, nil, err
 	}
-	if o.Identity == nil || auth == nil || deps.openSecrets == nil || deps.connectRuntime == nil {
+	if o.Identity == nil || auth == nil || deps.openSecrets == nil {
 		return nil, nil, fmt.Errorf("prepared identity, auth and dependencies required")
 	}
 	configPath := filepath.Join(o.State, "config.yaml")
@@ -90,11 +106,12 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if cfg.LocusMode != "open_only" && cfg.ActiveCloudProfile == "" {
 		return nil, nil, fmt.Errorf("cloud routing selected without an active prepared cloud profile")
 	}
+	local := cfg.LocusMode != "cloud_only"
 	runtime := strings.ToLower(cfg.OpenRuntime)
-	if runtime != "llama_server" && runtime != "mistralrs" {
+	if local && runtime != "llama_server" && runtime != "mistralrs" {
 		return nil, nil, fmt.Errorf("unsupported development open_runtime %q: protected llama_server or mistralrs required", cfg.OpenRuntime)
 	}
-	if err := cfg.LlamaServer.Validate(); err != nil {
+	if err := cfg.LlamaServer.Validate(); local && err != nil {
 		return nil, nil, err
 	}
 	if !config.ValidateToolLoopMaxIterations(cfg.ToolLoop.MaxIterations) {
@@ -108,15 +125,22 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		return nil, nil, fmt.Errorf("credential opener returned nil store")
 	}
 	st = secrets.Guard(st, secrets.Options{ReadOnly: true})
-	manager, closeRuntime, err := deps.connectRuntime(ctx, cfg, o.Host)
-	if err != nil {
-		return nil, nil, err
-	}
-	if manager == nil || closeRuntime == nil {
-		if closeRuntime != nil {
-			closeRuntime()
+	var manager localruntime.Manager
+	closeRuntime := func() {}
+	if local {
+		if deps.connectRuntime == nil {
+			return nil, nil, fmt.Errorf("local runtime connector required")
 		}
-		return nil, nil, fmt.Errorf("runtime connector returned incomplete dependencies")
+		manager, closeRuntime, err = deps.connectRuntime(ctx, cfg, o.State, o.Host)
+		if err != nil {
+			return nil, nil, err
+		}
+		if manager == nil || closeRuntime == nil {
+			if closeRuntime != nil {
+				closeRuntime()
+			}
+			return nil, nil, fmt.Errorf("runtime connector returned incomplete dependencies")
+		}
 	}
 	var store conversation.Store
 	var once sync.Once
@@ -134,22 +158,45 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		}
 	}()
 	registry := engine.NewEngineRegistry()
-	llama := llamaengine.NewEngine(manager)
-	mistral := mistralengine.NewEngine(manager)
-	registry.RegisterEngine(llama)
-	registry.RegisterEmbedder(llama)
-	registry.RegisterEngine(mistral)
-	var open inference.Provider = llamaengine.NewLLMProvider(llama)
-	if runtime == "mistralrs" {
-		open = mistralengine.NewLLMProvider(mistral)
+	var open inference.Provider
+	var embedder engine.EmbeddingService
+	var setFailureLog func(*server.Server)
+	if local {
+		llama := llamaengine.NewEngine(manager)
+		setFailureLog = func(s *server.Server) { llama.SetFailureLog(s.FailureLog()) }
+		mistral := mistralengine.NewEngine(manager)
+		registry.RegisterEngine(llama)
+		registry.RegisterEmbedder(llama)
+		registry.RegisterEngine(mistral)
+		embedder = llama
+		if deps.newOpenProvider != nil {
+			open, err = deps.newOpenProvider(manager, cfg)
+			if err != nil {
+				return nil, nil, err
+			}
+			if open == nil {
+				return nil, nil, fmt.Errorf("provider constructor returned nil local provider")
+			}
+		} else if runtime == "mistralrs" {
+			open = mistralengine.NewLLMProvider(mistral)
+		} else {
+			open = llamaengine.NewLLMProvider(llama)
+		}
 	}
-	openRunner := agent.InferenceTurnRunner(open, openTurnModel(cfg))
+	// An unavailable local lane is an explicit error, never a cloud fallback.
+	var openRunner agent.TurnRunner = agent.AbsentCloud("local lane disabled by cloud_only configuration")
+	if open != nil {
+		openRunner = agent.InferenceTurnRunner(open, openTurnModel(cfg))
+	}
 	cloud := agent.AbsentCloud("prepared cloud profile not configured")
 	cloudFactory := developmentCloudFactory(cfg, st)
 	sessions := session.InMemoryService()
 	coordinator := loop.NewADKCoordinator(openRunner, cloud, tools.NewAutoValidator(tools.DefaultLoader(), tools.DefaultKindToValidator()), sessions)
 	router := agent.NewLazyRouter(func() (*agent.SmartRouter, error) {
-		return agent.NewSmartRouterFromBytes(openRunner, cloud, openEmbeddingModel(cfg), llama, agent.DefaultPrototypes(), cloudFactory)
+		if !local {
+			return nil, fmt.Errorf("cloud_only requires configured managed routing; local embedding classification is disabled")
+		}
+		return agent.NewSmartRouterFromBytes(openRunner, cloud, openEmbeddingModel(cfg), embedder, agent.DefaultPrototypes(), cloudFactory)
 	}, openRunner, cloud)
 	loader := projectctx.NewLoader()
 	var orchestrator *agent.Agent
@@ -158,7 +205,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		return nil, nil, err
 	}
 	srv, err := server.NewPreparedDurableServer(ctx, server.PreparedServerOptions{
-		Coexistence: server.CoexistenceOptions{StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(context.Context) error { cleanup(); return nil }},
+		Coexistence: server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(context.Context) error { cleanup(); return nil }},
 		Config:      cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
 		Agent: func(prepared conversation.Store) (*agent.Agent, error) {
 			store = prepared
@@ -182,7 +229,9 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	// conservatively with session-local decisions and no persisted allowlist.
 	srv.SetPermissions(agent.NewStaticPermissionStore(agent.ModeStrict), agent.NewPendingDecisions())
 	srv.SetOpenLLMProvider(open)
-	llama.SetFailureLog(srv.FailureLog())
+	if setFailureLog != nil {
+		setFailureLog(srv)
+	}
 	// Failure of a configured route is fatal, never an implicit open-lane fallback.
 	if cfg.ActiveCloudProfile != "" || len(cfg.CloudProfiles) > 0 {
 		if err = srv.RebuildCloud(); err != nil {

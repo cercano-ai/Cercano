@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"google.golang.org/grpc"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
@@ -57,7 +60,7 @@ func developmentProductionFixture(t *testing.T) (developmentHostOptions, *devhos
 	if err != nil {
 		t.Fatal(err)
 	}
-	return developmentHostOptions{State: state, Generation: generation, Host: "production-test", RuntimeRoot: resources, Identity: &proto.LifecycleIdentity{Build: "prepared-test"}}, auth
+	return developmentHostOptions{State: state, Generation: generation, Host: "production-test", RuntimeRoot: resources, Identity: &proto.LifecycleIdentity{Build: "prepared-test", Host: "production-test", Store: filepath.Join(state, "conversations.db"), Contract: conversation.DevelopmentCoexistenceDeclaration().Contract, Schema: int32(conversation.DevelopmentCoexistenceDeclaration().SchemaVersion)}}, auth
 }
 
 func TestDevelopmentProductionInjectedGraph(t *testing.T) {
@@ -79,7 +82,7 @@ func TestDevelopmentProductionInjectedGraph(t *testing.T) {
 			}
 			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 				openSecrets: func() (secrets.Store, error) { opened++; return memory, nil },
-				connectRuntime: func(context.Context, config.Config, string) (localruntime.Manager, func(), error) {
+				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
 					connected++
 					return localruntime.NewManager(), func() { closed++ }, nil
 				},
@@ -89,12 +92,33 @@ func TestDevelopmentProductionInjectedGraph(t *testing.T) {
 			}
 			defer cleanup()
 			defer srv.Shutdown()
-			if opened != 1 || connected != 1 {
+			wantRuntime := 1
+			if cloud {
+				wantRuntime = 0
+			}
+			if opened != 1 || connected != wantRuntime {
 				t.Fatalf("dependency counts %d/%d", opened, connected)
 			}
 			if srv.ConfigSnapshot().OpenRuntime != "llama_server" {
 				t.Fatal("machine environment replaced snapshot")
 			}
+			// Exercise the exact authenticated readiness/list bridge, not a direct call.
+			transport := grpc.NewServer(auth.ServerOptions()...)
+			proto.RegisterAgentServer(transport, srv)
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			defer transport.Stop()
+			go transport.Serve(listener)
+			probe, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			conn, err := developmentDialIdentity(probe, listener.Addr().String(), auth, o.Identity)
+			if err != nil {
+				t.Fatalf("authenticated readiness/list: %v", err)
+			}
+			conn.Close()
 			listed, err := srv.ListTools(context.Background(), &proto.ListToolsRequest{})
 			if err != nil || len(listed.Tools) == 0 {
 				t.Fatalf("missing real registry: %v %v", listed, err)
@@ -134,7 +158,7 @@ func TestDevelopmentProductionInjectedGraph(t *testing.T) {
 			}
 			cleanup()
 			cleanup()
-			if closed != 1 {
+			if closed != wantRuntime {
 				t.Fatalf("runtime closed %d times", closed)
 			}
 			after, _ := os.ReadFile(filepath.Join(o.State, "config.yaml"))
@@ -151,7 +175,7 @@ func TestDevelopmentProductionOpenerFailsOnceWithoutFallback(t *testing.T) {
 	sentinel := errors.New("injected opener failure")
 	_, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { calls++; return nil, sentinel },
-		connectRuntime: func(context.Context, config.Config, string) (localruntime.Manager, func(), error) {
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
 			t.Fatal("runtime entered after failed credentials")
 			return nil, nil, nil
 		},
@@ -184,7 +208,7 @@ func TestDevelopmentProductionRejectsUnsupportedSnapshotBeforeDependencies(t *te
 			}
 			_, _, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 				openSecrets: func() (secrets.Store, error) { t.Fatal("unsupported config entered opener"); return nil, nil },
-				connectRuntime: func(context.Context, config.Config, string) (localruntime.Manager, func(), error) {
+				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
 					t.Fatal("unsupported config entered runtime")
 					return nil, nil, nil
 				},
@@ -202,7 +226,7 @@ func TestDevelopmentProductionRuntimeErrorWithoutFallback(t *testing.T) {
 	sentinel := errors.New("protected modelhost unavailable")
 	_, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
-		connectRuntime: func(context.Context, config.Config, string) (localruntime.Manager, func(), error) {
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
 			calls++
 			return nil, nil, sentinel
 		},
