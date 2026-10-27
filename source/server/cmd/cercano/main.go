@@ -200,6 +200,20 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 }
 
 func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies) (string, func(), error) {
+	return startGRPCServerWithStartup(cfg, bindAddr, events, credentials, legacyProductionStartup())
+}
+
+// Internal staged entry only: canonical generation startup remains blocked until
+// the ordinary producers and integrations carry lifecycle authority. No CLI or
+// installed launcher selects this policy.
+func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, policy productionStartupPolicy) (string, func(), error) {
+	admission, err := policy.admit(context.Background())
+	if err != nil {
+		return "", nil, err
+	}
+	if !admission.legacy {
+		return "", nil, fmt.Errorf("canonical generation startup requires service parity; activation disabled")
+	}
 	enterpriseHost, err := newEnterpriseHost()
 	if err != nil {
 		return "", nil, err
@@ -283,11 +297,8 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 	// Persistent SQLite-backed conversation store for /history and /resume.
 	// The public agent must not bind without it: otherwise /resume renders an
 	// empty picker while a degraded singleton owns the port.
-	persistentStorePath, err := conversation.DefaultPath()
-	if err != nil {
-		return "", nil, fmt.Errorf("resolve conversation store path: %w", err)
-	}
-	persistentStore, err := openAgentConversationStore(persistentStorePath)
+	persistentStorePath := admission.paths.conversations
+	persistentStore, err := admission.conversationStore(nil, openAgentConversationStore)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w; refusing to start agent without /history and /resume persistence", err)
 	}
@@ -439,7 +450,7 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 	// catalog + files on disk). LoadCache is best-effort — a missing
 	// cache on first run just means the background refresher will
 	// populate it shortly. Start() is what kicks the periodic refresh.
-	catalogCachePath := filepath.Join(filepath.Dir(config.DefaultPath()), "catalog-cache.json")
+	catalogCachePath := filepath.Join(filepath.Dir(admission.paths.config), "catalog-cache.json")
 	catalogManager := ollamacatalog.NewManager(&ollamacatalog.Fetcher{}, catalogCachePath)
 	if err := catalogManager.LoadCache(); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Could not load online-catalog cache at %s: %v (starting fresh)\n", catalogCachePath, err)
@@ -480,11 +491,11 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 		cfg.Compaction.RolloverRearmMultiple,
 		cfg.Compaction.RolloverVerbatimTurns,
 	)
-	srv.SetConfigPersistence(config.DefaultPath(), cfg)
+	srv.SetConfigPersistence(admission.paths.config, cfg)
 
 	// Permission store + pending-decisions barrier for the native tool-calling
 	// loop. Path mirrors config.yaml: ~/.config/cercano/permissions.yaml.
-	permsPath := filepath.Join(filepath.Dir(config.DefaultPath()), "permissions.yaml")
+	permsPath := filepath.Join(filepath.Dir(admission.paths.config), "permissions.yaml")
 	permStore, err := agent.LoadPermissionStore(permsPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to load permission store at %s: %v — defaulting to permissive in-memory store.\n", permsPath, err)
@@ -500,7 +511,7 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 	}
 	// Watch config.yaml for out-of-band edits and replay hot-reloadable fields
 	// through UpdateConfig. Non-fatal: the /config RPC path still works.
-	if err := srv.StartConfigWatcher(context.Background(), config.DefaultPath()); err != nil {
+	if err := srv.StartConfigWatcher(context.Background(), admission.paths.config); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] config file watcher not started (%v) — /config still applies live; hand-edits won't.\n", err)
 	}
 
@@ -510,7 +521,7 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 	// keeping the server's stored providers raw so the dispatch engine can wrap
 	// them per-dispatch without double-counting.
 	// agentCollector is hoisted so the coproc engine sink can reference it below.
-	agentTelemetryPath := filepath.Join(filepath.Dir(config.DefaultPath()), "telemetry.db")
+	agentTelemetryPath := filepath.Join(filepath.Dir(admission.paths.config), "telemetry.db")
 	agentCollector, closeAgentTelemetry, err := startAgentTelemetry(agentTelemetryPath, generateSessionID())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to initialize agent telemetry: %v\n", err)
@@ -556,7 +567,7 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 			}
 			if keySafe {
 				cfg.CloudAPIKey = ""
-				if sverr := config.Save(cfg, config.DefaultPath()); sverr != nil {
+				if sverr := config.Save(cfg, admission.paths.config); sverr != nil {
 					fmt.Fprintf(os.Stderr, "[WARN] config save failed after key relocation (%v) — plaintext key may persist\n", sverr)
 				}
 			}
@@ -610,7 +621,7 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 	// register into the same agenttools.Registry as each server lists; a
 	// slow/dead server never blocks boot (a call to a not-ready server blocks
 	// only that call — see mcphost).
-	cfgDir := filepath.Dir(config.DefaultPath())
+	cfgDir := filepath.Dir(admission.paths.config)
 	mcpMgr := mcphost.New(srv.ToolRegistry(), cfgDir, 10*time.Second)
 	srv.SetMcpManager(mcpMgr)
 	mcpCtx, mcpCancel := context.WithCancel(context.Background())

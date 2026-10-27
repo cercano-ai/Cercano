@@ -79,13 +79,21 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	// Repeat the read-only contract check so even direct internal callers cannot
 	// enter the credential/runtime dependencies before preflight.
 	database := filepath.Join(o.State, "conversations.db")
-	if err := conversation.PreflightCoexistence(ctx, database, conversation.DevelopmentCoexistenceDeclaration()); err != nil {
+	startup := canonicalGenerationStartup()
+	// Existing prepared entry retains its explicitly selected snapshot authority;
+	// canonical generation policy never falls back to these paths.
+	startup.authorities = productionAuthorityResolvers{
+		configPath:       func() string { return filepath.Join(o.State, "config.yaml") },
+		conversationPath: func() (string, error) { return database, nil },
+	}
+	admission, err := startup.admit(ctx)
+	if err != nil {
 		return nil, nil, err
 	}
 	if o.Identity == nil || auth == nil || deps.openSecrets == nil {
 		return nil, nil, fmt.Errorf("prepared identity, auth and dependencies required")
 	}
-	configPath := filepath.Join(o.State, "config.yaml")
+	configPath := admission.paths.config
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, nil, err
@@ -215,8 +223,11 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		Coexistence: server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(context.Context) error { cleanup(); return nil }},
 		Config:      cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
 		Agent: func(prepared conversation.Store) (*agent.Agent, error) {
-			store = prepared
-			orchestrator = agent.NewAgent(router, coordinator, agent.WithPersistentStore(prepared), agent.WithConversationStore(agent.NewConversationStore(sessions, 3)), agent.WithContextLoader(loader))
+			store, err = admission.conversationStore(prepared, nil)
+			if err != nil {
+				return nil, err
+			}
+			orchestrator = agent.NewAgent(router, coordinator, agent.WithPersistentStore(store), agent.WithConversationStore(agent.NewConversationStore(sessions, 3)), agent.WithContextLoader(loader))
 			return orchestrator, nil
 		},
 	}, router, coordinator, cloudFactory, registry)

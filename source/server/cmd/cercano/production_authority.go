@@ -9,8 +9,7 @@ import (
 )
 
 // productionAuthorityResolvers resolves canonical authorities, not prepared
-// snapshots. Keep this pure boundary separate from legacy startup's interleaved
-// runtime, reconciliation and migration effects until those have preflight gates.
+// snapshots. Startup admission resolves these before mutation-capable stages.
 type productionAuthorityResolvers struct {
 	configPath       func() string
 	conversationPath func() (string, error)
