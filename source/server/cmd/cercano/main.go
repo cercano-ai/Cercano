@@ -209,7 +209,14 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 // the ordinary producers and integrations carry lifecycle authority. No CLI or
 // installed launcher selects this policy.
 func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission) (string, func(), error) {
+	return startGRPCServerWithRuntime(cfg, bindAddr, events, credentials, admission, productionRuntimeDefaults())
+}
+
+func startGRPCServerWithRuntime(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies) (string, func(), error) {
 	if err := admission.validateActivation(); err != nil {
+		return "", nil, err
+	}
+	if err := runtimes.validate(); err != nil {
 		return "", nil, err
 	}
 	enterpriseHost, err := composeProductionEnterprise(productionEnterpriseDependencies{}, enterpriseLegacy)
@@ -225,7 +232,7 @@ func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *cras
 		}
 	}()
 
-	if warn := ollamaStartupWarning(checkOllama, cfg.OllamaURL); warn != "" {
+	if warn := ollamaStartupWarning(runtimes.probe, cfg.OllamaURL); warn != "" {
 		fmt.Fprintln(os.Stderr, warn)
 	}
 
@@ -238,7 +245,7 @@ func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *cras
 	// Local models live in the shared model host (or in-process as a
 	// fallback). The close function runs at shutdown after Server.Shutdown,
 	// or here if startup fails.
-	runtimeManager, closeRuntime, err := connectRuntimeManager(context.Background(), cfg, events)
+	runtimeManager, closeRuntime, err := runtimes.connect(context.Background(), cfg, events)
 	if err != nil {
 		return "", nil, fmt.Errorf("connect runtime manager: %w", err)
 	}
@@ -784,27 +791,7 @@ var (
 // which releases this agent's holds. Server.Shutdown stops no shared
 // instances itself, since other agents may be using them.
 func connectRuntimeManager(ctx context.Context, cfg config.Config, events *crashlog.Writer) (localruntime.Manager, func(), error) {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv(modelHostEnv)), "inprocess") {
-		return buildRuntimeManager(cfg, events), func() {}, nil
-	}
-	remote, err := newModelHostRemote(ctx)
-	if err != nil {
-		// Only the caller giving up is fatal. The connect budget expiring,
-		// like any other failure, falls back to in-process models.
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, nil, fmt.Errorf("connecting to model host: %w", ctxErr)
-		}
-		log.Printf("[WARN] shared model host unavailable (%v); hosting local models in this process", err)
-		events.LogRuntimeEvent(crashlog.EventModelHostUnavailable, err.Error(), crashlog.RuntimeInfo{}, map[string]any{"fallback": "inprocess"})
-		return buildRuntimeManager(cfg, events), func() {}, nil
-	}
-	remote.SetEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg)))
-	warmActiveRuntime(remote, cfg)
-	return remote, func() {
-		if err := remote.Close(); err != nil {
-			log.Printf("[WARN] closing model host connection: %v", err)
-		}
-	}, nil
+	return productionRuntimeDefaults().connect(ctx, cfg, events)
 }
 
 // newModelHostRemote connects to the shared model host in the default run
