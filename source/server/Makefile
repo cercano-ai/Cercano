@@ -30,9 +30,10 @@ dev: build
 proto:
 	../proto/generate.sh
 
-# Install the dev launcher (~/bin/cercano) with this clone's path baked in.
+# Explicit no-clobber install: make launcher LAUNCHER_DEST=/absolute/new/path
 launcher:
-	scripts/install-launcher.sh
+	@test -n "$(LAUNCHER_DEST)" || { echo 'LAUNCHER_DEST must name an explicit new absolute path' >&2; exit 2; }
+	scripts/install-launcher.sh --destination "$(LAUNCHER_DEST)"
 
 clean:
 	rm -f bin/agent bin/cercano-mcp bin/cercano
