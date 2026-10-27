@@ -10,8 +10,23 @@ source/clients/cli . into ONE temporary sibling directory under --root, validate
 both outputs without executing them, writes manifest.json, then atomically
 renames with no replacement (macOS/Linux only; other platforms fail closed).
 --go accepts an absolute build-tool path (also useful for fixture tests).
---sign explicitly opts into the existing conditional signing helper; otherwise
-no Keychain/signing tools are accessed. VERSION overrides the Git-derived version.
+--sign requires verified ad-hoc codesign on Darwin (no Keychain access); it is
+non-applicable on other platforms. VERSION overrides the Git-derived version.
+
+Reuse API (same environment/--repo/--go/--sign for both commands):
+  fingerprint [--repo PATH] [--go ABSOLUTE] [--sign]
+    prints one SHA-256 token, does not build.
+  publish --root ABSOLUTE --generation NAME [--fingerprint TOKEN] [--reuse]
+    prints the absolute complete generation path. --reuse validates manifest and
+    both hashes, including concurrent winners; without it existing names fail.
+Fingerprint covers all source/ bytes, including ignored/untracked inputs, modes,
+VERSION, supported architecture flags, Go executable/version and publisher policy.
+Builds use a private content snapshot and recheck live inputs before publication.
+GOFLAGS and other unsupported Go/compiler overrides fail closed; builds force
+CGO_ENABLED=0, GOENV=off, GOWORK=off, GOTOOLCHAIN=local, readonly modules and no VCS
+stamping. Local module replacements must stay inside source/. Dependency versions
+and checksums are captured via module files; trusted Go module cache/toolchain
+installation is assumed (this is not a sandbox against malicious build tools).
 
 Use a dedicated, caller-owned root, not an installation directory. ~/bin and
 .cercano-libexec are prohibited. Published generations are read-only by convention,
@@ -92,6 +107,79 @@ def validate(path):
     return {"sha256": digest.hexdigest(), "size": info.st_size}
 
 
+def build_environment():
+    # No ambient Go config, workspace, overlays, compiler wrappers or cgo inputs.
+    allowed = {"GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOARM", "GOMIPS",
+               "GOMIPS64", "GOPPC64", "GORISCV64", "GO386", "GOWASM"}
+    for key, value in os.environ.items():
+        if value and ((key.startswith("GO") and key not in allowed | {
+                "GOPATH", "GOCACHE", "GOPROXY", "GOSUMDB", "GOPRIVATE",
+                "GONOPROXY", "GONOSUMDB"}) or key.startswith("CGO_") or
+                key in {"CC", "CXX", "PKG_CONFIG"}):
+            raise ValueError(f"unsupported build environment: {key}")
+    env = dict(os.environ)
+    env.update(GOENV="off", GOWORK="off", GOTOOLCHAIN="local", CGO_ENABLED="0")
+    return env, {key: env.get(key, "") for key in sorted(allowed)}
+
+
+def inputs(args, snapshot=None):
+    repo = Path(args.repo).resolve()
+    env, flags = build_environment()
+    go = args.go or shutil.which("go")
+    if not go or not Path(go).is_absolute():
+        raise ValueError("Go build tool must resolve to an absolute path")
+    go = str(Path(go).resolve())
+    version = os.environ.get("VERSION") or git(
+        repo, "describe", "--tags", "--always", "--dirty").removeprefix("v")
+    if not re.fullmatch(r"[A-Za-z0-9._+/-]+", version):
+        raise ValueError("VERSION must contain only letters, digits, . _ + / -")
+    metadata = {"format": 1, "version": version, "flags": flags,
+                "policy": "CGO_ENABLED=0 GOENV=off GOWORK=off GOTOOLCHAIN=local -mod=readonly -buildvcs=false",
+                "go": go, "go_sha256": hashlib.sha256(Path(go).read_bytes()).hexdigest(),
+                "toolchain": subprocess.check_output([go, "version"], env=env, text=True).strip(),
+                "sign": bool(args.sign), "platform": sys.platform, "machine": os.uname().machine,
+                "publisher": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+    digest = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode())
+    # Include ignored and untracked source too (embeds, vendored dependencies,
+    # module files, scripts). Build from these exact bytes, never the live tree.
+    files = sorted(p for p in (repo / "source").rglob("*")
+                   if not any(x in {".git", "__pycache__"} for x in p.relative_to(repo).parts)
+                   and (p.is_symlink() or not p.is_dir()))
+    for path in files:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"unsupported nonregular source input: {path}")
+        relative = path.relative_to(repo)
+        data = path.read_bytes()
+        if path.name == "go.mod":
+            for replacement in re.findall(rb"=>\s*([^\s]+)", data):
+                target = os.fsdecode(replacement)
+                if target.startswith((".", "/")):
+                    resolved = (path.parent / target).resolve()
+                    if not resolved.is_relative_to(repo / "source"):
+                        raise ValueError("local module replacement must stay under repo/source")
+        digest.update(str(relative).encode() + b"\0" + hashlib.sha256(data).digest())
+        digest.update(str(path.stat().st_mode & 0o111).encode() + b"\0")
+        if snapshot is not None:
+            output = snapshot / relative
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(data)
+            output.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
+    return digest.hexdigest(), metadata, env
+
+
+def reusable(destination, fingerprint):
+    if destination.is_symlink() or not destination.is_dir():
+        raise ValueError("invalid existing generation")
+    manifest = json.loads((destination / "manifest.json").read_text())
+    if manifest.get("fingerprint") != fingerprint or not manifest.get("build_id"):
+        raise ValueError("existing generation fingerprint mismatch")
+    if {p.name for p in destination.iterdir()} != {"manifest.json", "cercano", "cercano-cli"}:
+        raise ValueError("invalid existing generation contents")
+    for name, _, _ in TARGETS:
+        if validate(destination / name)["sha256"] != manifest["binaries"][name]["sha256"]:
+            raise ValueError("existing generation binary hash mismatch")
+
+
 def publish(args):
     root_arg = Path(args.root)
     if not root_arg.is_absolute():
@@ -103,39 +191,49 @@ def publish(args):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", args.generation):
         raise ValueError("generation must be a single safe name (1-128 characters)")
     repo = Path(args.repo).resolve()
+    if root.is_relative_to(repo):
+        raise ValueError("generation root must be outside the source repository")
     for _, module, _ in TARGETS:
         if not (repo / module / "go.mod").is_file():
             raise ValueError(f"missing module: {module}")
-    go = args.go or shutil.which("go")
-    if not go or not Path(go).is_absolute():
-        raise ValueError("Go build tool must resolve to an absolute path")
-    go = str(Path(go).resolve())
+    fingerprint, metadata, env = inputs(args)
+    if args.fingerprint and args.fingerprint != fingerprint:
+        raise ValueError("source/build fingerprint changed before publication")
     root.mkdir(parents=True, exist_ok=True)
     destination = root / args.generation
     if os.path.lexists(destination):
+        if args.reuse:
+            reusable(destination, fingerprint)
+            print(destination)
+            return
         raise FileExistsError(f"generation already exists: {destination}")
     commit = git(repo, "rev-parse", "HEAD")
     dirty = bool(git(repo, "status", "--porcelain", "--untracked-files=normal"))
-    version = os.environ.get("VERSION") or git(repo, "describe", "--tags", "--always", "--dirty").removeprefix("v")
-    # Go's ldflags parser splits whitespace, so reject ambiguous injected values.
-    if not re.fullmatch(r"[A-Za-z0-9._+/-]+", version):
-        raise ValueError("VERSION must contain only letters, digits, . _ + / -")
-    toolchain = subprocess.check_output([go, "version"], text=True).strip()
+    version, go, toolchain = metadata["version"], metadata["go"], metadata["toolchain"]
     stage = Path(tempfile.mkdtemp(prefix=".building-", dir=root))
+    snapshot_temp = tempfile.TemporaryDirectory(prefix="cercano-build-source-")
+    snapshot = Path(snapshot_temp.name)
     try:
+        if inputs(args, snapshot)[0] != fingerprint:
+            raise ValueError("source changed while taking build snapshot")
         manifest = {"schema": 1, "generation": args.generation,
-                    "build_id": str(uuid.uuid4()), "source_commit": commit,
+                    "build_id": str(uuid.uuid4()), "fingerprint": fingerprint, "source_commit": commit,
                     "source_dirty": dirty, "version": version, "repo": str(repo),
                     "go_tool": go, "go_version": toolchain, "sign_requested": args.sign,
                     "validation": "structural-only; binaries not executed", "binaries": {}}
         for name, module, package in TARGETS:
             output = stage / name
-            command = [go, "build", "-ldflags", f"-X main.version={version}",
+            command = [go, "build", "-mod=readonly", "-buildvcs=false", "-ldflags", f"-X main.version={version}",
                        "-o", str(output), package]
-            subprocess.run(command, cwd=repo / module, check=True)
-            if args.sign:
-                subprocess.run([str(repo / "source/server/scripts/codesign-if-available.sh"),
-                                str(output), name], check=True)
+            subprocess.run(command, cwd=snapshot / module, env=env, check=True)
+            if args.sign and sys.platform == "darwin":
+                signer = shutil.which("codesign")
+                if not signer:
+                    raise ValueError("requested Darwin signing unavailable")
+                subprocess.run([signer, "--force", "--sign", "-", "--identifier",
+                                name, str(output)], check=True, stdout=sys.stderr)
+                subprocess.run([signer, "--verify", "--strict", str(output)],
+                               check=True, stdout=sys.stderr)
             manifest["binaries"][name] = {**validate(output), "module": module,
                                             "package": package, "command": command}
         if set(p.name for p in stage.iterdir()) != {t[0] for t in TARGETS}:
@@ -144,12 +242,20 @@ def publish(args):
         for name, _, _ in TARGETS:
             if validate(stage / name)["sha256"] != manifest["binaries"][name]["sha256"]:
                 raise ValueError(f"output changed during build: {name}")
+        if inputs(args)[0] != fingerprint:
+            raise ValueError("source/build inputs changed during build")
         (stage / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         for child in stage.iterdir():
             child.chmod(0o444 if child.name == "manifest.json" else 0o555)
         stage.chmod(0o555)
-        rename_exclusive(stage, destination)
+        try:
+            rename_exclusive(stage, destination)
+        except FileExistsError:
+            if not args.reuse:
+                raise
+            reusable(destination, fingerprint)
     finally:
+        snapshot_temp.cleanup()
         # Only our unpublished scratch directory, never destination or old generations.
         if stage.exists():
             stage.chmod(0o700)
@@ -165,11 +271,20 @@ def main():
     command.add_argument("--generation", required=True, help="new immutable directory name")
     command.add_argument("--repo", default=str(Path(__file__).resolve().parents[3]))
     command.add_argument("--go", help="absolute Go build-tool path; defaults to build-time discovery")
-    command.add_argument("--sign", action="store_true", help="opt into conditional signing helper")
+    command.add_argument("--sign", action="store_true", help="require ad-hoc signing on Darwin (no Keychain)")
+    command.add_argument("--fingerprint", help="require this fingerprint before building")
+    command.add_argument("--reuse", action="store_true", help="validate and reuse matching existing generation")
+    command = commands.add_parser("fingerprint", help="print content/build SHA-256; no builds")
+    command.add_argument("--repo", default=str(Path(__file__).resolve().parents[3]))
+    command.add_argument("--go", help="absolute Go build tool")
+    command.add_argument("--sign", action="store_true")
     args = parser.parse_args()
     try:
-        publish(args)
-    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+        if args.command == "fingerprint":
+            print(inputs(args)[0])
+        else:
+            publish(args)
+    except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f"publication failed: {error}", file=sys.stderr)
         return 1
     return 0

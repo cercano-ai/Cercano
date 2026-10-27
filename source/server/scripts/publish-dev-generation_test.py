@@ -6,6 +6,7 @@ Only fake Go outputs are validated, not executed. All homes/repos/roots are temp
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -38,6 +39,8 @@ if sys.argv[1:] == ["version"]:
     print("go version fixture")
     sys.exit(0)
 assert sys.argv[1] == "build", sys.argv
+if os.environ.get("MUTATE_SOURCE"):
+    Path(os.environ["MUTATE_SOURCE"]).write_text("mutation")
 output = Path(sys.argv[sys.argv.index("-o") + 1])
 with (Path(os.environ["HOME"]) / "build-log").open("a") as log:
     log.write(str(output) + "\\n")
@@ -70,14 +73,104 @@ output.chmod(0o755)
         subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
                        check=True, capture_output=True)
 
-    def publish(self, mode="ok"):
+    def publish(self, mode="ok", extra=()):
         result = subprocess.run([sys.executable, str(PUBLISHER), "publish",
                                  "--root", str(self.root), "--generation", "test-gen",
-                                 "--repo", str(self.repo), "--go", str(self.fake)],
+                                 "--repo", str(self.repo), "--go", str(self.fake), *extra],
                                 env={**self.env, "FAKE_MODE": mode}, text=True,
                                 capture_output=True)
         self.assertEqual(list(self.root.glob(".building-*")), [])
         return result
+
+    def fingerprint(self):
+        return subprocess.run([sys.executable, str(PUBLISHER), "fingerprint",
+                               "--repo", str(self.repo), "--go", str(self.fake)],
+                              env=self.env, text=True, capture_output=True)
+
+    def test_fingerprint_content_not_mtime(self):
+        first = self.fingerprint()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        source = self.repo / "source/server/new.go"
+        source.write_text("package main\n")
+        second = self.fingerprint()
+        self.assertNotEqual(first.stdout, second.stdout)
+        os.utime(source, (1, 1))
+        self.assertEqual(second.stdout, self.fingerprint().stdout)
+        source.write_text("package changed\n")
+        self.assertNotEqual(second.stdout, self.fingerprint().stdout)
+
+    def test_unsafe_goflags_refused(self):
+        self.env["GOFLAGS"] = "-overlay=/tmp/unknown.json"
+        result = self.publish()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / "test-gen").exists())
+
+    def test_fingerprint_version_and_flags(self):
+        first = self.fingerprint().stdout
+        self.env["VERSION"] = "other"
+        self.assertNotEqual(first, self.fingerprint().stdout)
+        second = self.fingerprint().stdout
+        self.env["GOARCH"] = "arm64"
+        self.assertNotEqual(second, self.fingerprint().stdout)
+
+    def test_expected_fingerprint_and_reuse(self):
+        fingerprint = self.fingerprint().stdout.strip()
+        extra = ["--fingerprint", fingerprint, "--reuse"]
+        self.assertEqual(self.publish(extra=extra).returncode, 0)
+        log = (self.home / "build-log").read_bytes()
+        self.assertEqual(self.publish(extra=extra).returncode, 0)
+        self.assertEqual(log, (self.home / "build-log").read_bytes())
+        (self.repo / "source/server/new.go").write_text("changed")
+        self.assertNotEqual(self.publish(extra=extra).returncode, 0)
+
+    def test_source_changes_during_build_rejected(self):
+        self.env["MUTATE_SOURCE"] = str(self.repo / "source/server/new.go")
+        result = self.publish()
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "test-gen").exists())
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin signing")
+    def test_signing_adhoc_and_failure(self):
+        tools = self.base / "tools"
+        tools.mkdir()
+        signer = tools / "codesign"
+        signer.write_text(f"#!{sys.executable}\n" +
+                          "import os,sys\n" +
+                          "assert '--sign' not in sys.argv or sys.argv[sys.argv.index('--sign')+1] == '-'\n" +
+                          "sys.exit(int(os.environ.get('SIGN_FAIL', '0')))\n")
+        signer.chmod(0o755)
+        self.env["PATH"] = str(tools) + os.pathsep + self.env["PATH"]
+        self.env["SIGN_FAIL"] = "1"
+        self.assertNotEqual(self.publish(extra=["--sign"]).returncode, 0)
+        self.assertFalse((self.root / "test-gen").exists())
+        self.env["SIGN_FAIL"] = "0"
+        result = self.publish(extra=["--sign"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_concurrent_reuse_publishes_one_complete_pair(self):
+        fingerprint = self.fingerprint().stdout.strip()
+        command = [sys.executable, str(PUBLISHER), "publish", "--root", str(self.root),
+                   "--generation", "test-gen", "--repo", str(self.repo),
+                   "--go", str(self.fake), "--fingerprint", fingerprint, "--reuse"]
+        processes = [subprocess.Popen(command, env=self.env, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE, text=True) for _ in range(2)]
+        for process in processes:
+            out, err = process.communicate(timeout=30)
+            self.assertEqual(process.returncode, 0, err)
+            self.assertEqual(out.strip(), str(self.root / "test-gen"))
+        self.assertEqual(len(list((self.root / "test-gen").iterdir())), 3)
+        self.assertEqual(list(self.root.glob(".building-*")), [])
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin signing")
+    def test_requested_signing_unavailable(self):
+        tools = self.base / "only git"
+        tools.mkdir()
+        (tools / "git").symlink_to(shutil.which("git"))
+        self.env["PATH"] = str(tools)
+        result = self.publish(extra=["--sign"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("signing unavailable", result.stderr)
+        self.assertFalse((self.root / "test-gen").exists())
 
     def test_pair_manifest_and_spaces(self):
         result = self.publish()
