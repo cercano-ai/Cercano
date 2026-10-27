@@ -94,7 +94,7 @@ func TestDevHostTerminalPTY(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	writeJSON(filepath.Join(generation, "manifest.json"), devHostManifest{Build: "fixture-build-exact", SHA256: hex.EncodeToString(sum[:])})
+	writeJSON(filepath.Join(generation, "manifest.json"), newDevHostManifest("fixture-build-exact", hex.EncodeToString(sum[:])))
 	writeJSON(filepath.Join(root, "config.json"), map[string]any{})
 	// Reserve the explicit B endpoint before A freezes its peer declaration.
 	reserved, err := net.Listen("tcp", "127.0.0.1:0")
@@ -283,7 +283,7 @@ func TestDevHostTerminalPTY(t *testing.T) {
 	if bSum == sum {
 		t.Fatal("generation artifacts not distinct")
 	}
-	writeJSON(filepath.Join(bGeneration, "manifest.json"), devHostManifest{Build: "fixture-build-B", SHA256: hex.EncodeToString(bSum[:])})
+	writeJSON(filepath.Join(bGeneration, "manifest.json"), newDevHostManifest("fixture-build-B", hex.EncodeToString(bSum[:])))
 	bCommand := exec.CommandContext(ctx, bBinary, "dev-host", "--fixture", root, "--generation", bGeneration, "--modelhost", modelDir, "--host", "fixture-host-B", "--listen", bEndpoint, "--token-file", "token-B", "--peers-file", "peers-B.json")
 	bCommand.Env = append([]string(nil), command.Env...)
 	var bStderr bytes.Buffer

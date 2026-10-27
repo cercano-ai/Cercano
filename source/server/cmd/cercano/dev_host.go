@@ -34,7 +34,21 @@ import (
 )
 
 type devHostPeer struct{ Endpoint, Host, TokenFile string }
-type devHostManifest struct{ Build, SHA256 string }
+
+// Match the immutable publisher's canonical manifest; do not accept the old
+// fixture-only {Build,SHA256} shape as proof of a published generation.
+type devHostManifest struct {
+	Build    string                   `json:"build_id"`
+	Binaries map[string]devHostBinary `json:"binaries"`
+}
+
+type devHostBinary struct {
+	SHA256 string `json:"sha256"`
+}
+
+func newDevHostManifest(build, digest string) devHostManifest {
+	return devHostManifest{Build: build, Binaries: map[string]devHostBinary{"cercano": {SHA256: digest}}}
+}
 
 func devLoopback(addr string) bool {
 	h, _, err := net.SplitHostPort(addr)
@@ -147,7 +161,7 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	sum := sha256.Sum256(binary)
-	if manifest.Build == "" || manifest.SHA256 != hex.EncodeToString(sum[:]) {
+	if manifest.Build == "" || manifest.Binaries["cercano"].SHA256 != hex.EncodeToString(sum[:]) {
 		return fmt.Errorf("generation manifest build and executable SHA256 required")
 	}
 	var cfg config.Config
