@@ -1052,6 +1052,11 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case permissionDecisionMsg:
+		// RPCs can complete before a host/conversation replacement but remain
+		// queued until afterward. Check provenance before rendering either result.
+		if msg.client != m.agent || msg.conversation != m.convID || msg.generation != m.taskSubscriptionGeneration {
+			return m, nil
+		}
 		text := "canceled."
 		if msg.allow {
 			text = "✓ approved — running…"
@@ -5089,7 +5094,7 @@ func toolConfirm(tc *pendingToolCall) *confirmRequest {
 		onYes: func(m Model) (Model, tea.Cmd) {
 			m.pendingConfirm = nil
 			if tc.ToolUseID != "" {
-				return m, permissionDecisionCmd(m.agent, m.convID, tc.ToolUseID, true, false)
+				return m, permissionDecisionCmd(m.agent, m.convID, tc.ToolUseID, m.taskSubscriptionGeneration, true, false)
 			}
 			m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: m.styles.Accent.Render("✓ approved — running…")})
 			m.refreshViewport()
@@ -5098,7 +5103,7 @@ func toolConfirm(tc *pendingToolCall) *confirmRequest {
 		onNo: func(m Model) (Model, tea.Cmd) {
 			m.pendingConfirm = nil
 			if tc.ToolUseID != "" {
-				return m, permissionDecisionCmd(m.agent, m.convID, tc.ToolUseID, false, false)
+				return m, permissionDecisionCmd(m.agent, m.convID, tc.ToolUseID, m.taskSubscriptionGeneration, false, false)
 			}
 			m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: m.styles.Muted.Render("canceled.")})
 			m.refreshViewport()
@@ -5132,7 +5137,7 @@ func toolConfirm(tc *pendingToolCall) *confirmRequest {
 	if strings.HasPrefix(tc.Name, "mcp__") {
 		cr.extras["a"] = func(m Model) (Model, tea.Cmd) {
 			m.pendingConfirm = nil
-			return m, permissionDecisionCmd(m.agent, m.convID, tc.ToolUseID, true, true)
+			return m, permissionDecisionCmd(m.agent, m.convID, tc.ToolUseID, m.taskSubscriptionGeneration, true, true)
 		}
 	}
 	return cr

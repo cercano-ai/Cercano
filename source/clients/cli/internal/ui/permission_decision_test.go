@@ -18,6 +18,7 @@ func TestPermissionDecisionResultDisplay(t *testing.T) {
 		{permissionDecisionMsg{}, "canceled.", "approved"},
 	} {
 		m := minimalModel()
+		tc.msg.client, tc.msg.conversation, tc.msg.generation = m.agent, m.convID, m.taskSubscriptionGeneration
 		next, _ := m.Update(tc.msg)
 		updated := next.(Model)
 		entries := updated.mainChat().Entries()
