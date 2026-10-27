@@ -30,7 +30,7 @@ Objective: preserve ordinary execution features under exact conversation ownersh
 - [ ] Integrate exact host/epoch authority into every ordinary request and administrative mutation, including history actions and permission callbacks
 - [ ] Complete nested subagent acquisition, parent/child persistence and event/completion authority without single-level dispatch restrictions
 - [ ] Carry work tickets and authority through worker calls, task acceptance, context replacement, queued outcomes, callback execution and notification acknowledgement
-- [ ] Restore recap, compaction, metering, rollover and related background producers with counted timers/retries, cancellation/drain and ownership-bearing contexts
+- [-] Restore recap, compaction, metering, rollover and related background producers with counted timers/retries, cancellation/drain and ownership-bearing contexts
 - [ ] Coordinate global maintenance and retention without broad startup reconciliation or mutation of another live owner's active records
 - [ ] Ensure write failures, rejected transitions and panics suppress dependent success publication and retain unresolved readiness blockers
 - [ ] Verify transfer and retirement account for queued work, descendant work, timers and persistence; no transaction spans inference, tool or network execution
