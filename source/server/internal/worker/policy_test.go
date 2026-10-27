@@ -10,20 +10,44 @@ import (
 	"testing"
 )
 
+// shortPinnedFixtureRoot must not inherit TMPDIR or t.TempDir's test-name
+// components: the canonical pinned resource root has a 38-byte socket budget.
+func shortPinnedFixtureRoot(t *testing.T) string {
+	t.Helper()
+	allocated, err := os.MkdirTemp("/tmp", "wp-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(allocated); err != nil {
+			t.Errorf("remove pinned fixture root: %v", err)
+		}
+	})
+	base, err := filepath.EvalSymlinks(allocated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(base) != parent || !strings.HasPrefix(filepath.Base(base), "wp-") {
+		t.Fatalf("pinned fixture root escaped private /tmp allocation: %q", base)
+	}
+	info, err := os.Stat(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0700 || len(base) > 38 {
+		t.Fatalf("pinned fixture root must be private and short: %q (%v)", base, info.Mode())
+	}
+	return base
+}
+
 func policyFixture(t *testing.T) SpawnOptions {
 	t.Helper()
-	// A deliberately short private root: Darwin's default TMPDIR can itself
-	// exceed the supported socket budget. No executable fixture is started.
-	base, err := os.MkdirTemp("/tmp", "wp-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(base) })
-	// Resolve macOS /tmp alias; only fixture files are inspected.
-	base, err = filepath.EvalSymlinks(base)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// No executable fixture is started.
+	base := shortPinnedFixtureRoot(t)
 	generation := filepath.Join(base, "generation")
 	root := filepath.Join(base, "resources")
 	for _, dir := range []string{generation, root} {

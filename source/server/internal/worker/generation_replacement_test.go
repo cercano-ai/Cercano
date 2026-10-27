@@ -11,10 +11,7 @@ import (
 func TestDevHostWorkerGenerationReplacementRejected(t *testing.T) {
 	for _, member := range []string{"cercano", "manifest.json"} {
 		t.Run(member, func(t *testing.T) {
-			root, err := filepath.EvalSymlinks(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
+			root := shortPinnedFixtureRoot(t)
 			generation := filepath.Join(root, "generation")
 			if err := os.Mkdir(generation, 0700); err != nil {
 				t.Fatal(err)
