@@ -220,11 +220,7 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 		if e != nil {
 			return e
 		}
-		cmd := exec.Command(binary, "development-host", "--state", *state, "--generation", *generation, "--host", host, "--token-file", token, "--record", record, "--runtime-root", *runtime, "--listen", "127.0.0.1:0")
-		cmd.Env = append(os.Environ(), "CERCANO_DISABLE_CREDENTIALS=1")
-		cmd.Stdout = log
-		cmd.Stderr = log
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		cmd := developmentHostCommand(binary, *state, *generation, host, token, record, *runtime, log)
 		e = cmd.Start()
 		log.Close()
 		if e != nil {
@@ -290,4 +286,16 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 	}
 	_, e = fmt.Fprintln(out, selection)
 	return e
+}
+
+// developmentHostCommand is the runtime spawn boundary, after launch validation.
+func developmentHostCommand(binary, state, generation, host, token, record, runtime string, log io.Writer) *exec.Cmd {
+	cmd := exec.Command(binary, "development-host", "--state", state, "--generation", generation, "--host", host, "--token-file", token, "--record", record, "--runtime-root", runtime, "--listen", "127.0.0.1:0")
+	// Runtime inherits caller policy, including absence and malformed values.
+	// Only build subprocesses force credentials off; validation remains in the host.
+	cmd.Env = os.Environ()
+	cmd.Stdout = log
+	cmd.Stderr = log
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return cmd
 }

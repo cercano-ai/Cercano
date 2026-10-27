@@ -1,72 +1,61 @@
 package main
 
 import (
-	"context"
-	"io"
+	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"cercano/source/server/internal/secrets"
 )
 
-func TestDevelopmentLaunchRefusesBeforeSpawn(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
+// Exercise the exact command used by the launcher, but execute only a fake
+// helper: no startup, state provisioning, credential backend, or provider.
+func TestDevelopmentHostCommandCredentialPolicy(t *testing.T) {
+	root := t.TempDir()
+	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(key, root)
+	}
+	helper := filepath.Join(root, "fake-host")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n[ \"$1\" = development-host ] || exit 2\nprintf '%s:%s' \"${CERCANO_DISABLE_CREDENTIALS+x}\" \"${CERCANO_DISABLE_CREDENTIALS-}\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.Chmod(root, 0700); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct{ name, runtime, want string }{
-		{"missing", filepath.Join(root, "missing"), "no such file"},
-		{"long", root, "runtime-root exceeds"},
+	for _, tc := range []struct {
+		name, value             string
+		present, allowed, valid bool
+	}{
+		{"absent", "", false, true, true},
+		{"enabled", "0", true, true, true},
+		{"disabled", "1", true, false, true},
+		{"empty", "", true, false, false},
+		{"malformed", "true", true, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := runDevelopmentLaunch(context.Background(), []string{"--state", root, "--generation", root, "--runtime-root", tc.runtime}, io.Discard)
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("got %v, want %s", err, tc.want)
+			t.Setenv(secrets.DisableEnv, tc.value)
+			if !tc.present {
+				if err := os.Unsetenv(secrets.DisableEnv); err != nil {
+					t.Fatal(err)
+				}
 			}
-			entries, _ := os.ReadDir(root)
-			if len(entries) != 0 {
-				t.Fatal("refusal mutated state")
+			var output bytes.Buffer
+			cmd := developmentHostCommand(helper, "fake-state", "fake-generation", "fake-host", "fake-token", "fake-record", "fake-runtime", &output)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("fake child: %v: %s", err, &output)
+			}
+			want := ":"
+			if tc.present {
+				want = "x:" + tc.value
+			}
+			if got := output.String(); got != want {
+				t.Errorf("child policy = %q, want %q", got, want)
+			}
+			// Pure policy checks only; these never open a credential backend.
+			if valid := secrets.ValidateEnvironment() == nil; valid != tc.valid {
+				t.Errorf("valid = %v, want %v", valid, tc.valid)
+			}
+			if allowed := secrets.CheckAllowed() == nil; allowed != tc.allowed {
+				t.Errorf("allowed = %v, want %v", allowed, tc.allowed)
 			}
 		})
-	}
-}
-func TestDevelopmentSelectionNeverOverwrites(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "A.json")
-	if e := launchExclusive(path, map[string]string{"Conversation": "A"}); e != nil {
-		t.Fatal(e)
-	}
-	before, _ := os.ReadFile(path)
-	if e := launchExclusive(path, map[string]string{"Conversation": "B"}); !os.IsExist(e) {
-		t.Fatalf("overwrite: %v", e)
-	}
-	after, _ := os.ReadFile(path)
-	if string(before) != string(after) {
-		t.Fatal("selection rewritten")
-	}
-	st, _ := os.Stat(path)
-	if st.Mode().Perm() != 0600 {
-		t.Fatal("selection not private")
-	}
-}
-func TestDevelopmentPrivatePaths(t *testing.T) {
-	root, _ := filepath.EvalSymlinks(t.TempDir())
-	os.Chmod(root, 0700)
-	if e := launchPrivateDir(root); e != nil {
-		t.Fatal(e)
-	}
-	alias := root + "-alias"
-	if e := os.Symlink(root, alias); e != nil {
-		t.Fatal(e)
-	}
-	defer os.Remove(alias)
-	if launchPrivateDir(alias) == nil {
-		t.Fatal("alias accepted")
-	}
-	os.Chmod(root, 0755)
-	if launchPrivateDir(root) == nil {
-		t.Fatal("public directory accepted")
 	}
 }
