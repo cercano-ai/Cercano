@@ -21,9 +21,14 @@ Reuse API (same environment/--repo/--go/--sign for both commands):
     both hashes, including concurrent winners; without it existing names fail.
 Fingerprint covers all source/ bytes, including ignored/untracked inputs, modes,
 VERSION, supported architecture flags, Go executable/version and publisher policy.
+Ignored outputs are conservatively included (except .git metadata); this can
+invalidate caches or enlarge snapshots. No broad build/dist/embed exclusions.
+Darwin cgo fingerprints SDK and developer-toolchain contents; other cgo platforms
+fail closed pending system-header/library identity support. Trusted installations
+are assumed, not concurrent adversarial toolchain mutation.
 Builds use a private content snapshot and recheck live inputs before publication.
 GOFLAGS and other unsupported Go/compiler overrides fail closed; builds force
-CGO_ENABLED=0, GOENV=off, GOWORK=off, GOTOOLCHAIN=local, readonly modules and no VCS
+native Go cgo defaults (or explicit CGO_ENABLED=0/1), GOENV=off, GOWORK=off, GOTOOLCHAIN=local, readonly modules and no VCS
 stamping. Local module replacements must stay inside source/. Dependency versions
 and checksums are captured via module files; trusted Go module cache/toolchain
 installation is assumed (this is not a sandbox against malicious build tools).
@@ -51,6 +56,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import stat
 import subprocess
 import sys
@@ -108,18 +114,94 @@ def validate(path):
 
 
 def build_environment():
-    # No ambient Go config, workspace, overlays, compiler wrappers or cgo inputs.
+    # No ambient Go config, workspace, overlays or compiler overrides.
     allowed = {"GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOARM", "GOMIPS",
                "GOMIPS64", "GOPPC64", "GORISCV64", "GO386", "GOWASM"}
     for key, value in os.environ.items():
         if value and ((key.startswith("GO") and key not in allowed | {
                 "GOPATH", "GOCACHE", "GOPROXY", "GOSUMDB", "GOPRIVATE",
-                "GONOPROXY", "GONOSUMDB"}) or key.startswith("CGO_") or
-                key in {"CC", "CXX", "PKG_CONFIG"}):
+                "GONOPROXY", "GONOSUMDB"}) or (key.startswith("CGO_") and key != "CGO_ENABLED") or
+                key in {"CC", "CXX", "PKG_CONFIG", "CPATH", "C_INCLUDE_PATH",
+                        "CPLUS_INCLUDE_PATH", "LIBRARY_PATH", "COMPILER_PATH",
+                        "GCC_EXEC_PREFIX", "MACOSX_DEPLOYMENT_TARGET"}):
             raise ValueError(f"unsupported build environment: {key}")
+    if os.environ.get("CGO_ENABLED", "0") not in {"0", "1"}:
+        raise ValueError("CGO_ENABLED must be 0 or 1")
     env = dict(os.environ)
-    env.update(GOENV="off", GOWORK="off", GOTOOLCHAIN="local", CGO_ENABLED="0")
+    env.update(GOENV="off", GOWORK="off", GOTOOLCHAIN="local")
     return env, {key: env.get(key, "") for key in sorted(allowed)}
+
+
+def tree_identity(root):
+    """Content identity, including ignored files; SDK/toolchain installs are trusted."""
+    root = Path(root)
+    digest = hashlib.sha256()
+    paths = sorted(root.rglob("*")) if root.is_dir() else [root]
+    for path in paths:
+        if path.is_file():
+            digest.update(str(path.relative_to(root) if path != root else path).encode())
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
+        elif path.is_symlink():
+            digest.update(str(path).encode() + os.readlink(path).encode())
+    return digest.hexdigest()
+
+
+def effective_identity(go, env):
+    effective = json.loads(subprocess.check_output([go, "env", "-json"], env=env, text=True))
+    # Go creates a random scratch path for this diagnostic flag on every query.
+    # Normalize only that generated prefix, not caller-controlled compiler flags.
+    if "GOGCCFLAGS" in effective:
+        effective["GOGCCFLAGS"] = re.sub(
+            r"-ffile-prefix-map=\S*/go-build[0-9]+=/tmp/go-build",
+            "-ffile-prefix-map=<go-scratch>=/tmp/go-build", effective["GOGCCFLAGS"])
+    identity = {"go_env": effective}
+    if effective.get("GOROOT"):
+        identity["goroot_sha256"] = tree_identity(effective["GOROOT"])
+    if effective["CGO_ENABLED"] == "1":
+        for key in ("CC", "CXX"):
+            command = shlex.split(effective[key])
+            if len(command) != 1:
+                raise ValueError("compiler wrappers unsupported")
+            tool = shutil.which(command[0], path=env.get("PATH"))
+            if not tool:
+                raise ValueError("compiler unavailable: " + command[0])
+            identity[key] = {"path": str(Path(tool).resolve()), "sha256": tree_identity(tool),
+                             "version": subprocess.check_output([tool, "--version"], env=env, text=True)}
+        if sys.platform == "darwin":
+            def xcrun(*args):
+                return subprocess.check_output(["/usr/bin/xcrun", *args], env=env, text=True).strip()
+            sdk = env.get("SDKROOT") or xcrun("--show-sdk-path")
+            if not Path(sdk).is_absolute() or not Path(sdk).is_dir():
+                raise ValueError("SDKROOT must be an existing absolute SDK directory")
+            env["SDKROOT"] = sdk
+            identity["sdk"] = {"path": sdk, "sha256": tree_identity(sdk)}
+            # Hash the selected developer toolchain (clang resources, linker, libs).
+            clang = Path(xcrun("--find", "clang")).resolve()
+            identity["native_toolchain"] = tree_identity(clang.parent.parent)
+            identity["developer_dir"] = env.get("DEVELOPER_DIR", "")
+        else:
+            # Native system headers/libraries cannot be identified portably here.
+            raise ValueError("cgo publication currently supported only on Darwin; use CGO_ENABLED=0")
+    return identity
+
+
+def check_replacements(data, path, repo, go, env):
+    # Go's own parser handles quoted strings, blocks, comments and escapes.
+    # Never let `go mod edit` touch the live source module.
+    with tempfile.TemporaryDirectory(prefix="mod-parse-") as directory:
+        temporary = Path(directory) / "go.mod"
+        temporary.write_bytes(data)
+        parsed = json.loads(subprocess.check_output(
+            [go, "mod", "edit", "-json", str(temporary)], env=env, text=True))
+    for replacement in parsed.get("Replace") or []:
+        new = replacement["New"]
+        if new.get("Version"):
+            continue
+        target = Path(new["Path"])
+        if target.is_absolute():
+            raise ValueError("absolute local module replacement is not snapshot-safe")
+        if not (path.parent / target).resolve().is_relative_to(repo / "source"):
+            raise ValueError("local module replacement must stay under repo/source")
 
 
 def inputs(args, snapshot=None):
@@ -133,8 +215,9 @@ def inputs(args, snapshot=None):
         repo, "describe", "--tags", "--always", "--dirty").removeprefix("v")
     if not re.fullmatch(r"[A-Za-z0-9._+/-]+", version):
         raise ValueError("VERSION must contain only letters, digits, . _ + / -")
-    metadata = {"format": 1, "version": version, "flags": flags,
-                "policy": "CGO_ENABLED=0 GOENV=off GOWORK=off GOTOOLCHAIN=local -mod=readonly -buildvcs=false",
+    metadata = {"format": 2, "version": version, "flags": flags,
+                "effective": effective_identity(go, env),
+                "policy": "native-cgo GOENV=off GOWORK=off GOTOOLCHAIN=local -mod=readonly -buildvcs=false",
                 "go": go, "go_sha256": hashlib.sha256(Path(go).read_bytes()).hexdigest(),
                 "toolchain": subprocess.check_output([go, "version"], env=env, text=True).strip(),
                 "sign": bool(args.sign), "platform": sys.platform, "machine": os.uname().machine,
@@ -143,7 +226,7 @@ def inputs(args, snapshot=None):
     # Include ignored and untracked source too (embeds, vendored dependencies,
     # module files, scripts). Build from these exact bytes, never the live tree.
     files = sorted(p for p in (repo / "source").rglob("*")
-                   if not any(x in {".git", "__pycache__"} for x in p.relative_to(repo).parts)
+                   if not any(x in {".git"} for x in p.relative_to(repo).parts)
                    and (p.is_symlink() or not p.is_dir()))
     for path in files:
         if path.is_symlink() or not path.is_file():
@@ -151,12 +234,7 @@ def inputs(args, snapshot=None):
         relative = path.relative_to(repo)
         data = path.read_bytes()
         if path.name == "go.mod":
-            for replacement in re.findall(rb"=>\s*([^\s]+)", data):
-                target = os.fsdecode(replacement)
-                if target.startswith((".", "/")):
-                    resolved = (path.parent / target).resolve()
-                    if not resolved.is_relative_to(repo / "source"):
-                        raise ValueError("local module replacement must stay under repo/source")
+            check_replacements(data, path, repo, go, env)
         digest.update(str(relative).encode() + b"\0" + hashlib.sha256(data).digest())
         digest.update(str(path.stat().st_mode & 0o111).encode() + b"\0")
         if snapshot is not None:
@@ -219,7 +297,7 @@ def publish(args):
         manifest = {"schema": 1, "generation": args.generation,
                     "build_id": str(uuid.uuid4()), "fingerprint": fingerprint, "source_commit": commit,
                     "source_dirty": dirty, "version": version, "repo": str(repo),
-                    "go_tool": go, "go_version": toolchain, "sign_requested": args.sign,
+                    "build_inputs": metadata, "go_tool": go, "go_version": toolchain, "sign_requested": args.sign,
                     "validation": "structural-only; binaries not executed", "binaries": {}}
         for name, module, package in TARGETS:
             output = stage / name

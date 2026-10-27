@@ -35,6 +35,13 @@ class PublicationTests(unittest.TestCase):
         self.fake = self.base / "fake go"
         self.fake.write_text(f"#!{sys.executable}\n" + '''import os, sys
 from pathlib import Path
+if sys.argv[1] == "env":
+    import json
+    print(json.dumps({"CGO_ENABLED": os.environ.get("CGO_ENABLED", "0"), "GOARCH": os.environ.get("GOARCH", "native")}))
+    sys.exit(0)
+if sys.argv[1:3] == ["mod", "edit"]:
+    import subprocess
+    sys.exit(subprocess.call([REAL_GO, *sys.argv[1:]]))
 if sys.argv[1:] == ["version"]:
     print("go version fixture")
     sys.exit(0)
@@ -57,6 +64,7 @@ output.write_bytes((b"bad!" if mode == "invalid" and output.name == "cercano-cli
                     else b"\\x7fELF") + b"FIXTURE NEVER EXECUTE" * 8)
 output.chmod(0o755)
 ''')
+        self.fake.write_text(self.fake.read_text().replace('REAL_GO', repr(shutil.which('go'))))
         self.fake.chmod(0o755)
         self.git("init", "-q")
         self.git("add", ".")
@@ -86,6 +94,48 @@ output.chmod(0o755)
         return subprocess.run([sys.executable, str(PUBLISHER), "fingerprint",
                                "--repo", str(self.repo), "--go", str(self.fake)],
                               env=self.env, text=True, capture_output=True)
+
+    def test_native_cgo_default_and_explicit_values(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(publisher)
+        from unittest.mock import patch
+        with patch.dict(os.environ, self.env, clear=True):
+            self.assertNotIn("CGO_ENABLED", publisher.build_environment()[0])
+            for value in ("0", "1"):
+                os.environ["CGO_ENABLED"] = value
+                self.assertEqual(publisher.build_environment()[0]["CGO_ENABLED"], value)
+
+    def test_absolute_and_quoted_replacements_refused(self):
+        module = self.repo / "source/server/go.mod"
+        for target in (str(self.repo / "source/server"), '"' + str(self.repo / "source/server") + '"', '"../../../../outside space"'):
+            module.write_text("module fixture\nreplace example.com/local => " + target + "\n")
+            result = self.fingerprint()
+            self.assertNotEqual(result.returncode, 0, target)
+
+    def test_quoted_relative_replacement_stays_in_snapshot(self):
+        target = self.repo / "source/local module"
+        target.mkdir()
+        (target / "go.mod").write_text("module example.com/local\n")
+        module = self.repo / "source/server/go.mod"
+        module.write_text('module fixture\nreplace example.com/local => "../local module"\n')
+        original = module.read_bytes()
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(module.read_bytes(), original)
+
+    def test_ignored_build_and_embed_inputs_not_excluded(self):
+        (self.repo / ".gitignore").write_text("dist/\n__pycache__/\n")
+        first = self.fingerprint().stdout
+        for directory in ("dist", "__pycache__"):
+            path = self.repo / "source/server" / directory
+            path.mkdir()
+            (path / "embedded.txt").write_text("input")
+            second = self.fingerprint()
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertNotEqual(first, second.stdout)
+            first = second.stdout
 
     def test_fingerprint_content_not_mtime(self):
         first = self.fingerprint()
