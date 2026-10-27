@@ -248,7 +248,11 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	}
 
 	registry := engine.NewEngineRegistry()
-	ollamaEng := ollama.NewOllamaEngine(cfg.OllamaURL)
+	newOllama := lifecycle.newOllama
+	if newOllama == nil {
+		newOllama = func(url string) productionOllamaEngine { return ollama.NewOllamaEngine(url) }
+	}
+	ollamaEng := newOllama(cfg.OllamaURL)
 	registry.RegisterEngine(ollamaEng)
 	registry.RegisterEmbedder(ollamaEng)
 	// llamaEng registers below once constructed — see RegisterEmbedder there.
@@ -266,12 +270,18 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		}
 	}()
 	llamaEng := llamaengine.NewEngine(runtimeManager)
+	if lifecycle.runtimeHTTPClient != nil {
+		llamaEng.Client = lifecycle.runtimeHTTPClient
+	}
 	registry.RegisterEngine(llamaEng)
 	registry.RegisterEmbedder(llamaEng)
 
 	// mistral.rs shares the same runtime manager; it registers as an inference
 	// engine only (no embedder — mistral.rs isn't wired for embeddings yet).
 	mistralEng := mistralengine.NewEngine(runtimeManager)
+	if lifecycle.runtimeHTTPClient != nil {
+		mistralEng.Client = lifecycle.runtimeHTTPClient
+	}
 	registry.RegisterEngine(mistralEng)
 
 	openProviderFor := lifecycle.openProvider
@@ -511,7 +521,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// 64 MiB comfortably fits multiple 20 MiB images (the per-image client cap).
 	const maxGRPCMessageBytes = 64 << 20
 	s := grpc.NewServer(append(enterpriseHost.serverOptions(), grpc.MaxRecvMsgSize(maxGRPCMessageBytes))...)
-	srv := server.NewServer(orchestrator, lazyRouter, coordinator, cloudFactory, registry)
+	srv := server.NewServerWithLogs(orchestrator, lazyRouter, coordinator, cloudFactory, registry, lifecycle.routingLogPath, lifecycle.failureLogPath)
 	srv.SetCloudProviderBuilder(lifecycle.cloudBuilder)
 	srv.SetWatchdogDependencies(lifecycle.watchdog)
 	defer func() {
@@ -579,6 +589,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	defer func() {
 		if !started {
 			cancelWatchers()
+			srv.WaitForWatchers()
 		}
 	}()
 	if err := srv.StartPermissionWatcher(watchCtx, permsPath); err != nil {
@@ -670,7 +681,14 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// called concurrently with live turns (runtime profile changes), so
 	// backgrounding it here is safe. Errors are logged, not fatal.
 	cloudWarnCfg := cfg.Clone()
+	cloudRebuildDone := make(chan struct{})
+	defer func() {
+		if !started {
+			<-cloudRebuildDone
+		}
+	}()
 	go func() {
+		defer close(cloudRebuildDone)
 		if err := srv.RebuildCloud(); err != nil && shouldWarnCloudRebuildFailure(cloudWarnCfg) {
 			fmt.Fprintf(os.Stderr, "[WARN] cloud profile resolution failed: %v — cloud routing will degrade to local.\n", err)
 		}
@@ -721,16 +739,21 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// (default: worker → crash isolation). Runs AFTER config, permissions,
 	// and secrets are wired so the worker runner has everything it needs to
 	// pre-assemble history, build the ConfigSnapshot, and resolve credentials.
-	// Tests never reach this path (they build Server directly), so they stay
-	// in-process and never spawn worker processes.
+	// The startup-only fixture reaches this path with explicit in_process mode;
+	// worker execution requires a separately owned backend fixture.
 	if err := executionPolicy.install(srv); err != nil {
 		return "", nil, err
 	}
 
+	if lifecycle.afterWiring != nil {
+		lifecycle.afterWiring(srv)
+	}
 	proto.RegisterAgentServer(s, srv)
 	enterpriseHost.register(s)
 
+	serveDone := make(chan struct{})
 	go func() {
+		defer close(serveDone)
 		if err := s.Serve(lis); err != nil {
 			log.Printf("gRPC server error: %v", err)
 		}
@@ -740,6 +763,8 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	cleanup := func() {
 		cleanupOnce.Do(func() {
 			cancelWatchers()
+			srv.WaitForWatchers()
+			<-cloudRebuildDone
 			defer restorePolicy()
 			defer enterpriseHost.Close()
 			// Runs after the body: srv.Shutdown has stopped in-process runtime
@@ -752,6 +777,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 			// waits on attached clients forever.
 			srv.BeginShutdown()
 			server.DrainThenStop(s, drainGrace)
+			<-serveDone
 			closeMCP()
 			srv.Shutdown()
 			closeCatalog()

@@ -108,6 +108,8 @@ type McpManager interface {
 
 // Server is the gRPC server for the Agent service.
 type Server struct {
+	configWatchers        sync.WaitGroup
+	diagnosticClose       sync.Once
 	coexistence           *coexistenceLifecycle // explicit lifecycle-only opt-in; never enabled by NewServer
 	pendingPrompts        pendingPromptHub
 	mistralMu             sync.Mutex
@@ -159,10 +161,12 @@ type Server struct {
 	// enforces the decline/re-arm hysteresis. nil (or a zero-threshold config)
 	// means the feature is off and no offer is ever emitted. Wired via
 	// SetRolloverConfig from main.go.
-	rollover     *rolloverManager
-	runtimesSvc  runtimessvc.Supervisors // owns meridianMgr, runtimeManager, mcpManager
-	watchdogDeps WatchdogDependencies
-	watchdog     *watchdog.Watchdog // protocol-supervision gate; nil = disabled (default)
+	rollover        *rolloverManager
+	runtimesSvc     runtimessvc.Supervisors // owns meridianMgr, runtimeManager, mcpManager
+	watchdogAuditMu sync.Mutex
+	watchdogAudits  []watchdog.AuditLogger
+	watchdogDeps    WatchdogDependencies
+	watchdog        *watchdog.Watchdog // protocol-supervision gate; nil = disabled (default)
 	// Two runners coexist so the front door can pick per turn. inProcessRunner is
 	// always built (NewServer / SetPermissions) and is the embedded runnersvc.Core
 	// the test suite constructs. workerRunner is nil until SelectExecutionMode
@@ -581,6 +585,16 @@ func (s *Server) SetSecrets(st secrets.Store) error { return s.cfgSvc.SetSecrets
 // gRPC server itself — that's the caller's job (cmd/cercano/main.go uses
 // GracefulStop).
 func (s *Server) Shutdown() {
+	defer s.diagnosticClose.Do(func() {
+		_ = s.routingLog.Close()
+		_ = s.failureLog.Close()
+		s.watchdogAuditMu.Lock()
+		defer s.watchdogAuditMu.Unlock()
+		for _, audit := range s.watchdogAudits {
+			_ = audit.Close()
+		}
+		s.watchdogAudits = nil
+	})
 	// Cancel background execution before tearing down its runtime dependencies.
 	s.closeTaskManager()
 	// Drain the per-conversation worker pool (kill warm workers + stop the
@@ -1263,6 +1277,11 @@ func (s *Server) SetCompactionGenerator(g *compactiongen.Generator) {
 // NewServer creates a new Agent gRPC server.
 func NewServer(a *agent.Agent, router RouterCloudUpdater, coordinator *loop.ADKCoordinator, cloudFactory agent.CloudFactory, registry *engine.EngineRegistry) *Server {
 	return newServerWithLogs(a, router, coordinator, cloudFactory, registry, "", "")
+}
+
+// NewServerWithLogs uses invocation-owned diagnostic paths; empty paths retain legacy defaults.
+func NewServerWithLogs(a *agent.Agent, router RouterCloudUpdater, coordinator *loop.ADKCoordinator, cloudFactory agent.CloudFactory, registry *engine.EngineRegistry, routingPath, failurePath string) *Server {
+	return newServerWithLogs(a, router, coordinator, cloudFactory, registry, routingPath, failurePath)
 }
 
 // Explicit paths let embedded hosts and integration tests isolate diagnostic

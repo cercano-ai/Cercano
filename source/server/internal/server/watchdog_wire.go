@@ -106,6 +106,11 @@ func (s *Server) buildWatchdogFrom(wc config.WatchdogConfig, mc config.ModelsCon
 			log.Printf("watchdog: audit disabled; failed to open %q: %v", path, err)
 		} else {
 			audit = auditLog
+			// Retain retired audit handles until shutdown: in-flight turns may
+			// still hold the previous watchdog after a configuration rebuild.
+			s.watchdogAuditMu.Lock()
+			s.watchdogAudits = append(s.watchdogAudits, auditLog)
+			s.watchdogAuditMu.Unlock()
 		}
 	}
 

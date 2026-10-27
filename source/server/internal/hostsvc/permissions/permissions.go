@@ -51,8 +51,9 @@ type Broker interface {
 
 // broker is the concrete implementation of Broker.
 type broker struct {
-	store   *agent.PermissionStore
-	pending *agent.PendingDecisions
+	watchers sync.WaitGroup
+	store    *agent.PermissionStore
+	pending  *agent.PendingDecisions
 
 	permBcastMu   sync.Mutex
 	lastBcastMode string
@@ -149,7 +150,9 @@ func (p *broker) StartWatcher(ctx context.Context, permsPath string) error {
 	p.permBcastMu.Unlock()
 
 	target := filepath.Clean(permsPath)
+	p.watchers.Add(1)
 	go func() {
+		defer p.watchers.Done()
 		defer w.Close()
 		for {
 			select {
@@ -192,3 +195,6 @@ func (p *broker) broadcastMode(mode string) {
 	p.permBcastMu.Unlock()
 	p.broadcastFn(mode)
 }
+
+// WaitForWatchers joins watchers after cancellation and after startup has returned.
+func (p *broker) WaitForWatchers() { p.watchers.Wait() }

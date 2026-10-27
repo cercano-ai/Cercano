@@ -57,7 +57,9 @@ func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) erro
 		return err
 	}
 	target := filepath.Clean(configPath)
+	s.configWatchers.Add(1)
 	go func() {
+		defer s.configWatchers.Done()
 		defer w.Close()
 		for {
 			select {
@@ -189,5 +191,14 @@ func (s *Server) reloadConfigFromDisk(ctx context.Context) {
 
 	if _, err := s.UpdateConfig(ctx, req); err != nil {
 		fmt.Printf("ConfigWatcher: UpdateConfig rejected file change: %v\n", err)
+	}
+}
+
+// WaitForWatchers drains startup watchers after their contexts have been canceled.
+// Call only after all Start*Watcher calls have returned.
+func (s *Server) WaitForWatchers() {
+	s.configWatchers.Wait()
+	if w, ok := s.permBroker.(interface{ WaitForWatchers() }); ok {
+		w.WaitForWatchers()
 	}
 }
