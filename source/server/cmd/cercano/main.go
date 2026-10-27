@@ -36,7 +36,6 @@ import (
 	llamaengine "cercano/source/server/internal/engine/llamaserver"
 	mistralengine "cercano/source/server/internal/engine/mistralrs"
 	"cercano/source/server/internal/engine/ollama"
-	"cercano/source/server/internal/enterprise"
 	"cercano/source/server/internal/inference"
 	ollamallm "cercano/source/server/internal/llm/ollama"
 	"cercano/source/server/internal/localruntime"
@@ -210,7 +209,7 @@ func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *cras
 	if err != nil {
 		return "", nil, err
 	}
-	enterpriseHost, err := newEnterpriseHost()
+	enterpriseHost, err := composeProductionEnterprise(productionEnterpriseDependencies{}, enterpriseLegacy)
 	if err != nil {
 		return "", nil, err
 	}
@@ -421,15 +420,9 @@ func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *cras
 
 	// 64 MiB comfortably fits multiple 20 MiB images (the per-image client cap).
 	const maxGRPCMessageBytes = 64 << 20
-	s := grpc.NewServer(
-		grpc.MaxRecvMsgSize(maxGRPCMessageBytes),
-		// Recover handler panics so one bad RPC returns codes.Internal instead of
-		// crashing the singleton agent and dropping every client's stream.
-		grpc.ChainUnaryInterceptor(server.RecoveryUnaryInterceptor(), enterpriseHost.UnaryInterceptor()),
-		grpc.ChainStreamInterceptor(server.RecoveryStreamInterceptor(), enterpriseHost.StreamInterceptor()),
-	)
+	s := grpc.NewServer(append(enterpriseHost.serverOptions(), grpc.MaxRecvMsgSize(maxGRPCMessageBytes))...)
 	srv := server.NewServer(orchestrator, lazyRouter, coordinator, cloudFactory, registry)
-	srv.SetBackgroundWorkAdmission(enterpriseHost.Begin)
+	enterpriseHost.bindAdmission(srv)
 	srv.SetBuildVersion(version)
 	compactionCandidates = srv.DispatchCandidates
 	srv.SetRuntimeManager(runtimeManager)
@@ -634,7 +627,7 @@ func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *cras
 	}
 
 	proto.RegisterAgentServer(s, srv)
-	proto.RegisterEnterpriseServer(s, enterprise.NewRPCServer(enterpriseHost, openEnterpriseBrowser))
+	enterpriseHost.register(s)
 
 	go func() {
 		if err := s.Serve(lis); err != nil {
