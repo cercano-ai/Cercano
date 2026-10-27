@@ -127,6 +127,13 @@ func (a *preparedWorkerAuthority) Context(ctx context.Context, id string) (conte
 	}
 	return a.ctx, nil
 }
+// Close is deliberately conservative: its caller supplies only a run error,
+// not proof that terminal evidence was committed and execution drained. Thus
+// even a backend error with durable evidence retains this worker's ticket. This
+// is different from host dispatch finalization, which observes loop return and
+// recorder closure before passing nil to complete. Do not infer persistence or
+// lifetime completion from a worker error alone; recovery must resolve that
+// uncertainty explicitly (there is no automatic unblock here).
 func (a *preparedWorkerAuthority) Close(err error) {
 	if err != nil || persistsvc.WriteFailure(a.ctx) != nil {
 		_ = a.ticket.PersistenceFailed()

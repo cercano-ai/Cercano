@@ -581,6 +581,8 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 	if subConvID == "" {
 		subConvID = conversation.NewID()
 	}
+	var publishDone func()
+	loopReturned := false
 	if x.dispatchScope != nil {
 		scoped, complete, err := x.dispatchScope(ctx, spec.ConversationID, subConvID)
 		if err != nil {
@@ -591,8 +593,28 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 		}
 		ctx = scoped
 		defer func() {
-			if err := complete(dispatchErr); err != nil {
-				dispatchErr = err
+			// TaskManager owns panic recovery. Mark this scope uncertain first,
+			// then re-panic the original value so its recovery/stack remains intact.
+			panicked := recover()
+			if panicked != nil {
+				dispatchErr = fmt.Errorf("dispatch panicked: %v", panicked)
+				defer func() { panic(panicked) }()
+			}
+			// A returned loop (including a backend error) has no live execution.
+			// Its terminal evidence has already closed in the inner defer. Only
+			// persistence uncertainty or panic must retain the child/ticket.
+			scopeErr := dispatchErr
+			if loopReturned && panicked == nil && persistsvc.WriteFailure(ctx) == nil {
+				scopeErr = nil
+			}
+			if err := complete(scopeErr); err != nil {
+				dispatchErr = errors.Join(dispatchErr, err)
+				if panicked == nil {
+					emitDispatchProgress(spec.Emit, agenttools.ProgressEvent{SubAgentID: subConvID, Kind: "error", Text: err.Error(), IsError: true})
+				}
+			}
+			if dispatchErr == nil && publishDone != nil {
+				publishDone()
 			}
 		}()
 	}
@@ -664,6 +686,18 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 			return errors.New("dispatch event store unavailable")
 		}
 	}
+	// Host fallback writes are not the worker runner's sink. Attribute failures
+	// to this dispatch's retained-work context, never the parent/global service.
+	if sink != nil && x.dispatchScope != nil {
+		write := sink
+		sink = func(ctx context.Context, ev conversation.DispatchEvent) error {
+			err := write(ctx, ev)
+			if err != nil {
+				persistsvc.ReportWriteFailure(ctx, err)
+			}
+			return err
+		}
+	}
 	tr := dispatchhistory.Begin(ctx, subConvID, sink)
 	tr.CaptureReasoning(x.captureReasoning)
 
@@ -698,22 +732,32 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 		if n := tr.Failures(); n > 0 {
 			warning := fmt.Sprintf("Dispatch evidence incomplete: %d database writes failed.", n)
 			out.Text += "\n\n[" + warning + "]"
+			if x.dispatchScope != nil {
+				evidenceErr := errors.New(warning)
+				persistsvc.ReportWriteFailure(ctx, evidenceErr)
+				dispatchErr = errors.Join(dispatchErr, evidenceErr)
+			}
 			emitDispatchProgress(spec.Emit, agenttools.ProgressEvent{SubAgentID: subConvID, Kind: "error", Text: warning, IsError: true})
 			x.logDispatchFailure("dispatch.degraded", spec, subConvID, provider, model, sel.IsCloud, granted, ignored, nil, failurelog.Event{"error_class": "dispatch_persistence_failed", "failed_writes": n})
 		}
-		if terminalDone {
-			// "done" is the TERMINAL sub-agent event: emitted here, after the
-			// suspicious-noop error and the persistence-degradation warning
-			// above, so the parent/UI closes the tab on the true final state
-			// instead of before the warnings land. doneSuspicious records the
-			// suspicion outcome in the terminal text; failure paths (loop
-			// error, grant refusal) emit their own "error" event and never
-			// emitted "done", so they stay done-free here too.
-			text := fmt.Sprintf("sub-agent done: conv=%s iterations=%d", subConvID, doneRes.Iterations)
-			if doneSuspicious {
-				text += " (flagged: suspicious no-op)"
+		if terminalDone && (x.dispatchScope == nil || dispatchErr == nil) {
+			publishDone = func() {
+				// "done" is the TERMINAL sub-agent event: emitted here, after the
+				// suspicious-noop error and the persistence-degradation warning
+				// above, so the parent/UI closes the tab on the true final state
+				// instead of before the warnings land. doneSuspicious records the
+				// suspicion outcome in the terminal text; failure paths (loop
+				// error, grant refusal) emit their own "error" event and never
+				// emitted "done", so they stay done-free here too.
+				text := fmt.Sprintf("sub-agent done: conv=%s iterations=%d", subConvID, doneRes.Iterations)
+				if doneSuspicious {
+					text += " (flagged: suspicious no-op)"
+				}
+				emitDispatchProgress(spec.Emit, agenttools.ProgressEvent{SubAgentID: subConvID, SubAgentParentID: spec.ConversationID, SubAgentTitle: subTitle, Kind: "done", Text: text, GrantedTools: granted, IgnoredTools: ignored})
 			}
-			emitDispatchProgress(spec.Emit, agenttools.ProgressEvent{SubAgentID: subConvID, SubAgentParentID: spec.ConversationID, SubAgentTitle: subTitle, Kind: "done", Text: text, GrantedTools: granted, IgnoredTools: ignored})
+			if x.dispatchScope == nil {
+				publishDone()
+			}
 		}
 	}()
 	// Per-dispatch compactor: state is per-conversation, never shared.
@@ -772,6 +816,7 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 		OnTurnComplete: onTurn,
 		// PermissionRequester: nil — R-tier won't gate; W/X runs pre-authorized after the parent grant confirm.
 	})
+	loopReturned = true
 	sel, model = dispatch.CurrentRoute(sel, model)
 	if sel.Provider != nil {
 		provider = sel.Provider.Name()
