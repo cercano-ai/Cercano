@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/pkg/config"
 )
 
 // productionStartupPolicy is invocation-local. Legacy preserves the ordinary
@@ -68,4 +70,38 @@ func (a productionStartupAdmission) conversationStore(prepared conversation.Stor
 		return nil, fmt.Errorf("legacy store opener required without prepared store")
 	}
 	return openLegacy(a.paths.conversations)
+}
+
+// runAgentWithStartup is the config-opening boundary used by both the agent
+// subcommand and ordinary server/MCP dispatch. Keep legacy loading (including
+// its warning/default fallback) unchanged; generation admission and the parity
+// gate must run before even attempting config.Load, which may migrate and save.
+// Dependencies are invocation-local so tests cannot change another invocation.
+func runAgentWithStartup(ctx context.Context, policy productionStartupPolicy, load func(string) (config.Config, error), run func(config.Config)) error {
+	// Do not move legacy authority resolution ahead of loading: it historically
+	// happens during server startup, after config warning/default fallback.
+	// A mixed legacy/generation declaration must still fail before loading.
+	if !policy.legacy || policy.contract != (conversation.CoexistenceDeclaration{}) {
+		if _, err := policy.admitActivation(ctx); err != nil {
+			return err
+		}
+	}
+	cfg, err := load(policy.authorities.configPath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
+		cfg = config.Defaults()
+	}
+	run(cfg)
+	return nil
+}
+
+func (p productionStartupPolicy) admitActivation(ctx context.Context) (productionStartupAdmission, error) {
+	a, err := p.admit(ctx)
+	if err != nil {
+		return productionStartupAdmission{}, err
+	}
+	if !a.legacy {
+		return productionStartupAdmission{}, fmt.Errorf("canonical generation startup requires service parity; activation disabled")
+	}
+	return a, nil
 }

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -126,5 +128,171 @@ func TestProductionStartupPreparedExactStore(t *testing.T) {
 	_, _, err = startGRPCServerWithStartup(config.Defaults(), "invalid address", nil, productionCredentialDependencies{}, p)
 	if err == nil || !strings.Contains(err.Error(), "service parity") {
 		t.Fatalf("activation gate: %v", err)
+	}
+}
+
+// Exercise the same pre-config entry used by main, not the later gRPC gate.
+func TestRunAgentStartupAdmissionBeforeConfigAndServices(t *testing.T) {
+	for _, compatible := range []bool{false, true} {
+		t.Run(fmt.Sprint("compatible=", compatible), func(t *testing.T) {
+			p := fixtureStartupPolicy(t, false)
+			paths, _ := p.authorities.resolve()
+			if err := os.Chmod(filepath.Dir(paths.config), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if compatible {
+				if err := conversation.PrepareDevelopmentStore(context.Background(), paths.conversations); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				st, err := conversation.Open(paths.conversations)
+				if err != nil {
+					t.Fatal(err)
+				}
+				st.Close()
+			}
+			// Legacy config spelling would be migrated by Load; never let it open.
+			original := []byte("port: \"54321\"\nopen_model: fixture-model\n")
+			if err := os.WriteFile(paths.config, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			before := startupFixtureFiles(t, filepath.Dir(paths.config))
+			var order []string
+			p.authorities.configPath = func() string { order = append(order, "resolve-config"); return paths.config }
+			p.authorities.conversationPath = func() (string, error) {
+				order = append(order, "resolve-conversations")
+				return paths.conversations, nil
+			}
+			configLoads, serviceStarts := 0, 0
+			err := runAgentWithStartup(context.Background(), p, func(string) (config.Config, error) {
+				configLoads++
+				return config.Config{}, nil
+			}, func(config.Config) {
+				// runServerMode owns crash logging and all later enterprise/runtime,
+				// credential, store opening and task reconciliation stages.
+				serviceStarts++
+			})
+			if configLoads != 0 || serviceStarts != 0 {
+				t.Fatalf("config loads=%d, native/store service starts=%d", configLoads, serviceStarts)
+			}
+			want := "generation authority admission"
+			if compatible {
+				want = "service parity"
+			}
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("got %v, want %s", err, want)
+			}
+			if got := strings.Join(order, ","); got != "resolve-config,resolve-conversations" {
+				t.Fatalf("order: %s", got)
+			}
+			if after := startupFixtureFiles(t, filepath.Dir(paths.config)); !reflect.DeepEqual(before, after) {
+				t.Fatal("startup mutated fixture files")
+			}
+		})
+	}
+}
+
+func startupFixtureFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		// SQLite read-only preflight may create transient WAL coordination files.
+		// Compare durable authority/config bytes, not shared-memory locks.
+		if entry.IsDir() || strings.HasSuffix(path, "-shm") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(path, "-wal") && len(data) == 0 {
+			return nil // Empty read-only WAL sidecar contains no durable changes.
+		}
+		files[path] = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func TestRunAgentStartupLegacyConfigAndOverrideOrder(t *testing.T) {
+	p := fixtureStartupPolicy(t, true)
+	paths, _ := p.authorities.resolve()
+	t.Setenv("CERCANO_CONVERSATIONS_DB", paths.conversations)
+	if err := os.WriteFile(paths.config, []byte("port: \"54321\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	p.authorities.configPath = func() string { order = append(order, "config-path"); return paths.config }
+	p.authorities.conversationPath = func() (string, error) { order = append(order, "conversation-path"); return conversation.DefaultPath() }
+	err := runAgentWithStartup(context.Background(), p, func(path string) (config.Config, error) {
+		order = append(order, "load")
+		if path != paths.config {
+			t.Fatalf("load path: %s", path)
+		}
+		return config.Load(path)
+	}, func(cfg config.Config) {
+		order = append(order, "server")
+		if cfg.Port != "54321" {
+			t.Fatalf("loaded config lost: %s", cfg.Port)
+		}
+		a, err := p.admitActivation(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, err := a.conversationStore(nil, func(path string) (conversation.Store, error) {
+			order = append(order, "store")
+			if path != paths.conversations {
+				t.Fatalf("override lost: %s", path)
+			}
+			return conversation.Open(path)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.Close()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(order, ","); got != "config-path,load,server,config-path,conversation-path,store" {
+		t.Fatalf("order: %s", got)
+	}
+}
+
+func TestRunAgentStartupLegacyWarningDefaults(t *testing.T) {
+	p := fixtureStartupPolicy(t, true)
+	capture, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer capture.Close()
+	previous := os.Stderr
+	os.Stderr = capture
+	defer func() { os.Stderr = previous }()
+	loads, runs := 0, 0
+	err = runAgentWithStartup(context.Background(), p, func(string) (config.Config, error) {
+		loads++
+		return config.Config{Port: "invalid-partial"}, fmt.Errorf("fixture load failure")
+	}, func(cfg config.Config) {
+		runs++
+		if !reflect.DeepEqual(cfg, config.Defaults()) {
+			t.Fatal("load failure did not use defaults")
+		}
+	})
+	if err != nil || loads != 1 || runs != 1 {
+		t.Fatalf("err=%v loads=%d runs=%d", err, loads, runs)
+	}
+	warning, err := os.ReadFile(capture.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(warning) != "[WARN] Failed to load config: fixture load failure (using defaults)\n" {
+		t.Fatalf("warning: %q", warning)
 	}
 }

@@ -207,12 +207,9 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 // the ordinary producers and integrations carry lifecycle authority. No CLI or
 // installed launcher selects this policy.
 func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, policy productionStartupPolicy) (string, func(), error) {
-	admission, err := policy.admit(context.Background())
+	admission, err := policy.admitActivation(context.Background())
 	if err != nil {
 		return "", nil, err
-	}
-	if !admission.legacy {
-		return "", nil, fmt.Errorf("canonical generation startup requires service parity; activation disabled")
 	}
 	enterpriseHost, err := newEnterpriseHost()
 	if err != nil {
@@ -1049,12 +1046,10 @@ func main() {
 			// Explicit server mode: starts the gRPC agent in the foreground.
 			// Used by `cercano-cli` auto-launch and by IDE extensions that want
 			// to manage the server lifecycle themselves.
-			cfg, err := config.Load(config.DefaultPath())
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
-				cfg = config.Defaults()
+			if err := runAgentWithStartup(context.Background(), legacyProductionStartup(), config.Load, runServerMode); err != nil {
+				fmt.Fprintln(os.Stderr, "agent:", err)
+				os.Exit(1)
 			}
-			runServerMode(cfg)
 			return
 		case "model-host":
 			// Shared local model host: one process per user owns the local
@@ -1150,25 +1145,21 @@ func main() {
 		return
 	}
 
-	// Load config for server/MCP mode.
-	cfg, err := config.Load(config.DefaultPath())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
-		cfg = config.Defaults()
-	}
-
-	// This binary IS the cercano agent server. The terminal UI lives in the
-	// separate `cercano-cli` binary (source/clients/cli), which dials this
-	// server over gRPC and auto-launches `cercano agent` if none is running.
-	// The agent server is a singleton; bare `cercano`, `cercano agent`, and
-	// `cercano --server` all run it in the foreground.
-	switch {
-	case *mcpMode:
-		runMCPMode(cfg, *grpcAddr)
-	case *forceServer:
-		runServerMode(cfg)
-	default:
-		runServerMode(cfg)
+	// The terminal UI lives in cercano-cli; bare cercano, cercano agent,
+	// and cercano --server run this singleton server in the foreground.
+	// All ordinary server/MCP entries share the pre-config startup boundary.
+	if err := runAgentWithStartup(context.Background(), legacyProductionStartup(), config.Load, func(cfg config.Config) {
+		switch {
+		case *mcpMode:
+			runMCPMode(cfg, *grpcAddr)
+		case *forceServer:
+			runServerMode(cfg)
+		default:
+			runServerMode(cfg)
+		}
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "agent:", err)
+		os.Exit(1)
 	}
 }
 
