@@ -186,11 +186,9 @@ func (s *CoordinatedStore) List() ([]string, error) {
 	return out, nil
 }
 
-// Admit starts a cached-credential request under commit exclusion only after a
-// fresh revision check. start must synchronously dispatch (not enqueue later),
-// be bounded, and return without waiting for network completion. Logout cannot
-// cross its success boundary before that dispatch. Already-dispatched requests
-// and remote revocation are outside this guarantee. No provider uses this yet.
+// Admit is the low-level bounded admission critical section. start must perform
+// local bookkeeping only: no network, blocking work, or reusable authorization.
+// Admission, not physical send, is the logout boundary. Prefer AdmitAttempt.
 func (s *CoordinatedStore) Admit(ctx context.Context, name, expected string, start func() error) error {
 	unlock, err := s.lock(ctx, name, "commit")
 	if err != nil {

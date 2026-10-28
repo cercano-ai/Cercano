@@ -16,6 +16,7 @@ import (
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/workadmission"
 	"context"
+	"fmt"
 	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
 	"log"
 	"sync"
@@ -430,6 +431,10 @@ func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error
 		return nil, err
 	}
 	st := p.cfgSvc.Secrets()
+	coordinated := secrets.IsCoordinated(st)
+	if coordinated && (prof.Flavor != cloudfactory.FlavorResponses || prof.Route != "") {
+		return nil, fmt.Errorf("coordinated credential route unsupported")
+	}
 	key := ""
 	var keyErr error
 	if st != nil && !cloudfactory.IsSubscription(prof) && prof.Flavor != cloudfactory.FlavorBedrock {
@@ -445,6 +450,13 @@ func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error
 		}
 	}
 	opts := cloudfactory.Options{ModelSupportsVision: confirmed}
+	if coordinated {
+		admission, ok := st.(secrets.RequestCredentials)
+		if !ok {
+			return nil, fmt.Errorf("coordinated request admission unavailable")
+		}
+		opts.Credentials = admission
+	}
 	if prof.Flavor == cloudfactory.FlavorResponses && prof.Route == cloudfactory.RouteChatGPT {
 		opts.TokenSource = p.cfgSvc.Credentials().ChatGPT(prof.Name, chatgptauth.Flow{})
 	}
@@ -621,6 +633,9 @@ func (p *service) chainEvents(c cfg.Config, d cfg.Destination) func(resilience.E
 
 // RunReasoningDiagnostic deliberately bypasses destination retry/fallback chains.
 func (p *service) RunReasoningDiagnostic(ctx context.Context, spec reasoningexperiment.Spec) (reasoningexperiment.Report, error) {
+	if secrets.IsCoordinated(p.cfgSvc.Secrets()) {
+		return reasoningexperiment.Report{}, fmt.Errorf("coordinated reasoning diagnostic unsupported")
+	}
 	return reasoningexperiment.Run(ctx, p.cfgSvc.Get(), spec, p.buildProfile)
 }
 

@@ -4,6 +4,7 @@ import (
 	"cercano/source/server/internal/anthropicauth"
 	"cercano/source/server/internal/catalog"
 	"cercano/source/server/internal/llm/responses"
+	"cercano/source/server/internal/secrets"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -24,6 +25,9 @@ import (
 // and returns the catalog for the settings UI. Empty models + populated
 // error means "fetch failed; render the curated fallback list instead."
 func (s *Server) ListCloudProfileModels(ctx context.Context, req *proto.ListCloudProfileModelsRequest) (*proto.ListCloudProfileModelsResponse, error) {
+	if secrets.IsCoordinated(s.cfgSvc.Secrets()) {
+		return &proto.ListCloudProfileModelsResponse{Error: "coordinated model discovery not supported"}, nil
+	}
 	name := req.GetProfileName()
 	cfg := s.cfgSvc.Get()
 	if name == "" {

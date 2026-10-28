@@ -3,6 +3,7 @@ package responses
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/llm/httpx"
 	"cercano/source/server/internal/modelpolicy"
+	"cercano/source/server/internal/secrets"
 	accounting "cercano/source/server/internal/usage"
 )
 
@@ -40,9 +42,12 @@ type TokenSource interface {
 
 // Config holds the Responses client configuration.
 type Config struct {
-	BaseURL string
-	APIKey  string
-	Model   string
+	// Credentials opts into coordinated static-key request admission.
+	Credentials       secrets.RequestCredentials
+	CredentialProfile string
+	BaseURL           string
+	APIKey            string
+	Model             string
 	// Route selects the auth path. Empty (default) uses APIKey against
 	// BaseURL; RouteChatGPT uses TokenSource against the codex backend.
 	Route string
@@ -63,6 +68,8 @@ type Config struct {
 
 // Client implements inference.Provider using the OpenAI Responses API.
 type Client struct {
+	credentials       secrets.RequestCredentials
+	credentialProfile string
 	http              httpx.Doer
 	baseURL           string
 	accountingProfile string
@@ -114,7 +121,15 @@ func NewClient(cfg Config) *Client {
 	if base == "" {
 		base = defaultBaseURL
 	}
-	return &Client{http: modelpolicy.Client(&http.Client{}, "openai", "external", modelpolicy.Responses), baseURL: base, accountingProfile: cfg.AccountingProfile, apiKey: cfg.APIKey, model: cfg.Model, route: cfg.Route, tokens: cfg.TokenSource, supportsVision: cfg.SupportsVision}
+	transport := &http.Client{}
+	if cfg.Credentials != nil {
+		// Restrict coordinated requests to HTTP/1; HTTP/2 retry behavior has
+		// not been qualified for this bounded path.
+		transport.Transport = nonReplayTransport{next: &http.Transport{DisableKeepAlives: true, Proxy: http.ProxyFromEnvironment, TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{}}}
+		// Redirects are separate attempts, not covered by the original admission.
+		transport.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	return &Client{credentials: cfg.Credentials, credentialProfile: cfg.CredentialProfile, http: modelpolicy.Client(transport, "openai", "external", modelpolicy.Responses), baseURL: base, accountingProfile: cfg.AccountingProfile, apiKey: cfg.APIKey, model: cfg.Model, route: cfg.Route, tokens: cfg.TokenSource, supportsVision: cfg.SupportsVision}
 }
 
 func (c *Client) Name() string { return "openai-responses" }
@@ -172,7 +187,24 @@ func (c *Client) do(ctx context.Context, body request) (*http.Response, error) {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	if err := c.authorize(ctx, httpReq); err != nil {
+	if c.credentials != nil {
+		// Coordinated subscription refresh is not implemented; never fall back to
+		// a legacy source or a cached static key on that route.
+		if c.tokens != nil || c.route != "" || c.credentialProfile == "" {
+			return nil, errors.New("coordinated responses route unsupported")
+		}
+		snapshot, err := c.credentials.CredentialSnapshot(ctx, c.credentialProfile)
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+snapshot.Payload)
+		// net/http may retry replayable requests on reused connections. This POST
+		// has a nonempty body, no idempotency header, and no GetBody replay hook.
+		// Replay is removed by nonReplayTransport AFTER model-policy inspection.
+		if err := c.credentials.AdmitAttempt(ctx, c.credentialProfile, snapshot.Revision); err != nil {
+			return nil, err
+		}
+	} else if err := c.authorize(ctx, httpReq); err != nil {
 		return nil, err
 	}
 	resp, err := c.http.Do(httpReq)
@@ -418,4 +450,14 @@ func (c *Client) accountingProviderName() string {
 		return c.Name()
 	}
 	return c.accountingProfile // profile name when configured; else unknown
+}
+
+// nonReplayTransport is inside modelpolicy.Client so model verification retains
+// its private body reader, while the wire transport cannot replay the POST.
+type nonReplayTransport struct{ next http.RoundTripper }
+
+func (t nonReplayTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	wire := req.Clone(req.Context())
+	wire.GetBody = nil
+	return t.next.RoundTrip(wire)
 }
