@@ -1733,6 +1733,15 @@ func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfig
 	// then cfgSvc.Set(c) commits everything atomically at the end. This keeps
 	// each individual step free of cfgMu (cfgSvc's internal lock is fine-grained).
 	c := s.cfgSvc.Get()
+	// File adoption has semantic presence independent of protobuf's nonempty
+	// patch fields. In particular, removing an override must rebuild the open
+	// runner using the newly resolved model, not retain the old explicit pick.
+	fileModelChanged := false
+	if authoritative != nil {
+		before, _ := c.Models.OverrideFor(c.OpenRuntime, config.TierEveryday)
+		after, _ := authoritative.Models.OverrideFor(authoritative.OpenRuntime, config.TierEveryday)
+		fileModelChanged = before != after
+	}
 
 	var changes []string
 	var effects []func()
@@ -2258,8 +2267,17 @@ func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfig
 	// fully-mutated snapshot so the factory can rebuild with the new runtime.
 	mistralLaunchFlagsChanged := req.MistralrsIsq != "" ||
 		req.MistralrsPagedAttn != "" || req.MistralrsPaMemoryFraction != ""
-	if req.OllamaUrl != "" || req.OpenModel != "" || req.OpenRuntime != "" {
+	if req.OllamaUrl != "" || req.OpenModel != "" || req.OpenRuntime != "" || fileModelChanged {
 		resolvedModel := req.OpenModel
+		applyRuntime := req.OpenRuntime
+		if fileModelChanged {
+			// Use the existing full-runtime rebuild signal even when the new
+			// override is empty. Do not mutate RPC fields or run runtime-switch
+			// detection/download side effects for an override-only file edit.
+			applyRuntime = c.OpenRuntime
+			resolvedModel = effectiveOpenModelFor(c, config.TierEveryday)
+			s.broadcastConfigChanged("local_model", resolvedModel)
+		}
 		if resolvedModel == "" && req.OpenRuntime == "llama_server" {
 			resolvedModel = c.LlamaServer.DefaultModel
 		}
@@ -2272,7 +2290,7 @@ func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfig
 		s.providerSvc.Reconfigure(providers.ReconfigureArgs{
 			OllamaURL:         req.OllamaUrl,
 			OpenModel:         req.OpenModel,
-			OpenRuntime:       req.OpenRuntime,
+			OpenRuntime:       applyRuntime,
 			ResolvedOpenModel: resolvedModel,
 			MutatedConfig:     c,
 		})

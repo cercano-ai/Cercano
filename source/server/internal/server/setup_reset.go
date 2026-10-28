@@ -23,6 +23,12 @@ func (s *Server) ResetSetup(ctx context.Context, req *proto.ResetSetupRequest) (
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	// Keep publication and all live effects in the same ordering domain as
+	// watcher adoption and local writes. The callback is the service setter,
+	// not a server RPC: it must not reacquire configApplyMu. Cross-store
+	// credential failures still report partial publication, not rollback.
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	result, err := setupreset.Reset(ctx, s.cfgSvc.Path(), s.cfgSvc.Secrets(), s.cfgSvc.Set)
 	response := &proto.ResetSetupResponse{Ok: err == nil, CredentialsRemoved: int32(result.DeletedCredentials), ConfigWritten: result.ConfigWritten, LiveApplied: result.LiveApplied}
 	if err != nil {
