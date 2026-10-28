@@ -49,6 +49,7 @@ import (
 	runtimessvc "cercano/source/server/internal/hostsvc/runtimes"
 	toolssvc "cercano/source/server/internal/hostsvc/tools"
 	"cercano/source/server/internal/inference"
+	"cercano/source/server/internal/inference/profilechain"
 	"cercano/source/server/internal/llamacompat"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/localruntime"
@@ -1243,6 +1244,9 @@ func (s *Server) RemoveCloudProfile(ctx context.Context, req *proto.RemoveCloudP
 	if candidate.SecondaryBackupCloudProfile == name {
 		candidate.SecondaryBackupCloudProfile = ""
 	}
+	if err := candidate.ValidateRouting(); err != nil {
+		return &proto.RemoveCloudProfileResponse{Error: err.Error()}, nil
+	}
 	if err := s.cfgSvc.SaveAndSet(candidate); err != nil {
 		return &proto.RemoveCloudProfileResponse{Error: err.Error()}, nil
 	}
@@ -1255,7 +1259,12 @@ func (s *Server) RemoveCloudProfile(ctx context.Context, req *proto.RemoveCloudP
 	releaseCatalog()
 	if referenced {
 		if err := s.rebuildCloud(); err != nil {
-			return &proto.RemoveCloudProfileResponse{Error: "configuration saved but not applied: " + err.Error()}, nil
+			// An unbound Primary is valid routing configuration. Rebuild has
+			// published the new graph and installed the documented absent-cloud
+			// fallback; only this typed outcome is expected after removal.
+			if candidate.ActiveCloudProfile != "" || !errors.Is(err, profilechain.ErrPrimaryAbsent) {
+				return &proto.RemoveCloudProfileResponse{Error: "configuration saved but not applied: " + err.Error()}, nil
+			}
 		}
 	}
 	if credentialFailed {

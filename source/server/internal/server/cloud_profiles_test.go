@@ -2,7 +2,11 @@ package server
 
 import (
 	"cercano/source/server/internal/credentialtest"
+	cfgsvc "cercano/source/server/internal/hostsvc/config"
+	"cercano/source/server/internal/hostsvc/providers"
 	"context"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -658,4 +662,121 @@ func TestUpsertCloudProfile_InactiveDoesNotBroadcast(t *testing.T) {
 
 func premiumChoices(model string) *proto.ProfileModelChoices {
 	return &proto.ProfileModelChoices{TierOverrides: map[string]string{"premium": model}}
+}
+
+// These wrappers inject failures without touching disk or native credentials.
+type removalSaveFailure struct{ cfgsvc.Service }
+
+func (s removalSaveFailure) SaveAndSet(config.Config) error {
+	return errors.New("injected save failure")
+}
+
+type removalRebuildFailure struct{ providers.ComposableResolver }
+
+func (s removalRebuildFailure) Rebuild() error { return errors.New("injected rebuild failure") }
+
+func TestRemoveCloudProfileLast(t *testing.T) {
+	credentialtest.Enable(t)
+	s, r := newTestServer()
+	s.cfgSvc.Set(config.Config{ActiveCloudProfile: "only", CloudProfiles: []config.CloudProfile{{Name: "only", Flavor: "messages"}}})
+	if err := s.cfgSvc.Secrets().Set("only", "synthetic"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "only"})
+	if err != nil || !resp.Ok {
+		t.Fatalf("remove last: %+v %v", resp, err)
+	}
+	c := s.cfgSvc.Get()
+	if len(c.CloudProfiles) != 0 || c.ActiveCloudProfile != "" {
+		t.Fatalf("remaining config: %+v", c)
+	}
+	if err := c.ValidateRouting(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.cfgSvc.Secrets().Get("only"); err == nil {
+		t.Fatal("credential retained")
+	}
+	if _, ok := r.last.(*agent.AbsentCloudProvider); !ok {
+		t.Fatalf("fallback: %T", r.last)
+	}
+}
+
+func TestRemoveCloudProfileInactive(t *testing.T) {
+	credentialtest.Enable(t)
+	s, r := newTestServer()
+	s.cfgSvc.Mutate(func(c *config.Config) { c.ActiveCloudProfile = "messages-one" })
+	if err := s.cfgSvc.Secrets().Set("cc-one", "synthetic"); err != nil {
+		t.Fatal(err)
+	}
+	turn, _, release := s.turnBroker.BeginTurn(t.Context(), "inactive-removal")
+	defer release()
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "cc-one"})
+	if err != nil || !resp.Ok {
+		t.Fatalf("remove inactive: %+v %v", resp, err)
+	}
+	c := s.cfgSvc.Get()
+	if c.ActiveCloudProfile != "messages-one" {
+		t.Fatal("active binding changed")
+	}
+	if _, ok := c.Profile("cc-one"); ok {
+		t.Fatal("profile retained")
+	}
+	if _, err := s.cfgSvc.Secrets().Get("cc-one"); err == nil {
+		t.Fatal("credential retained")
+	}
+	if r.last != nil || turn.Err() != nil {
+		t.Fatal("inactive removal changed runtime")
+	}
+}
+
+func TestRemoveCloudProfileSaveFailure(t *testing.T) {
+	credentialtest.Enable(t)
+	s, r := newTestServer()
+	s.cfgSvc.Mutate(func(c *config.Config) { c.ActiveCloudProfile = "messages-one" })
+	if err := s.cfgSvc.Secrets().Set("messages-one", "synthetic"); err != nil {
+		t.Fatal(err)
+	}
+	before := s.cfgSvc.Get()
+	s.cfgSvc = removalSaveFailure{s.cfgSvc}
+	turn, gen, release := s.turnBroker.BeginTurn(t.Context(), "save-failure")
+	defer release()
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "messages-one"})
+	if err != nil || resp.Ok || !strings.Contains(resp.Error, "injected save failure") {
+		t.Fatalf("response: %+v %v", resp, err)
+	}
+	if !reflect.DeepEqual(before, s.cfgSvc.Get()) {
+		t.Fatal("failed save published config")
+	}
+	if key, err := s.cfgSvc.Secrets().Get("messages-one"); err != nil || key != "synthetic" {
+		t.Fatalf("credential changed: %q %v", key, err)
+	}
+	if r.last != nil || turn.Err() != nil || !s.turnBroker.IsCurrent("save-failure", gen) {
+		t.Fatal("failed save changed runtime or canceled turn")
+	}
+}
+
+func TestRemoveCloudProfileRealRebuildFailure(t *testing.T) {
+	s, _ := newTestServer()
+	s.cfgSvc.Mutate(func(c *config.Config) { c.ActiveCloudProfile = "messages-one" })
+	s.providerSvc = removalRebuildFailure{s.providerSvc}
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "messages-one"})
+	if err != nil || resp.Ok || resp.Error != "configuration saved but not applied: injected rebuild failure" {
+		t.Fatalf("response: %+v %v", resp, err)
+	}
+	if _, ok := s.cfgSvc.Get().Profile("messages-one"); ok {
+		t.Fatal("saved removal not published")
+	}
+}
+
+func TestRemoveCloudProfileRejectsInvalidRouting(t *testing.T) {
+	s, r := newTestServer()
+	s.cfgSvc.Mutate(func(c *config.Config) { c.ActiveCloudProfile = "messages-one"; c.BackupCloudProfile = "missing" })
+	before := s.cfgSvc.Get()
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "messages-one"})
+	if err != nil || resp.Ok || strings.Contains(resp.Error, "saved") {
+		t.Fatalf("response: %+v %v", resp, err)
+	}
+	if !reflect.DeepEqual(before, s.cfgSvc.Get()) || r.last != nil {
+		t.Fatal("invalid routing published or applied")
+	}
 }
