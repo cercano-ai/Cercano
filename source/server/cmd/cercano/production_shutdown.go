@@ -14,21 +14,25 @@ type productionShutdown struct {
 	once      sync.Once
 	done      chan struct{}
 	stop      func()
-	dispose   func()
+	dispose   func() error
+	err       error
 }
-type productionShutdownStatus struct{ Complete bool }
+type productionShutdownStatus struct {
+	Complete, Pending, Failed bool
+	Err                       error
+}
 
 // stop must only perform the nonblocking admission fence; all cancellation,
 // joins and resource callbacks belong in dispose, never in the bounded caller.
-func newProductionShutdown(stop, dispose func()) *productionShutdown {
+func newProductionShutdown(stop func(), dispose func() error) *productionShutdown {
 	return &productionShutdown{done: make(chan struct{}), stop: stop, dispose: dispose}
 }
 func (s *productionShutdown) Status() productionShutdownStatus {
 	select {
 	case <-s.done:
-		return productionShutdownStatus{Complete: true}
+		return productionShutdownStatus{Complete: s.err == nil, Failed: s.err != nil, Err: s.err}
 	default:
-		return productionShutdownStatus{}
+		return productionShutdownStatus{Pending: true}
 	}
 }
 func (s *productionShutdown) Shutdown() productionShutdownStatus {
@@ -45,15 +49,21 @@ func (s *productionShutdown) Shutdown() productionShutdownStatus {
 // The process owner must remain alive after an incomplete result. This wait is
 // deliberately not a forced-exit deadline; callers can inspect Status meanwhile.
 func retainUntilDisposed(s *productionShutdown) {
-	if s != nil && !s.Shutdown().Complete {
+	if s == nil {
+		return
+	}
+	if s.Shutdown().Pending {
 		println("Shutdown incomplete: callbacks/resources retained; replacement not authorized")
 		<-s.done
+	}
+	if s.Status().Failed {
+		println("Shutdown failed: resource disposal failed; replacement not authorized")
 	}
 }
 
 // Request fences synchronously; acknowledgement never implies completion.
 func (s *productionShutdown) Request() {
-	s.once.Do(func() { s.stop(); s.requested.Store(true); go func() { s.dispose(); close(s.done) }() })
+	s.once.Do(func() { s.stop(); s.requested.Store(true); go func() { s.err = s.dispose(); close(s.done) }() })
 }
 func (s *productionShutdown) Control(observe bool) *proto.ShutdownAgentResponse {
 	if !observe {
@@ -64,9 +74,23 @@ func (s *productionShutdown) Control(observe bool) *proto.ShutdownAgentResponse 
 		r.Phase = "draining"
 		r.IncompleteReason = "callbacks or resource disposal pending"
 	}
+	if s.Status().Failed {
+		r.Phase = "failed"
+		r.IncompleteReason = "resource disposal failed; replacement not authorized"
+	}
 	if r.Complete {
 		r.Phase = "complete"
 		r.IncompleteReason = ""
 	}
 	return r
 }
+
+// Retains the immutable startup cause and eventual rollback errors without
+// mutating an error already returned to a caller. Control status never exposes it.
+type productionStartupFailure struct {
+	cause   error
+	cleanup *productionShutdown
+}
+
+func (e *productionStartupFailure) Error() string   { return e.cause.Error() }
+func (e *productionStartupFailure) Unwrap() []error { return []error{e.cause, e.cleanup.Status().Err} }

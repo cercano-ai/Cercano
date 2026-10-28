@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -61,10 +62,14 @@ func (startupTransportTrap) RoundTrip(*http.Request) (*http.Response, error) {
 type countedStartupStore struct {
 	conversation.Store
 	conversation.TaskStore
-	closes atomic.Int32
+	closes   atomic.Int32
+	closeErr error
 }
 
-func (s *countedStartupStore) Close() error { s.closes.Add(1); return s.Store.Close() }
+func (s *countedStartupStore) Close() error {
+	s.closes.Add(1)
+	return errors.Join(s.Store.Close(), s.closeErr)
+}
 
 type countedStartupListener struct {
 	*bufconn.Listener
@@ -76,10 +81,13 @@ func (l *countedStartupListener) Close() error { l.closes.Add(1); return l.Liste
 // Sequential subtests own ONE full Agent/policy authority at a time. This is a
 // startup-only, in_process check, not worker acceptance or model qualification.
 func TestProductionSingleHostStartupShutdown(t *testing.T) {
-	for _, scenario := range []struct{ fail, initial, watcher bool }{{}, {fail: true}, {initial: true}, {watcher: true}, {fail: true, initial: true}, {fail: true, watcher: true}} {
+	for _, scenario := range []struct{ fail, initial, watcher, closeFailure bool }{{}, {closeFailure: true}, {fail: true}, {initial: true}, {watcher: true}, {fail: true, initial: true}, {fail: true, watcher: true}} {
 		failMCP := scenario.fail
 		blocked := scenario.initial || scenario.watcher
 		name := "serves"
+		if scenario.closeFailure {
+			name += "-close-failure"
+		}
 		if failMCP {
 			name = "late-mcp-failure"
 		}
@@ -190,6 +198,9 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				openStore: func(path string) (conversation.Store, error) {
 					if path != a.paths.conversations {
 						t.Fatal(path)
+					}
+					if scenario.closeFailure {
+						store.closeErr = errors.New("store close sentinel")
 					}
 					return store, nil
 				},
@@ -324,6 +335,13 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				}
 				if !cleanup.Shutdown().Complete {
 					t.Fatal("repeat shutdown lost completion")
+				}
+			}
+			if scenario.closeFailure {
+				<-cleanup.done
+				st := cleanup.Shutdown()
+				if st.Complete || !st.Failed || !errors.Is(st.Err, store.closeErr) || cleanup.Control(true).Phase != "failed" {
+					t.Fatal("lost ordinary close failure", st)
 				}
 			}
 			if scenario.watcher {

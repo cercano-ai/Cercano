@@ -30,7 +30,7 @@ func TestProductionRemoteStatusDuringBlockedCallback(t *testing.T) {
 	gs := grpc.NewServer(append([]grpc.ServerOption{grpc.ChainUnaryInterceptor(gate.unary)}, auth.ServerOptions()...)...)
 	srv := &server.Server{}
 	release := make(chan struct{})
-	shutdown := newProductionShutdown(func() { gate.close(); srv.FenceBackgroundWork() }, func() { <-release })
+	shutdown := newProductionShutdown(func() { gate.close(); srv.FenceBackgroundWork() }, func() error { <-release; return nil })
 	srv.SetShutdownControl(shutdown.Control)
 	proto.RegisterAgentServer(gs, srv)
 	go gs.Serve(listener)

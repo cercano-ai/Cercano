@@ -53,7 +53,7 @@ func (d productionRuntimeDependencies) validate() error {
 // invocation-owned local manager or releases its remote attachment after
 // Server.Shutdown; it never stops shared resources. Once guards duplicate
 // cleanup within this invocation, not siblings.
-func (d productionRuntimeDependencies) connect(ctx context.Context, cfg config.Config, events *crashlog.Writer) (localruntime.Manager, func(), error) {
+func (d productionRuntimeDependencies) connect(ctx context.Context, cfg config.Config, events *crashlog.Writer) (localruntime.Manager, func() error, error) {
 	if err := d.validate(); err != nil {
 		return nil, nil, err
 	}
@@ -75,17 +75,12 @@ func (d productionRuntimeDependencies) connect(ctx context.Context, cfg config.C
 	remote.SetEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg)))
 	d.warm(remote, cfg)
 	var once sync.Once
-	return remote, func() {
-		once.Do(func() {
-			if err := remote.Close(); err != nil {
-				log.Printf("[WARN] closing model host connection: %v", err)
-			}
-		})
-	}, nil
+	var closeErr error
+	return remote, func() error { once.Do(func() { closeErr = remote.Close() }); return closeErr }, nil
 }
 
 // Local factories transfer ownership; remote cleanup remains attachment-only.
-func ownedProductionRuntime(manager localruntime.Manager) (localruntime.Manager, func(), error) {
+func ownedProductionRuntime(manager localruntime.Manager) (localruntime.Manager, func() error, error) {
 	if manager == nil {
 		return nil, nil, fmt.Errorf("local runtime factory returned nil manager")
 	}
@@ -94,11 +89,6 @@ func ownedProductionRuntime(manager localruntime.Manager) (localruntime.Manager,
 		return nil, nil, fmt.Errorf("owned local runtime requires Close")
 	}
 	var once sync.Once
-	return manager, func() {
-		once.Do(func() {
-			if err := closer.Close(); err != nil {
-				log.Printf("[WARN] closing local runtime: %v", err)
-			}
-		})
-	}, nil
+	var closeErr error
+	return manager, func() error { once.Do(func() { closeErr = closer.Close() }); return closeErr }, nil
 }

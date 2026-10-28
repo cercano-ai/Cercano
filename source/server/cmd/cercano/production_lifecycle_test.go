@@ -17,15 +17,17 @@ import (
 
 type startupStoreFake struct {
 	conversation.Store
-	closed int
+	closed   int
+	closeErr error
 }
 
-func (s *startupStoreFake) Close() error { s.closed++; return nil }
+func (s *startupStoreFake) Close() error { s.closed++; return s.closeErr }
 
 func TestProductionListenerFailureClosesOwnedStore(t *testing.T) {
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	dir := t.TempDir()
-	store := &startupStoreFake{}
+	sentinel := errors.New("store close sentinel")
+	store := &startupStoreFake{closeErr: sentinel}
 	d, runtime, _ := runtimeFixture(t)
 	a := productionStartupAdmission{legacy: true, paths: productionAuthorityPaths{config: filepath.Join(dir, "config.yaml"), conversations: filepath.Join(dir, "history.db")}}
 	providerOpens := 0
@@ -40,8 +42,8 @@ func TestProductionListenerFailureClosesOwnedStore(t *testing.T) {
 	if providerOpens != 1 {
 		t.Fatalf("open provider calls = %d", providerOpens)
 	}
-	if err == nil || cleanup != nil {
-		t.Fatal("expected startup failure")
+	if !errors.Is(err, sentinel) || cleanup == nil || cleanup.Status().Complete {
+		t.Errorf("cleanup error lost: err=%v cleanup=%v", err, cleanup)
 	}
 	if store.closed != 1 || runtime.closed != 1 {
 		t.Fatalf("closes store=%d runtime=%d", store.closed, runtime.closed)
@@ -128,3 +130,22 @@ func (f *compositionRuntimeFake) Instances(context.Context) ([]localruntime.Inst
 }
 
 func (f *compositionRuntimeFake) RegisterObserver(localruntime.Observer) {}
+
+func TestProductionOrdinaryStoreCloseFailure(t *testing.T) {
+	sentinel := errors.New("store close sentinel")
+	store := &startupStoreFake{closeErr: sentinel}
+	// The production disposer must retain Close failures.
+	s := newProductionShutdown(func() {}, store.Close)
+	s.Shutdown()
+	<-s.done
+	if s.Status().Complete || !s.Status().Failed || !errors.Is(s.Status().Err, sentinel) {
+		t.Error("failed disposal reported successful or error lost")
+	}
+	if s.Control(true).Phase != "failed" {
+		t.Fatal("unsafe status")
+	}
+	s.Shutdown()
+	if store.closed != 1 {
+		t.Fatal(store.closed)
+	}
+}

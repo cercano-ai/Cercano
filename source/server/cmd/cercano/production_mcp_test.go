@@ -23,7 +23,11 @@ func mcpCompositionServer(t *testing.T) *server.Server {
 	r := composeProductionRouting(productionRoutingDependencies{open: &compositionRunner{name: "fixture"}, classificationDisabled: true})
 	a := agent.NewAgent(r.router, r.coordinator)
 	s := server.NewServer(a, r.router, r.coordinator, nil, engine.NewEngineRegistry())
-	t.Cleanup(s.Shutdown)
+	t.Cleanup(func() {
+		if err := s.Shutdown(); err != nil {
+			t.Error(err)
+		}
+	})
 	s.InstallCapabilities()
 	return s
 }
@@ -68,7 +72,9 @@ func TestProductionMCPInvocationOwnership(t *testing.T) {
 				fixture := mcp.NewServer(&mcp.Implementation{Name: "fixture", Version: "1"}, nil)
 				mcp.AddTool(fixture, &mcp.Tool{Name: "echo", Description: "echo"}, func(ctx context.Context, req *mcp.CallToolRequest, in struct {
 					Text string `json:"text"`
-				}) (*mcp.CallToolResult, any, error) { return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: in.Text}}}, nil, nil })
+				}) (*mcp.CallToolResult, any, error) {
+					return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: in.Text}}}, nil, nil
+				})
 				st, ct := mcp.NewInMemoryTransports()
 				go func() { defer close(done); _ = fixture.Run(ctx, st) }()
 				return ct, nil

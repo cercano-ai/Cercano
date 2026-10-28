@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"sync"
@@ -14,7 +15,7 @@ func TestProductionIncompleteShutdownControl(t *testing.T) {
 	gate, sibling := newProductionAdmissionGate(), newProductionAdmissionGate()
 	release := make(chan struct{})
 	var disposed atomic.Int32
-	shutdown := newProductionShutdown(gate.close, func() { <-release; disposed.Add(1) })
+	shutdown := newProductionShutdown(gate.close, func() error { <-release; disposed.Add(1); return nil })
 	var wg sync.WaitGroup
 	started := time.Now()
 	for i := 0; i < 8; i++ {
@@ -53,5 +54,30 @@ func TestProductionIncompleteShutdownControl(t *testing.T) {
 	}
 	if disposed.Load() != 1 {
 		t.Fatal("disposal not exactly once")
+	}
+}
+
+func TestProductionDeferredFailureRetainsStartupCause(t *testing.T) {
+	cause, sentinel := errors.New("startup sentinel"), errors.New("secret close sentinel")
+	release := make(chan struct{})
+	var calls atomic.Int32
+	s := newProductionShutdown(func() {}, func() error { <-release; calls.Add(1); return sentinel })
+	e := &productionStartupFailure{cause: cause, cleanup: s}
+	if !s.Shutdown().Pending || !errors.Is(e, cause) {
+		t.Fatal("lost pending cause")
+	}
+	close(release)
+	<-s.done
+	for i := 0; i < 3; i++ {
+		if st := s.Shutdown(); !st.Failed || st.Complete || !errors.Is(st.Err, sentinel) {
+			t.Fatal(st)
+		}
+	}
+	if !errors.Is(e, cause) || !errors.Is(e, sentinel) || calls.Load() != 1 {
+		t.Fatal("lost eventual error or retried cleanup")
+	}
+	r := s.Control(true)
+	if r.Phase != "failed" || r.Complete || r.IncompleteReason == sentinel.Error() {
+		t.Fatal("unsafe status", r)
 	}
 }

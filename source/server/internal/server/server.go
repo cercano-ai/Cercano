@@ -110,6 +110,8 @@ type McpManager interface {
 
 // Server is the gRPC server for the Agent service.
 type Server struct {
+	shutdownOnce          sync.Once
+	shutdownErr           error
 	watchAdmission        workadmission.Gate
 	configWatchers        sync.WaitGroup
 	diagnosticClose       sync.Once
@@ -592,31 +594,32 @@ func (s *Server) SetSecrets(st secrets.Store) error { return s.cfgSvc.SetSecrets
 // call once at process exit; cheap when nothing was started. Does NOT stop the
 // gRPC server itself — that's the caller's job (cmd/cercano/main.go uses
 // GracefulStop).
-func (s *Server) Shutdown() {
-	defer s.diagnosticClose.Do(func() {
-		_ = s.routingLog.Close()
-		_ = s.failureLog.Close()
-		s.watchdogAuditMu.Lock()
-		defer s.watchdogAuditMu.Unlock()
-		for _, audit := range s.watchdogAudits {
-			_ = audit.Close()
+func (s *Server) Shutdown() error {
+	s.shutdownOnce.Do(func() {
+		defer s.diagnosticClose.Do(func() {
+			s.shutdownErr = errors.Join(s.shutdownErr, s.routingLog.Close())
+			s.shutdownErr = errors.Join(s.shutdownErr, s.failureLog.Close())
+			s.watchdogAuditMu.Lock()
+			defer s.watchdogAuditMu.Unlock()
+			for _, audit := range s.watchdogAudits {
+				s.shutdownErr = errors.Join(s.shutdownErr, audit.Close())
+			}
+			s.watchdogAudits = nil
+		})
+		// Cancel background execution before tearing down its runtime dependencies.
+		s.closeTaskManager()
+		// Drain the per-conversation worker pool (kill warm workers + stop the
+		// idle-reaper) when worker mode is armed. The in-process runner has nothing
+		// to drain; the type assertion no-ops for it.
+		if sd, ok := s.workerRunner.(interface{ Shutdown() }); ok {
+			sd.Shutdown()
 		}
-		s.watchdogAudits = nil
+		s.stopRuntimeInstances()
+		if s.visionStore != nil {
+			s.shutdownErr = errors.Join(s.shutdownErr, s.visionStore.Close())
+		}
 	})
-	// Cancel background execution before tearing down its runtime dependencies.
-	s.closeTaskManager()
-	// Drain the per-conversation worker pool (kill warm workers + stop the
-	// idle-reaper) when worker mode is armed. The in-process runner has nothing
-	// to drain; the type assertion no-ops for it.
-	if sd, ok := s.workerRunner.(interface{ Shutdown() }); ok {
-		sd.Shutdown()
-	}
-	s.stopRuntimeInstances()
-	if s.visionStore != nil {
-		if err := s.visionStore.Close(); err != nil {
-			log.Printf("[vision] temporary attachment cleanup: %v", err)
-		}
-	}
+	return s.shutdownErr
 }
 
 // ensureTaskManager constructs the host-owned task manager exactly once per

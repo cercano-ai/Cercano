@@ -223,20 +223,24 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if accounting.open == nil {
 		return "", nil, fmt.Errorf("accounting store opener required")
 	}
-	var rollback []func()
+	var rollback []func() error
 	var stopAdmission = func() {}
 	var joinCallbacks = func() {}
 	started := false
 	defer func() {
 		if !started {
-			pending := newProductionShutdown(stopAdmission, func() {
+			cause := startupErr
+			pending := newProductionShutdown(stopAdmission, func() error {
+				var cleanupErr error
 				joinCallbacks()
 				for i := len(rollback) - 1; i >= 0; i-- {
-					rollback[i]()
+					cleanupErr = errors.Join(cleanupErr, rollback[i]())
 				}
+				return cleanupErr
 			})
 			if !pending.Shutdown().Complete {
 				shutdown = pending
+				startupErr = &productionStartupFailure{cause: cause, cleanup: pending}
 			}
 		}
 	}()
@@ -245,9 +249,11 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		return "", nil, err
 	}
 	restorePolicy := modelpolicy.Install(enterpriseHost)
-	rollback = append(rollback, func() {
+	rollback = append(rollback, func() error {
 		enterpriseHost.Close()
 		restorePolicy()
+
+		return nil
 	})
 
 	if warn := ollamaStartupWarning(runtimes.probe, cfg.OllamaURL); warn != "" {
@@ -271,8 +277,8 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if err != nil {
 		return "", nil, fmt.Errorf("connect runtime manager: %w", err)
 	}
-	rollback = append(rollback, func() {
-		closeRuntime()
+	rollback = append(rollback, func() error {
+		return closeRuntime()
 	})
 	llamaEng := llamaengine.NewEngine(runtimeManager)
 	if lifecycle.runtimeHTTPClient != nil {
@@ -351,7 +357,8 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	var cancelSweeper context.CancelFunc
 	var sweeperDone <-chan struct{}
 	var dataOnce sync.Once
-	closeData := func() {
+	var dataErr error
+	closeData := func() error {
 		dataOnce.Do(func() {
 			if sweeper != nil {
 				sweeper.Fence()
@@ -364,12 +371,13 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 				sweeper.Wait()
 			}
 			if persistentStore != nil {
-				_ = persistentStore.Close()
+				dataErr = persistentStore.Close()
 			}
 		})
+		return dataErr
 	}
-	rollback = append(rollback, func() {
-		closeData()
+	rollback = append(rollback, func() error {
+		return closeData()
 	})
 
 	// Context-window meter: per-conversation running token counters keyed
@@ -469,7 +477,8 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	}
 	var markIncomplete func()
 	var producersOnce sync.Once
-	closeProducers := func() {
+	var producerErr error
+	closeProducers := func() error {
 		producersOnce.Do(func() {
 			// Independently scheduled producers must stop before accounting drains.
 			// This runs in the retained disposer, not the bounded caller. A
@@ -490,6 +499,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 				},
 			} {
 				if err := closeProducer(producerCtx); err != nil {
+					producerErr = errors.Join(producerErr, err)
 					fmt.Fprintf(os.Stderr, "accounting: %s producer shutdown incomplete: %v\n", name, err)
 					if markIncomplete != nil {
 						markIncomplete()
@@ -497,9 +507,10 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 				}
 			}
 		})
+		return producerErr
 	}
-	rollback = append(rollback, func() {
-		closeProducers()
+	rollback = append(rollback, func() error {
+		return closeProducers()
 	})
 	if persistentStore != nil {
 		sweeper = retention.New(persistentStore, retention.Config{
@@ -523,7 +534,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 
 	lis, err := lifecycle.listen("tcp", bindAddr)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to listen on %s: %v", bindAddr, err)
+		return "", nil, fmt.Errorf("failed to listen on %s: %w", bindAddr, err)
 	}
 
 	// 64 MiB comfortably fits multiple 20 MiB images (the per-image client cap).
@@ -549,10 +560,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	}
 	srv.SetCloudProviderBuilder(lifecycle.cloudBuilder)
 	srv.SetWatchdogDependencies(lifecycle.watchdog)
-	rollback = append(rollback, func() {
+	rollback = append(rollback, func() error {
 		s.Stop()
-		_ = lis.Close()
-		srv.Shutdown()
+		return errors.Join(lis.Close(), srv.Shutdown())
 	})
 	enterpriseHost.bindAdmission(srv)
 	srv.SetBuildVersion(version)
@@ -571,8 +581,10 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if err != nil {
 		return "", nil, err
 	}
-	rollback = append(rollback, func() {
+	rollback = append(rollback, func() error {
 		closeCatalog()
+
+		return nil
 	})
 	if sweeper != nil {
 		srv.SetRetentionSweeper(sweeper)
@@ -610,9 +622,11 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	previousStopAdmission := stopAdmission
 	stopAdmission = func() { previousStopAdmission(); cancelWatchers() }
 	joinCallbacks = func() { cancelWatchers(); srv.BeginShutdown(); srv.WaitForWatchers() }
-	rollback = append(rollback, func() {
+	rollback = append(rollback, func() error {
 		cancelWatchers()
 		srv.WaitForWatchers()
+
+		return nil
 	})
 	if err := srv.StartPermissionWatcher(watchCtx, permsPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] permission file watcher not started (%v) — /strict etc. still push; hand-edits won't.\n", err)
@@ -646,11 +660,14 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if agentCollector != nil {
 		markIncomplete = func() { agentCollector.MarkAccountingIncomplete("background producer shutdown incomplete") }
 	}
-	rollback = append(rollback, func() {
-		closeProducers()
+	rollback = append(rollback, func() error {
+		var cleanupErr error
+		cleanupErr = errors.Join(cleanupErr, closeProducers())
 		if closeAgentTelemetry != nil {
-			closeAgentTelemetry()
+			cleanupErr = errors.Join(cleanupErr, closeAgentTelemetry())
 		}
+
+		return cleanupErr
 	})
 	// Open OS keychain and attach it so profile RPCs and rebuildCloud can
 	// read API keys. Failure is non-fatal: cloud stays absent.
@@ -703,8 +720,10 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	cloudWarnCfg := cfg.Clone()
 	cloudRebuildDone := make(chan struct{})
 	joinCallbacks = func() { cancelWatchers(); srv.BeginShutdown(); srv.WaitForWatchers(); <-cloudRebuildDone }
-	rollback = append(rollback, func() {
+	rollback = append(rollback, func() error {
 		<-cloudRebuildDone
+
+		return nil
 	})
 	go func() {
 		defer close(cloudRebuildDone)
@@ -751,8 +770,10 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if err != nil {
 		return "", nil, err
 	}
-	rollback = append(rollback, func() {
+	rollback = append(rollback, func() error {
 		closeMCP()
+
+		return nil
 	})
 
 	// Select worker vs in-process turn execution from the loaded config
@@ -773,7 +794,8 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 
 	serveDone := make(chan struct{})
 
-	cleanup := newProductionShutdown(stopAdmission, func() {
+	cleanup := newProductionShutdown(stopAdmission, func() error {
+		var cleanupErr error
 		srv.BeginShutdown()
 		cancelWatchers()
 		srv.WaitForWatchers()
@@ -791,22 +813,22 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		srv.BeginShutdown()
 		gate.drain()
 		srv.JoinBackgroundWork()
-		closeProducers()
+		cleanupErr = errors.Join(cleanupErr, closeProducers())
 		closeCatalog()
 		closeMCP()
-		srv.Shutdown()
-		closeProducers()
-		closeData()
+		cleanupErr = errors.Join(cleanupErr, srv.Shutdown())
+		cleanupErr = errors.Join(cleanupErr, closeData())
 		// Usage producers have stopped; drain before closing the database.
 		if closeAgentTelemetry != nil {
-			closeAgentTelemetry()
+			cleanupErr = errors.Join(cleanupErr, closeAgentTelemetry())
 		}
-		closeRuntime()
+		cleanupErr = errors.Join(cleanupErr, closeRuntime())
 		// No ordinary callback can use the disposed graph. Status remains
 		// policy-checked until transport drainage; loss of transport is unknown,
 		// never remote proof that the final authority cleanup completed.
 		s.GracefulStop()
 		<-serveDone
+		return cleanupErr
 	})
 
 	srv.SetShutdownControl(cleanup.Control)
@@ -917,7 +939,7 @@ var (
 // agent uses local models any more: closing ends this client's attachment,
 // which releases this agent's holds. Server.Shutdown stops no shared
 // instances itself, since other agents may be using them.
-func connectRuntimeManager(ctx context.Context, cfg config.Config, events *crashlog.Writer) (localruntime.Manager, func(), error) {
+func connectRuntimeManager(ctx context.Context, cfg config.Config, events *crashlog.Writer) (localruntime.Manager, func() error, error) {
 	return productionRuntimeDefaults().connect(ctx, cfg, events)
 }
 
