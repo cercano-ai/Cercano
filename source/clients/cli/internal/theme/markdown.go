@@ -21,7 +21,16 @@ func MarkdownStyle(p Palette) ansi.StyleConfig {
 	sc.Text.Color = strp(Hex(p.Primary))
 	sc.Paragraph.Color = strp(Hex(p.Primary))
 	sc.BlockQuote.Color = strp(Hex(p.Primary))
-	sc.BlockQuote.IndentToken = strp("│ ")
+	// Glamour repeats IndentToken once per indent column. A multi-column
+	// token makes the painted indent wider than its wrap budget, causing the
+	// parent block to rewrap already-indented lines without their indentation.
+	sc.BlockQuote.Indent = uintp(2)
+	sc.BlockQuote.IndentToken = strp(" ")
+	sc.BlockQuote.Italic = boolp(false)
+	// Barely lift the quote canvas toward the normal foreground (on light
+	// themes, barely darken it). Reuse the palette/interpolation conventions,
+	// not a fixed dark surface or the much stronger user-message highlight.
+	sc.BlockQuote.BackgroundColor = strp(Hex(Lerp(p.BgDeep, p.Primary, 0.035)))
 
 	sc.Heading.Color = strp(Hex(p.Bright))
 	sc.Heading.Bold = boolp(true)
