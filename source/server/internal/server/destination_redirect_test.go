@@ -20,6 +20,7 @@ func TestDestinationRedirectProviderGraph(t *testing.T) {
 	c.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskChat: {Destination: config.DestinationLocal, Quality: config.CostStandard}}
 	c.LocalRedirect = config.DestinationSecondary
 	s.cfgSvc.Set(c)
+	allowMemoryGraphFixture(t, s)
 	s.cfgSvc.Secrets().Set("p", "fixture-p")
 	s.cfgSvc.Secrets().Set("s", "fixture-s")
 	if err := s.rebuildCloud(); err != nil {
