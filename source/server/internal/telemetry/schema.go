@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -79,6 +80,12 @@ func admitWAL(ctx context.Context, attempt func(context.Context) error) error {
 }
 
 func initializeLegacySchema(db *sql.DB) error {
+	return initializeLegacySchemaWith(db, nil)
+}
+
+// wrap is an invocation-local fault-injection seam for schema operations only.
+// Transaction admission, commit and rollback always use the real connection.
+func initializeLegacySchemaWith(db *sql.DB, wrap func(schemaConnection) schemaConnection) error {
 	ctx := context.Background()
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -99,16 +106,20 @@ func initializeLegacySchema(db *sql.DB) error {
 			}
 		}
 	}()
-	if err = validateLegacySchema(conn, true); err != nil {
+	var schema schemaConnection = conn
+	if wrap != nil {
+		schema = wrap(conn)
+	}
+	if err = validateLegacySchema(schema, true); err != nil {
 		return err
 	}
-	if err = createTables(conn); err != nil {
+	if err = createTables(schema); err != nil {
 		return err
 	}
-	if err = migrateSchema(conn); err != nil {
+	if err = migrateSchema(schema); err != nil {
 		return err
 	}
-	if err = validateLegacySchema(conn, false); err != nil {
+	if err = validateLegacySchema(schema, false); err != nil {
 		return err
 	}
 	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
@@ -141,7 +152,7 @@ func schemaColumns(db schemaConnection, table string) (map[string]string, error)
 			if !strings.EqualFold(typ, want) || pk != wantPK || hidden != 0 || (wantPK == 0 && notNull != 1) {
 				return nil, fmt.Errorf("incompatible telemetry column %s.%s", table, name)
 			}
-		} else if pk != 0 || (hidden == 0 && notNull != 0 && !def.Valid) {
+		} else if pk != 0 || (hidden == 0 && notNull != 0 && (!def.Valid || !nonNullDefault(def.String))) {
 			return nil, fmt.Errorf("unsupported required telemetry column %s.%s", table, name)
 		}
 		columns[name] = typ
@@ -150,6 +161,42 @@ func schemaColumns(db schemaConnection, table string) (map[string]string, error)
 		return nil, fmt.Errorf("inspect telemetry columns: %w", err)
 	}
 	return columns, nil
+}
+
+// Unknown required extensions must have a provably non-NULL default. Do not
+// execute arbitrary default expressions during preflight: even an expression
+// yielding a value now could yield NULL on a later INSERT OR IGNORE.
+var nonNullLiteral = regexp.MustCompile(`(?i)^(?:'(?:[^']|'')*'|x'(?:[0-9a-f]{2})*'|[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?|[+-]?0x[0-9a-f]+|true|false|current_time|current_date|current_timestamp)$`)
+
+func nonNullDefault(value string) bool {
+	value = strings.TrimSpace(value)
+	for strings.HasPrefix(value, "(") && strings.HasSuffix(value, ")") {
+		value = strings.TrimSpace(value[1 : len(value)-1])
+	}
+	return nonNullLiteral.MatchString(value)
+}
+
+// An INTEGER PRIMARY KEY aliases rowid only when SQLite does not create a
+// separate primary-key index. Both WITHOUT ROWID and inline PRIMARY KEY DESC
+// create one, despite table_xinfo reporting the same INTEGER/pk=1 metadata.
+// Inspect SQLite's parsed metadata rather than matching CREATE TABLE text.
+func validateOmittedID(db schemaConnection, table string) error {
+	rows, err := db.QueryContext(context.Background(), "PRAGMA index_list("+table+")")
+	if err != nil {
+		return fmt.Errorf("inspect telemetry indexes %s: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq, unique, partial int
+		var name, origin string
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			return err
+		}
+		if origin == "pk" {
+			return fmt.Errorf("incompatible telemetry table %s: id must alias rowid for omitted-id inserts", table)
+		}
+	}
+	return rows.Err()
 }
 
 func validateLegacySchema(db schemaConnection, allowUpgrade bool) error {
@@ -168,6 +215,11 @@ func validateLegacySchema(db schemaConnection, allowUpgrade bool) error {
 		columns, err := schemaColumns(db, table)
 		if err != nil {
 			return err
+		}
+		if table == "events" || table == "cloud_usage" {
+			if err := validateOmittedID(db, table); err != nil {
+				return err
+			}
 		}
 		for name := range expected {
 			if _, ok := columns[name]; ok {
