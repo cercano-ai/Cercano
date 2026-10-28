@@ -26,7 +26,6 @@ import (
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/cloudfactory"
-	"cercano/source/server/internal/compactiongen"
 	projectctx "cercano/source/server/internal/context"
 	"cercano/source/server/internal/contextmeter"
 	"cercano/source/server/internal/conversation"
@@ -48,7 +47,6 @@ import (
 	"cercano/source/server/internal/modelpolicy"
 	"cercano/source/server/internal/openmodels"
 	"cercano/source/server/internal/protocols"
-	"cercano/source/server/internal/recap"
 	"cercano/source/server/internal/retention"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/server"
@@ -395,52 +393,16 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		agent.WithContextMeter(meterRegistry, openChatModel(cfg)),
 		agent.WithContextLoader(ctxLoader),
 	}
-	var recapGen *recap.Generator
-	// Living recap: after each turn, a debounced local-model pass updates a
-	// one-line conversation summary. Only when a persistent store exists.
-	if persistentStore != nil {
-		// Recap rides the fast_light_text tier's open slot — the taxonomy's
-		// prose-judgment lane (watchdog verdicts, summaries, recaps) — so it
-		// never depends on the interactive open model, which may be heavy or
-		// even unloadable. Unset tier keeps the provider default.
-		recapModel := ""
-		if id, ok := openTierModelOK(cfg, config.TierFastLightText); ok {
-			recapModel = id
-		}
-		recapComplete := func(ctx context.Context, prompt string) (string, error) {
-			scoped, finish, err := enterpriseHost.Begin(ctx)
-			if err != nil {
-				return "", err
-			}
-			defer finish()
-			ctx = scoped
-			req := &agent.Request{Input: prompt}
-			if recapModel != "" {
-				req.ModelOverride = recapModel
-			}
-			resp, err := openProvider.Process(ctx, req)
-			if err != nil {
-				return "", err
-			}
-			return resp.Output, nil
-		}
-		recapGen = recap.New(persistentStore, recapComplete, 8*time.Second, 12)
-		agentOpts = append(agentOpts, agent.WithRecapScheduler(recapGen))
-	}
-	// The same live task-routing graph serves main and dispatch compaction.
+	// Routing is resolved live after server construction, exactly as for dispatch.
 	var compactionCandidates func() inference.Tiers
-
-	var compGen *compactiongen.Generator
-	// Set when compaction is enabled; installed on the server after construction.
-	var newLoopCompactor func() agent.LoopCompactor
-	if persistentStore != nil {
-		// The compaction summarizer, the compactor config and the per-dispatch
-		// loop-compaction factory are assembled by the ONE shared construction in
-		// internal/loopcompact (wiring.go) — the same construction the worker
-		// front door uses — so host and worker compaction can never drift. The
-		// store-backed generator for main turns and the inline compactor for
-		// sub-agent dispatches below share the resulting seams.
-		loopDeps := loopcompact.WiringDeps{
+	recapModel := ""
+	if id, ok := openTierModelOK(cfg, config.TierFastLightText); ok {
+		recapModel = id
+	}
+	producers := composeProductionScheduling(persistentStore, productionSchedulingDependencies{
+		recapModel:  recapModel,
+		recapRunner: openProvider,
+		loop: loopcompact.WiringDeps{
 			BeginWork: enterpriseHost.Begin,
 			Cfg:       cfg,
 			ChatModel: openChatModel(cfg),
@@ -451,29 +413,18 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 				return compactionCandidates()
 			},
 			OpenRuntimeContext: llamaEng.RuntimeContext,
-			Log: func(format string, args ...any) {
-				fmt.Fprintf(os.Stderr, format+"\n", args...)
-			},
-		}
-		compactSummarize := loopcompact.BuildSummarizer(loopDeps)
-		compCfg := loopcompact.BuildConfig(loopDeps)
-		compGen = compactiongen.New(persistentStore, compactSummarize, compCfg, contextmeter.Default(), 10*time.Second)
-		// Runtime kill switch — Schedule noops until enabled. Wiring the
-		// scheduler unconditionally lets /config compaction-enabled true flip
-		// the switch at runtime; the OLD gate required a restart.
-		compGen.SetEnabled(cfg.Compaction.Enabled)
-		// Tool-elision-only mode: passes keep their triggers but advance the
-		// elision floor instead of summarizing. The pass implementation is
-		// wired by the persistence service (SetCompactionGenerator).
-		compGen.SetToolElisionOnly(cfg.Compaction.ToolElisionOnly)
+			Log:                func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
+		},
+	}, ordinarySchedulingOptions())
+	recapGen, compGen := producers.recap, producers.compaction
+	newLoopCompactor := producers.newLoopCompactor
+	// Legacy ID-only scheduling is an explicit ordinary-startup policy, never
+	// part of the shared constructor or the prepared adapter.
+	if recapGen != nil {
+		agentOpts = append(agentOpts, agent.WithRecapScheduler(recapGen))
+	}
+	if compGen != nil {
 		agentOpts = append(agentOpts, agent.WithCompactionScheduler(compGen))
-		// Sub-agent dispatches compact INLINE with the same algorithm, config and
-		// summarizer: their history is in-memory only and never read back, so the
-		// store-backed generator above cannot serve them. A fresh compactor per
-		// dispatch keeps frozen summary state from leaking between concurrent
-		// sub-agents. Installed on the server once it exists (below); nil when
-		// compaction is disabled in config.
-		newLoopCompactor = loopcompact.NewFactory(loopDeps)
 	}
 	var markIncomplete func()
 	var producersOnce sync.Once
