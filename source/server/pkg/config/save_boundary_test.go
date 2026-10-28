@@ -153,12 +153,51 @@ func saveFixture(t *testing.T, c Config, p string) error {
 }
 
 func TestSaveBoundaryChangeDisappearance(t *testing.T) {
- p := filepath.Join(t.TempDir(), "config.yaml")
- c := boundarySave(t, boundaryDraft(t, p), p)
- coordinator, err := NewConfigCoordinator(p)
- if err != nil { t.Fatal(err) }
- if err := os.Remove(p); err != nil { t.Fatal(err) }
- _, err = coordinator.Change(context.Background(), c.Snapshot(), ConfigChange{Path: []string{"fixture_unknown"}, YAML: []byte("true")})
- if !errors.Is(err, ErrConfigConflict) { t.Fatalf("disappeared authority: %v", err) }
- if _, err := os.Stat(p); !os.IsNotExist(err) { t.Fatalf("authority recreated: %v", err) }
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	c := boundarySave(t, boundaryDraft(t, p), p)
+	coordinator, err := NewConfigCoordinator(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	_, err = coordinator.Change(context.Background(), c.Snapshot(), ConfigChange{Path: []string{"fixture_unknown"}, YAML: []byte("true")})
+	if !errors.Is(err, ErrConfigConflict) {
+		t.Fatalf("disappeared authority: %v", err)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("authority recreated: %v", err)
+	}
+}
+
+// A deterministic permission denial avoids mode-bit tests that pass when the
+// test runner can read mode-000 files. Only this coordinator's read is injected.
+func TestSaveBoundaryPermissionDeniedExisting(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	original := []byte("port: '1234'\n")
+	if err := os.WriteFile(p, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	c := boundaryDraft(t, p)
+	coord, err := NewConfigCoordinator(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coord.readFile = func(path string) ([]byte, error) {
+		return nil, &os.PathError{Op: "read", Path: path, Err: os.ErrPermission}
+	}
+	published := false
+	coord.publish = func(string, []byte, os.FileMode) error { published = true; return nil }
+	c.Port = "9876"
+	if _, err := coord.Save(context.Background(), c.Snapshot(), c); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("expected permission error: %v", err)
+	}
+	if published {
+		t.Fatal("published despite unreadable authority")
+	}
+	got, err := os.ReadFile(p)
+	if err != nil || string(got) != string(original) {
+		t.Fatalf("existing authority changed: %v", err)
+	}
 }

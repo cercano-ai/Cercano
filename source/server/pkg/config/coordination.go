@@ -48,8 +48,9 @@ type ConfigChange struct {
 // same target-side stable lock. Hardlinks are refused: rename would split their
 // authority. The parent directory must be trusted, as with permission stores.
 type ConfigCoordinator struct {
-	path    string
-	publish func(string, []byte, os.FileMode) error
+	path     string
+	publish  func(string, []byte, os.FileMode) error
+	readFile func(string) ([]byte, error) // invocation-local fault injection; defaults to os.ReadFile
 }
 
 // PrepareConfigCoordination preserves the snapshot's immutable write policy
@@ -137,7 +138,11 @@ func (s *ConfigCoordinator) locked(ctx context.Context, fn func([]byte, os.FileM
 	if !links.IsValid() || !links.CanUint() || links.Uint() != 1 {
 		return errors.New("configuration authority must have one link")
 	}
-	data, err := os.ReadFile(s.path)
+	read := s.readFile
+	if read == nil {
+		read = os.ReadFile
+	}
+	data, err := read(s.path)
 	if err != nil {
 		return err
 	}
