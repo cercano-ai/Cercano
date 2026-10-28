@@ -17,8 +17,8 @@ func (r *subscriptionBlockTransport) RoundTrip(*http.Request) (*http.Response, e
 	return nil, errors.New("injected issuer must not run")
 }
 
-// Reproduce the missing Service integration, including fresh cached material.
-// This is a fail-closed characterization, not a claim of subscription support.
+// The legacy raw-token API remains fail closed, including fresh material.
+// Coordinated subscription support must use SubscriptionSnapshot plus admission.
 func TestSubscriptionAttemptServiceBlocker(t *testing.T) {
 	credentialtest.Enable(t)
 	for _, expired := range []bool{false, true} {

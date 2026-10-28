@@ -76,6 +76,24 @@ func (s *Service) CredentialSnapshot(ctx context.Context, name string) (secrets.
 	}
 	return c.CredentialSnapshot(ctx, name)
 }
+
+// RefreshSnapshot deliberately releases the local profile mutex before issuer
+// work so logout can publish its fence. Coordinated authorities cannot be rebound.
+func (s *Service) RefreshSnapshot(ctx context.Context, name, revision string, issuer func(context.Context, string) (string, error)) (secrets.CredentialSnapshot, error) {
+	if err := s.CheckMutation(); err != nil {
+		return secrets.CredentialSnapshot{}, err
+	}
+	p := s.profile(name)
+	p.mu.Lock()
+	c, ok := p.store.(secrets.SnapshotRefresher)
+	coordinated := secrets.IsCoordinated(p.store)
+	p.mu.Unlock()
+	if !ok || !coordinated {
+		return secrets.CredentialSnapshot{}, ErrCoordination
+	}
+	return c.RefreshSnapshot(ctx, name, revision, issuer)
+}
+
 func (s *Service) AdmitAttempt(ctx context.Context, name, revision string) error {
 	if err := secrets.CheckAllowed(); err != nil {
 		return err

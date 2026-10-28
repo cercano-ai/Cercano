@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"cercano/source/server/internal/chatgptauth"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/llm/httpx"
@@ -40,9 +41,17 @@ type TokenSource interface {
 	Token(ctx context.Context) (access, accountID string, err error)
 }
 
+// SubscriptionCredentials supplies atomic subscription material, never a raw
+// token paired with a later revision. Admission is still required per attempt.
+type SubscriptionCredentials interface {
+	SubscriptionSnapshot(context.Context) (secrets.CredentialSnapshot, error)
+	CredentialProfile() string
+}
+
 // Config holds the Responses client configuration.
 type Config struct {
-	// Credentials opts into coordinated static-key request admission.
+	// Credentials opts into coordinated per-attempt request admission.
+	// ChatGPT additionally requires an atomic SubscriptionCredentials source.
 	Credentials       secrets.RequestCredentials
 	CredentialProfile string
 	BaseURL           string
@@ -188,16 +197,43 @@ func (c *Client) do(ctx context.Context, body request) (*http.Response, error) {
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	if c.credentials != nil {
-		// Coordinated subscription refresh is not implemented; never fall back to
-		// a legacy source or a cached static key on that route.
-		if c.tokens != nil || c.route != "" || c.credentialProfile == "" {
+		if c.credentialProfile == "" {
+			return nil, errors.New("coordinated responses profile required")
+		}
+		var snapshot secrets.CredentialSnapshot
+		switch {
+		case c.route == "" && c.tokens == nil:
+			snapshot, err = c.credentials.CredentialSnapshot(ctx, c.credentialProfile)
+			if err == nil {
+				httpReq.Header.Set("Authorization", "Bearer "+snapshot.Payload)
+			}
+		case c.route == RouteChatGPT:
+			source, ok := c.tokens.(SubscriptionCredentials)
+			if !ok || source.CredentialProfile() != c.credentialProfile {
+				return nil, errors.New("coordinated subscription source required")
+			}
+			snapshot, err = source.SubscriptionSnapshot(ctx)
+			if err == nil {
+				var ts chatgptauth.TokenSet
+				ts, err = chatgptauth.DecodeTokenSet(snapshot.Payload)
+				if err == nil && ts.Access == "" {
+					err = errors.New("empty subscription access token")
+				}
+				if err == nil {
+					httpReq.Header.Set("Authorization", "Bearer "+ts.Access)
+					if ts.AccountID != "" {
+						httpReq.Header.Set("ChatGPT-Account-Id", ts.AccountID)
+					}
+					httpReq.Header.Set("originator", "cercano")
+					httpReq.Header.Set("User-Agent", "cercano")
+				}
+			}
+		default:
 			return nil, errors.New("coordinated responses route unsupported")
 		}
-		snapshot, err := c.credentials.CredentialSnapshot(ctx, c.credentialProfile)
 		if err != nil {
 			return nil, err
 		}
-		httpReq.Header.Set("Authorization", "Bearer "+snapshot.Payload)
 		// net/http may retry replayable requests on reused connections. This POST
 		// has a nonempty body, no idempotency header, and no GetBody replay hook.
 		// Replay is removed by nonReplayTransport AFTER model-policy inspection.

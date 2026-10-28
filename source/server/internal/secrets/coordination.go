@@ -33,6 +33,17 @@ func (s readOnlyStore) SetAtRevision(context.Context, string, string, string) er
 	return s.CheckMutation()
 }
 
+// SnapshotRefresher rotates an exact active revision through durable pending.
+// Issuer runs outside commit exclusion; failure never automatically replays it.
+// Success returns the payload and revision of the very same committed record.
+type SnapshotRefresher interface {
+	RefreshSnapshot(context.Context, string, string, func(context.Context, string) (string, error)) (CredentialSnapshot, error)
+}
+
+func (s readOnlyStore) RefreshSnapshot(context.Context, string, string, func(context.Context, string) (string, error)) (CredentialSnapshot, error) {
+	return CredentialSnapshot{}, s.CheckMutation()
+}
+
 // CredentialSnapshot binds a payload to the revision read atomically with it.
 type CredentialSnapshot struct{ Payload, Revision string }
 

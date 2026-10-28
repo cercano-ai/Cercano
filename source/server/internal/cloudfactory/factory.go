@@ -36,7 +36,8 @@ const RouteSubscription = anthropic.RouteSubscription
 // static API key — the subscription auth flows, which authenticate with a
 // refreshing token source over the keychain instead of a key.
 type Options struct {
-	// Credentials enables the bounded coordinated static Responses path only.
+	// Credentials enables bounded coordinated Responses attempt admission.
+	// ChatGPT subscription additionally requires an atomic snapshot token source.
 	Credentials secrets.RequestCredentials
 	// TokenSource supplies refreshing ChatGPT subscription bearers for the
 	// responses flavor's chatgpt route.
@@ -86,10 +87,14 @@ func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (
 		return nil, err
 	}
 	if len(opts) > 0 && opts[0].Credentials != nil {
-		if p.Flavor != FlavorResponses || p.Route != "" || p.Name == "" || opts[0].TokenSource != nil || opts[0].AnthropicTokenSource != nil {
+		subscription := false
+		if source, ok := opts[0].TokenSource.(responses.SubscriptionCredentials); ok {
+			subscription = p.Route == responses.RouteChatGPT && source.CredentialProfile() == p.Name
+		}
+		if p.Flavor != FlavorResponses || p.Name == "" || opts[0].AnthropicTokenSource != nil || (!subscription && (p.Route != "" || opts[0].TokenSource != nil)) {
 			return nil, fmt.Errorf("coordinated credential route unsupported")
 		}
-		return responses.NewClient(responses.Config{BaseURL: p.BaseURL, Model: p.Model, AccountingProfile: p.Name, Credentials: opts[0].Credentials, CredentialProfile: p.Name, SupportsVision: visionConfirmed(opts, p.Model)}), nil
+		return responses.NewClient(responses.Config{BaseURL: p.BaseURL, Model: p.Model, Route: p.Route, TokenSource: opts[0].TokenSource, AccountingProfile: p.Name, Credentials: opts[0].Credentials, CredentialProfile: p.Name, SupportsVision: visionConfirmed(opts, p.Model)}), nil
 	}
 	switch p.Flavor {
 	case FlavorMessages:

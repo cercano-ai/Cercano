@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"cercano/source/server/internal/filelock"
+	"cercano/source/server/internal/secrets"
 )
 
 var ErrCoordination = errors.New("credential coordination unavailable or invalid")
@@ -211,16 +212,25 @@ func (s *CoordinatedStore) Admit(ctx context.Context, name, expected string, sta
 // refresh is called only when the source has determined rotation is necessary.
 // Separate refresh exclusion spans the fake/real issuer, but commit exclusion
 // never does. Pending has no secrets and survives issuer/commit failure. No
-// automatic replay or retry is performed. Provider hook integration is pending.
+// automatic replay or retry is performed. Legacy error-only callers discard the
+// committed snapshot; subscription acquisition uses RefreshSnapshot directly.
 func (s *CoordinatedStore) refresh(ctx context.Context, name, expected string, issuer func(context.Context, string) (string, error)) error {
+	_, err := s.RefreshSnapshot(ctx, name, expected, issuer)
+	return err
+}
+
+// RefreshSnapshot returns only the atomic record committed by this rotation.
+// No reread or separately sampled revision may be paired with issuer material.
+func (s *CoordinatedStore) RefreshSnapshot(ctx context.Context, name, expected string, issuer func(context.Context, string) (string, error)) (secrets.CredentialSnapshot, error) {
+	var zero secrets.CredentialSnapshot
 	release, err := s.lock(ctx, name, "refresh")
 	if err != nil {
-		return err
+		return zero, err
 	}
 	defer release()
 	unlock, err := s.lock(ctx, name, "commit")
 	if err != nil {
-		return err
+		return zero, err
 	}
 	r, err := s.read(name)
 	if err == nil && (r.State != "active" || r.Revision != expected) {
@@ -232,15 +242,34 @@ func (s *CoordinatedStore) refresh(ctx context.Context, name, expected string, i
 	}
 	unlock()
 	if err != nil {
-		return err
+		return zero, err
 	}
 	// Cancellation after pending is conservative uncertainty, never rollback.
 	if err = ctx.Err(); err != nil {
-		return err
+		return zero, err
 	}
 	value, err := issuer(ctx, r.Payload)
 	if err != nil {
-		return err
+		return zero, err
 	}
-	return s.replace(ctx, name, pending.Revision, "active", value)
+	unlock, err = s.lock(ctx, name, "commit")
+	if err != nil {
+		return zero, err
+	}
+	defer unlock()
+	current, err := s.read(name)
+	if err != nil {
+		return zero, err
+	}
+	if current.State != "pending" || current.Revision != pending.Revision {
+		return zero, ErrStale
+	}
+	if err = ctx.Err(); err != nil {
+		return zero, err
+	}
+	committed, err := s.write(name, "active", value)
+	if err != nil {
+		return zero, err
+	}
+	return secrets.CredentialSnapshot{Payload: committed.Payload, Revision: committed.Revision}, nil
 }
