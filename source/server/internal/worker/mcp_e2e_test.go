@@ -10,6 +10,7 @@ package worker_test
 // stubbed on the worker side.
 
 import (
+	"cercano/source/server/internal/agent"
 	"context"
 	"encoding/json"
 	"net"
@@ -121,6 +122,7 @@ func TestWorkerCallsHostMCPToolThroughProxy(t *testing.T) {
 
 	cfg := cfgsvc.New("", config.Config{LocusMode: "open_only"}, secrets.NewMemory())
 	r := worker.NewWorkerRunnerWithDial(&recordingHistory{}, cfg, newTestBroker(), dial)
+	r.(worker.ProfileReaderSetter).SetProfileReader(func(string) agent.Profile { return agent.Profile{Name: "developer"} })
 
 	// Wire the host bridge: advertisement + execution both stay on the host.
 	var hostExecuted atomic.Int32
@@ -216,6 +218,7 @@ func TestWorkerWithoutAdvertisedToolsExposesNoMCP(t *testing.T) {
 	cfg := cfgsvc.New("", config.Config{LocusMode: "open_only"}, secrets.NewMemory())
 	// No SetMCPBridge call at all — the nil-bridge default.
 	r := worker.NewWorkerRunnerWithDial(&recordingHistory{}, cfg, newTestBroker(), dial)
+	r.(worker.ProfileReaderSetter).SetProfileReader(func(string) agent.Profile { return agent.Profile{Name: "developer"} })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

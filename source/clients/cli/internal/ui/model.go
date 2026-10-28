@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"cercano/source/server/pkg/approvaldisclosure"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -369,7 +370,8 @@ type pendingToolCall struct {
 	Name        string
 	Args        string
 	Permission  string // "R" | "W" | "X" — R never reaches here, but kept for symmetry
-	Destructive bool   // display-only ⚠ hint (MCP destructiveHint)
+	Disclosure  string
+	Destructive bool // display-only ⚠ hint (MCP destructiveHint)
 }
 
 // confirmRequest is a generic confirmation gate. Any feature raises one; the
@@ -2032,6 +2034,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 				Args:        ev.argsJSON,
 				Permission:  ev.tier,
 				Destructive: ev.destructive,
+				Disclosure:  ev.disclosure,
 			}
 			m.enqueueConfirmation(toolConfirm(tc))
 		case rolloverOfferedMsg:
@@ -4715,12 +4718,19 @@ func confirmPromptDetails(p *pendingToolCall) []string {
 		return nil
 	}
 	details := make([]string, 0, 2)
-	if p.Name == "plan_experiment" {
-		details = append(details,
-			"Warning: tests execute arbitrary repository code and are not sandboxed; they may modify files, access credentials or the network, and start processes.",
-			"Command: go test -count=1 -timeout=60s -run=^"+oneLine(stringArg(obj, "test"))+"$ "+oneLine(stringArg(obj, "package")),
-			"GOFLAGS is cleared; GOENV=off. Process timeout: 90s. Approval is for this invocation only. Planning stays active.")
+	if p.Disclosure != "" {
+		details = append(details, strings.Split(p.Disclosure, "\n")...)
+	} else if p.Name == "plan_experiment" {
+		// Compatibility with older hosts: never omit the risk warning.
+		fallback := strings.Split(approvaldisclosure.ForTool(p.Name, json.RawMessage(p.Args), ""), "\n")
+		for i, line := range fallback {
+			if strings.HasPrefix(line, "Directory:") {
+				fallback[i] = "Directory: host working directory (not supplied by older server)"
+			}
+		}
+		details = append(details, fallback...)
 	}
+
 	if command := gitStashCommand(p); command != "" {
 		details = append(details, "Command: "+truncateArgs(command, 200))
 		if cwd := oneLine(stringArg(obj, "cwd")); cwd != "" {

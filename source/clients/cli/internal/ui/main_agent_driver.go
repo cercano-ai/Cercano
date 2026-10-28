@@ -105,6 +105,7 @@ func streamMsgToEvent(sm agentclient.StreamMsg) tea.Msg {
 			argsJSON:    sm.ArgsJSON,
 			tier:        sm.Tier,
 			destructive: sm.Destructive,
+			disclosure:  sm.Disclosure,
 		}
 	case agentclient.TypeRolloverOffered:
 		return rolloverOfferedMsg{

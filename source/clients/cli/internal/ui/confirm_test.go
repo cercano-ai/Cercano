@@ -2,6 +2,8 @@ package ui
 
 import (
 	"cercano/source/server/pkg/agentclient"
+	"cercano/source/server/pkg/approvaldisclosure"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -720,9 +722,25 @@ func stripAnsiCSI(s string) string {
 func TestPlanningExperimentConfirmationDisclosesExecution(t *testing.T) {
 	m := minimalModel()
 	s := stripAnsiCSI(m.renderConfirmPrompt(&pendingToolCall{Name: "plan_experiment", Permission: "X", Args: `{"package":"./internal/example","test":"TestOne"}`}))
-	for _, want := range []string{"arbitrary repository code", "not sandboxed", "go test -count=1 -timeout=60s -run=^TestOne$ ./internal/example", "Planning stays active", "this invocation only"} {
+	for _, want := range []string{"arbitrary repository code", "not sandboxed", `["go","test","-count=1","-timeout=60s","-run=^TestOne$","./internal/example"]`, "Planning stays active", "this invocation only"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("confirmation missing %q: %s", want, s)
+		}
+	}
+}
+
+func TestPlanningExperimentSharedDisclosureAdapter(t *testing.T) {
+	args := `{"package":".","test":"TestSafe"}`
+	warning := approvaldisclosure.ForTool("plan_experiment", json.RawMessage(args), t.TempDir())
+	ev := streamMsgToEvent(agentclient.StreamMsg{Type: agentclient.TypePermissionRequired, ToolName: "plan_experiment", ArgsJSON: args, Tier: "X", Disclosure: warning}).(permissionRequiredMsg)
+	if ev.disclosure != warning || ev.argsJSON != args {
+		t.Fatal("adapter lost disclosure or args")
+	}
+	m := minimalModel()
+	s := stripAnsiCSI(m.renderConfirmPrompt(&pendingToolCall{Name: ev.name, Args: ev.argsJSON, Permission: ev.tier, Disclosure: ev.disclosure}))
+	for _, line := range strings.Split(warning, "\n") {
+		if !strings.Contains(s, line) {
+			t.Errorf("missing disclosure %q: %s", line, s)
 		}
 	}
 }

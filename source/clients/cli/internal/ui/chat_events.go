@@ -63,6 +63,7 @@ type toolEntryExecCompleteMsg struct {
 // chatView.Apply event.
 type permissionRequiredMsg struct {
 	id, name, argsJSON, tier string
+	disclosure               string
 	destructive              bool
 }
 

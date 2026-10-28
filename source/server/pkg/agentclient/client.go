@@ -2140,6 +2140,7 @@ type StreamMsg struct {
 	RouteModel     string             // for TypeRouteSelected (engine handling the turn)
 	RouteCloud     bool               // for TypeRouteSelected (true = cloud, false = local)
 	Tier           string             // for TypePermissionRequired ("W" | "X")
+	Disclosure     string             // canonical display-only invocation warning
 	Destructive    bool               // for TypePermissionRequired (display-only ⚠ hint)
 	WatchdogKind   string             // for TypeWatchdog ("challenge" | "block" | "echo")
 	Protocol       string             // for TypeWatchdog (protocol name, empty for echo)
@@ -2928,6 +2929,7 @@ func decodeStreamResponse(msg *proto.StreamProcessResponse) *StreamMsg {
 			ArgsJSON:    pr.GetArgsJson(),
 			Tier:        pr.GetTier(),
 			Destructive: pr.GetDestructive(),
+			Disclosure:  pr.GetDisclosure(),
 		}
 	}
 	if rs := msg.GetRouteSelected(); rs != nil {

@@ -123,7 +123,7 @@ type ToolLoopInput struct {
 	// honors for the reads it allows.
 	Profile Profile
 
-	// CurrentProfile reads authoritative session state before each suggest_plan gate.
+	// CurrentProfile reads authoritative session state before queued execution and after approval.
 	// Errors fail closed; nil retains the loop-local profile.
 	CurrentProfile func(context.Context) (Profile, error)
 	ConvHistory    []llm.Message
@@ -1024,20 +1024,14 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 			// Check each queued entry, not just batch classification: an earlier
 			// entry or an external /plan during inference may have changed state.
 			// This precedes watchdog escalation as well as the normal confirm gate.
-			if pc.block.ToolName == "suggest_plan" {
-				if in.CurrentProfile != nil {
-					current, err := in.CurrentProfile(ctx)
-					if err != nil {
-						return ToolLoopResult{}, err
-					}
-					in.Profile = current
+			if in.CurrentProfile != nil {
+				current, err := in.CurrentProfile(ctx)
+				if err != nil {
+					return ToolLoopResult{}, err
 				}
-				if in.Profile.Name == "plan" {
-					emit(LoopEvent{Kind: LoopToolExecComplete, ToolUseID: pc.block.ToolUseID, ToolName: pc.block.ToolName, Summary: "blocked by plan profile", IsError: true})
-					results = append(results, llm.Block{Type: llm.BlockToolResult, ToolUseRef: pc.block.ToolUseID, Content: fenceDenialMessage("plan", pc.block.ToolName, pc.tier), IsError: true})
-					continue
-				}
+				in.Profile = current
 			}
+
 			// An earlier queued control call may have tightened or lifted the
 			// local fence since classification. Revalidate every W/X call before
 			// watchdog escalation or permission can authorize execution.
@@ -1161,6 +1155,22 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 					appendTurn(llm.Message{Role: llm.RoleUser, Blocks: results})
 					return ToolLoopResult{FinalText: finalText, Iterations: iter + 1, History: hist, InputTokens: lastIn, OutputTokens: lastOut, CalledTools: calledTools, ToolCallCount: toolCallCount}, nil
 				}
+			}
+			// Approval is not authority to cross a profile fence changed while waiting.
+			if in.CurrentProfile != nil {
+				current, err := in.CurrentProfile(ctx)
+				if err != nil {
+					return ToolLoopResult{}, err
+				}
+				in.Profile = current
+			}
+			if err := ctx.Err(); err != nil {
+				return ToolLoopResult{}, err
+			}
+			if !in.Profile.Allows(pc.tier, pc.block.ToolName) {
+				emit(LoopEvent{Kind: LoopToolExecComplete, ToolUseID: pc.block.ToolUseID, ToolName: pc.block.ToolName, Summary: "blocked by " + in.Profile.Name + " profile", IsError: true})
+				results = append(results, llm.Block{Type: llm.BlockToolResult, ToolUseRef: pc.block.ToolUseID, Content: fenceDenialMessage(in.Profile.Name, pc.block.ToolName, pc.tier), IsError: true})
+				continue
 			}
 			execCtx := agenttools.WithProgressEmitter(ctx, func(progress agenttools.ProgressEvent) {
 				emit(loopProgressEvent(pc.block.ToolUseID, pc.block.ToolName, progress))

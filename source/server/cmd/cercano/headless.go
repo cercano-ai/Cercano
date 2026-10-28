@@ -134,7 +134,10 @@ Output:
 			}
 			fmt.Fprintf(os.Stderr, "       [%s] %s\n", status, msg.Summary)
 		case agentclient.TypePermissionRequired:
-			if autoAllow {
+			if msg.Disclosure != "" {
+				fmt.Fprintln(os.Stderr, msg.Disclosure)
+			}
+			if headlessAllows(autoAllow, msg.ToolName) {
 				if err := client.AllowToolCall(ctx, convID, msg.ToolUseID); err != nil {
 					fmt.Fprintf(os.Stderr, "[allow error] %v\n", err)
 				} else {
@@ -144,7 +147,11 @@ Output:
 				if err := client.DenyToolCall(ctx, convID, msg.ToolUseID); err != nil {
 					fmt.Fprintf(os.Stderr, "[deny error] %v\n", err)
 				}
-				fmt.Fprintf(os.Stderr, "[denied] %s-tier tool %s (use --auto-allow to permit)\n", msg.Tier, msg.ToolName)
+				if msg.ToolName == "plan_experiment" {
+					fmt.Fprintln(os.Stderr, "[denied] plan_experiment requires explicit single-invocation review; headless approval is unavailable")
+				} else {
+					fmt.Fprintf(os.Stderr, "[denied] %s-tier tool %s (use --auto-allow to permit)\n", msg.Tier, msg.ToolName)
+				}
 				exitCode = 3
 			}
 		case agentclient.TypeDone:
@@ -185,4 +192,8 @@ func compactJSON(s string) string {
 	}
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+func headlessAllows(autoAllow bool, toolName string) bool {
+	return autoAllow && toolName != "plan_experiment"
 }
