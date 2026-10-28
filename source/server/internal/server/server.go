@@ -5,6 +5,7 @@ import (
 	"cercano/source/server/internal/reasoningexperiment"
 	"cercano/source/server/internal/routingwire"
 	"cercano/source/server/internal/runtimecontrol"
+	"cercano/source/server/pkg/approvaldisclosure"
 	"context"
 	"encoding/json"
 	"errors"
@@ -311,6 +312,7 @@ func (s *Server) InstallCapabilities() {
 		Open:      s.providerSvc.Open(),
 		Config:    &cfgSnapshot,
 		Autonomy:  s.persistSvc.Store(),
+		History:   s.persistSvc.Store(),
 		CtxLoader: s.persistSvc.ContextLoader(),
 		// suggest_plan enters planning mode via the profile broker once the user
 		// approves the suggestion at the confirm gate.
@@ -1501,6 +1503,9 @@ func (s *Server) SelectExecutionMode() {
 	// autonomous-mode capabilities proxy to over the turn stream. The ledger is
 	// durable, user-visible state, so it stays host-owned; the worker never
 	// opens SQLite.
+	if history, ok := s.workerRunner.(worker.HistorySetter); ok {
+		history.SetHistory(s.persistSvc.Store())
+	}
 	if ledger, ok := s.workerRunner.(worker.AutonomyLedgerSetter); ok {
 		ledger.SetAutonomyLedger(worker.HostAutonomyLedger(s.persistSvc.Store()))
 	}
@@ -3824,7 +3829,7 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 		if s.permBroker == nil || !s.permBroker.HasPending() {
 			return false, nil
 		}
-		prompt := &proto.PermissionRequired{ToolUseId: toolUseID, ToolName: name, ArgsJson: string(args), Tier: string(tier), Destructive: destructive}
+		prompt := &proto.PermissionRequired{Disclosure: approvaldisclosure.ForTool(name, args, req.GetWorkDir()), ToolUseId: toolUseID, ToolName: name, ArgsJson: string(args), Tier: string(tier), Destructive: destructive}
 		meta := s.turnBroker.TurnMetadata(convID, turnGen)
 		prompt.TurnEpoch = meta.TurnEpoch
 		prompt.TurnGeneration = meta.TurnGeneration

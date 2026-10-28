@@ -1494,6 +1494,7 @@ message ToolExecComplete {
   int32 start_line = 5;
 }
 message PermissionRequired {
+  string disclosure = 6; // canonical display-only risk and exact invocation details
   string turn_epoch = 20;
   uint64 turn_generation = 21;
   bool background_turn = 22;
@@ -1822,6 +1823,7 @@ message HostToWorker {
     SessionModelResponse session_model_response = 13;
     WorkerModelAuthorizationResponse model_authorization_response = 14;
     TaskControlResponse task_control_response = 15;
+    ConversationHistoryResponse history_response = 16;
   }
 }
 
@@ -1857,6 +1859,7 @@ message WorkerToHost {
     SessionModelRequest session_model_request = 16;
     WorkerModelAuthorizationRequest model_authorization_request = 17;
     TaskControlRequest task_control_request = 18;
+    ConversationHistoryRequest history_request = 19;
   }
 }
 
@@ -1984,6 +1987,7 @@ enum WorkerEventKind {
 // PermissionRequest asks the host to gate a W/X tool call.
 // id correlates each request with its PermissionResponse.
 message PermissionRequest {
+  string disclosure = 7; // canonical display-only risk and exact invocation details
   uint64 id          = 1;
   string tool_use_id = 2;
   string name        = 3;
@@ -2763,4 +2767,19 @@ message LifecycleControlResponse {
  // Per-owner admission readiness, not global retirement permission.
  repeated LifecycleOwner open_owners = 7;
  uint32 pending_incoming = 8;
+}
+
+// Read-only text history in the active RunTurn conversation only. The host
+// derives the conversation ID from StartTurn; no caller-selected scope.
+message ConversationHistoryRequest {
+  string id = 1;
+  string query = 2;
+  string turn_id = 3;
+  int64 after = 4;
+  int32 limit = 5;
+}
+message ConversationHistoryResponse {
+  string id = 1;
+  bytes entries_json = 2;
+  string error = 3;
 }

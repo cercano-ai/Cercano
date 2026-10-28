@@ -67,6 +67,12 @@ func (s *Server) ConfigurePreparedWorker(policy worker.SpawnPolicy) error {
 		return s.profileBroker.Active(id)
 	})
 	r.(worker.McpBridgeSetter).SetMCPBridge(s.advertiseMCPTools, s.callMCPTool)
+	r.(worker.HistorySetter).SetHistory(conversation.HistoryReaderFunc(func(ctx context.Context, id string, q conversation.HistoryQuery) ([]conversation.HistoryEntry, error) {
+		if _, err := s.resolvePreparedTaskOwner(ctx, id); err != nil {
+			return nil, err
+		}
+		return s.persistSvc.Store().ReadHistory(ctx, id, q)
+	}))
 	ledger := worker.HostAutonomyLedger(s.persistSvc.Store())
 	r.(worker.AutonomyLedgerSetter).SetAutonomyLedger(func(ctx context.Context, op, raw, id string) (string, bool, error) {
 		if op == "create" || op == "update" {
@@ -127,6 +133,7 @@ func (a *preparedWorkerAuthority) Context(ctx context.Context, id string) (conte
 	}
 	return a.ctx, nil
 }
+
 // Close is deliberately conservative: its caller supplies only a run error,
 // not proof that terminal evidence was committed and execution drained. Thus
 // even a backend error with durable evidence retains this worker's ticket. This

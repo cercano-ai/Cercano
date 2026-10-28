@@ -128,6 +128,7 @@ type workerRunner struct {
 	// SetAutonomyLedger from the server's store; nil on dial-injected (test)
 	// runners (ledger operations then error clearly, as pre-fix).
 	autonomyLedger AutonomyLedgerFunc
+	history        conversation.HistoryReader
 	tasks          capabilities.Tasks
 
 	// dispatchEventSink appends one dispatch-evidence event to the host-owned
@@ -1034,6 +1035,13 @@ func (w *workerRunner) RunTurn(
 				if err := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_AutonomyResponse{AutonomyResponse: response}}); err != nil {
 					log.Printf("[workerRunner] autonomy ledger response: %v", err)
 				}
+			}()
+
+		case *proto.WorkerToHost_HistoryRequest:
+			request := m.HistoryRequest
+			go func() {
+				response := handleHistory(ctx, w.history, req.ConversationID, request)
+				_ = safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_HistoryResponse{HistoryResponse: response}})
 			}()
 
 		case *proto.WorkerToHost_TaskControlRequest:

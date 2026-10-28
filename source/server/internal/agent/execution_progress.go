@@ -22,7 +22,7 @@ type executionProgress struct {
 
 func inspectionTool(name string) bool {
 	switch name {
-	case "Read", "read_file", "Grep", "grep", "search", "Glob", "glob", "LS", "list_dir", "StatFile", "stat_file", "git_status", "git_info", "git_log", "git_diff_stat":
+	case "Read", "read_file", "Grep", "grep", "search", "Glob", "glob", "LS", "list_dir", "StatFile", "stat_file", "git_status", "git_info", "git_log", "git_diff_stat", "git_diff", "conversation_search", "conversation_retrieve":
 		return true
 	}
 	return false

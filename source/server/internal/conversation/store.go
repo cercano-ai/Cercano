@@ -225,6 +225,7 @@ const PrunedBodyStub = "[pruned after 90 days — see summary]"
 // Store is the persistent conversation store interface. The runtime
 // implementation is SQLite-backed (modernc.org/sqlite, pure Go — no cgo).
 type Store interface {
+	HistoryReader
 	SetDevWorkDir(ctx context.Context, conversationID, workDir string) error
 	// EnsureConversation idempotently creates the conversation row. Title is
 	// auto-derived from the first user turn (deferred to first Append).
