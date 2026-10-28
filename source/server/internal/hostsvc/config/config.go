@@ -162,7 +162,10 @@ func (s *svc) SetSecrets(st secrets.Store) error {
 	}
 	s.mu.Lock()
 	if st != s.credentials {
-		s.credentials.ReplaceStore(st)
+		if err := s.credentials.ReplaceStore(st); err != nil {
+			s.mu.Unlock()
+			return err
+		}
 		s.store = st
 	}
 	s.mu.Unlock()

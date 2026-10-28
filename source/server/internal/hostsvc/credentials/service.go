@@ -72,12 +72,19 @@ func (s *Service) profile(name string) *profileState {
 
 // ReplaceStore keeps the service identity stable during host reconfiguration.
 // Old adapters remain views of this service rather than of a retired backend.
-func (s *Service) ReplaceStore(store secrets.Store) {
+func (s *Service) ReplaceStore(store secrets.Store) error {
 	if store == s {
-		return
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A coordinated authority cannot be downgraded or rebound through hot reload.
+	// A new owner requires explicit preflight; in-flight capabilities stay bound.
+	_, oldCoordinated := s.store.(*CoordinatedStore)
+	_, newCoordinated := store.(*CoordinatedStore)
+	if (oldCoordinated || newCoordinated) && store != s.store {
+		return ErrCoordination
+	}
 	s.store = store
 	for _, p := range s.profiles {
 		p.mu.Lock()
@@ -85,6 +92,7 @@ func (s *Service) ReplaceStore(store secrets.Store) {
 		p.invalidate()
 		p.mu.Unlock()
 	}
+	return nil
 }
 
 // invalidate is called with the profile mutation lock held. Wake waiters so
@@ -207,6 +215,12 @@ func (s *Service) acquire(ctx context.Context, profile, provider string, resolve
 			return token{}, err
 		}
 		p.mu.Lock()
+		// Do not let legacy auth sources publish or reuse coordinated tokens
+		// until pending-rotation and request-dispatch hooks are integrated.
+		if _, coordinated := p.store.(*CoordinatedStore); coordinated {
+			p.mu.Unlock()
+			return token{}, ErrProviderIntegration
+		}
 		f := p.flight
 		if f != nil && f.provider != provider {
 			p.mu.Unlock()

@@ -45,7 +45,7 @@ Objective: retain writable ordinary settings and credential behavior at existing
 - [~] Reuse ordinary watchers and apply/rebuild paths with revision/conflict handling, loop prevention and explicit durable-save versus live-application results
 - [ ] Preserve supported environment resolution, hot reload and explicit restart requirements without surprise generation replacement
 - [ ] Restore ordinary session and shared settings controls without treating credential disabling as a history/config freeze signal
-- [-] Serialize credential refresh/login/logout by existing credential identity and reread after admission; prevent late refresh from resurrecting logout
+- [~] Serialize credential refresh/login/logout by existing credential identity and reread after admission; prevent late refresh from resurrecting logout
 - [ ] Propagate provider/token invalidation across enforcing hosts and workers without secret-bearing notifications or independent writable worker credential openers
 - [ ] Handle rotating-token external ambiguity conservatively, with bounded reconciliation or reauthentication rather than blind retry
 - [ ] Test simultaneous conflicting changes, external file edits, failed publication, stale providers, refresh races and logout/relogin using memory stores and fake endpoints only

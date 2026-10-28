@@ -1,4 +1,13 @@
-# Cross-host credential logout ordering — prompt fencing approved
+# Cross-host credential logout ordering — versioned records approved
+
+## Exact representation approval — 2026-10-28
+
+User instruction: “User NOW APPROVES minimal versioned records at existing credential keys including non-secret logged-out marker.” Additional exact constraints: “Scope: credential coordination only, no general operation journal.” “Logged-out record contains NO secret material; presence APIs distinguish usable credentials from marker.” “Strict decode: unknown/malformed records fail closed, NEVER raw fallback.” “Legacy adoption explicit and disabled unless incompatible readers/writers demonstrably excluded; do not enable adoption in this slice.”
+
+This supersedes the representation gate below, not the activation/native-access restrictions. Cached-provider guarantee: participating hosts must not START new authenticated requests with invalidated credentials after successful durable logout replacement. Already dispatched requests and remote revocation remain outside the guarantee. The request-start callback must dispatch synchronously inside short commit exclusion, not merely queue later work. Provider integration remains a separate unfinished seam.
+
+Implementation baseline: `feat/production-generation-integration`, `3e4a8dd956440c1f12133b78e8134d85ccc8211c`. At final verification resumption the record, Service/login, config error propagation, plan and audit edits were already present and uncommitted; that resumption was NOT a clean baseline. Inspected and preserved those edits. Reran the retained defect-asserting probe during final verification, exact prior command with `-race` and `-count=10`: passed (asserts legacy resurrection, not correctness). Shared raw CRUD plus only per-Service generation permits A to republish after B deletes; durable revision validation rejects the same stale commit in the isolated coordinated tests. Confirmed the Phase 3 credential task remains in_progress through plan_set_status; not complete.
+
 
 ## Approval update — 2026-10-28
 
