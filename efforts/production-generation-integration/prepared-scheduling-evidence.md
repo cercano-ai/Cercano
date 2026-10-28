@@ -14,7 +14,7 @@ Source baseline: `533f12c29fef28641209973fed0aa1619874b010`; the checkpoint cont
 
 ## Focused verification
 
-The original child-reported command below uses `CERCANO_CREDENTIALS_DISABLED`, which is **not** the credential-policy variable. It is retained verbatim for provenance and must not be treated as proof that credential admission was disabled in that run. Source safety of that test selection is under separate read-only review; no claim about actual native access is inferred from the typo alone.
+The original child-reported command below uses `CERCANO_CREDENTIALS_DISABLED`, which is **not** the credential-policy variable. It is retained verbatim for provenance and must not be treated as proof that credential admission was disabled in that run. Read-only review `task_04d7df9bc8326ee429adf74f11ae7924` found no reachable native opener, real-provider/external-network operation, or subprocess route in the selected fixtures; server package initialization uses mocked in-memory bufconn. This is source assessment, not observed execution or a sandbox guarantee. No claim about actual native access is inferred from the typo alone.
 
 Originally reported from `source/server`, 2026-10-28:
 
