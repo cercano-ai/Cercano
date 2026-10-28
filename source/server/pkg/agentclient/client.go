@@ -1971,12 +1971,13 @@ func (c *Client) UpdateConfig(ctx context.Context, u ConfigUpdate) (string, erro
 func (c *Client) ShutdownAgent(ctx context.Context, reason string) error {
 	resp, err := c.RequestShutdown(ctx, reason)
 	if err != nil {
-		return err
+		// Transport errors can contain credentials or provider output.
+		return errors.New("agent shutdown request failed; replacement not authorized")
 	}
 	if !resp.GetAccepted() {
-		return fmt.Errorf("agent shutdown rejected: %s", resp.GetMessage())
+		return errors.New("agent shutdown rejected; replacement not authorized")
 	}
-	if !resp.GetComplete() {
+	if !ShutdownSucceeded(resp) {
 		return ErrShutdownIncomplete
 	}
 	return nil
@@ -2997,6 +2998,13 @@ func (c *Client) ShutdownStatus(ctx context.Context) (*proto.ShutdownAgentRespon
 	return ag.ShutdownAgent(ctx, &proto.ShutdownAgentRequest{StatusOnly: true})
 }
 
+// ShutdownSucceeded requires the explicit successful lifecycle phase used by
+// productionShutdown.Control. Complete alone can also describe failed disposal.
+// Missing (legacy) and unknown phases cannot authorize replacement.
+func ShutdownSucceeded(resp *proto.ShutdownAgentResponse) bool {
+	return resp.GetAccepted() && resp.GetComplete() && resp.GetPhase() == "complete"
+}
+
 // RequestShutdown exposes the lifecycle outcome instead of treating acceptance as completion.
 func (c *Client) RequestShutdown(ctx context.Context, reason string) (*proto.ShutdownAgentResponse, error) {
 	c.shutdownMu.Lock()
@@ -3010,11 +3018,11 @@ func (c *Client) RequestShutdown(ctx context.Context, reason string) (*proto.Shu
 		return nil, errors.New("agent client is not connected")
 	}
 	resp, err := ag.ShutdownAgent(ctx, &proto.ShutdownAgentRequest{Reason: reason})
-	if err == nil && resp.GetAccepted() && resp.GetComplete() {
+	if err == nil && ShutdownSucceeded(resp) {
 		c.shutdownIncomplete = false
 	}
 	return resp, err
 }
 
-// ErrShutdownIncomplete means acceptance only: do not replace the host on timeout.
+// ErrShutdownIncomplete means successful retirement is unproven; do not replace the host.
 var ErrShutdownIncomplete = errors.New("agent shutdown accepted but incomplete; replacement not authorized")

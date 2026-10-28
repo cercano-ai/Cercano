@@ -28,11 +28,23 @@ func (s *shutdownUIFixture) ShutdownAgent(context.Context, *proto.ShutdownAgentR
 	if s.outcome == "error" {
 		return nil, status.Error(codes.Unavailable, "secret")
 	}
-	return &proto.ShutdownAgentResponse{Accepted: s.outcome != "rejected", Complete: s.outcome == "complete", Message: "secret", IncompleteReason: "secret"}, nil
+	phase := "draining"
+	complete := s.outcome == "complete" || s.outcome == "failed" || s.outcome == "unknown" || s.outcome == "legacy"
+	switch s.outcome {
+	case "complete":
+		phase = "complete"
+	case "failed":
+		phase = "failed"
+	case "unknown":
+		phase = "secret-unknown"
+	case "legacy":
+		phase = ""
+	}
+	return &proto.ShutdownAgentResponse{Phase: phase, Accepted: s.outcome != "rejected", Complete: complete, Message: "secret", IncompleteReason: "secret"}, nil
 }
 func TestShutdownDecisionRPCAndOrigin(t *testing.T) {
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
-	for _, outcome := range []string{"config", "error", "rejected", "pending", "complete"} {
+	for _, outcome := range []string{"config", "error", "rejected", "pending", "complete", "failed", "unknown", "legacy"} {
 		t.Run(outcome, func(t *testing.T) {
 			l, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
@@ -67,7 +79,7 @@ func TestShutdownDecisionRPCAndOrigin(t *testing.T) {
 				if outcome == "config" && action != "restart" {
 					want = "configuration update failed"
 				}
-				if !strings.Contains(result.text, want) || strings.Contains(result.text, "secret") {
+				if !strings.Contains(result.text, want) || strings.Contains(result.text, "secret") || (outcome != "complete" && strings.Contains(result.text, "replacement is permitted")) {
 					t.Fatalf("%s: %s", action, result.text)
 				}
 				before := len(m.mainChat().entries)

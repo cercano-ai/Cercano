@@ -48,7 +48,7 @@ func dispatchShutdown(origin shutdownDecisionMsg, reason string, config *agentcl
 			switch {
 			case !response.GetAccepted():
 				result.text = "shutdown incomplete: request rejected; automatic replacement blocked."
-			case !response.GetComplete():
+			case !agentclient.ShutdownSucceeded(response):
 				result.text = "shutdown accepted but incomplete; automatic replacement blocked."
 			default:
 				result.text = "shutdown complete; replacement is permitted when the connection drops."
