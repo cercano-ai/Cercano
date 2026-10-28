@@ -347,6 +347,13 @@ func (p *service) PrimaryModel() string {
 	return p.MainModel(cloud)
 }
 
+// CloudUnavailableError means the new routing policy was published with an
+// absent cloud provider. It is not a failure to install the routing policy.
+type CloudUnavailableError struct{ Err error }
+
+func (e *CloudUnavailableError) Error() string { return e.Err.Error() }
+func (e *CloudUnavailableError) Unwrap() error { return e.Err }
+
 // Rebuild re-derives providers from current config.
 // Was rebuildCloud on Server.
 func (p *service) Rebuild() error {
@@ -398,7 +405,7 @@ func (p *service) rebuildCloud() error {
 	p.cloudState.Store(&cloudRoutingState{primary: provider, secondary: secondary, config: c})
 	if err != nil {
 		p.installAbsentCloud(err.Error())
-		return err
+		return &CloudUnavailableError{Err: err}
 	}
 	// The legacy CloudModel remains bound to Primary; never pair it with a
 	// model from the independently selected Secondary profile.

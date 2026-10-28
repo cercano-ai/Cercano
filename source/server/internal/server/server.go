@@ -2261,9 +2261,6 @@ func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfig
 		c = s.cfgSvc.Get()
 	}
 	s.applyRuntimeEndpoints(c)
-	for _, effect := range effects {
-		effect()
-	}
 	if cloudEffect != nil {
 		if err := cloudEffect(); err != nil {
 			return &proto.UpdateConfigResponse{Success: false, Message: fmt.Sprintf("configuration saved; live cloud application failed: %v", err)}, nil
@@ -2285,7 +2282,7 @@ func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfig
 			// detection/download side effects for an override-only file edit.
 			applyRuntime = c.OpenRuntime
 			resolvedModel = effectiveOpenModelFor(c, config.TierEveryday)
-			s.broadcastConfigChanged("local_model", resolvedModel)
+			effects = append(effects, func() { s.broadcastConfigChanged("local_model", resolvedModel) })
 		}
 		if resolvedModel == "" && req.OpenRuntime == "llama_server" {
 			resolvedModel = c.LlamaServer.DefaultModel
@@ -2343,8 +2340,18 @@ func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfig
 	// cloud-only fails closed instead of retaining a stale local-only route.
 	if req.LocusMode != "" || authoritative != nil {
 		if err := s.rebuildCloud(); err != nil {
+			var unavailable *providers.CloudUnavailableError
+			if !errors.As(err, &unavailable) {
+				return &proto.UpdateConfigResponse{Success: false, Message: "configuration saved but not applied: " + err.Error()}, nil
+			}
 			changes = append(changes, "routing refreshed; cloud unavailable: "+err.Error())
 		}
+	}
+
+	// Publish application notifications only after fallible provider application.
+	// The config snapshot above records durability, not admission freshness.
+	for _, effect := range effects {
+		effect()
 	}
 
 	return &proto.UpdateConfigResponse{
