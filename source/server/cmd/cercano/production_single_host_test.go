@@ -110,12 +110,18 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 			t.Setenv("HOME", dir)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
 			a := productionStartupAdmission{legacy: true, paths: productionAuthorityPaths{config: filepath.Join(dir, "config.yaml"), conversations: filepath.Join(dir, "history.db")}}
-			cfg := config.Config{OpenRuntime: "ollama", OllamaURL: "http://unreachable.invalid", ExecutionMode: "in_process", LocusMode: "open_only"}
+			base, err := config.Load(a.paths.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.Config{OpenRuntime: "ollama", OllamaURL: "http://unreachable.invalid", ExecutionMode: "in_process", LocusMode: "open_only"}.WithSnapshot(base.Snapshot())
 			cfg.Watchdog.Enabled = true
 			cfg.Watchdog.Audit.Enabled = true
 			cfg.Watchdog.Audit.Path = filepath.Join(dir, "audit.db")
-			if err := config.Save(cfg, a.paths.config); err != nil {
+			if next, err := config.SaveSnapshot(cfg, a.paths.config, cfg.Snapshot()); err != nil {
 				t.Fatal(err)
+			} else {
+				cfg = cfg.WithSnapshot(next)
 			}
 			if err := os.WriteFile(filepath.Join(dir, "permissions.yaml"), []byte("mode: permissive\n"), 0600); err != nil {
 				t.Fatal(err)
@@ -226,8 +232,10 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 						if scenario.watcher {
 							changed := cfg.Clone()
 							changed.OpenRuntime = "llama_server"
-							if err := config.Save(changed, a.paths.config); err != nil {
+							if next, err := config.SaveSnapshot(changed, a.paths.config, changed.Snapshot()); err != nil {
 								t.Fatal(err)
+							} else {
+								changed = changed.WithSnapshot(next)
 							}
 							select {
 							case <-entered:

@@ -22,7 +22,10 @@ func TestSetupResetKeepsExistingRPCSession(t *testing.T) {
 	credentialtest.Enable(t)
 	s, _ := newTestServer()
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	c := config.Defaults()
+	c, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	c.CloudProfiles = []config.CloudProfile{{Name: "old", Flavor: "chat_completions", TierOverrides: map[config.CostTier]string{config.CostPremium: "old-model"}}}
 	c.ActiveCloudProfile = "old"
 	c.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskChat: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
@@ -30,7 +33,12 @@ func TestSetupResetKeepsExistingRPCSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.cfgSvc.SetPath(path)
-	if err := config.Save(c, path); err != nil {
+	if next, err := config.SaveSnapshot(c, path, c.Snapshot()); err != nil {
+		t.Fatal(err)
+	} else {
+		c = c.WithSnapshot(next)
+	}
+	if err := s.cfgSvc.Set(c); err != nil {
 		t.Fatal(err)
 	}
 	s.cfgSvc.Secrets().Set("old", "fixture")
@@ -43,7 +51,12 @@ func TestSetupResetKeepsExistingRPCSession(t *testing.T) {
 	}
 	_, c.Port, _ = net.SplitHostPort(listener.Addr().String())
 	s.cfgSvc.Set(c)
-	if err := config.Save(c, path); err != nil {
+	if next, err := config.SaveSnapshot(c, path, c.Snapshot()); err != nil {
+		t.Fatal(err)
+	} else {
+		c = c.WithSnapshot(next)
+	}
+	if err := s.cfgSvc.Set(c); err != nil {
 		t.Fatal(err)
 	}
 	gs := grpc.NewServer()

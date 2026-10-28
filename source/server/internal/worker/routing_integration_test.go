@@ -30,7 +30,11 @@ func TestRoutingSettingsSnapshotWorkerHTTP(t *testing.T) {
 			t.Run(fmt.Sprintf("backups=%t,%t", primaryBackup, secondaryBackup), func(t *testing.T) {
 				var mu sync.Mutex
 				requests := map[string][]string{}
-				c := cfg.Defaults()
+				path := filepath.Join(t.TempDir(), "config.yaml")
+				c, err := cfg.Load(path)
+				if err != nil {
+					t.Fatal(err)
+				}
 				c.CloudProfiles = nil
 				c.OpenRuntime = "llama_server"
 				c.LocusMode = "cloud_only"
@@ -80,9 +84,10 @@ func TestRoutingSettingsSnapshotWorkerHTTP(t *testing.T) {
 				if err := c.ValidateRouting(); err != nil {
 					t.Fatal(err)
 				}
-				path := filepath.Join(t.TempDir(), "config.yaml")
-				if err := cfg.Save(c, path); err != nil {
+				if next, err := cfg.SaveSnapshot(c, path, c.Snapshot()); err != nil {
 					t.Fatal(err)
+				} else {
+					c = c.WithSnapshot(next)
 				}
 				persisted, err := cfg.Load(path)
 				if err != nil {

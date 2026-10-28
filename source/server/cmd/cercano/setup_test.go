@@ -158,16 +158,21 @@ func TestFindLlamaServerBinary_ConfiguredPath(t *testing.T) {
 
 func TestSetupPreservesContextSelectionAcrossSaves(t *testing.T) {
 	for _, size := range []int{0, 8192, 65536} {
-		c := config.Defaults()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		c, err := config.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if size > 0 {
 			n := size
 			c.LlamaServer.ContextSize = &n
 		}
-		path := filepath.Join(t.TempDir(), "config.yaml")
 		for i := 0; i < 3; i++ {
 			applyLlamaServerSetupDefaults(&c)
-			if err := config.Save(c, path); err != nil {
+			if next, err := config.SaveSnapshot(c, path, c.Snapshot()); err != nil {
 				t.Fatal(err)
+			} else {
+				c = c.WithSnapshot(next)
 			}
 			var err error
 			c, err = config.Load(path)
