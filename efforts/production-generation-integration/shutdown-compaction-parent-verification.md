@@ -35,3 +35,17 @@ The stale TestProductionCompositionServiceParity failure was reproduced by paren
 - A prepared-host worker accidentally selected the subprocess-based TestDevHostCompiledExecution and timed out. This is NOT passing acceptance evidence. Source-only follow-up cannot establish whether test children remained; no live process inventory or termination was performed. Existing approved plan permits isolated test children, but this exceeded that worker's narrower in-process test instruction. No credential-helper architecture was introduced.
 - Read-only review after passing combined tests found ordinary cleanup error loss/false successful completion and unqualified bounded constructor rollback. Follow-up implementation tasks are active; preceding passes do not resolve those findings.
 - Canonical generation activation remains disabled. No full-suite, live credential/provider/model qualification, migration, installed launcher change, push or merge is claimed by this note.
+
+## Final bounded-slice follow-up
+
+Subsequent fixes retain ordinary cleanup errors (`f2614938de73`), make prepared constructor failure disposal bounded and retained (`80623e40a929`), and propagate the newly returned server shutdown error through prepared adapters (`f6d1c87d7292`). The last adapter regression reproduced false successful completion before correction. Its enabled-policy scope injects only a memory credential opener and fake runtime/audit closers; it executes no turn, provider request or native credential backend. The parent read that fixture before executing it.
+
+After f6d1c87d7292 the parent executed the combined race selection twice across cmd/cercano, server, taskrun, compactiongen, persistence, ollamacatalog, retention, providers and agentclient. Selector:
+
+```
+TestProduction|TestPrepared|TestShutdown|TestServerShutdown|TestTaskShutdown|TestOwned|TestRetire|TestCoexistenceLifecycle|TestAgentShutdownLeavesShared|^TestDevelopmentProductionCleanupShutdownError$
+```
+
+All nine packages passed (exit 0; 21.484 seconds total). This does not select the subprocess-based TestDevHostCompiledExecution. Earlier final-state parent compile-only and build checks passed in both modules after the error-aware ordinary/prepared constructor changes; the last prepared adapter changes also compiled in the final race run. CLI shutdown/reconnect race checks passed twice. No whole-suite or activation claim follows.
+
+The bounded compaction implementation and shutdown corrections are committed; Phase 1 composition and Phase 2 producer integration remain in progress because full service parity, other producers and acceptance are not finished. The timed-out compiled fixture remains failed evidence, not silently superseded by in-process tests.
