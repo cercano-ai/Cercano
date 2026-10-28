@@ -76,12 +76,24 @@ func (l *countedStartupListener) Close() error { l.closes.Add(1); return l.Liste
 // Sequential subtests own ONE full Agent/policy authority at a time. This is a
 // startup-only, in_process check, not worker acceptance or model qualification.
 func TestProductionSingleHostStartupShutdown(t *testing.T) {
-	for _, failMCP := range []bool{false, true} {
+	for _, scenario := range []struct{ fail, initial, watcher bool }{{}, {fail: true}, {initial: true}, {watcher: true}, {fail: true, initial: true}, {fail: true, watcher: true}} {
+		failMCP := scenario.fail
+		blocked := scenario.initial || scenario.watcher
 		name := "serves"
 		if failMCP {
 			name = "late-mcp-failure"
 		}
+		if scenario.initial {
+			name += "-blocked-initial"
+		}
+		if scenario.watcher {
+			name += "-blocked-watcher"
+		}
 		t.Run(name, func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			defer unblock()
 			t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 			restoreSentinel := modelpolicy.Install(modelpolicy.AuthorizeFunc(func(context.Context, modelpolicy.Attempt) error { panic("unexpected model authorization") }))
 			defer restoreSentinel()
@@ -163,7 +175,14 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				},
 				newOllama:      func(string) productionOllamaEngine { engines++; return &startupEngineTrap{} },
 				routingLogPath: filepath.Join(dir, "routing.jsonl"), failureLogPath: filepath.Join(dir, "failures.jsonl"),
-				openProvider: func(config.Config) inference.Provider { providers++; return &startupProviderTrap{} },
+				openProvider: func(c config.Config) inference.Provider {
+					if scenario.watcher && c.OpenRuntime == "llama_server" {
+						close(entered)
+						<-release
+					}
+					providers++
+					return &startupProviderTrap{}
+				},
 				cloudBuilder: func(config.CloudProfile, string, ...cloudfactory.Options) (inference.Provider, error) {
 					panic("cloud builder reached")
 				},
@@ -193,6 +212,18 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 						if path != dir || reg == nil {
 							t.Fatal("MCP wiring")
 						}
+						if scenario.watcher {
+							changed := cfg.Clone()
+							changed.OpenRuntime = "llama_server"
+							if err := config.Save(changed, a.paths.config); err != nil {
+								t.Fatal(err)
+							}
+							select {
+							case <-entered:
+							case <-time.After(5 * time.Second):
+								t.Fatal("watcher did not enter provider callback")
+							}
+						}
 						if failMCP {
 							return nil
 						}
@@ -206,6 +237,9 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 					stop: func(*mcphost.Manager) { mcpStops++; <-mcpDone },
 				},
 			}
+			if scenario.initial {
+				deps.beforeInitialRebuild = func() { close(entered); <-release }
+			}
 			var telemetryStore *telemetry.SQLiteStore
 			accounting := productionAccountingDependencies{open: func(path string) (*telemetry.SQLiteStore, error) {
 				accountingOpens++
@@ -218,14 +252,14 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 			}}
 			addr, cleanup, err := startGRPCServerWithLifecycle(cfg, "fixture", nil, credentials, a, runtimes, catalogs, accounting, deps)
 			if failMCP {
-				if err == nil || err.Error() != "MCP factory returned nil manager" || cleanup != nil {
+				if err == nil || err.Error() != "MCP factory returned nil manager" || (cleanup != nil) != blocked {
 					t.Fatalf("expected late failure: %v", err)
 				}
 			} else {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer cleanup()
+				defer cleanup.Shutdown()
 				if addr != "bufconn" {
 					t.Fatal(addr)
 				}
@@ -259,16 +293,42 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				if _, err := client.ListConversations(ctx, &proto.ListConversationsRequest{}); err != nil {
 					t.Fatal(err)
 				}
+				if blocked {
+					<-entered
+				}
 				var wg sync.WaitGroup
 				for i := 0; i < 4; i++ {
 					wg.Add(1)
-					go func() { defer wg.Done(); cleanup() }()
+					go func() { defer wg.Done(); cleanup.Shutdown() }()
 				}
 				wg.Wait()
 				if _, err := client.GetConfig(ctx, &proto.GetConfigRequest{}); err == nil {
 					t.Fatal("serving after shutdown")
 				}
 			}
+			if blocked {
+				if cleanup == nil || cleanup.Status().Complete {
+					t.Fatal("lost incomplete status")
+				}
+				if store.closes.Load() != 0 || audit.closes.Load() != 0 {
+					t.Fatal("callback dependencies closed prematurely")
+				}
+				if modelpolicy.Managed(context.Background()) {
+					t.Fatal("authority restored before callbacks finished")
+				}
+				unblock()
+				select {
+				case <-cleanup.done:
+				case <-time.After(5 * time.Second):
+					t.Fatal("deferred disposal did not complete")
+				}
+				if !cleanup.Shutdown().Complete {
+					t.Fatal("repeat shutdown lost completion")
+				}
+			}
+			if scenario.watcher {
+				providers--
+			} // one additional real watcher rebuild
 			if (!failMCP && wired != 1) || (failMCP && wired != 0) {
 				t.Fatalf("completed wiring callbacks: %d", wired)
 			}
@@ -288,7 +348,11 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				t.Fatal("failed MCP started")
 			}
 			// Endpoints are installed at connect, SetConfig and SetRuntimeManager.
-			if !reflect.DeepEqual(*runtimeCalls, []string{"probe", "remote", "endpoints", "warm", "endpoints", "endpoints"}) {
+			expectedRuntime := []string{"probe", "remote", "endpoints", "warm", "endpoints", "endpoints"}
+			if scenario.watcher {
+				expectedRuntime = append(expectedRuntime, "endpoints")
+			}
+			if !reflect.DeepEqual(*runtimeCalls, expectedRuntime) {
 				t.Fatalf("unexpected runtime operations: %v", *runtimeCalls)
 			}
 			if !modelpolicy.Managed(context.Background()) {

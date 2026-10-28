@@ -25,15 +25,16 @@ type productionLifecycleDependencies struct {
 	// runtimeHTTPClient replaces the llama/mistral engine transports; nil retains defaults.
 	runtimeHTTPClient *http.Client
 	// afterWiring observes the fully installed server before serving; nil is a no-op.
-	afterWiring  func(*server.Server)
-	openProvider func(config.Config) inference.Provider
-	mcp          productionMCPDependencies
-	watchdog     server.WatchdogDependencies
-	cloudBuilder providers.CloudBuilder
-	enterprise   productionEnterpriseDependencies
-	openStore    func(string) (conversation.Store, error)
-	listen       func(string, string) (net.Listener, error)
-	reap         func() int
+	beforeInitialRebuild func() // invocation-local callback barrier for isolated lifecycle tests
+	afterWiring          func(*server.Server)
+	openProvider         func(config.Config) inference.Provider
+	mcp                  productionMCPDependencies
+	watchdog             server.WatchdogDependencies
+	cloudBuilder         providers.CloudBuilder
+	enterprise           productionEnterpriseDependencies
+	openStore            func(string) (conversation.Store, error)
+	listen               func(string, string) (net.Listener, error)
+	reap                 func() int
 }
 
 func productionLifecycleDefaults() productionLifecycleDependencies {

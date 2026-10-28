@@ -178,23 +178,16 @@ func ollamaStartupWarning(check func(string) error, baseURL string) string {
 	return ""
 }
 
-// drainGrace bounds how long a shutting-down agent waits for in-flight turns
-// to finish before hard-stopping. It is a zombie-guard, not a tuning knob: an
-// agentic turn legitimately runs for minutes (model calls + tool executions),
-// and the drained process holds no resources a replacement needs — the
-// listener port frees the moment the drain starts. Only a truly wedged
-// handler should ever hit this. A second signal forces immediate exit.
-const drainGrace = 10 * time.Minute
-
 // startGRPCServer initializes all providers and starts the gRPC server.
-// Returns the listener address and a cleanup function.
+// Returns the listener address and an explicit shutdown/status handle.
+// A startup error may also return a handle: retain it until disposal completes.
 // events may be nil (MCP embedded mode opens no log); a nil writer makes
 // durable runtime-event recording a no-op rather than a crash.
-func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer) (string, func(), error) {
+func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer) (string, *productionShutdown, error) {
 	return startGRPCServerWithCredentials(cfg, bindAddr, events, productionCredentialDefaults())
 }
 
-func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies) (string, func(), error) {
+func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies) (string, *productionShutdown, error) {
 	admission, err := legacyProductionStartup().admitActivation(context.Background())
 	if err != nil {
 		return "", nil, err
@@ -205,19 +198,19 @@ func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *
 // Internal staged entry only: canonical generation startup remains blocked until
 // the ordinary producers and integrations carry lifecycle authority. No CLI or
 // installed launcher selects this policy.
-func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission) (string, func(), error) {
+func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission) (string, *productionShutdown, error) {
 	return startGRPCServerWithRuntime(cfg, bindAddr, events, credentials, admission, productionRuntimeDefaults())
 }
 
-func startGRPCServerWithRuntime(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies) (string, func(), error) {
+func startGRPCServerWithRuntime(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies) (string, *productionShutdown, error) {
 	return startGRPCServerWithServices(cfg, bindAddr, events, credentials, admission, runtimes, productionCatalogDefaults(), productionAccountingDefaults())
 }
 
-func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies, catalogs productionCatalogDependencies, accounting productionAccountingDependencies) (string, func(), error) {
+func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies, catalogs productionCatalogDependencies, accounting productionAccountingDependencies) (string, *productionShutdown, error) {
 	return startGRPCServerWithLifecycle(cfg, bindAddr, events, credentials, admission, runtimes, catalogs, accounting, productionLifecycleDefaults())
 }
 
-func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies, catalogs productionCatalogDependencies, accounting productionAccountingDependencies, lifecycle productionLifecycleDependencies) (string, func(), error) {
+func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies, catalogs productionCatalogDependencies, accounting productionAccountingDependencies, lifecycle productionLifecycleDependencies) (address string, shutdown *productionShutdown, startupErr error) {
 	if err := admission.validateActivation(); err != nil {
 		return "", nil, err
 	}
@@ -230,18 +223,32 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if accounting.open == nil {
 		return "", nil, fmt.Errorf("accounting store opener required")
 	}
+	var rollback []func()
+	var stopAdmission = func() {}
+	var joinCallbacks = func() {}
+	started := false
+	defer func() {
+		if !started {
+			pending := newProductionShutdown(stopAdmission, func() {
+				joinCallbacks()
+				for i := len(rollback) - 1; i >= 0; i-- {
+					rollback[i]()
+				}
+			})
+			if !pending.Shutdown().Complete {
+				shutdown = pending
+			}
+		}
+	}()
 	enterpriseHost, err := composeProductionEnterprise(lifecycle.enterprise, enterpriseLegacy)
 	if err != nil {
 		return "", nil, err
 	}
 	restorePolicy := modelpolicy.Install(enterpriseHost)
-	started := false
-	defer func() {
-		if !started {
-			enterpriseHost.Close()
-			restorePolicy()
-		}
-	}()
+	rollback = append(rollback, func() {
+		enterpriseHost.Close()
+		restorePolicy()
+	})
 
 	if warn := ollamaStartupWarning(runtimes.probe, cfg.OllamaURL); warn != "" {
 		fmt.Fprintln(os.Stderr, warn)
@@ -264,11 +271,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if err != nil {
 		return "", nil, fmt.Errorf("connect runtime manager: %w", err)
 	}
-	defer func() {
-		if !started {
-			closeRuntime()
-		}
-	}()
+	rollback = append(rollback, func() {
+		closeRuntime()
+	})
 	llamaEng := llamaengine.NewEngine(runtimeManager)
 	if lifecycle.runtimeHTTPClient != nil {
 		llamaEng.Client = lifecycle.runtimeHTTPClient
@@ -356,11 +361,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 			}
 		})
 	}
-	defer func() {
-		if !started {
-			closeData()
-		}
-	}()
+	rollback = append(rollback, func() {
+		closeData()
+	})
 
 	// Context-window meter: per-conversation running token counters keyed
 	// by conversation id. The CLI polls GetContextUsage after each turn.
@@ -487,11 +490,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 			cancelProducers()
 		})
 	}
-	defer func() {
-		if !started {
-			closeProducers()
-		}
-	}()
+	rollback = append(rollback, func() {
+		closeProducers()
+	})
 	var sweeper *retention.Sweeper
 	if persistentStore != nil {
 		sweeper = retention.New(persistentStore, retention.Config{
@@ -520,17 +521,17 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 
 	// 64 MiB comfortably fits multiple 20 MiB images (the per-image client cap).
 	const maxGRPCMessageBytes = 64 << 20
-	s := grpc.NewServer(append(enterpriseHost.serverOptions(), grpc.MaxRecvMsgSize(maxGRPCMessageBytes))...)
+	gate := newProductionAdmissionGate()
+	s := grpc.NewServer(append([]grpc.ServerOption{grpc.MaxRecvMsgSize(maxGRPCMessageBytes), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream)}, enterpriseHost.serverOptions()...)...)
 	srv := server.NewServerWithLogs(orchestrator, lazyRouter, coordinator, cloudFactory, registry, lifecycle.routingLogPath, lifecycle.failureLogPath)
+	stopAdmission = gate.close
 	srv.SetCloudProviderBuilder(lifecycle.cloudBuilder)
 	srv.SetWatchdogDependencies(lifecycle.watchdog)
-	defer func() {
-		if !started {
-			s.Stop()
-			_ = lis.Close()
-			srv.Shutdown()
-		}
-	}()
+	rollback = append(rollback, func() {
+		s.Stop()
+		_ = lis.Close()
+		srv.Shutdown()
+	})
 	enterpriseHost.bindAdmission(srv)
 	srv.SetBuildVersion(version)
 	compactionCandidates = srv.DispatchCandidates
@@ -548,11 +549,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if err != nil {
 		return "", nil, err
 	}
-	defer func() {
-		if !started {
-			closeCatalog()
-		}
-	}()
+	rollback = append(rollback, func() {
+		closeCatalog()
+	})
 	if sweeper != nil {
 		srv.SetRetentionSweeper(sweeper)
 	}
@@ -586,12 +585,12 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// the change to connected clients. Non-fatal: the SetPermissionMode RPC path
 	// still broadcasts, and the gate re-reads the file on every decision.
 	watchCtx, cancelWatchers := context.WithCancel(context.Background())
-	defer func() {
-		if !started {
-			cancelWatchers()
-			srv.WaitForWatchers()
-		}
-	}()
+	stopAdmission = gate.close
+	joinCallbacks = func() { cancelWatchers(); srv.BeginShutdown(); srv.WaitForWatchers() }
+	rollback = append(rollback, func() {
+		cancelWatchers()
+		srv.WaitForWatchers()
+	})
 	if err := srv.StartPermissionWatcher(watchCtx, permsPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] permission file watcher not started (%v) — /strict etc. still push; hand-edits won't.\n", err)
 	}
@@ -624,14 +623,12 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if agentCollector != nil {
 		markIncomplete = func() { agentCollector.MarkAccountingIncomplete("background producer shutdown incomplete") }
 	}
-	defer func() {
-		if !started {
-			closeProducers()
-			if closeAgentTelemetry != nil {
-				closeAgentTelemetry()
-			}
+	rollback = append(rollback, func() {
+		closeProducers()
+		if closeAgentTelemetry != nil {
+			closeAgentTelemetry()
 		}
-	}()
+	})
 	// Open OS keychain and attach it so profile RPCs and rebuildCloud can
 	// read API keys. Failure is non-fatal: cloud stays absent.
 	if store, err := credentials.open(secrets.Options{}); err == nil {
@@ -682,13 +679,15 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// backgrounding it here is safe. Errors are logged, not fatal.
 	cloudWarnCfg := cfg.Clone()
 	cloudRebuildDone := make(chan struct{})
-	defer func() {
-		if !started {
-			<-cloudRebuildDone
-		}
-	}()
+	joinCallbacks = func() { cancelWatchers(); srv.BeginShutdown(); srv.WaitForWatchers(); <-cloudRebuildDone }
+	rollback = append(rollback, func() {
+		<-cloudRebuildDone
+	})
 	go func() {
 		defer close(cloudRebuildDone)
+		if lifecycle.beforeInitialRebuild != nil {
+			lifecycle.beforeInitialRebuild()
+		}
 		if err := srv.RebuildCloud(); err != nil && shouldWarnCloudRebuildFailure(cloudWarnCfg) {
 			fmt.Fprintf(os.Stderr, "[WARN] cloud profile resolution failed: %v — cloud routing will degrade to local.\n", err)
 		}
@@ -729,11 +728,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if err != nil {
 		return "", nil, err
 	}
-	defer func() {
-		if !started {
-			closeMCP()
-		}
-	}()
+	rollback = append(rollback, func() {
+		closeMCP()
+	})
 
 	// Select worker vs in-process turn execution from the loaded config
 	// (default: worker → crash isolation). Runs AFTER config, permissions,
@@ -759,36 +756,34 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		}
 	}()
 
-	var cleanupOnce sync.Once
-	cleanup := func() {
-		cleanupOnce.Do(func() {
-			cancelWatchers()
-			srv.WaitForWatchers()
-			<-cloudRebuildDone
-			defer restorePolicy()
-			defer enterpriseHost.Close()
-			// Runs after the body: srv.Shutdown has stopped in-process runtime
-			// instances and the producers that use them. For the shared model
-			// host, closing releases this agent's holds.
-			defer closeRuntime()
-			// Drain before teardown: in-flight turns still need the MCP manager
-			// and providers, so those stop only after the streams finish. The
-			// standing SubscribeEvents streams must end first or GracefulStop
-			// waits on attached clients forever.
-			srv.BeginShutdown()
-			server.DrainThenStop(s, drainGrace)
-			<-serveDone
-			closeMCP()
-			srv.Shutdown()
-			closeCatalog()
-			closeProducers()
-			closeData()
-			// Usage producers have stopped; drain before closing the database.
-			if closeAgentTelemetry != nil {
-				closeAgentTelemetry()
-			}
-		})
-	}
+	cleanup := newProductionShutdown(stopAdmission, func() {
+		srv.BeginShutdown()
+		cancelWatchers()
+		srv.WaitForWatchers()
+		<-cloudRebuildDone
+		defer restorePolicy()
+		defer enterpriseHost.Close()
+		// Runs after the body: srv.Shutdown has stopped in-process runtime
+		// instances and the producers that use them. For the shared model
+		// host, closing releases this agent's holds.
+		defer closeRuntime()
+		// Drain before teardown: in-flight turns still need the MCP manager
+		// and providers, so those stop only after the streams finish. The
+		// standing SubscribeEvents streams must end first or GracefulStop
+		// waits on attached clients forever.
+		srv.BeginShutdown()
+		s.GracefulStop()
+		<-serveDone
+		closeMCP()
+		srv.Shutdown()
+		closeCatalog()
+		closeProducers()
+		closeData()
+		// Usage producers have stopped; drain before closing the database.
+		if closeAgentTelemetry != nil {
+			closeAgentTelemetry()
+		}
+	})
 
 	started = true
 	return lis.Addr().String(), cleanup, nil
@@ -2037,6 +2032,7 @@ func runServerMode(cfg config.Config, admission productionStartupAdmission) {
 
 	addr, cleanup, err := startGRPCServerWithStartup(cfg, ":"+cfg.Port, crashWriter, productionCredentialDefaults(), admission)
 	if err != nil {
+		retainUntilDisposed(cleanup)
 		fmt.Fprintf(os.Stderr, "\n[ERROR] %v\n", err)
 		if crashWriter != nil {
 			crashWriter.LogPanic("server startup failed: "+err.Error(), nil, map[string]any{"stage": "startGRPCServer"})
@@ -2056,20 +2052,12 @@ func runServerMode(cfg config.Config, admission productionStartupAdmission) {
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	sig := <-sigCh
-	fmt.Printf("Received %v — draining in-flight requests (signal again to force quit)...\n", sig)
+	fmt.Printf("Received %v — draining in-flight requests...\n", sig)
 	if crashWriter != nil {
 		crashWriter.LogSignal(sig.String(), map[string]any{"stage": "runServerMode", "graceful": true})
 	}
-	go func() {
-		<-sigCh
-		if crashWriter != nil {
-			crashWriter.LogSignal("second-signal-force-quit", nil)
-			_ = crashWriter.Close()
-		}
-		fmt.Fprintln(os.Stderr, "Second signal — exiting immediately")
-		os.Exit(1)
-	}()
-	cleanup()
+
+	retainUntilDisposed(cleanup)
 	if crashWriter != nil {
 		_ = crashWriter.Close()
 	}
@@ -2105,7 +2093,8 @@ func runMCPMode(cfg config.Config, externalGRPC string, admission productionStar
 
 		// MCP embedded mode opens no crash log; runtime events are a
 		// no-op here rather than a second writer on the same file.
-		addr, _, err := startGRPCServerWithStartup(cfg, "localhost:0", nil, productionCredentialDefaults(), admission)
+		addr, cleanup, err := startGRPCServerWithStartup(cfg, "localhost:0", nil, productionCredentialDefaults(), admission)
+		defer retainUntilDisposed(cleanup)
 		if err != nil {
 			// Start in degraded mode so the MCP pipe stays alive and
 			// the client gets a clear error instead of "Failed to reconnect".
@@ -2113,7 +2102,7 @@ func runMCPMode(cfg config.Config, externalGRPC string, admission productionStar
 			s := mcpserver.NewDegradedServer(err)
 			if runErr := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); runErr != nil {
 				fmt.Fprintf(os.Stderr, "MCP server error: %v\n", runErr)
-				os.Exit(1)
+				return
 			}
 			return
 		}
@@ -2125,7 +2114,7 @@ func runMCPMode(cfg config.Config, externalGRPC string, admission productionStar
 	conn, err := grpc.NewClient(grpcTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to gRPC server at %s: %v\n", grpcTarget, err)
-		os.Exit(1)
+		return
 	}
 	defer conn.Close()
 
@@ -2160,7 +2149,7 @@ func runMCPMode(cfg config.Config, externalGRPC string, admission productionStar
 
 	if err := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
-		os.Exit(1)
+		return
 	}
 }
 
