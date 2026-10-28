@@ -363,8 +363,11 @@ func configDocument(data []byte) (*yaml.Node, error) {
 	if err := doc.Decode(&c); err != nil {
 		return nil, errors.New("invalid configuration fields")
 	}
-	if c.LlamaServer.Validate() != nil || !ValidateToolLoopMaxIterations(c.ToolLoop.MaxIterations) {
-		return nil, errors.New("invalid configuration overrides")
+	if c.LlamaServer.Validate() != nil {
+		return nil, errors.New("invalid llama_server overrides")
+	}
+	if !ValidateToolLoopMaxIterations(c.ToolLoop.MaxIterations) {
+		return nil, errors.New("invalid tool_loop.max_iterations; use -1, zero, or a positive limit")
 	}
 	return &doc, nil
 }

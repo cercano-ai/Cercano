@@ -1014,9 +1014,14 @@ func LoadWithOptions(path string, options secrets.Options) (Config, error) {
 				finalizeModelTiers(&cfg)
 				return cfg, nil
 			}
-			return cfg, fmt.Errorf("failed to read config file %q: %w", path, err)
+			return cfg, fmt.Errorf("configuration %q: cannot read file; check file type and permissions and reload: %w", path, err)
 		}
 
+		// Validate the exact bytes that will be decoded and used as the baseline.
+		// Existing empty/comment-only files are not genuine absence.
+		if _, err := configDocument(data); err != nil {
+			return cfg, fmt.Errorf("configuration %q: provide exactly one valid YAML mapping, correct schema and reload (existing file was not changed): %w", path, err)
+		}
 		cfg.snapshot = coordinator.snapshot(data)
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return cfg, fmt.Errorf("configuration %q: invalid YAML; correct syntax and reload (existing file was not changed)", path)
