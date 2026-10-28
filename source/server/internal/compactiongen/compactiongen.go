@@ -207,7 +207,7 @@ func (g *Generator) runCompaction(ctx context.Context, conversationID string) er
 		// Another pass holds the conversation; reschedule rather than skip so
 		// the debounced backlog isn't silently dropped.
 		g.logf("[compaction] pass deferred %s: another pass is in flight\n", conversationID)
-		g.Schedule(conversationID)
+		g.reschedule(ctx, conversationID)
 		return nil
 	}
 	defer g.release(conversationID)
@@ -225,12 +225,15 @@ func (g *Generator) runCompaction(ctx context.Context, conversationID string) er
 			g.logf("[compaction] pass no-op %s (elision-only): nothing to do\n", conversationID)
 			return nil
 		}
-		g.logf("[compaction] pass ok %s (elision-only): %d -> %d tokens in %s (%d tool results stubbed)\n",
-			conversationID, pre, post, time.Since(start).Round(time.Millisecond), stubbed)
 		// rawTokens=0 means "no new raw measurement": the elision-only pass
 		// never loads turns, and elision does not change the raw size anyway.
 		// The writer preserves any previously cached raw value.
 		g.recordUsage(ctx, conversationID, post, 0)
+		if err := ownedPersistenceOutcome(ctx); err != nil {
+			return err
+		}
+		g.logf("[compaction] pass ok %s (elision-only): %d -> %d tokens in %s (%d tool results stubbed)\n",
+			conversationID, pre, post, time.Since(start).Round(time.Millisecond), stubbed)
 		return nil
 	}
 
@@ -289,15 +292,18 @@ func (g *Generator) runCompaction(ctx context.Context, conversationID string) er
 		g.logf("[compaction] view build failed %s (post-pass): %v\n", conversationID, err)
 	}
 	post := compaction.TotalTokens(g.tok, postView)
-	g.logf("[compaction] pass ok %s: %d -> %d tokens in %s (more=%v)\n", conversationID, pre, post, time.Since(start).Round(time.Millisecond), more)
 	// The pass already built and totaled the post-pass send view; cache it so
 	// the meter never has to reassemble this conversation to answer a poll.
 	g.recordUsage(ctx, conversationID, post, rawTokensOf(turns))
+	if err := ownedPersistenceOutcome(ctx); err != nil {
+		return err
+	}
+	g.logf("[compaction] pass ok %s: %d -> %d tokens in %s (more=%v)\n", conversationID, pre, post, time.Since(start).Round(time.Millisecond), more)
 	if more {
 		// Backlog remains; a bounded pass persisted its progress. Reschedule so
 		// the next chunk runs after the debounce — the backlog converges one
 		// bounded pass at a time.
-		g.Schedule(conversationID)
+		g.reschedule(ctx, conversationID)
 	}
 	return nil
 }
