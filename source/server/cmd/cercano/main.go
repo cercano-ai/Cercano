@@ -465,7 +465,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	closeProducers := func() {
 		producersOnce.Do(func() {
 			// Independently scheduled producers must stop before accounting drains.
-			producerCtx, cancelProducers := context.WithTimeout(context.Background(), 2*time.Second)
+			// This runs in the retained disposer, not the bounded caller. A
+			// timeout is not a join and must never release producer dependencies.
+			producerCtx := context.Background()
 			for name, closeProducer := range map[string]func(context.Context) error{
 				"recap": func(ctx context.Context) error {
 					if recapGen != nil {
@@ -487,7 +489,6 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 					}
 				}
 			}
-			cancelProducers()
 		})
 	}
 	rollback = append(rollback, func() {

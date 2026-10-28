@@ -210,6 +210,8 @@ type Server struct {
 	taskManager             *taskrun.Manager
 	ownedTaskWakes          map[broker.Owner][]*ownedCompletionWake
 	taskManagerClosed       bool
+	taskCloseOnce           sync.Once
+	taskCloseDone           chan struct{}
 	taskWakeCtx             context.Context
 	taskWakeCancel          context.CancelFunc
 	taskWakeWG              sync.WaitGroup
@@ -663,37 +665,38 @@ func (s *Server) ensureTaskManager() bool {
 // closeTaskManager stops host-owned task execution before persistence goes
 // down. Interrupted tasks are reconciled at the next start.
 func (s *Server) closeTaskManager() {
-	s.taskRunMu.Lock()
-	m := s.taskManager
-	s.taskManager = nil
-	// Block new callbacks before canceling existing background turns. This
-	// also makes taskWakeWG.Wait safe: no callback can Add after this point.
-	s.taskManagerClosed = true
-	if s.taskWakeCancel != nil {
-		s.taskWakeCancel()
-	}
-	s.taskRunMu.Unlock()
-	// Bounded: running executors observe the host cancel (engine honors ctx)
-	// and outcome persistence carries its own 10 s timeout. Does not wait
-	// unboundedly on a wedged executor — the process is exiting anyway.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if m != nil {
-		if err := m.Close(ctx); err != nil {
-			log.Printf("[taskrun] shutdown close: %v", err)
+	_ = s.closeTaskManagerContext(context.Background())
+}
+
+// The retained join is shared by all callers, including a caller whose wait
+// expired. A deadline never grants permission to dispose task dependencies.
+func (s *Server) closeTaskManagerContext(ctx context.Context) error {
+	s.taskCloseOnce.Do(func() {
+		s.taskRunMu.Lock()
+		m := s.taskManager
+		s.taskManager = nil
+		s.taskManagerClosed = true
+		s.taskCloseDone = make(chan struct{})
+		if s.taskWakeCancel != nil {
+			s.taskWakeCancel()
 		}
-	}
-	// Drain completion handling before its persistence/provider dependencies
-	// close, within the same shutdown budget used for child execution.
-	wakesDone := make(chan struct{})
-	go func() {
-		s.taskWakeWG.Wait()
-		close(wakesDone)
-	}()
+		if m != nil {
+			m.Fence()
+		}
+		s.taskRunMu.Unlock()
+		go func() {
+			if m != nil {
+				_ = m.Close(context.Background())
+			}
+			s.taskWakeWG.Wait()
+			close(s.taskCloseDone)
+		}()
+	})
 	select {
-	case <-wakesDone:
+	case <-s.taskCloseDone:
+		return nil
 	case <-ctx.Done():
-		log.Printf("[taskrun] shutdown completion drain: %v", ctx.Err())
+		return ctx.Err()
 	}
 }
 
