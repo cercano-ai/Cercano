@@ -6,6 +6,7 @@ package cloudfactory
 import (
 	"cercano/source/server/internal/secrets"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -36,6 +37,8 @@ const RouteSubscription = anthropic.RouteSubscription
 // static API key — the subscription auth flows, which authenticate with a
 // refreshing token source over the keychain instead of a key.
 type Options struct {
+	// AnthropicBaseTransport is an optional invocation-local Messages wire dependency.
+	AnthropicBaseTransport http.RoundTripper
 	// Credentials enables bounded coordinated Responses attempt admission.
 	// ChatGPT subscription additionally requires an atomic snapshot token source.
 	Credentials secrets.RequestCredentials
@@ -87,6 +90,9 @@ func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (
 		return nil, err
 	}
 	if len(opts) > 0 && opts[0].Credentials != nil {
+		if p.Flavor == FlavorMessages && p.Name != "" && (p.Route == "" || p.Route == "direct") && opts[0].TokenSource == nil && opts[0].AnthropicTokenSource == nil {
+			return anthropic.NewClient(anthropic.Config{BaseURL: p.BaseURL, Model: p.Model, Route: p.Route, Credentials: opts[0].Credentials, CredentialProfile: p.Name, BaseTransport: opts[0].AnthropicBaseTransport}), nil
+		}
 		subscription := false
 		if source, ok := opts[0].TokenSource.(responses.SubscriptionCredentials); ok {
 			subscription = p.Route == responses.RouteChatGPT && source.CredentialProfile() == p.Name
@@ -98,6 +104,10 @@ func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (
 	}
 	switch p.Flavor {
 	case FlavorMessages:
+		var base http.RoundTripper
+		if len(opts) > 0 {
+			base = opts[0].AnthropicBaseTransport
+		}
 		if p.Route == RouteSubscription {
 			var ts anthropic.TokenSource
 			if len(opts) > 0 {
@@ -108,13 +118,14 @@ func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (
 			}
 			// Subscription pins api.anthropic.com; ignore any profile BaseURL
 			// (a migrated Meridian profile may still carry the old proxy URL).
-			return anthropic.NewClient(anthropic.Config{Model: p.Model, Route: p.Route, TokenSource: ts}), nil
+			return anthropic.NewClient(anthropic.Config{Model: p.Model, Route: p.Route, TokenSource: ts, BaseTransport: base}), nil
 		}
 		return anthropic.NewClient(anthropic.Config{
-			BaseURL: p.BaseURL,
-			APIKey:  apiKey,
-			Model:   p.Model,
-			Route:   p.Route,
+			BaseTransport: base,
+			BaseURL:       p.BaseURL,
+			APIKey:        apiKey,
+			Model:         p.Model,
+			Route:         p.Route,
 		}), nil
 	case FlavorChatCompletions:
 		if p.Backend == "" {

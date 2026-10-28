@@ -432,9 +432,10 @@ func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error
 	}
 	st := p.cfgSvc.Secrets()
 	coordinated := secrets.IsCoordinated(st)
-	// Only Responses API keys and the revision-bearing ChatGPT source are
+	// Static Responses/Messages and the revision-bearing ChatGPT source are
 	// integrated with coordinated admission. Other routes remain fail closed.
-	if coordinated && (prof.Flavor != cloudfactory.FlavorResponses || (prof.Route != "" && prof.Route != cloudfactory.RouteChatGPT)) {
+	staticMessages := prof.Flavor == cloudfactory.FlavorMessages && (prof.Route == "" || prof.Route == "direct")
+	if coordinated && !staticMessages && (prof.Flavor != cloudfactory.FlavorResponses || (prof.Route != "" && prof.Route != cloudfactory.RouteChatGPT)) {
 		return nil, fmt.Errorf("coordinated credential route unsupported")
 	}
 	key := ""

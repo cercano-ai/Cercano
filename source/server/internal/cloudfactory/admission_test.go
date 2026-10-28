@@ -16,15 +16,26 @@ func (requestFake) CredentialSnapshot(context.Context, string) (secrets.Credenti
 func (requestFake) AdmitAttempt(context.Context, string, string) error { panic("unexpected admission") }
 func TestCoordinatedUnsupportedBeforeConstructor(t *testing.T) {
 	// Explicit fake only; unsupported Bedrock must not enter AWS default chains.
-	credentialtest.Enable(t)
+	credentialtest.EnableHermetic(t)
 	for _, p := range []config.CloudProfile{
 		{Name: "fixture", Flavor: FlavorBedrock, Region: "us-east-1"},
-		{Name: "fixture", Flavor: FlavorMessages},
+		{Name: "fixture", Flavor: FlavorMessages, Route: RouteSubscription},
+		{Name: "fixture", Flavor: FlavorMessages, Route: "unknown"},
 		{Name: "fixture", Flavor: FlavorChatCompletions},
 		{Name: "fixture", Flavor: FlavorResponses, Route: RouteChatGPT},
 	} {
-		if _, err := BuildCloudProvider(p, "", Options{Credentials: requestFake{}}); err == nil {
+		if _, err := BuildCloudProvider(p, "", Options{Credentials: requestFake{}, AnthropicBaseTransport: &credentialtest.ForbiddenTransport{}}); err == nil {
 			t.Fatalf("allowed %s/%s", p.Flavor, p.Route)
+		}
+	}
+}
+
+func TestCoordinatedStaticMessagesConstruction(t *testing.T) {
+	credentialtest.EnableHermetic(t)
+	for _, route := range []string{"", "direct"} {
+		p, err := BuildCloudProvider(config.CloudProfile{Name: "fixture", Flavor: FlavorMessages, Route: route}, "ignored", Options{Credentials: requestFake{}, AnthropicBaseTransport: &credentialtest.ForbiddenTransport{}})
+		if err != nil || p == nil {
+			t.Fatalf("route=%q error=%v", route, err)
 		}
 	}
 }
