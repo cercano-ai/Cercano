@@ -133,7 +133,7 @@ func newOpenRuntimeInstallModal(st agentclient.OpenRuntimeStatus) *openRuntimeIn
 // llama_server.default_model and switches the runtime in one round trip
 // (runtime defaults to llama_server on the F1 path where no switch was
 // queued). ag may be nil in tests — the dispatch cmd is only run on Enter.
-func (mo *openRuntimeInstallModal) setPickModel(ag *agentclient.Client, runtime string, models []agentclient.RuntimeModel, sysRAMBytes int64) {
+func (mo *openRuntimeInstallModal) setPickModel(ag *agentclient.Client, runtime string, models []agentclient.RuntimeModel, sysRAMBytes int64, origin shutdownDecisionMsg) {
 	mo.state = runtimeModalPickModel
 	if runtime == "" {
 		runtime = "llama_server"
@@ -163,7 +163,7 @@ func (mo *openRuntimeInstallModal) setPickModel(ag *agentclient.Client, runtime 
 	}
 	hooks := overlay.Hooks{
 		OnSelect: func(row overlay.Row) (string, bool, tea.Cmd) {
-			return "", true, dispatchOpenModelPick(ag, runtime, row.Key)
+			return "", true, dispatchOpenModelPick(origin, runtime, row.Key)
 		},
 	}
 	picker := overlay.New("pick a GGUF model", rows, hooks)
@@ -607,7 +607,7 @@ func (m Model) handleOpenRuntimeModalKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			runtime := m.openRuntimeModal.offerRuntime
 			m.openRuntimeModal = nil
 			m.pendingRuntimeSwitch = ""
-			return m, dispatchOpenRuntimeSwitch(m.agent, runtime)
+			return m, dispatchOpenRuntimeSwitch(m.shutdownOrigin(), runtime)
 		}
 		if key == "esc" || key == "q" {
 			m.openRuntimeModal = nil
@@ -638,42 +638,13 @@ func (m Model) handleOpenRuntimeModalKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// dispatchOpenModelPick fires the picker's outcome in the background: set
-// llama_server.default_model to the chosen GGUF, switch to the runtime, then
-// request an agent restart so worker-side providers and tier mappings are rebuilt.
-func dispatchOpenModelPick(ag *agentclient.Client, runtime, ggufPath string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := ag.UpdateConfig(ctx, agentclient.ConfigUpdate{
-			OpenRuntime:      runtime,
-			OpenDefaultModel: ggufPath,
-		})
-		cancel()
-		if err == nil {
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer shutdownCancel()
-			_ = ag.ShutdownAgent(shutdownCtx, "open runtime switched to "+runtime)
-		}
-		return nil
-	}
+// Configuration persistence and shutdown completion have separate outcomes.
+func dispatchOpenModelPick(origin shutdownDecisionMsg, runtime, ggufPath string) tea.Cmd {
+	return dispatchShutdown(origin, "open runtime switched to "+runtime, &agentclient.ConfigUpdate{OpenRuntime: runtime, OpenDefaultModel: ggufPath})
 }
 
-// dispatchOpenRuntimeSwitch fires UpdateConfig(open_runtime=runtime), then asks
-// the agent to shut down so clients reconnect to a fresh process. Errors are
-// swallowed — config/status events and reconnect state surface outcomes via the
-// normal channels without a custom msg round-trip.
-func dispatchOpenRuntimeSwitch(ag *agentclient.Client, runtime string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := ag.UpdateConfig(ctx, agentclient.ConfigUpdate{OpenRuntime: runtime})
-		cancel()
-		if err == nil {
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer shutdownCancel()
-			_ = ag.ShutdownAgent(shutdownCtx, "open runtime switched to "+runtime)
-		}
-		return nil
-	}
+func dispatchOpenRuntimeSwitch(origin shutdownDecisionMsg, runtime string) tea.Cmd {
+	return dispatchShutdown(origin, "open runtime switched to "+runtime, &agentclient.ConfigUpdate{OpenRuntime: runtime})
 }
 
 // runtimeInstallStartedMsg is the first message emitted by

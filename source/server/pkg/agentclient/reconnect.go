@@ -352,7 +352,9 @@ func (c *Client) reconnect(ctx context.Context) error {
 			if !shouldRespawn(attempt) {
 				continue
 			}
-			if _, _, launchErr := ensureServerLaunched(ctx, c.addr, 8*time.Second); launchErr != nil {
+			if _, _, launchErr := c.launchReplacement(ctx, func() (string, bool, error) {
+				return ensureServerLaunched(ctx, c.addr, 8*time.Second)
+			}); launchErr != nil {
 				if errors.Is(launchErr, ErrCredentialIsolation) {
 					return launchErr
 				}
@@ -402,3 +404,17 @@ func (c *Client) writeConn(conn *grpcConn, agent proto.AgentClient) {
 // The actual type is *grpc.ClientConn, exposed via a type alias in
 // client.go where the grpc import already lives.
 type grpcConn = grpcConnAlias
+
+// A lost transport is never proof that a requested shutdown completed.
+// Keep redialing the existing host, but do not launch a replacement.
+func (c *Client) launchReplacement(ctx context.Context, launch func() (string, bool, error)) (string, bool, error) {
+	c.shutdownMu.Lock()
+	defer c.shutdownMu.Unlock()
+	if c.shutdownIncomplete {
+		return "", false, ErrShutdownIncomplete
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	return launch()
+}
