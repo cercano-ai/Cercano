@@ -6,6 +6,7 @@ package recap
 import (
 	"cercano/source/server/internal/usage"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -121,13 +122,21 @@ func (g *Generator) runRecap(parent context.Context, conversationID string, stri
 		fmt.Fprintf(os.Stderr, "[recap] complete failed for %s: %v\n", conversationID, err)
 		return err
 	}
+	if strict {
+		if err := ownedPersistenceOutcome(ctx); err != nil {
+			return err
+		}
+	}
 	line := firstLine(out, maxRecapChars)
 	if line == "" {
 		fmt.Fprintf(os.Stderr, "[recap] complete returned no usable line for %s (raw %d bytes)\n", conversationID, len(out))
 		return err
 	}
-	if err := g.store.UpdateRecap(ctx, conversationID, line); strict && err != nil {
-		return err
+	err = g.store.UpdateRecap(ctx, conversationID, line)
+	if strict {
+		if err := errors.Join(err, ownedPersistenceOutcome(ctx)); err != nil {
+			return err
+		}
 	}
 
 	// Derive a short session title from the fresh recap (next-tightest rung).
@@ -136,13 +145,18 @@ func (g *Generator) runRecap(parent context.Context, conversationID string, stri
 	if err != nil {
 		return err
 	}
+	if strict {
+		if err := ownedPersistenceOutcome(ctx); err != nil {
+			return err
+		}
+	}
 	title := firstLine(titleOut, maxTitleChars)
 	if title == "" {
 		return err
 	}
 	err = g.store.SetGeneratedTitle(ctx, conversationID, title)
 	if strict {
-		return err
+		return errors.Join(err, ownedPersistenceOutcome(ctx))
 	}
 	return nil
 }

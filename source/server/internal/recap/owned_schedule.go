@@ -21,6 +21,21 @@ type ScheduledWork struct {
 	Err    error // read only after Done closes
 }
 
+type persistenceOutcomeKey struct{}
+
+// WithPersistenceOutcome adapts legacy void persistence callbacks to owned work.
+// The observer is scoped to this admission; legacy Schedule ignores it.
+func WithPersistenceOutcome(ctx context.Context, outcome func() error) context.Context {
+	return context.WithValue(ctx, persistenceOutcomeKey{}, outcome)
+}
+
+func ownedPersistenceOutcome(ctx context.Context) error {
+	if outcome, ok := ctx.Value(persistenceOutcomeKey{}).(func() error); ok {
+		return outcome()
+	}
+	return nil
+}
+
 // ScheduleOwned is an opt-in counterpart to Schedule. Admission precedes the
 // timer; one ticket spans the delay, execution and both durable writes.
 // Recap retries only on the next explicit schedule, as in the legacy path.
