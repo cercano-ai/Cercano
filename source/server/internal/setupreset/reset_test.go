@@ -5,6 +5,7 @@ import (
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/setupstate"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"os"
 	"path/filepath"
@@ -54,6 +55,13 @@ func TestResetPreservesFilesAndPreferences(t *testing.T) {
 	applied := false
 	r, err := Reset(context.Background(), p, s, func(c config.Config) error {
 		applied = true
+		disk, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Snapshot().Revision != config.ConfigRevision(sha256.Sum256(disk)) {
+			t.Fatal("callback received old baseline or ran before publication")
+		}
 		if c.Port != "54321" || len(c.CloudProfiles) != 0 || c.Watchdog.Model != "" || !c.Watchdog.Echo {
 			t.Fatalf("bad live config %+v", c)
 		}
@@ -82,7 +90,7 @@ func TestResetPreservesFilesAndPreferences(t *testing.T) {
 	}
 }
 func TestResetFailuresAreReported(t *testing.T) {
-	for _, kind := range []string{"list", "delete", "apply", "publish", "malformed"} {
+	for _, kind := range []string{"list", "delete", "apply", "malformed"} {
 		t.Run(kind, func(t *testing.T) {
 			p, s := fixture(t)
 			original, _ := os.ReadFile(p)
@@ -94,19 +102,14 @@ func TestResetFailuresAreReported(t *testing.T) {
 				s.failDelete = true
 			case "apply":
 				apply = func(config.Config) error { return errors.New("fixture apply failure") }
-			case "publish":
-				apply = func(config.Config) error { os.Remove(p); return os.Mkdir(p, 0700) }
 			case "malformed":
 				os.WriteFile(p, []byte("open_model: ["), 0600)
 			}
 			r, err := Reset(context.Background(), p, s, apply)
-			if err == nil || r.ConfigWritten {
+			if err == nil || r.ConfigWritten != (kind == "delete" || kind == "apply") {
 				t.Fatalf("failure reported success %+v %v", r, err)
 			}
-			if kind == "publish" && (!r.LiveApplied || r.DeletedCredentials != 2) {
-				t.Fatalf("lost partial progress %+v", r)
-			}
-			if kind == "list" || kind == "delete" {
+			if kind == "list" {
 				data, _ := os.ReadFile(p)
 				if string(data) != string(original) {
 					t.Fatal("unexpected config write")

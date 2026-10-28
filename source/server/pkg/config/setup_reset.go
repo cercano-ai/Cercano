@@ -2,8 +2,11 @@ package config
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
+	"os"
 
 	"gopkg.in/yaml.v3"
 )
@@ -138,4 +141,37 @@ func resetSetupKey(dst, defaults *yaml.Node, key string) {
 	if value != nil {
 		dst.Content = append(dst.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
 	}
+}
+
+// SetupResetYAML prepares a reset from exactly this immutable disk baseline.
+// Only genuine absence admits an empty source; Read rejects existing empty files.
+func (s ConfigSnapshot) SetupResetYAML() ([]byte, error) {
+	return ResetSetupYAML(s.data)
+}
+
+// ResetSetup publishes an explicit developer-requested reset against its entire
+// expected baseline. It does not delete credentials or apply live configuration.
+// Unlike full Save, this preserves unrelated stored fields by design.
+func (s *ConfigCoordinator) ResetSetup(ctx context.Context, base ConfigSnapshot) (next ConfigSnapshot, err error) {
+	if err = s.checkBase(base); err != nil {
+		return
+	}
+	data, err := base.SetupResetYAML()
+	if err != nil {
+		return next, err
+	}
+	if _, err = configDocument(data); err != nil {
+		return next, err
+	}
+	err = s.locked(ctx, func(current []byte, mode os.FileMode) error {
+		if (current == nil) != base.absent || sha256.Sum256(current) != base.Revision {
+			return ErrConfigConflict
+		}
+		if err := s.publish(s.path, data, mode); err != nil {
+			return err
+		}
+		next = s.snapshot(data)
+		return nil
+	})
+	return
 }
