@@ -20,10 +20,10 @@ func (*developmentSyntheticProvider) Capabilities() inference.Capabilities {
 	return inference.Capabilities{}
 }
 func (*developmentSyntheticProvider) Chat(context.Context, inference.Call) (inference.Result, error) {
-	return inference.Result{}, errors.New("unexpected inference")
+	panic("unexpected inference")
 }
 func (*developmentSyntheticProvider) StreamChat(context.Context, inference.Call) (inference.Stream, error) {
-	return nil, errors.New("unexpected inference")
+	panic("unexpected inference")
 }
 
 func TestDevelopmentProductionProviderConstructor(t *testing.T) {
@@ -33,7 +33,7 @@ func TestDevelopmentProductionProviderConstructor(t *testing.T) {
 			fake := &developmentSyntheticProvider{}
 			calls, closed := 0, 0
 			sentinel := errors.New("constructor refused")
-			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, enabledDevelopmentFakes(t, developmentProductionDependencies{
 				openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
 				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 					return localruntime.NewManager(), func() error { closed++; return nil }, nil
@@ -45,12 +45,18 @@ func TestDevelopmentProductionProviderConstructor(t *testing.T) {
 					}
 					return fake, nil
 				},
-			})
+			}, developmentBoundaryCounts{opener: 1, runtime: 1, open: 1}))
 			if calls != 1 {
 				t.Fatalf("constructor calls %d", calls)
 			}
 			if fail {
-				if !errors.Is(err, sentinel) || cleanup != nil || closed != 1 {
+				// The constructor retains its completed rollback handle on failure.
+				if cleanup != nil {
+					if cleanupErr := cleanup.Wait(context.Background()); cleanupErr != nil {
+						t.Fatal(cleanupErr)
+					}
+				}
+				if !errors.Is(err, sentinel) || cleanup == nil || !cleanup.Status().Complete || closed != 1 {
 					t.Fatalf("error=%v cleanup=%v closed=%d", err, cleanup != nil, closed)
 				}
 				return
@@ -70,7 +76,7 @@ func TestDevelopmentProductionProviderConstructor(t *testing.T) {
 func TestDevelopmentProductionCloudOnlyWithoutRuntime(t *testing.T) {
 	o, auth := developmentProductionFixture(t)
 	// An intentionally unusable local runtime must be irrelevant to cloud-only.
-	snapshot := "open_runtime: unavailable\nlocus_mode: cloud_only\nactive_cloud_profile: cloud\ncloud_profiles:\n  - name: cloud\n    provider: openai\n    flavor: chat_completions\n    model: synthetic-model\n    base_url: http://127.0.0.1:1/v1\n"
+	snapshot := "worker_idle_timeout_seconds: -1\nopen_runtime: unavailable\nlocus_mode: cloud_only\nactive_cloud_profile: cloud\ncloud_profiles:\n  - name: cloud\n    provider: openai\n    flavor: chat_completions\n    model: synthetic-model\n    base_url: http://127.0.0.1:1/v1\n"
 	if err := os.WriteFile(filepath.Join(o.State, "config.yaml"), []byte(snapshot), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +84,7 @@ func TestDevelopmentProductionCloudOnlyWithoutRuntime(t *testing.T) {
 	if err := memory.Set("cloud", "synthetic-key"); err != nil {
 		t.Fatal(err)
 	}
-	srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+	srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, enabledDevelopmentFakes(t, developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { return memory, nil },
 		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 			t.Fatal("cloud-only entered runtime connector")
@@ -88,7 +94,7 @@ func TestDevelopmentProductionCloudOnlyWithoutRuntime(t *testing.T) {
 			t.Fatal("cloud-only constructed local provider")
 			return nil, nil
 		},
-	})
+	}, developmentBoundaryCounts{opener: 1, cloud: 1}))
 	if err != nil {
 		t.Fatal(err)
 	}

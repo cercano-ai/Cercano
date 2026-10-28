@@ -49,7 +49,7 @@ func developmentProductionFixture(t *testing.T) (developmentHostOptions, *devhos
 	if err := conversation.PrepareDevelopmentStore(context.Background(), filepath.Join(state, "conversations.db")); err != nil {
 		t.Fatal(err)
 	}
-	for p, body := range map[string]string{filepath.Join(state, "config.yaml"): "open_runtime: llama_server\nlocus_mode: open_only\n", filepath.Join(generation, "manifest.json"): "{\"test\":true}", filepath.Join(generation, "cercano"): "not executed"} {
+	for p, body := range map[string]string{filepath.Join(state, "config.yaml"): "worker_idle_timeout_seconds: -1\nopen_runtime: llama_server\nlocus_mode: open_only\n", filepath.Join(generation, "manifest.json"): "{\"test\":true}", filepath.Join(generation, "cercano"): "not executed"} {
 		if err := os.WriteFile(p, []byte(body), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -70,7 +70,7 @@ func TestDevelopmentProductionInjectedGraph(t *testing.T) {
 		t.Run(map[bool]string{false: "open", true: "cloud"}[cloud], func(t *testing.T) {
 			o, auth := developmentProductionFixture(t)
 			if cloud {
-				if err := os.WriteFile(filepath.Join(o.State, "config.yaml"), []byte("open_runtime: llama_server\nlocus_mode: cloud_only\nactive_cloud_profile: test-cloud\ncloud_profiles:\n  - name: test-cloud\n    provider: openai\n    flavor: chat_completions\n    model: test-model\n    base_url: http://127.0.0.1:1/v1\n"), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(o.State, "config.yaml"), []byte("worker_idle_timeout_seconds: -1\nopen_runtime: llama_server\nlocus_mode: cloud_only\nactive_cloud_profile: test-cloud\ncloud_profiles:\n  - name: test-cloud\n    provider: openai\n    flavor: chat_completions\n    model: test-model\n    base_url: http://127.0.0.1:1/v1\n"), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -82,13 +82,13 @@ func TestDevelopmentProductionInjectedGraph(t *testing.T) {
 			if err := memory.Set("test-cloud", "synthetic-not-a-credential"); err != nil {
 				t.Fatal(err)
 			}
-			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, enabledDevelopmentFakes(t, developmentProductionDependencies{
 				openSecrets: func() (secrets.Store, error) { opened++; return memory, nil },
 				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 					connected++
 					return localruntime.NewManager(), func() error { closed++; return nil }, nil
 				},
-			})
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -179,13 +179,13 @@ func TestDevelopmentProductionOpenerFailsOnceWithoutFallback(t *testing.T) {
 	o, auth := developmentProductionFixture(t)
 	calls := 0
 	sentinel := errors.New("injected opener failure")
-	_, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+	_, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, enabledDevelopmentFakes(t, developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { calls++; return nil, sentinel },
 		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 			t.Fatal("runtime entered after failed credentials")
 			return nil, nil, nil
 		},
-	})
+	}, developmentBoundaryCounts{opener: 1}))
 	if cleanup != nil {
 		_ = cleanup.Wait(context.Background())
 	}
@@ -207,8 +207,8 @@ func TestDevelopmentProductionRejectsUnsupportedSnapshotBeforeDependencies(t *te
 	for _, snapshot := range []string{
 		"open_runtime: ollama\nlocus_mode: open_only\n",
 		"open_runtime: inprocess\nlocus_mode: open_only\n",
-		"open_runtime: llama_server\nlocus_mode: invalid\n",
-		"open_runtime: llama_server\nlocus_mode: cloud_only\n",
+		"worker_idle_timeout_seconds: -1\nopen_runtime: llama_server\nlocus_mode: invalid\n",
+		"worker_idle_timeout_seconds: -1\nopen_runtime: llama_server\nlocus_mode: cloud_only\n",
 	} {
 		t.Run(strings.ReplaceAll(snapshot, "\n", "/"), func(t *testing.T) {
 			o, auth := developmentProductionFixture(t)
@@ -233,13 +233,13 @@ func TestDevelopmentProductionRuntimeErrorWithoutFallback(t *testing.T) {
 	o, auth := developmentProductionFixture(t)
 	calls := 0
 	sentinel := errors.New("protected modelhost unavailable")
-	_, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+	_, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, enabledDevelopmentFakes(t, developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
 		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 			calls++
 			return nil, nil, sentinel
 		},
-	})
+	}, developmentBoundaryCounts{opener: 1, runtime: 1}))
 	if cleanup != nil {
 		_ = cleanup.Wait(context.Background())
 	}
@@ -257,12 +257,10 @@ type failingDevelopmentAudit struct {
 func (a *failingDevelopmentAudit) Close() error { a.closes.Add(1); return a.err }
 
 func TestDevelopmentProductionCleanupShutdownError(t *testing.T) {
-	// Only the injected memory opener is allowed; no native backend is used.
-	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
 	for _, resourceFailure := range []bool{false, true} {
 		t.Run(map[bool]string{false: "shutdown-only", true: "joined-resource-error"}[resourceFailure], func(t *testing.T) {
 			o, auth := developmentProductionFixture(t)
-			if err := os.WriteFile(filepath.Join(o.State, "config.yaml"), []byte("open_runtime: llama_server\nlocus_mode: open_only\nwatchdog:\n  enabled: true\n  audit:\n    enabled: true\n"), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(o.State, "config.yaml"), []byte("worker_idle_timeout_seconds: -1\nopen_runtime: llama_server\nlocus_mode: open_only\nwatchdog:\n  enabled: true\n  audit:\n    enabled: true\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			sentinel := errors.New("audit close sentinel")
@@ -272,13 +270,13 @@ func TestDevelopmentProductionCleanupShutdownError(t *testing.T) {
 			}
 			audit := &failingDevelopmentAudit{err: sentinel}
 			closed := 0
-			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, enabledDevelopmentFakes(t, developmentProductionDependencies{
 				openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
 				watchdog:    server.WatchdogDependencies{OpenAudit: func(string) (watchdog.AuditLogger, error) { return audit, nil }},
 				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 					return localruntime.NewManager(), func() error { closed++; return runtimeErr }, nil
 				},
-			})
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}
