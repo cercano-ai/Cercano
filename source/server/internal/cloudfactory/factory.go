@@ -93,6 +93,14 @@ func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (
 		if p.Flavor == FlavorMessages && p.Name != "" && (p.Route == "" || p.Route == "direct") && opts[0].TokenSource == nil && opts[0].AnthropicTokenSource == nil {
 			return anthropic.NewClient(anthropic.Config{BaseURL: p.BaseURL, Model: p.Model, Route: p.Route, Credentials: opts[0].Credentials, CredentialProfile: p.Name, BaseTransport: opts[0].AnthropicBaseTransport}), nil
 		}
+		if p.Flavor == FlavorMessages && p.Name != "" && p.Route == RouteSubscription && opts[0].TokenSource == nil {
+			source, ok := opts[0].AnthropicTokenSource.(anthropic.SubscriptionCredentials)
+			if !ok || source.CredentialProfile() != p.Name {
+				return nil, fmt.Errorf("coordinated subscription source required")
+			}
+			// Keep subscription endpoint pinned to the SDK default, never profile BaseURL.
+			return anthropic.NewClient(anthropic.Config{Model: p.Model, Route: p.Route, TokenSource: opts[0].AnthropicTokenSource, Credentials: opts[0].Credentials, CredentialProfile: p.Name, BaseTransport: opts[0].AnthropicBaseTransport}), nil
+		}
 		subscription := false
 		if source, ok := opts[0].TokenSource.(responses.SubscriptionCredentials); ok {
 			subscription = p.Route == responses.RouteChatGPT && source.CredentialProfile() == p.Name

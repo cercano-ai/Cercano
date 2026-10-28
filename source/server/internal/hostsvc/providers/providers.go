@@ -151,6 +151,8 @@ type ComposableResolver interface {
 }
 
 type service struct {
+	// Invocation-local issuer override; nil retains production defaults.
+	anthropicFlow        *anthropicauth.Flow
 	cloudBuilder         CloudBuilder
 	rebuildAdmission     workadmission.Gate
 	rebuildMu            sync.Mutex
@@ -432,10 +434,11 @@ func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error
 	}
 	st := p.cfgSvc.Secrets()
 	coordinated := secrets.IsCoordinated(st)
-	// Static Responses/Messages and the revision-bearing ChatGPT source are
-	// integrated with coordinated admission. Other routes remain fail closed.
+	// Static Responses/Messages and matching revision-bearing subscription
+	// sources support coordinated admission. Other routes remain fail closed.
 	staticMessages := prof.Flavor == cloudfactory.FlavorMessages && (prof.Route == "" || prof.Route == "direct")
-	if coordinated && !staticMessages && (prof.Flavor != cloudfactory.FlavorResponses || (prof.Route != "" && prof.Route != cloudfactory.RouteChatGPT)) {
+	subscriptionMessages := prof.Flavor == cloudfactory.FlavorMessages && prof.Route == cloudfactory.RouteSubscription
+	if coordinated && !staticMessages && !subscriptionMessages && (prof.Flavor != cloudfactory.FlavorResponses || (prof.Route != "" && prof.Route != cloudfactory.RouteChatGPT)) {
 		return nil, fmt.Errorf("coordinated credential route unsupported")
 	}
 	key := ""
@@ -464,7 +467,11 @@ func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error
 		opts.TokenSource = p.cfgSvc.Credentials().ChatGPT(prof.Name, chatgptauth.Flow{})
 	}
 	if prof.Flavor == cloudfactory.FlavorMessages && prof.Route == cloudfactory.RouteSubscription {
-		opts.AnthropicTokenSource = p.cfgSvc.Credentials().Anthropic(prof.Name, anthropicauth.Flow{})
+		flow := anthropicauth.Flow{}
+		if p.anthropicFlow != nil {
+			flow = *p.anthropicFlow
+		}
+		opts.AnthropicTokenSource = p.cfgSvc.Credentials().Anthropic(prof.Name, flow)
 	}
 	build := p.cloudBuilder
 	if build == nil {

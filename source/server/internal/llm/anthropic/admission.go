@@ -1,11 +1,14 @@
 package anthropic
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"net/http"
 
+	"cercano/source/server/internal/anthropicauth"
 	"cercano/source/server/internal/modelpolicy"
+	"cercano/source/server/internal/secrets"
 )
 
 func messagesHTTPClient(cfg Config) *http.Client {
@@ -27,22 +30,55 @@ func messagesHTTPClient(cfg Config) *http.Client {
 	return h
 }
 
+type SubscriptionCredentials interface {
+	CredentialProfile() string
+	SubscriptionSnapshot(context.Context) (secrets.CredentialSnapshot, error)
+}
+
 type staticAttemptAuth struct{ cfg Config }
 
 func (a staticAttemptAuth) decorate(r *http.Request) error {
 	c := a.cfg
-	if c.CredentialProfile == "" || c.TokenSource != nil || (c.Route != "" && c.Route != routeDirect) {
+	if c.CredentialProfile == "" {
 		return errors.New("coordinated messages route unsupported")
 	}
-	s, err := c.Credentials.CredentialSnapshot(r.Context(), c.CredentialProfile)
+	var s secrets.CredentialSnapshot
+	var err error
+	var access string
+	switch {
+	case c.Route == RouteSubscription:
+		source, ok := c.TokenSource.(SubscriptionCredentials)
+		if !ok || source.CredentialProfile() != c.CredentialProfile {
+			return errors.New("coordinated subscription source required")
+		}
+		s, err = source.SubscriptionSnapshot(r.Context())
+		if err == nil {
+			var ts anthropicauth.TokenSet
+			ts, err = anthropicauth.DecodeTokenSet(s.Payload)
+			access = ts.Access
+			if err == nil && access == "" {
+				err = errors.New("empty subscription access token")
+			}
+		}
+	case (c.Route == "" || c.Route == routeDirect) && c.TokenSource == nil:
+		s, err = c.Credentials.CredentialSnapshot(r.Context(), c.CredentialProfile)
+		if err == nil && s.Payload == "" {
+			err = errors.New("empty coordinated messages key")
+		}
+	default:
+		return errors.New("coordinated messages route unsupported")
+	}
 	if err != nil {
 		return err
 	}
-	if s.Payload == "" {
-		return errors.New("empty coordinated messages key")
-	}
 	if err = c.Credentials.AdmitAttempt(r.Context(), c.CredentialProfile, s.Revision); err != nil {
 		return err
+	}
+	if c.Route == RouteSubscription {
+		r.Header.Del("X-Api-Key")
+		r.Header.Set("Authorization", "Bearer "+access)
+		r.Header.Set("anthropic-beta", oauthBetaHeader)
+		return nil
 	}
 	// SDK/environment auth must not survive alongside the admitted static key.
 	r.Header.Del("Authorization")

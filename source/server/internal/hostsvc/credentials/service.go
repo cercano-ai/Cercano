@@ -325,6 +325,42 @@ func (s *ChatGPTSource) CredentialProfile() string { return s.profile }
 
 // SubscriptionSnapshot is intentionally separate from the legacy raw Token
 // interface. Every attempt resolves atomic material and must admit its revision.
+func (s *AnthropicSource) SubscriptionSnapshot(ctx context.Context) (secrets.CredentialSnapshot, error) {
+	snapshot, err := s.service.CredentialSnapshot(ctx, s.profile)
+	if err != nil {
+		return secrets.CredentialSnapshot{}, err
+	}
+	ts, err := anthropicauth.DecodeTokenSet(snapshot.Payload)
+	if err != nil || ts.Access == "" {
+		return secrets.CredentialSnapshot{}, &llm.CredentialError{Class: llm.ErrCredential, Provider: "anthropic", Profile: s.profile, Method: llm.AuthSubscription, Reason: llm.CredentialMalformed}
+	}
+	if !ts.Expired(time.Now()) {
+		return snapshot, nil
+	}
+	if ts.Refresh == "" {
+		return secrets.CredentialSnapshot{}, &llm.CredentialError{Class: llm.ErrLoginRequired, Provider: "anthropic", Profile: s.profile, Method: llm.AuthSubscription, Reason: llm.CredentialExpired}
+	}
+	if err := s.flow.Options.CheckMutation(); err != nil {
+		return secrets.CredentialSnapshot{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, refreshTimeout)
+	defer cancel()
+	return s.service.RefreshSnapshot(ctx, s.profile, snapshot.Revision, func(ctx context.Context, payload string) (string, error) {
+		// The existing provider parser/issuer preserves identity fields.
+		// Its Save is staged only; durable pending is already published here.
+		t := &transaction{profile: s.profile, raw: payload}
+		if _, err := anthropicauth.NewSource(t, s.profile, s.flow).Token(ctx); err != nil {
+			return "", err
+		}
+		if t.staged == nil {
+			return "", ErrCoordination
+		}
+		return *t.staged, nil
+	})
+}
+
+// SubscriptionSnapshot is intentionally separate from the legacy raw Token
+// interface. Every attempt resolves atomic material and must admit its revision.
 func (s *ChatGPTSource) SubscriptionSnapshot(ctx context.Context) (secrets.CredentialSnapshot, error) {
 	snapshot, err := s.service.CredentialSnapshot(ctx, s.profile)
 	if err != nil {
