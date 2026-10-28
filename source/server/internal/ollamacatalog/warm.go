@@ -64,8 +64,8 @@ func (m *Manager) warmLoop(ctx context.Context, stop chan struct{}) {
 // WarmMissingEstimates makes one pass over the cached catalog and
 // resolves every estimate that is missing (or expired with a moved
 // digest). Returns how many estimates were newly resolved. Respects
-// ctx/stop between every network hit, so shutdown never waits on the
-// registry.
+// ctx/stop between every network hit. Fence is prompt; Stop joins any
+// resolution that already entered.
 func (m *Manager) WarmMissingEstimates(ctx context.Context, stop <-chan struct{}) int {
 	warmed := 0
 	for _, mod := range m.Models() {
@@ -79,10 +79,14 @@ func (m *Manager) WarmMissingEstimates(ctx context.Context, stop <-chan struct{}
 		if !m.shouldAttemptWarm(ref) {
 			continue
 		}
+		if !m.admission.Enter() {
+			return warmed
+		}
 		m.recordWarmAttempt(ref)
 		if _, err := m.ResolveEstimate(ctx, ref); err == nil {
 			warmed++
 		}
+		m.admission.Leave()
 		if !warmSleep(ctx, stop, m.warmThrottleInterval()) {
 			return warmed
 		}

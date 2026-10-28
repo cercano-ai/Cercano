@@ -16,6 +16,7 @@
 package ollamacatalog
 
 import (
+	"cercano/source/server/internal/workadmission"
 	"context"
 	"fmt"
 	"strings"
@@ -39,6 +40,8 @@ const defaultRefreshInterval = time.Hour
 // safe; the mutex protects the in-memory Cache pointer only, not the
 // on-disk file (which is protected by the atomic-write helper).
 type Manager struct {
+	admission workadmission.Gate
+	loops     sync.WaitGroup
 	fetcher   *Fetcher
 	cachePath string
 	ttl       time.Duration
@@ -49,7 +52,9 @@ type Manager struct {
 	// stopBg is closed by Stop() to signal the background refresher
 	// goroutine to exit. nil when the background refresher isn't
 	// running (the constructor doesn't start it — Start() does).
-	stopBg chan struct{}
+	scheduleMu sync.Mutex // never held across cache or network work
+	stopped    bool
+	stopBg     chan struct{}
 
 	// Estimate-warming state (see warm.go). warmAttempted tracks the
 	// last attempt per ref so failures back off instead of hammering
@@ -136,6 +141,10 @@ func (m *Manager) LoadCache() error {
 // Errors are returned to the caller AND the previous cache is preserved
 // so a failed refresh never breaks the served view.
 func (m *Manager) Refresh(ctx context.Context) error {
+	if !m.admission.Enter() {
+		return context.Canceled
+	}
+	defer m.admission.Leave()
 	// The Fetcher doesn't take a context yet — but if the caller's
 	// context is cancelled, they can bail from waiting. Actual fetch
 	// completion happens on the Fetcher's goroutine timing.
@@ -170,34 +179,33 @@ func (m *Manager) Refresh(ctx context.Context) error {
 // passed here is cancelled. Uses defaultRefreshInterval as the wake-up
 // cadence; if the cache is stale when the tick fires, it fetches.
 func (m *Manager) Start(ctx context.Context) {
-	m.mu.Lock()
-	if m.stopBg != nil {
-		m.mu.Unlock()
-		return // already started
+	m.scheduleMu.Lock()
+	defer m.scheduleMu.Unlock()
+	if m.stopped || m.stopBg != nil {
+		return
 	}
 	m.stopBg = make(chan struct{})
 	stop := m.stopBg
-	m.mu.Unlock()
-
-	go m.refresherLoop(ctx, stop)
-	go m.warmLoop(ctx, stop)
+	m.loops.Add(2)
+	go func() { defer m.loops.Done(); m.refresherLoop(ctx, stop) }()
+	go func() { defer m.loops.Done(); m.warmLoop(ctx, stop) }()
 }
 
-// Stop terminates the background refresher. Safe to call before
-// Start() (no-op) and multiple times.
-func (m *Manager) Stop() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.stopBg == nil {
+// Stop permanently fences this manager and joins all scheduled callbacks.
+func (m *Manager) Stop() { m.Fence(); m.loops.Wait(); m.admission.Wait() }
+
+// Fence stops scheduling without joining network or cache callbacks.
+func (m *Manager) Fence() {
+	m.admission.Fence()
+	m.scheduleMu.Lock()
+	defer m.scheduleMu.Unlock()
+	if m.stopped {
 		return
 	}
-	select {
-	case <-m.stopBg:
-		// already closed
-	default:
+	m.stopped = true
+	if m.stopBg != nil {
 		close(m.stopBg)
 	}
-	m.stopBg = nil
 }
 
 // refresherLoop is the background goroutine body. Wakes up at

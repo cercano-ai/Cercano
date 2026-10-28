@@ -8,6 +8,7 @@
 package permissions
 
 import (
+	"cercano/source/server/internal/workadmission"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -51,9 +52,10 @@ type Broker interface {
 
 // broker is the concrete implementation of Broker.
 type broker struct {
-	watchers sync.WaitGroup
-	store    *agent.PermissionStore
-	pending  *agent.PendingDecisions
+	watchAdmission workadmission.Gate
+	watchers       sync.WaitGroup
+	store          *agent.PermissionStore
+	pending        *agent.PendingDecisions
 
 	permBcastMu   sync.Mutex
 	lastBcastMode string
@@ -166,7 +168,10 @@ func (p *broker) StartWatcher(ctx context.Context, permsPath string) error {
 					continue // some other file in the dir
 				}
 				// Re-read the authoritative mode and broadcast (deduped).
-				p.broadcastMode(string(p.store.Mode()))
+				if p.watchAdmission.Enter() {
+					p.broadcastMode(string(p.store.Mode()))
+					p.watchAdmission.Leave()
+				}
 			case _, ok := <-w.Errors:
 				if !ok {
 					return
@@ -198,3 +203,5 @@ func (p *broker) broadcastMode(mode string) {
 
 // WaitForWatchers joins watchers after cancellation and after startup has returned.
 func (p *broker) WaitForWatchers() { p.watchers.Wait() }
+
+func (p *broker) FenceWatchers() { p.watchAdmission.Fence() }

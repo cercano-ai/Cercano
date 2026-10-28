@@ -347,14 +347,21 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		return "", nil, fmt.Errorf("%w; refusing to start agent without /history and /resume persistence", err)
 	}
 	fmt.Fprintf(os.Stderr, "Conversation store: %s\n", persistentStorePath)
+	var sweeper *retention.Sweeper
 	var cancelSweeper context.CancelFunc
 	var sweeperDone <-chan struct{}
 	var dataOnce sync.Once
 	closeData := func() {
 		dataOnce.Do(func() {
+			if sweeper != nil {
+				sweeper.Fence()
+			}
 			if cancelSweeper != nil {
 				cancelSweeper()
 				<-sweeperDone
+			}
+			if sweeper != nil {
+				sweeper.Wait()
 			}
 			if persistentStore != nil {
 				_ = persistentStore.Close()
@@ -494,7 +501,6 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	rollback = append(rollback, func() {
 		closeProducers()
 	})
-	var sweeper *retention.Sweeper
 	if persistentStore != nil {
 		sweeper = retention.New(persistentStore, retention.Config{
 			RawRetentionDays:       cfg.Compaction.Retention.RawRetentionDays,
@@ -527,6 +533,12 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	srv := server.NewServerWithLogs(orchestrator, lazyRouter, coordinator, cloudFactory, registry, lifecycle.routingLogPath, lifecycle.failureLogPath)
 	stopAdmission = func() {
 		gate.close()
+		if sweeper != nil {
+			sweeper.Fence()
+		}
+		if cancelSweeper != nil {
+			cancelSweeper()
+		}
 		srv.FenceBackgroundWork()
 		if recapGen != nil {
 			recapGen.Fence()
@@ -595,6 +607,8 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// the change to connected clients. Non-fatal: the SetPermissionMode RPC path
 	// still broadcasts, and the gate re-reads the file on every decision.
 	watchCtx, cancelWatchers := context.WithCancel(context.Background())
+	previousStopAdmission := stopAdmission
+	stopAdmission = func() { previousStopAdmission(); cancelWatchers() }
 	joinCallbacks = func() { cancelWatchers(); srv.BeginShutdown(); srv.WaitForWatchers() }
 	rollback = append(rollback, func() {
 		cancelWatchers()
@@ -778,9 +792,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		gate.drain()
 		srv.JoinBackgroundWork()
 		closeProducers()
+		closeCatalog()
 		closeMCP()
 		srv.Shutdown()
-		closeCatalog()
 		closeProducers()
 		closeData()
 		// Usage producers have stopped; drain before closing the database.

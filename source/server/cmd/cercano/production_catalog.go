@@ -80,7 +80,7 @@ func composeProductionCatalog(s *server.Server, a productionStartupAdmission, d 
 		return nil, fmt.Errorf("catalog factory returned nil registry")
 	}
 	s.SetCatalogRegistry(r)
-	// Stop signals this manager only; the existing manager does not join an
-	// already-running fetch. This is not a prepared retirement-readiness proof.
+	// Stop joins this invocation's refresh and warming callbacks.
+	// Prepared activation remains disabled.
 	return close, nil
 }

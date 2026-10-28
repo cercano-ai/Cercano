@@ -89,6 +89,20 @@ func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) erro
 // private-helper split keeps the watcher loop tiny and makes the apply path
 // testable.
 func (s *Server) reloadConfigFromDisk(ctx context.Context) {
+	s.runWatchCallback(func() { s.applyConfigFromDisk(ctx) })
+}
+
+// runWatchCallback is the entry boundary, not a cancellation pre-check: an
+// admitted callback retains its authority and is joined before disposal.
+func (s *Server) runWatchCallback(callback func()) {
+	if !s.watchAdmission.Enter() {
+		return
+	}
+	defer s.watchAdmission.Leave()
+	callback()
+}
+
+func (s *Server) applyConfigFromDisk(ctx context.Context) {
 	if s.coexistence != nil {
 		return
 	}
@@ -198,6 +212,10 @@ func (s *Server) reloadConfigFromDisk(ctx context.Context) {
 // Call only after all Start*Watcher calls have returned.
 func (s *Server) WaitForWatchers() {
 	s.configWatchers.Wait()
+	s.watchAdmission.Wait()
+	if p, ok := s.providerSvc.(interface{ WaitForRebuild() }); ok {
+		p.WaitForRebuild()
+	}
 	if w, ok := s.permBroker.(interface{ WaitForWatchers() }); ok {
 		w.WaitForWatchers()
 	}

@@ -14,6 +14,7 @@ import (
 	"cercano/source/server/internal/modelmetadata"
 	"cercano/source/server/internal/reasoningexperiment"
 	"cercano/source/server/internal/secrets"
+	"cercano/source/server/internal/workadmission"
 	"context"
 	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
 	"log"
@@ -150,6 +151,7 @@ type ComposableResolver interface {
 
 type service struct {
 	cloudBuilder         CloudBuilder
+	rebuildAdmission     workadmission.Gate
 	rebuildMu            sync.Mutex
 	cloudState           atomic.Pointer[cloudRoutingState]
 	openState            atomic.Pointer[providerSlot]
@@ -382,6 +384,10 @@ func (p *service) installAbsentCloud(reason string) {
 func (p *service) rebuildCloud() error {
 	p.rebuildMu.Lock()
 	defer p.rebuildMu.Unlock()
+	if !p.rebuildAdmission.Enter() {
+		return context.Canceled
+	}
+	defer p.rebuildAdmission.Leave()
 	c := p.cfgSvc.Get()
 	secondary, _ := profilechain.Build(c, cfg.DestinationSecondary, p.buildProfile, p.chainEvents(c, cfg.DestinationSecondary))
 	var cycleState *profilechain.CycleState
@@ -618,3 +624,7 @@ func (p *service) ResolveChatRoute(ctx context.Context, route chatroute.Route) (
 
 // SetCloudBuilder must be called during composition, before serving or rebuilding.
 func (p *service) SetCloudBuilder(build CloudBuilder) { p.cloudBuilder = build }
+
+// FenceRebuild rejects queued rebuilds after they acquire rebuildMu.
+func (p *service) FenceRebuild()   { p.rebuildAdmission.Fence() }
+func (p *service) WaitForRebuild() { p.rebuildAdmission.Wait() }

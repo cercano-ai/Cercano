@@ -5,6 +5,7 @@ import (
 	"cercano/source/server/internal/reasoningexperiment"
 	"cercano/source/server/internal/routingwire"
 	"cercano/source/server/internal/runtimecontrol"
+	"cercano/source/server/internal/workadmission"
 	"context"
 	"encoding/json"
 	"errors"
@@ -109,6 +110,7 @@ type McpManager interface {
 
 // Server is the gRPC server for the Agent service.
 type Server struct {
+	watchAdmission        workadmission.Gate
 	configWatchers        sync.WaitGroup
 	diagnosticClose       sync.Once
 	coexistence           *coexistenceLifecycle // explicit lifecycle-only opt-in; never enabled by NewServer

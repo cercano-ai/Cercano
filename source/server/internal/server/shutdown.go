@@ -104,6 +104,18 @@ func DrainThenStop(gs *grpc.Server, grace time.Duration) bool {
 // FenceBackgroundWork is nonblocking and retains existing callback authority.
 func (s *Server) FenceBackgroundWork() {
 	s.workFenced.Store(true)
+	s.watchAdmission.Fence()
+	if p, ok := s.providerSvc.(interface{ FenceRebuild() }); ok {
+		p.FenceRebuild()
+	}
+	if p, ok := s.permBroker.(interface{ FenceWatchers() }); ok {
+		p.FenceWatchers()
+	}
+	if s.providerSvc != nil {
+		if m := s.providerSvc.CatalogManager(); m != nil {
+			m.Fence()
+		}
+	}
 	if m := s.taskFenceTarget.Load(); m != nil {
 		m.Fence()
 	}
