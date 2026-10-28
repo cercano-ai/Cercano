@@ -2012,8 +2012,10 @@ func (x *UpdateConfigResponse) GetMessage() string {
 }
 
 type ShutdownAgentRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Reason string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Observation only; never initiates shutdown.
+	StatusOnly    bool `protobuf:"varint,2,opt,name=status_only,json=statusOnly,proto3" json:"status_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2055,12 +2057,22 @@ func (x *ShutdownAgentRequest) GetReason() string {
 	return ""
 }
 
+func (x *ShutdownAgentRequest) GetStatusOnly() bool {
+	if x != nil {
+		return x.StatusOnly
+	}
+	return false
+}
+
 type ShutdownAgentResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Accepted         bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Message          string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Complete         bool                   `protobuf:"varint,3,opt,name=complete,proto3" json:"complete,omitempty"`
+	Phase            string                 `protobuf:"bytes,4,opt,name=phase,proto3" json:"phase,omitempty"`
+	IncompleteReason string                 `protobuf:"bytes,5,opt,name=incomplete_reason,json=incompleteReason,proto3" json:"incomplete_reason,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ShutdownAgentResponse) Reset() {
@@ -2103,6 +2115,27 @@ func (x *ShutdownAgentResponse) GetAccepted() bool {
 func (x *ShutdownAgentResponse) GetMessage() string {
 	if x != nil {
 		return x.Message
+	}
+	return ""
+}
+
+func (x *ShutdownAgentResponse) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *ShutdownAgentResponse) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *ShutdownAgentResponse) GetIncompleteReason() string {
+	if x != nil {
+		return x.IncompleteReason
 	}
 	return ""
 }
@@ -21243,12 +21276,17 @@ const file_agent_proto_rawDesc = "" +
 	"\x1dagent_shutdown_on_last_client\x18\x1c \x01(\tR\x19agentShutdownOnLastClient\"J\n" +
 	"\x14UpdateConfigResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\".\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"O\n" +
 	"\x14ShutdownAgentRequest\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"M\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x1f\n" +
+	"\vstatus_only\x18\x02 \x01(\bR\n" +
+	"statusOnly\"\xac\x01\n" +
 	"\x15ShutdownAgentResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xb6\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1a\n" +
+	"\bcomplete\x18\x03 \x01(\bR\bcomplete\x12\x14\n" +
+	"\x05phase\x18\x04 \x01(\tR\x05phase\x12+\n" +
+	"\x11incomplete_reason\x18\x05 \x01(\tR\x10incompleteReason\"\xb6\x02\n" +
 	"\x16ProcessRequestResponse\x12\x16\n" +
 	"\x06output\x18\x01 \x01(\tR\x06output\x124\n" +
 	"\ffile_changes\x18\x02 \x03(\v2\x11.agent.FileChangeR\vfileChanges\x12A\n" +

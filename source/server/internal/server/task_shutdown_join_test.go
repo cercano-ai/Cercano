@@ -94,3 +94,24 @@ func TestTaskShutdownDeadlineRetainsCompletionJoin(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTaskShutdownPromptFenceDoesNotWaitForTaskLock(t *testing.T) {
+	s, _ := newTestServer()
+	s.taskRunMu.Lock()
+	done := make(chan struct{})
+	go func() { s.FenceBackgroundWork(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		s.taskRunMu.Unlock()
+		t.Fatal("fence waited for task lock")
+	}
+	s.taskRunMu.Unlock()
+	if s.ensureTaskManager() {
+		t.Fatal("manager admitted after fence")
+	}
+	s.notifyTaskChange("pending")
+	if len(s.taskWakePending) != 0 {
+		t.Fatal("completion scheduled after fence")
+	}
+}

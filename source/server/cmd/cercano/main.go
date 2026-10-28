@@ -525,7 +525,16 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	gate := newProductionAdmissionGate()
 	s := grpc.NewServer(append([]grpc.ServerOption{grpc.MaxRecvMsgSize(maxGRPCMessageBytes), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream)}, enterpriseHost.serverOptions()...)...)
 	srv := server.NewServerWithLogs(orchestrator, lazyRouter, coordinator, cloudFactory, registry, lifecycle.routingLogPath, lifecycle.failureLogPath)
-	stopAdmission = gate.close
+	stopAdmission = func() {
+		gate.close()
+		srv.FenceBackgroundWork()
+		if recapGen != nil {
+			recapGen.Fence()
+		}
+		if compGen != nil {
+			compGen.Fence()
+		}
+	}
 	srv.SetCloudProviderBuilder(lifecycle.cloudBuilder)
 	srv.SetWatchdogDependencies(lifecycle.watchdog)
 	rollback = append(rollback, func() {
@@ -586,7 +595,6 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// the change to connected clients. Non-fatal: the SetPermissionMode RPC path
 	// still broadcasts, and the gate re-reads the file on every decision.
 	watchCtx, cancelWatchers := context.WithCancel(context.Background())
-	stopAdmission = gate.close
 	joinCallbacks = func() { cancelWatchers(); srv.BeginShutdown(); srv.WaitForWatchers() }
 	rollback = append(rollback, func() {
 		cancelWatchers()
@@ -750,12 +758,6 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	enterpriseHost.register(s)
 
 	serveDone := make(chan struct{})
-	go func() {
-		defer close(serveDone)
-		if err := s.Serve(lis); err != nil {
-			log.Printf("gRPC server error: %v", err)
-		}
-	}()
 
 	cleanup := newProductionShutdown(stopAdmission, func() {
 		srv.BeginShutdown()
@@ -764,17 +766,18 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		<-cloudRebuildDone
 		defer restorePolicy()
 		defer enterpriseHost.Close()
-		// Runs after the body: srv.Shutdown has stopped in-process runtime
-		// instances and the producers that use them. For the shared model
-		// host, closing releases this agent's holds.
-		defer closeRuntime()
+		// Runtime holds are released below, after srv.Shutdown stops the
+		// instances and producers that use them.
+		// Keep the control transport open through runtime/resource disposal.
+		// Ordinary work has already been fenced and is joined below.
 		// Drain before teardown: in-flight turns still need the MCP manager
 		// and providers, so those stop only after the streams finish. The
 		// standing SubscribeEvents streams must end first or GracefulStop
 		// waits on attached clients forever.
 		srv.BeginShutdown()
-		s.GracefulStop()
-		<-serveDone
+		gate.drain()
+		srv.JoinBackgroundWork()
+		closeProducers()
 		closeMCP()
 		srv.Shutdown()
 		closeCatalog()
@@ -784,7 +787,21 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		if closeAgentTelemetry != nil {
 			closeAgentTelemetry()
 		}
+		closeRuntime()
+		// No ordinary callback can use the disposed graph. Status remains
+		// policy-checked until transport drainage; loss of transport is unknown,
+		// never remote proof that the final authority cleanup completed.
+		s.GracefulStop()
+		<-serveDone
 	})
+
+	srv.SetShutdownControl(cleanup.Control)
+	go func() {
+		defer close(serveDone)
+		if err := s.Serve(lis); err != nil {
+			log.Printf("gRPC server error: %v", err)
+		}
+	}()
 
 	started = true
 	return lis.Addr().String(), cleanup, nil
@@ -2052,10 +2069,13 @@ func runServerMode(cfg config.Config, admission productionStartupAdmission) {
 	// can distinguish a graceful stop from a mysterious disappearance.
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	sig := <-sigCh
-	fmt.Printf("Received %v — draining in-flight requests...\n", sig)
-	if crashWriter != nil {
-		crashWriter.LogSignal(sig.String(), map[string]any{"stage": "runServerMode", "graceful": true})
+	select {
+	case sig := <-sigCh:
+		fmt.Printf("Received %v — draining in-flight requests...\n", sig)
+		if crashWriter != nil {
+			crashWriter.LogSignal(sig.String(), map[string]any{"stage": "runServerMode", "graceful": true})
+		}
+	case <-cleanup.done:
 	}
 
 	retainUntilDisposed(cleanup)

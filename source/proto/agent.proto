@@ -551,11 +551,16 @@ message UpdateConfigResponse {
 
 message ShutdownAgentRequest {
   string reason = 1;
+  // Observation only; never initiates shutdown.
+  bool status_only = 2;
 }
 
 message ShutdownAgentResponse {
   bool accepted = 1;
   string message = 2;
+  bool complete = 3;
+  string phase = 4;
+  string incomplete_reason = 5;
 }
 
 // The response message for ProcessRequest.

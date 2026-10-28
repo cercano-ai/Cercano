@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"cercano/source/server/internal/agent"
@@ -29,6 +30,7 @@ type Store interface {
 
 // Generator debounces compaction per conversation.
 type Generator struct {
+	fenced      atomic.Bool
 	rootContext context.Context
 	cancelRoot  context.CancelFunc
 	closed      bool // guarded by mu
@@ -149,7 +151,7 @@ func (g *Generator) elisionOnly() (func(ctx context.Context, conversationID stri
 func (g *Generator) Schedule(conversationID string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.closed {
+	if g.fenced.Load() || g.closed {
 		return
 	}
 	if !g.enabled {

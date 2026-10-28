@@ -1975,6 +1975,9 @@ func (c *Client) ShutdownAgent(ctx context.Context, reason string) error {
 	if !resp.GetAccepted() {
 		return fmt.Errorf("agent shutdown rejected: %s", resp.GetMessage())
 	}
+	if !resp.GetComplete() {
+		return ErrShutdownIncomplete
+	}
 	return nil
 }
 
@@ -2980,3 +2983,23 @@ func decodeStreamResponse(msg *proto.StreamProcessResponse) *StreamMsg {
 	}
 	return nil
 }
+
+// ShutdownStatus observes without requesting shutdown. Accepted is not retirement.
+// A transport failure is unknown, never evidence of completion or safe replacement.
+func (c *Client) ShutdownStatus(ctx context.Context) (*proto.ShutdownAgentResponse, error) {
+	if c.agent == nil {
+		return nil, errors.New("agent client is not connected")
+	}
+	return c.agent.ShutdownAgent(ctx, &proto.ShutdownAgentRequest{StatusOnly: true})
+}
+
+// RequestShutdown exposes the lifecycle outcome instead of treating acceptance as completion.
+func (c *Client) RequestShutdown(ctx context.Context, reason string) (*proto.ShutdownAgentResponse, error) {
+	if c.agent == nil {
+		return nil, errors.New("agent client is not connected")
+	}
+	return c.agent.ShutdownAgent(ctx, &proto.ShutdownAgentRequest{Reason: reason})
+}
+
+// ErrShutdownIncomplete means acceptance only: do not replace the host on timeout.
+var ErrShutdownIncomplete = errors.New("agent shutdown accepted but incomplete; replacement not authorized")

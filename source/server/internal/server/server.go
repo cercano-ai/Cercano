@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -206,6 +207,9 @@ type Server struct {
 	// at NewServer time) and lives for the server's lifetime, independent of
 	// any turn. Closed in Shutdown, before the persistence store goes down;
 	// unfinished executions are then reconciled at the next start.
+	workFenced              atomic.Bool
+	taskFenceTarget         atomic.Pointer[taskrun.Manager]
+	shutdownControl         func(bool) *proto.ShutdownAgentResponse
 	taskRunMu               sync.RWMutex
 	taskManager             *taskrun.Manager
 	ownedTaskWakes          map[broker.Owner][]*ownedCompletionWake
@@ -625,7 +629,7 @@ func (s *Server) Shutdown() {
 func (s *Server) ensureTaskManager() bool {
 	s.taskRunMu.Lock()
 	defer s.taskRunMu.Unlock()
-	if s.taskManagerClosed {
+	if s.workFenced.Load() || s.taskManagerClosed {
 		return false
 	}
 	if s.taskManager != nil {
@@ -659,6 +663,11 @@ func (s *Server) ensureTaskManager() bool {
 	// completion must never observe a live manager without a wake context.
 	s.taskWakeCtx, s.taskWakeCancel = context.WithCancel(context.Background())
 	s.taskManager = m
+	s.taskFenceTarget.Store(m)
+	if s.workFenced.Load() {
+		m.Fence()
+		return false
+	}
 	return true
 }
 
@@ -712,7 +721,7 @@ func (s *Server) taskRunManager() *taskrun.Manager {
 // a safe boundary or schedules another attempt when its current turn releases.
 func (s *Server) notifyTaskChange(parent string) {
 	s.taskRunMu.Lock()
-	if parent == "" || s.taskManagerClosed || s.taskManager == nil || s.taskWakeCtx == nil {
+	if s.workFenced.Load() || parent == "" || s.taskManagerClosed || s.taskManager == nil || s.taskWakeCtx == nil {
 		s.taskRunMu.Unlock()
 		return
 	}
@@ -732,7 +741,7 @@ func (s *Server) notifyTaskChange(parent string) {
 		defer s.taskWakeWG.Done()
 		for {
 			s.taskRunMu.Lock()
-			if s.taskManagerClosed || !s.taskWakePending[parent] {
+			if s.workFenced.Load() || s.taskManagerClosed || !s.taskWakePending[parent] {
 				delete(s.taskWakePending, parent)
 				s.taskRunMu.Unlock()
 				return
@@ -2255,6 +2264,12 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 // alone would only close the event streams — kicking clients off while the
 // process (and its runtime children) kept running.
 func (s *Server) ShutdownAgent(ctx context.Context, req *proto.ShutdownAgentRequest) (*proto.ShutdownAgentResponse, error) {
+	if s.shutdownControl != nil {
+		return s.shutdownControl(req.GetStatusOnly()), nil
+	}
+	if req.GetStatusOnly() {
+		return &proto.ShutdownAgentResponse{Phase: "unsupported", IncompleteReason: "lifecycle status unavailable"}, nil
+	}
 	reason := strings.TrimSpace(req.GetReason())
 	if reason == "" {
 		reason = "client-requested restart"

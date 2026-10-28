@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"cercano/source/server/internal/conversation"
@@ -35,6 +36,7 @@ const (
 
 // Generator debounces recap regeneration per conversation.
 type Generator struct {
+	fenced      atomic.Bool
 	rootContext context.Context
 	cancelRoot  context.CancelFunc
 	closed      bool // guarded by mu
@@ -71,7 +73,7 @@ func New(store Store, complete CompleteFunc, debounce time.Duration, maxTurns in
 func (g *Generator) Schedule(conversationID string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.closed {
+	if g.fenced.Load() || g.closed {
 		return
 	}
 	if t, ok := g.timers[conversationID]; ok {

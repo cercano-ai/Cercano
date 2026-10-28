@@ -96,7 +96,7 @@ func (g *Generator) ScheduleOwned(parent context.Context, owner broker.Owner, be
 			g.mu.Lock()
 			enabled := g.enabled
 			g.mu.Unlock()
-			if !enabled {
+			if g.fenced.Load() || !enabled {
 				return
 			}
 			if err := ticket.Advance(broker.PersistenceWork); err != nil {

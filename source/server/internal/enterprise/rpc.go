@@ -130,11 +130,14 @@ func inferenceRPC(method string) bool {
 }
 func (h *Host) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if !inferenceRPC(info.FullMethod) {
+		if !inferenceRPC(info.FullMethod) && info.FullMethod != proto.Agent_ShutdownAgent_FullMethodName {
 			return handler(ctx, req)
 		}
 		scoped, finish, err := h.Begin(ctx)
 		if err != nil {
+			if info.FullMethod == proto.Agent_ShutdownAgent_FullMethodName {
+				return nil, status.Error(codes.PermissionDenied, "shutdown control denied")
+			}
 			return nil, status.Error(codes.PermissionDenied, err.Error())
 		}
 		defer finish()

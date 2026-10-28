@@ -6,7 +6,7 @@ import "context"
 // generator shutdown both reach the callback without replacing its metadata.
 func (g *Generator) startWork(parent context.Context) (context.Context, func(), bool) {
 	g.mu.Lock()
-	if g.closed {
+	if g.fenced.Load() || g.closed {
 		g.mu.Unlock()
 		return nil, nil, false
 	}
@@ -40,3 +40,6 @@ func (g *Generator) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
+// Fence rejects queued/new work without cancelling active callbacks.
+func (g *Generator) Fence() { g.fenced.Store(true) }

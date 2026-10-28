@@ -1,17 +1,20 @@
 package main
 
 import (
+	"cercano/source/server/pkg/proto"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // productionShutdown is invocation-local. Incomplete never means retired and
 // never authorizes replacement. Done closes only after dependency disposal.
 type productionShutdown struct {
-	once    sync.Once
-	done    chan struct{}
-	stop    func()
-	dispose func()
+	requested atomic.Bool
+	once      sync.Once
+	done      chan struct{}
+	stop      func()
+	dispose   func()
 }
 type productionShutdownStatus struct{ Complete bool }
 
@@ -29,7 +32,7 @@ func (s *productionShutdown) Status() productionShutdownStatus {
 	}
 }
 func (s *productionShutdown) Shutdown() productionShutdownStatus {
-	s.once.Do(func() { s.stop(); go func() { s.dispose(); close(s.done) }() })
+	s.Request()
 	timer := time.NewTimer(100 * time.Millisecond)
 	defer timer.Stop()
 	select {
@@ -46,4 +49,24 @@ func retainUntilDisposed(s *productionShutdown) {
 		println("Shutdown incomplete: callbacks/resources retained; replacement not authorized")
 		<-s.done
 	}
+}
+
+// Request fences synchronously; acknowledgement never implies completion.
+func (s *productionShutdown) Request() {
+	s.once.Do(func() { s.stop(); s.requested.Store(true); go func() { s.dispose(); close(s.done) }() })
+}
+func (s *productionShutdown) Control(observe bool) *proto.ShutdownAgentResponse {
+	if !observe {
+		s.Request()
+	}
+	r := &proto.ShutdownAgentResponse{Accepted: s.requested.Load(), Complete: s.Status().Complete, Phase: "running"}
+	if r.Accepted {
+		r.Phase = "draining"
+		r.IncompleteReason = "callbacks or resource disposal pending"
+	}
+	if r.Complete {
+		r.Phase = "complete"
+		r.IncompleteReason = ""
+	}
+	return r
 }
