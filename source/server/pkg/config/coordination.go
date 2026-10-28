@@ -161,6 +161,9 @@ func (s *ConfigCoordinator) Save(ctx context.Context, base ConfigSnapshot, cfg C
 	if err != nil {
 		return next, err
 	}
+	if _, err := configDocument(data); err != nil {
+		return next, err
+	}
 	err = s.locked(ctx, func(current []byte, mode os.FileMode) error {
 		if sha256.Sum256(current) != base.Revision {
 			return ErrConfigConflict
@@ -213,12 +216,20 @@ func (s *ConfigCoordinator) Change(ctx context.Context, base ConfigSnapshot, cha
 		if err != nil {
 			return err
 		}
+		currentDoc, err := configDocument(current)
+		if err != nil {
+			return err
+		}
+		baseCandidate, err := configDocument(base.data)
+		if err != nil {
+			return err
+		}
 		for _, c := range changes {
 			old, err := fieldNode(original.Content[0], c.Path)
 			if err != nil {
 				return err
 			}
-			now, err := fieldNode(doc.Content[0], c.Path)
+			now, err := fieldNode(currentDoc.Content[0], c.Path)
 			if err != nil {
 				return err
 			}
@@ -237,6 +248,18 @@ func (s *ConfigCoordinator) Change(ctx context.Context, base ConfigSnapshot, cha
 				}
 				value = v.Content[0]
 			}
+			// Decode replacements separately: the two graphs must not share nodes.
+			var baseValue *yaml.Node
+			if !c.Delete {
+				var v yaml.Node
+				if err := yaml.Unmarshal(c.YAML, &v); err != nil {
+					return err
+				}
+				baseValue = v.Content[0]
+			}
+			if err := setConfigNode(baseCandidate.Content[0], c.Path, baseValue); err != nil {
+				return err
+			}
 			if err := setConfigNode(doc.Content[0], c.Path, value); err != nil {
 				return err
 			}
@@ -247,6 +270,17 @@ func (s *ConfigCoordinator) Change(ctx context.Context, base ConfigSnapshot, cha
 		}
 		validated, err := configDocument(data)
 		if err != nil {
+			return err
+		}
+		baseData, err := yaml.Marshal(baseCandidate)
+		if err != nil {
+			return err
+		}
+		baseResult, err := configDocument(baseData)
+		if err != nil {
+			return err
+		}
+		if err := configEffectConflict(original, currentDoc, baseResult, validated); err != nil {
 			return err
 		}
 		var candidate Config
@@ -277,6 +311,12 @@ func configDocument(data []byte) (*yaml.Node, error) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return nil, errors.New("multiple configuration documents")
 	}
+	// Decode all fields, including unknown ones, to guard cyclic aliases and
+	// excessive expansion before any traversal or publication.
+	var semantic any
+	if err := doc.Decode(&semantic); err != nil {
+		return nil, errors.New("invalid configuration YAML values")
+	}
 	c := Defaults()
 	if err := doc.Decode(&c); err != nil {
 		return nil, errors.New("invalid configuration fields")
@@ -293,6 +333,11 @@ func fieldNode(node *yaml.Node, path []string) (*yaml.Node, error) {
 	}
 	if node == nil {
 		return nil, nil
+	}
+	var err error
+	node, err = resolveConfigAlias(node)
+	if err != nil {
+		return nil, err
 	}
 	if node.Kind != yaml.MappingNode {
 		return nil, errors.New("configuration path crosses non-mapping value")
@@ -313,11 +358,83 @@ func equalConfigNode(a, b *yaml.Node) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	x, _ := yaml.Marshal(a)
-	y, _ := yaml.Marshal(b)
-	return bytes.Equal(x, y)
+	var x, y any
+	if a.Decode(&x) != nil || b.Decode(&y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }
+
+func resolveConfigAlias(node *yaml.Node) (*yaml.Node, error) {
+	seen := map[*yaml.Node]bool{}
+	for node != nil && node.Kind == yaml.AliasNode {
+		if seen[node] {
+			return nil, errors.New("cyclic configuration alias")
+		}
+		seen[node] = true
+		node = node.Alias
+	}
+	if node == nil {
+		return nil, errors.New("invalid configuration alias")
+	}
+	return node, nil
+}
+
+// Include effects in BOTH graphs: a concurrent edit may have detached an alias
+// from its anchor, hiding the downstream write in the current graph alone.
+func configEffectConflict(base, current, baseResult, result *yaml.Node) error {
+	values := make([]any, 4)
+	for i, n := range []*yaml.Node{base, current, baseResult, result} {
+		if err := n.Decode(&values[i]); err != nil {
+			return errors.New("invalid configuration YAML values")
+		}
+	}
+	var conflict func(any, any, any, any) bool
+	conflict = func(b, c, br, r any) bool {
+		if reflect.DeepEqual(b, c) {
+			return false
+		}
+		bm, bok := b.(map[string]any)
+		cm, cok := c.(map[string]any)
+		brm, brok := br.(map[string]any)
+		rm, rok := r.(map[string]any)
+		if bok && cok && brok && rok {
+			keys := map[string]bool{}
+			for _, m := range []map[string]any{bm, cm, brm, rm} {
+				for k := range m {
+					keys[k] = true
+				}
+			}
+			for k := range keys {
+				bv, bp := bm[k]
+				cv, cp := cm[k]
+				brv, brp := brm[k]
+				rv, rp := rm[k]
+				if bp != brp || cp != rp || bp != cp {
+					changed := bp != brp || cp != rp || !reflect.DeepEqual(bv, brv) || !reflect.DeepEqual(cv, rv)
+					if changed && (bp != cp || !reflect.DeepEqual(bv, cv)) {
+						return true
+					}
+				} else if conflict(bv, cv, brv, rv) {
+					return true
+				}
+			}
+			return false
+		}
+		return !reflect.DeepEqual(b, br) || !reflect.DeepEqual(c, r)
+	}
+	if conflict(values[0], values[1], values[2], values[3]) {
+		return ErrConfigConflict
+	}
+	return nil
+}
+
 func setConfigNode(node *yaml.Node, path []string, value *yaml.Node) error {
+	var err error
+	node, err = resolveConfigAlias(node)
+	if err != nil {
+		return err
+	}
 	if node.Kind != yaml.MappingNode {
 		return errors.New("configuration path crosses non-mapping value")
 	}
