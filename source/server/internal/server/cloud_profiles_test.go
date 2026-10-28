@@ -12,6 +12,8 @@ import (
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/cloudfactory"
+	"cercano/source/server/internal/inference"
+	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
@@ -249,34 +251,86 @@ func TestRebuildCloudKeylessGoesAbsent(t *testing.T) {
 	}
 }
 
-// TestRebuildCloudKeylessBaseURLCarveout verifies Fix 1's proxy carve-out: when
-// BaseURL is set (proxy/Meridian handles auth), an empty key is acceptable and
-// the profile proceeds to BuildCloudProvider rather than going absent.
+// TestRebuildCloudKeylessBaseURLCarveout permits a keyless local proxy, but
+// still rejects a direct vendor endpoint without a key. Admission must reject
+// both before reading secrets or invoking the builder when policy is disabled.
 func TestRebuildCloudKeylessBaseURLCarveout(t *testing.T) {
-	s, r := newTestServer()
-	// Add a messages profile with a BaseURL but no key.
-	proxyProfile := config.CloudProfile{
-		Name:    "proxy-one",
-		Flavor:  cloudfactory.FlavorMessages,
-		Model:   "claude-3-5-haiku-20241022",
-		BaseURL: "http://proxy.example.com",
-	}
-	s.cfgSvc.Mutate(func(c *config.Config) {
-		c.CloudProfiles = append(c.CloudProfiles, proxyProfile)
-		c.ActiveCloudProfile = "proxy-one"
-	})
-	// No key stored — but BaseURL is set, so guard must not trigger.
+	for _, tc := range []struct {
+		name    string
+		baseURL string
+		allowed bool
+	}{
+		{name: "local proxy", baseURL: "http://127.0.0.1:3456", allowed: true},
+		{name: "remote vendor", baseURL: "https://api.anthropic.com", allowed: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+			s, r := newTestServer()
+			profile := config.CloudProfile{
+				Name: "keyless", Flavor: cloudfactory.FlavorMessages, Route: "direct",
+				Model: "claude-3-5-haiku-20241022", BaseURL: tc.baseURL,
+			}
+			s.cfgSvc.Set(config.Config{
+				ActiveCloudProfile: profile.Name,
+				CloudProfiles:      []config.CloudProfile{profile},
+			})
+			// Reuse the graph-only fake, but not allowMemoryGraphFixture: that
+			// helper seeds keys, whereas this fixture must remain keyless.
+			store := &graphFixtureSecrets{Store: secrets.NewMemory()}
+			s.cfgSvc.SetSecrets(store)
+			builds := 0
+			s.SetCloudProviderBuilder(func(got config.CloudProfile, key string, _ ...cloudfactory.Options) (inference.Provider, error) {
+				builds++
+				if got.Name != profile.Name || key != "" {
+					t.Fatalf("unexpected build: profile=%q key empty=%t", got.Name, key == "")
+				}
+				return &graphFixtureProvider{}, nil // panics on inference
+			})
+			assertAbsent := func() {
+				t.Helper()
+				if s.CloudLLMProvider() != nil {
+					t.Error("cloud provider should be absent")
+				}
+				if _, ok := r.last.(*agent.AbsentCloudProvider); !ok {
+					t.Errorf("router should hold AbsentCloudProvider, got %T", r.last)
+				}
+			}
+			if err := s.rebuildCloud(); !errors.Is(err, secrets.ErrDisabled) {
+				t.Fatalf("disabled rebuild: %v", err)
+			}
+			if builds != 0 || store.reads.Load() != 0 {
+				t.Fatalf("disabled dependencies: builds=%d reads=%d", builds, store.reads.Load())
+			}
+			assertAbsent()
 
-	err := s.rebuildCloud()
-	if err != nil {
-		t.Fatalf("rebuildCloud with BaseURL but no key should not go absent: %v", err)
-	}
-	if s.CloudLLMProvider() == nil {
-		t.Error("cloudLLMProvider should be non-nil when BaseURL carve-out applies")
-	}
-	// Router should hold a real provider, not AbsentCloudProvider.
-	if _, ok := r.last.(*agent.AbsentCloudProvider); ok {
-		t.Error("router should NOT hold AbsentCloudProvider when BaseURL carve-out applies")
+			// All dependencies are now memory/fake; no token-source routes,
+			// native opener, transport, inference or child process is involved.
+			credentialtest.Enable(t)
+			err := s.rebuildCloud()
+			if tc.allowed {
+				if err != nil {
+					t.Fatalf("keyless local proxy rebuild: %v", err)
+				}
+				if builds != 1 || s.CloudLLMProvider() == nil || r.last == nil {
+					t.Fatalf("local proxy not published: builds=%d provider=%T router=%T", builds, s.CloudLLMProvider(), r.last)
+				}
+				if _, ok := r.last.(*agent.AbsentCloudProvider); ok {
+					t.Error("local proxy router should not be absent")
+				}
+			} else {
+				var credentialErr *llm.CredentialError
+				if !errors.As(err, &credentialErr) || credentialErr.Reason != llm.CredentialMissing {
+					t.Fatalf("remote missing-key error: %v", err)
+				}
+				if builds != 0 {
+					t.Fatalf("remote missing key invoked builder %d times", builds)
+				}
+				assertAbsent()
+			}
+			if store.reads.Load() != 1 {
+				t.Fatalf("enabled memory reads=%d, want 1", store.reads.Load())
+			}
+		})
 	}
 }
 
