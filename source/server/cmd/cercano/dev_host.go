@@ -222,6 +222,7 @@ func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (resul
 	if err != nil {
 		return err
 	}
+	var constructorRollback func() error
 	resources := newPreparedShutdown(nil, remote.Close)
 	var srvOwned *server.Server
 	var transport *grpc.Server
@@ -243,6 +244,9 @@ func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (resul
 			srvOwned.Shutdown()
 		}
 		err := resources.Wait(context.Background())
+		if constructorRollback != nil {
+			err = errors.Join(err, constructorRollback())
+		}
 		if srvOwned != nil {
 			err = errors.Join(err, srvOwned.CloseCoexistenceStore())
 		}
@@ -256,6 +260,7 @@ func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (resul
 	// An in-memory rejecting boundary: no native credential opener is invoked.
 	secretStore := secrets.Guard(secrets.NewMemory(), secrets.Options{ReadOnly: true})
 	srv, err := server.NewPreparedDurableServer(ctx, server.PreparedServerOptions{
+		RetainFailure: func(dispose func() error) { constructorRollback = dispose },
 		Coexistence: server.CoexistenceOptions{StorePath: database, Build: manifest.Build, Host: *host, Contract: contract,
 			ControlAuthorize: auth.Authorize,
 			ControlDial: func(ctx context.Context, endpoint string) (*grpc.ClientConn, error) {
