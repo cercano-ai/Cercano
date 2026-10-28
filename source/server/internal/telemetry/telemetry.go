@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -158,11 +157,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
-	if err := createTables(db); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := migrateSchema(db); err != nil {
+	if err := initializeLegacySchema(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -170,8 +165,8 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	return &SQLiteStore{db: db}, nil
 }
 
-func createTables(db *sql.DB) error {
-	_, err := db.Exec(`
+func createTables(db schemaConnection) error {
+	_, err := db.ExecContext(context.Background(), `
 		CREATE TABLE IF NOT EXISTS events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			timestamp DATETIME NOT NULL,
@@ -203,29 +198,6 @@ func createTables(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to create telemetry tables: %w", err)
 	}
-	return nil
-}
-
-// migrateSchema adds columns that may be missing from older databases.
-func migrateSchema(db *sql.DB) error {
-	// Add token_saving column if it doesn't exist
-	_, err := db.Exec(`ALTER TABLE events ADD COLUMN token_saving BOOLEAN NOT NULL DEFAULT 1`)
-	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
-		// non-fatal, proceed anyway
-	}
-
-	// Add session_id column if it doesn't exist
-	_, err = db.Exec(`ALTER TABLE events ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`)
-	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
-		// non-fatal, proceed anyway
-	}
-
-	// Add content_tokens_avoided column if it doesn't exist
-	_, err = db.Exec(`ALTER TABLE events ADD COLUMN content_tokens_avoided INTEGER NOT NULL DEFAULT 0`)
-	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
-		// non-fatal, proceed anyway
-	}
-
 	return nil
 }
 

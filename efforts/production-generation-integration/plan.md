@@ -20,7 +20,7 @@ Objective: make generation lifecycle a policy of the existing full application, 
   - [ ] Require compatibility preflight before any schema, persistent-setting, credential-migration or task-reconciliation side effect
 - [~] Provide invocation-local test seams for credential stores, issuer/provider transports, runtime managers, MCP and enterprise fixtures without altering the production graph
 - [~] Add native-opener traps and child-environment checks before enabling any credential-dependent test scope; verify enabled fake positive controls without calling a native backend
-- [ ] Establish private short runtime roots, bounded subprocess lifetimes and owned-child-only cleanup for all acceptance harnesses
+- [~] Establish private short runtime roots, bounded subprocess lifetimes and owned-child-only cleanup for all acceptance harnesses
 - [~] Demonstrate equivalent service registration and explicit failure handling for both composition modes; retain existing startup behavior until subsequent gates pass
 
 ## Phase 2 — Complete ownership-aware foreground, descendant and background execution
@@ -30,7 +30,7 @@ Objective: preserve ordinary execution features under exact conversation ownersh
 - [ ] Integrate exact host/epoch authority into every ordinary request and administrative mutation, including history actions and permission callbacks
 - [ ] Complete nested subagent acquisition, parent/child persistence and event/completion authority without single-level dispatch restrictions
 - [ ] Carry work tickets and authority through worker calls, task acceptance, context replacement, queued outcomes, callback execution and notification acknowledgement
-- [-] Restore recap, compaction, metering, rollover and related background producers with counted timers/retries, cancellation/drain and ownership-bearing contexts
+- [~] Restore recap, compaction, metering, rollover and related background producers with counted timers/retries, cancellation/drain and ownership-bearing contexts
 - [ ] Coordinate global maintenance and retention without broad startup reconciliation or mutation of another live owner's active records
 - [ ] Ensure write failures, rejected transitions and panics suppress dependent success publication and retain unresolved readiness blockers
 - [ ] Verify transfer and retirement account for queued work, descendant work, timers and persistence; no transaction spans inference, tool or network execution
@@ -70,7 +70,7 @@ Objective: preserve ordinary MCP, enterprise and runtime/model functionality whi
 
 Objective: retain production maintenance and observability without stale writes or data loss. Files: internal/telemetry, catalog, watchdog, taskmodel, research, diagnostic writers and startup/shutdown composition. Tests: concurrent opens/writes, schema faults, collector drain and file conflict cases.
 
-- [ ] Install ordinary telemetry/accounting and verify compatible schema opening, strict migration error propagation, revision-based deduplication and retirement drainage
+- [~] Install ordinary telemetry/accounting and verify compatible schema opening, strict migration error propagation, revision-based deduplication and retirement drainage
 - [ ] Test simultaneous host accounting, retry, consumer refresh and any retention interaction without losing acknowledged usage
 - [ ] Restore catalog refresh, watchdog and provider rebuilding with counted lifecycle work and safe cancellation
 - [ ] Preserve authoritative model/catalog paths and distinguish reconstructible caches from retained history, telemetry and downloaded assets
