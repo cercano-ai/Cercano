@@ -1,6 +1,6 @@
 # Full production Cercano with safe generation coexistence
 
-Specification approved 2026-10-27; this execution plan awaits separate approval. Completion means ordinary Cercano retains its existing functionality and data while gaining safe generation coexistence. A successful new-host launch, a reduced command set or a synthetic lifecycle demonstration alone is not completion.
+Specification and execution plan approved 2026-10-27; execution is in progress. Checkbox status and recorded verification—not approval—establish completion. Completion means ordinary Cercano retains its existing functionality and data while gaining safe generation coexistence. A successful new-host launch, a reduced command set or a synthetic lifecycle demonstration alone is not completion.
 
 Execution approval covers implementation, isolated regression and acceptance, and migration rehearsals on disposable working copies of the already-authorized backups. Preserve the retained backup originals. It does not authorize live migration, installed-launcher replacement, native credential access, real-provider spending, stopping existing processes, push or release publication. Test-owned children may be started and cleaned up within isolated fixtures; never target existing user processes. Live cutover tasks remain blocked on specific later authorization even if this entire plan is approved.
 
