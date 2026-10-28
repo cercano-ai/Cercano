@@ -2,7 +2,9 @@ package server
 
 import (
 	"cercano/source/server/internal/credentialtest"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -16,8 +18,13 @@ import (
 func routingUpdateServer(t *testing.T, mode string) *Server {
 	t.Helper()
 	s, _ := newTestServer()
-	s.cfgSvc.SetPath(filepath.Join(t.TempDir(), "config.yaml"))
-	c := s.cfgSvc.Get()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	s.cfgSvc.SetPath(path)
+	base, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := s.cfgSvc.Get().WithSnapshot(base.Snapshot())
 	c.LocusMode = mode
 	c.LocalRedirect = config.DestinationPrimary
 	c.SecondaryRedirect = config.DestinationPrimary
@@ -152,4 +159,59 @@ func TestUpdateConfigInvalidLocusKeepsProviderGraph(t *testing.T) {
 	if s.CloudLLMProvider() != before || s.DispatchCandidates().Mode != locus.CloudOnly || s.LocusMode() != "cloud_only" {
 		t.Fatal("invalid mode mutated routing")
 	}
+}
+
+func TestUpdateConfigRejectedSaveLeavesLiveState(t *testing.T) {
+	credentialtest.Enable(t)
+	s := routingUpdateServer(t, "open_only")
+	draft := s.cfgSvc.Get()
+	draft.CloudProfiles = []config.CloudProfile{{Name: "messages-one", Flavor: "messages", Provider: "anthropic"}}
+	if err := s.cfgSvc.Set(draft); err != nil {
+		t.Fatal(err)
+	}
+	before := s.cfgSvc.Get()
+	watchdog := s.watchdog
+	graph := s.DispatchCandidates()
+	path := s.cfgSvc.Path()
+	other, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Port = "12345"
+	if _, err = config.SaveSnapshot(other, path, other.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	disk, _ := os.ReadFile(path)
+	reply, err := s.UpdateConfig(t.Context(), &proto.UpdateConfigRequest{
+		LocusMode: "cloud_only", CloudApiKey: "rejected-fixture-key",
+		CompactionEnabled: "false", ToolElisionOnly: "true", ElideToolResults: "false",
+	})
+	if err == nil || !strings.Contains(err.Error(), "reload and reconcile") {
+		t.Fatalf("expected save conflict, got %v %+v", err, reply)
+	}
+	if !reflect.DeepEqual(before, s.cfgSvc.Get()) {
+		t.Fatal("rejected save changed live config")
+	}
+	if watchdog != s.watchdog || !sameGraph(graph, s.DispatchCandidates()) {
+		t.Fatal("rejected save changed provider/watchdog")
+	}
+	key, err := s.cfgSvc.Secrets().Get("messages-one")
+	if err != nil || key != "fixture-key" {
+		t.Fatal("rejected save changed credential")
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(disk) {
+		t.Fatal("rejected save changed disk")
+	}
+	response, err := s.UpdateRoutingAssignments(t.Context(), &proto.UpdateRoutingAssignmentsRequest{Assignments: &proto.RoutingAssignments{}})
+	if err != nil || response.Ok {
+		t.Fatalf("stale routing: %v %+v", err, response)
+	}
+	if !reflect.DeepEqual(before, s.cfgSvc.Get()) || !sameGraph(graph, s.DispatchCandidates()) {
+		t.Fatal("rejected routing changed live state")
+	}
+}
+
+func sameGraph(a, b inference.Tiers) bool {
+	return a.Mode == b.Mode && a.Cloud == b.Cloud && a.Open == b.Open && reflect.DeepEqual(a.DeveloperConfig, b.DeveloperConfig) && reflect.DeepEqual(a.Destinations, b.Destinations)
 }

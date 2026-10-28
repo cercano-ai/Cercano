@@ -31,7 +31,7 @@ func TestMistralDefaultRecommendations(t *testing.T) {
 		cfg.CloudProfiles = []CloudProfile{custom}
 		cfg.ActiveCloudProfile = custom.Name
 		path := filepath.Join(t.TempDir(), "config.yaml")
-		if err := Save(cfg, path); err != nil {
+		if err := saveFixture(t, cfg, path); err != nil {
 			t.Fatal(err)
 		}
 		loaded, err := Load(path)

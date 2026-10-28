@@ -125,13 +125,14 @@ func TestDestinationRedirectSaveLoad(t *testing.T) {
 		if clear {
 			c.SecondaryRedirect, c.LocalRedirect = "", ""
 		}
-		if err := Save(c, path); err != nil {
+		if err := saveFixture(t, c, path); err != nil {
 			t.Fatal(err)
 		}
 		got, err := Load(path)
 		if err != nil {
 			t.Fatal(err)
 		}
+		c = c.WithSnapshot(got.Snapshot())
 		if got.SecondaryRedirect != c.SecondaryRedirect || got.LocalRedirect != c.LocalRedirect {
 			t.Fatal("save/load lost redirects or reset")
 		}

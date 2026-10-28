@@ -1,8 +1,8 @@
 package config
 
-// This opt-in persistence seam does not change Load/Save, apply environment
-// overrides, migrate files, or activate runtime state. All writers must adopt it
-// before advisory locking can prevent legacy writers from losing updates.
+// ConfigCoordinator is the shared publication boundary for versioned saves.
+// It does not apply environment overrides or activate runtime state. Advisory
+// locking protects participating writers, not external editors or old binaries.
 import (
 	"bytes"
 	"context"
@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var ErrConfigConflict = errors.New("configuration changed since base snapshot")
+var ErrConfigConflict = errors.New("configuration changed since base snapshot; reload and reconcile before saving")
 
 // ConfigRevision is a hash of the exact persisted bytes, not effective defaults
 // or environment overrides. It contains no config values.
@@ -31,6 +31,7 @@ type ConfigSnapshot struct {
 	Revision  ConfigRevision
 	data      []byte
 	authority string
+	absent    bool
 }
 
 // ConfigChange edits exactly one stored YAML mapping path. YAML is a single
@@ -43,7 +44,7 @@ type ConfigChange struct {
 	Delete bool
 }
 
-// ConfigCoordinator coordinates an EXISTING authority. Symlinks resolve to the
+// ConfigCoordinator coordinates an existing or genuinely absent authority. Symlinks resolve to the
 // same target-side stable lock. Hardlinks are refused: rename would split their
 // authority. The parent directory must be trusted, as with permission stores.
 type ConfigCoordinator struct {
@@ -68,21 +69,48 @@ func NewConfigCoordinator(path string) (*ConfigCoordinator, error) {
 	if err != nil {
 		return nil, err
 	}
-	path, err = filepath.EvalSymlinks(path)
+	path, err = configAuthority(path)
 	if err != nil {
 		return nil, err
 	}
 	return &ConfigCoordinator{path: path, publish: publishConfig}, nil
 }
 
+// configAuthority resolves existing symlinks but permits genuinely absent leaves.
+// A dangling symlink is not absence and must never authorize creation.
+func configAuthority(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+	if _, e := os.Lstat(path); !os.IsNotExist(e) {
+		return "", err
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return "", err
+	}
+	parent, err = configAuthority(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parent, filepath.Base(path)), nil
+}
+
 func (s *ConfigCoordinator) locked(ctx context.Context, fn func([]byte, os.FileMode) error) error {
 	// Refuse a redirected/replaced authority rather than locking an alias inode.
-	resolved, err := filepath.EvalSymlinks(s.path)
+	resolved, err := configAuthority(s.path)
 	if err != nil {
 		return err
 	}
 	if resolved != s.path {
 		return errors.New("configuration authority redirected")
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0755); err != nil {
+		return err
 	}
 	release, err := filelock.Lock(ctx, s.path+".lock")
 	if err != nil {
@@ -90,6 +118,9 @@ func (s *ConfigCoordinator) locked(ctx context.Context, fn func([]byte, os.FileM
 	}
 	defer release()
 	info, err := os.Lstat(s.path)
+	if os.IsNotExist(err) {
+		return fn(nil, 0644)
+	}
 	if err != nil {
 		return err
 	}
@@ -117,7 +148,7 @@ func (s *ConfigCoordinator) locked(ctx context.Context, fn func([]byte, os.FileM
 }
 
 func (s *ConfigCoordinator) snapshot(data []byte) ConfigSnapshot {
-	return ConfigSnapshot{Revision: sha256.Sum256(data), data: bytes.Clone(data), authority: s.path}
+	return ConfigSnapshot{Revision: sha256.Sum256(data), data: bytes.Clone(data), authority: s.path, absent: data == nil}
 }
 
 func (s *ConfigCoordinator) Read(ctx context.Context) (base ConfigSnapshot, err error) {
@@ -126,7 +157,7 @@ func (s *ConfigCoordinator) Read(ctx context.Context) (base ConfigSnapshot, err 
 }
 
 func (s *ConfigCoordinator) checkBase(base ConfigSnapshot) error {
-	if base.authority != s.path || len(base.data) == 0 || sha256.Sum256(base.data) != base.Revision {
+	if base.authority != s.path || sha256.Sum256(base.data) != base.Revision {
 		return ErrConfigConflict
 	}
 	return nil
@@ -165,7 +196,7 @@ func (s *ConfigCoordinator) Save(ctx context.Context, base ConfigSnapshot, cfg C
 		return next, err
 	}
 	err = s.locked(ctx, func(current []byte, mode os.FileMode) error {
-		if sha256.Sum256(current) != base.Revision {
+		if (current == nil) != base.absent || sha256.Sum256(current) != base.Revision {
 			return ErrConfigConflict
 		}
 		if err := s.publish(s.path, data, mode); err != nil {
@@ -184,6 +215,9 @@ func (s *ConfigCoordinator) Save(ctx context.Context, base ConfigSnapshot, cfg C
 func (s *ConfigCoordinator) Change(ctx context.Context, base ConfigSnapshot, changes ...ConfigChange) (next ConfigSnapshot, err error) {
 	if err = s.checkBase(base); err != nil {
 		return
+	}
+	if base.absent {
+		return next, ErrConfigConflict
 	}
 	original, err := configDocument(base.data)
 	if err != nil {
@@ -212,6 +246,9 @@ func (s *ConfigCoordinator) Change(ctx context.Context, base ConfigSnapshot, cha
 		}
 	}
 	err = s.locked(ctx, func(current []byte, mode os.FileMode) error {
+		if current == nil {
+			return ErrConfigConflict
+		}
 		doc, err := configDocument(current)
 		if err != nil {
 			return err

@@ -106,7 +106,7 @@ func TestRoutingPersistenceAndClone(t *testing.T) {
 		t.Fatal("clone aliases mutable state")
 	}
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := Save(c, path); err != nil {
+	if err := saveFixture(t, c, path); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load(path)

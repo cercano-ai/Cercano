@@ -115,7 +115,12 @@ func TestFrozenConfigBoundary(t *testing.T) {
 
 func TestWritablePersistReturnsErrors(t *testing.T) {
 	credentialtest.Enable(t)
-	service := New(filepath.Join(t.TempDir(), "config.yaml"), cfg.Config{}, nil)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	initial, err := cfg.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := New(path, initial, nil)
 	if err := service.SetCloudModel("writable"); err != nil {
 		t.Fatal(err)
 	}

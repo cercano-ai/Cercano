@@ -651,8 +651,10 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 			}
 			if keySafe {
 				cfg.CloudAPIKey = ""
-				if sverr := config.Save(cfg, admission.paths.config); sverr != nil {
+				if next, sverr := config.SaveSnapshot(cfg, admission.paths.config, cfg.Snapshot()); sverr != nil {
 					fmt.Fprintf(os.Stderr, "[WARN] config save failed after key relocation (%v) — plaintext key may persist\n", sverr)
+				} else {
+					cfg = cfg.WithSnapshot(next)
 				}
 			}
 		}
@@ -1274,9 +1276,10 @@ func runSetup(installEngine bool) {
 
 	fmt.Println("\nChecking prerequisites...")
 
-	cfg, err := config.Load(config.DefaultPath())
+	cfg, err := loadSetupConfig(config.DefaultPath())
 	if err != nil {
-		cfg = config.Defaults()
+		fmt.Fprintln(os.Stderr, err)
+		return
 	}
 
 	// Step 1: Detect AI engine backend
@@ -1414,9 +1417,11 @@ func runSetup(installEngine bool) {
 	configPath := config.DefaultPath()
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		fmt.Printf("  Creating default config at %s\n", configPath)
-		if err := config.Save(cfg, configPath); err != nil {
+		if next, err := config.SaveSnapshot(cfg, configPath, cfg.Snapshot()); err != nil {
 			fmt.Fprintf(os.Stderr, "  WARN: Could not create config file: %v\n", err)
+			return
 		} else {
+			cfg = cfg.WithSnapshot(next)
 			fmt.Println("  OK: Config file created.")
 		}
 	} else {
@@ -1464,8 +1469,11 @@ func runSetup(installEngine bool) {
 	}
 
 	// Persist any chat-model choice made in step 2.
-	if err := config.Save(cfg, configPath); err != nil {
+	if next, err := config.SaveSnapshot(cfg, configPath, cfg.Snapshot()); err != nil {
 		fmt.Fprintf(os.Stderr, "  WARN: Could not save config: %v\n", err)
+		return
+	} else {
+		cfg = cfg.WithSnapshot(next)
 	}
 
 	// Summary
@@ -2292,4 +2300,14 @@ func resumeInterruptedDownloads(cfg config.Config, manager localruntime.Manager,
 			Message: fmt.Sprintf("resuming %d interrupted download(s) on startup", len(triggered)),
 		})
 	}
+}
+
+// loadSetupConfig fails closed before setup can install runtimes or write defaults.
+// Parser errors can contain YAML values; expose only this actionable diagnostic.
+func loadSetupConfig(path string) (config.Config, error) {
+	c, err := config.Load(path)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("setup refused configuration %q: cannot read or validate existing configuration; check file permissions and YAML syntax, then reload. No defaults were written", path)
+	}
+	return c, nil
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/accountidentity"
+	"context"
 	"fmt"
 	"log"
 	"net/url"
@@ -357,6 +358,7 @@ func vendorByHost(baseURL string) string {
 // strips them so disk reflects the profile-only world. New code should
 // always read through the active profile (see Server.activeCloudModel).
 type Config struct {
+	snapshot       ConfigSnapshot
 	sharedReadOnly bool // Runtime-only, retained by Clone; never serialized.
 	// CaptureDispatchReasoning records plaintext model reasoning in dispatch
 	// history. Debugging aid, off by default: reasoning restates conversation
@@ -999,9 +1001,14 @@ func LoadWithOptions(path string, options secrets.Options) (Config, error) {
 	cfg.sharedReadOnly = options.ReadOnly
 
 	if path != "" {
-		data, err := os.ReadFile(path)
+		coordinator, err := NewConfigCoordinator(path)
+		if err != nil {
+			return cfg, fmt.Errorf("configuration %q: cannot resolve authority; check path and permissions", path)
+		}
+		data, err := os.ReadFile(coordinator.path)
 		if err != nil {
 			if os.IsNotExist(err) {
+				cfg.snapshot = coordinator.snapshot(nil)
 				// No config file — use defaults + env vars
 				applyEnvOverrides(&cfg)
 				finalizeModelTiers(&cfg)
@@ -1010,8 +1017,9 @@ func LoadWithOptions(path string, options secrets.Options) (Config, error) {
 			return cfg, fmt.Errorf("failed to read config file %q: %w", path, err)
 		}
 
+		cfg.snapshot = coordinator.snapshot(data)
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
-			return cfg, fmt.Errorf("failed to parse config file %q: %w", path, err)
+			return cfg, fmt.Errorf("configuration %q: invalid YAML; correct syntax and reload (existing file was not changed)", path)
 		}
 
 		// Backward-compat: accept the pre-rename `local_model` /
@@ -1303,42 +1311,27 @@ func VenvPython() string {
 // profile-only world so users editing the file don't get bitten by the
 // split-state bug that motivated this refactor (cloud_model edited, profile
 // untouched, runtime still on the old model).
-func Save(cfg Config, path string) error {
-	if cfg.sharedReadOnly {
-		return secrets.ErrReadOnly
-	}
-	if cfg.CloudAPIKey != "" {
-		if err := secrets.CheckAllowed(); err != nil {
-			return err
-		}
-	}
-	if err := cfg.LlamaServer.Validate(); err != nil {
-		return err
-	}
-	// Stripping inherited and obsolete values must not mutate live snapshots.
-	cfg = cfg.Clone()
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory %q: %w", dir, err)
-	}
+// Snapshot returns the immutable baseline captured by Load or a successful save.
+func (c Config) Snapshot() ConfigSnapshot { return c.snapshot }
 
-	if len(cfg.CloudProfiles) > 0 {
-		cfg.CloudProvider = ""
-		cfg.CloudModel = ""
-		cfg.CloudAPIKey = ""
-		cfg.CloudBaseURL = ""
-	}
-	stripBakedCloudCatalogForSave(&cfg)
+// WithSnapshot advances only this value; copied drafts retain their old baseline.
+func (c Config) WithSnapshot(next ConfigSnapshot) Config { c.snapshot = next; return c }
 
-	data, err := yaml.Marshal(cfg)
+// SaveSnapshot publishes against an explicit baseline. Conflicts require reload
+// and reconciliation; never retry an old candidate against a newly read baseline.
+func SaveSnapshot(cfg Config, path string, base ConfigSnapshot) (ConfigSnapshot, error) {
+	coordinator, err := cfg.PrepareConfigCoordination(path)
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return ConfigSnapshot{}, err
 	}
+	return coordinator.Save(context.Background(), base, cfg)
+}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("failed to write config file %q: %w", path, err)
-	}
-	return nil
+// Save is a fail-closed compatibility entrypoint. Production callers use
+// SaveSnapshot and propagate its result. Reusing this draft after success conflicts.
+func Save(cfg Config, path string) error {
+	_, err := SaveSnapshot(cfg, path, cfg.Snapshot())
+	return err
 }
 
 // ContextOverride returns the explicit context override, or zero for automatic

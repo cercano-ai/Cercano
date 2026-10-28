@@ -1684,6 +1684,8 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	c := s.cfgSvc.Get()
 
 	var changes []string
+	var effects []func()
+	var cloudEffect func() error
 
 	if req.OllamaUrl != "" {
 		u, err := url.ParseRequestURI(req.OllamaUrl)
@@ -1766,8 +1768,8 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		// background. Then emit the fresh open-runtime status through the
 		// runtime-agnostic readiness path so the CLI's chip reflects the
 		// runtime being switched to — ready / downloading / missing.
-		s.ensureRuntimeModelsPresent(ctx, c, req.OpenRuntime)
-		s.broadcastOpenRuntimeStatus(s.openRuntimeStatus(ctx, c, req.OpenRuntime))
+		effects = append(effects, func() { s.ensureRuntimeModelsPresent(ctx, c, req.OpenRuntime) })
+		effects = append(effects, func() { s.broadcastOpenRuntimeStatus(s.openRuntimeStatus(ctx, c, req.OpenRuntime)) })
 	}
 
 	if req.LocusMode != "" {
@@ -1788,7 +1790,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.ElideToolResults = v == "true"
 		changes = append(changes, fmt.Sprintf("elide_tool_results=%s", v))
-		s.broadcastConfigChanged("elide_tool_results", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("elide_tool_results", v) })
 		fmt.Printf("UpdateConfig: elide_tool_results set to %s\n", v)
 	}
 
@@ -1802,7 +1804,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.LossyToolElision = v == "true"
 		changes = append(changes, fmt.Sprintf("lossy_tool_elision=%s", v))
-		s.broadcastConfigChanged("lossy_tool_elision", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("lossy_tool_elision", v) })
 		fmt.Printf("UpdateConfig: lossy_tool_elision set to %s\n", v)
 	}
 
@@ -1816,7 +1818,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.ToolLoop.MaxIterations = n
 		changes = append(changes, fmt.Sprintf("tool_loop.max_iterations=%d", n))
-		s.broadcastConfigChanged("tool_loop.max_iterations", strconv.Itoa(n))
+		effects = append(effects, func() { s.broadcastConfigChanged("tool_loop.max_iterations", strconv.Itoa(n)) })
 		fmt.Printf("UpdateConfig: tool_loop.max_iterations set to %d\n", n)
 	}
 
@@ -1830,7 +1832,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Agent.ShutdownOnLastClient = v == "true"
 		changes = append(changes, fmt.Sprintf("agent.shutdown_on_last_client=%s", v))
-		s.broadcastConfigChanged("agent.shutdown_on_last_client", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("agent.shutdown_on_last_client", v) })
 		fmt.Printf("UpdateConfig: agent.shutdown_on_last_client set to %s\n", v)
 	}
 
@@ -1903,9 +1905,9 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		// Flip the runtime kill switch. In-flight passes finish; new Schedule
 		// calls noop when disabled. Nil-guarded because the server may run
 		// without a persistent store (no compGen wired).
-		s.persistSvc.SetCompactionEnabled(enabled)
+		effects = append(effects, func() { s.persistSvc.SetCompactionEnabled(enabled) })
 		changes = append(changes, fmt.Sprintf("compaction_enabled=%s", v))
-		s.broadcastConfigChanged("compaction_enabled", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("compaction_enabled", v) })
 		fmt.Printf("UpdateConfig: compaction_enabled set to %s\n", v)
 	}
 
@@ -1921,9 +1923,9 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		c.Compaction.ToolElisionOnly = on
 		// Hot-swap the pass mode on the running generator; nil-guarded like
 		// SetCompactionEnabled.
-		s.persistSvc.SetToolElisionOnly(on)
+		effects = append(effects, func() { s.persistSvc.SetToolElisionOnly(on) })
 		changes = append(changes, fmt.Sprintf("tool_elision_only=%s", v))
-		s.broadcastConfigChanged("tool_elision_only", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("tool_elision_only", v) })
 		fmt.Printf("UpdateConfig: tool_elision_only set to %s\n", v)
 	}
 
@@ -1938,7 +1940,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.Retention.RawRetentionDays = n
 		changes = append(changes, fmt.Sprintf("raw_retention_days=%d", n))
-		s.broadcastConfigChanged("raw_retention_days", strconv.Itoa(n))
+		effects = append(effects, func() { s.broadcastConfigChanged("raw_retention_days", strconv.Itoa(n)) })
 		fmt.Printf("UpdateConfig: raw_retention_days set to %d\n", n)
 		retentionChanged = true
 	}
@@ -1952,7 +1954,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.Retention.CompactedRetentionDays = n
 		changes = append(changes, fmt.Sprintf("compacted_retention_days=%d", n))
-		s.broadcastConfigChanged("compacted_retention_days", strconv.Itoa(n))
+		effects = append(effects, func() { s.broadcastConfigChanged("compacted_retention_days", strconv.Itoa(n)) })
 		fmt.Printf("UpdateConfig: compacted_retention_days set to %d\n", n)
 		retentionChanged = true
 	}
@@ -1966,7 +1968,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.Retention.KeepForever = v == "true"
 		changes = append(changes, fmt.Sprintf("keep_forever=%s", v))
-		s.broadcastConfigChanged("keep_forever", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("keep_forever", v) })
 		fmt.Printf("UpdateConfig: keep_forever set to %s\n", v)
 		retentionChanged = true
 	}
@@ -1974,10 +1976,12 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	// next sweep uses the new horizons without waiting for a restart.
 	if retentionChanged {
 		r := c.Compaction.Retention
-		s.persistSvc.UpdateRetentionConfig(retention.Config{
-			RawRetentionDays:       r.RawRetentionDays,
-			CompactedRetentionDays: r.CompactedRetentionDays,
-			KeepForever:            r.KeepForever,
+		effects = append(effects, func() {
+			s.persistSvc.UpdateRetentionConfig(retention.Config{
+				RawRetentionDays:       r.RawRetentionDays,
+				CompactedRetentionDays: r.CompactedRetentionDays,
+				KeepForever:            r.KeepForever,
+			})
 		})
 	}
 
@@ -2015,31 +2019,16 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		profileName := c.CloudProfiles[idx].Name
 
-		// API key goes to the keychain (keyed by profile name), never to
-		// the profile struct or the legacy CloudAPIKey field.
-		if req.CloudApiKey != "" {
-			if st := s.cfgSvc.Secrets(); st != nil {
-				if err := st.Set(profileName, req.CloudApiKey); err != nil {
-					return &proto.UpdateConfigResponse{
-						Success: false,
-						Message: fmt.Sprintf("failed to store API key: %v", err),
-					}, nil
+		// Credential and provider effects are admitted only after publication.
+		cloudEffect = func() error {
+			if req.CloudApiKey != "" {
+				if st := s.cfgSvc.Secrets(); st != nil {
+					if err := st.Set(profileName, req.CloudApiKey); err != nil {
+						return err
+					}
 				}
 			}
-		}
-
-		// Commit the profile mutations before rebuilding so rebuildCloudLocked
-		// reads the updated profile from cfgSvc.
-		if err := s.cfgSvc.Set(c); err != nil {
-			return nil, grpcstatus.Error(codes.InvalidArgument, err.Error())
-		}
-		c = s.cfgSvc.Get() // re-snapshot so subsequent reads are consistent
-
-		if err := s.rebuildCloudLocked(); err != nil {
-			return &proto.UpdateConfigResponse{
-				Success: false,
-				Message: fmt.Sprintf("failed to rebuild cloud provider: %v", err),
-			}, nil
+			return s.rebuildCloudLocked()
 		}
 		summary := profileName
 		if req.CloudModel != "" {
@@ -2103,21 +2092,21 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 			desc = "embedding_model unset"
 		}
 		changes = append(changes, desc+" (takes effect on restart)")
-		s.broadcastConfigChanged("embedding_model", val)
+		effects = append(effects, func() { s.broadcastConfigChanged("embedding_model", val) })
 	} else if req.ModelTierKey != "" {
 		desc, err := config.ApplyModelTierPatch(&c.Models, req.ModelTierKey, req.ModelTierValue)
 		if err != nil {
 			return &proto.UpdateConfigResponse{Success: false, Message: err.Error()}, nil
 		}
 		changes = append(changes, desc)
-		s.broadcastConfigChanged("models."+req.ModelTierKey, req.ModelTierValue)
+		effects = append(effects, func() { s.broadcastConfigChanged("models."+req.ModelTierKey, req.ModelTierValue) })
 		// The watchdog resolves its one-shot model from the taxonomy at build
 		// time, so a tier change must rebuild it to take effect.
 		watchdogChanged = true
 	}
 	if watchdogChanged {
 		// Rebuild the supervisor from the just-mutated local config snapshot.
-		s.watchdog = s.buildWatchdogFrom(c.Watchdog, c.Models)
+		effects = append(effects, func() { s.watchdog = s.buildWatchdogFrom(c.Watchdog, c.Models) })
 	}
 
 	if len(changes) == 0 {
@@ -2129,7 +2118,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 
 	if req.OllamaUrl != "" {
 		c.OllamaURL = req.OllamaUrl
-		s.broadcastConfigChanged("ollama_url", req.OllamaUrl)
+		effects = append(effects, func() { s.broadcastConfigChanged("ollama_url", req.OllamaUrl) })
 	}
 	// Runtime first, so an accompanying OpenModel override keys onto the new
 	// active runtime. Switching runtime writes NOTHING to the tiers — the
@@ -2137,54 +2126,61 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	// the new runtime, so there is never a stale cross-runtime model id.
 	if req.OpenRuntime != "" {
 		c.OpenRuntime = req.OpenRuntime
-		s.broadcastConfigChanged("local_runtime", req.OpenRuntime)
+		effects = append(effects, func() { s.broadcastConfigChanged("local_runtime", req.OpenRuntime) })
 		if req.OpenModel == "" {
 			// Reflect the newly-resolved everyday model for the UI. Resolve
 			// against the in-flight c (its OpenRuntime is already updated), not
 			// the live resolver, which still sees the pre-switch committed config.
 			if m := effectiveOpenModelFor(c, config.TierEveryday); m != "" {
-				s.broadcastConfigChanged("local_model", m)
+				effects = append(effects, func() { s.broadcastConfigChanged("local_model", m) })
 			}
 		}
 	}
 	if req.OpenModel != "" {
 		// Explicit user pick → an override for the (now-)active runtime.
 		c.Models.SetOverride(c.OpenRuntime, config.TierEveryday, req.OpenModel)
-		s.broadcastConfigChanged("local_model", req.OpenModel)
+		effects = append(effects, func() { s.broadcastConfigChanged("local_model", req.OpenModel) })
 	}
 	if req.OpenDefaultModel != "" {
 		// c.LlamaServer.DefaultModel was already set up top (before the runtime
 		// switch) — only the broadcast belongs here.
-		s.broadcastConfigChanged("open_default_model", req.OpenDefaultModel)
+		effects = append(effects, func() { s.broadcastConfigChanged("open_default_model", req.OpenDefaultModel) })
 	}
 	if req.CloudProvider != "" {
 		c.CloudProvider = req.CloudProvider
-		s.broadcastConfigChanged("cloud_provider", req.CloudProvider)
+		effects = append(effects, func() { s.broadcastConfigChanged("cloud_provider", req.CloudProvider) })
 	}
 	if req.CloudModel != "" {
 		c.CloudModel = req.CloudModel
-		s.broadcastConfigChanged("cloud_model", req.CloudModel)
+		effects = append(effects, func() { s.broadcastConfigChanged("cloud_model", req.CloudModel) })
 	}
 	if req.CloudApiKey != "" {
 		c.CloudAPIKey = req.CloudApiKey
 		// Presence marker only — never broadcast a raw secret.
-		s.broadcastConfigChanged("cloud_api_key", "set")
+		effects = append(effects, func() { s.broadcastConfigChanged("cloud_api_key", "set") })
 	}
 	if req.CloudBaseUrl != "" {
 		c.CloudBaseURL = req.CloudBaseUrl
-		s.broadcastConfigChanged("cloud_base_url", req.CloudBaseUrl)
+		effects = append(effects, func() { s.broadcastConfigChanged("cloud_base_url", req.CloudBaseUrl) })
 	}
 	if req.LocusMode != "" {
 		c.LocusMode = req.LocusMode
-		s.broadcastConfigChanged("locus_mode", req.LocusMode)
+		effects = append(effects, func() { s.broadcastConfigChanged("locus_mode", req.LocusMode) })
 	}
 
 	// Commit all config mutations to the service and persist.
-	if err := s.cfgSvc.Set(c); err != nil {
+	if err := s.cfgSvc.SaveAndSet(c); err != nil {
 		return nil, grpcstatus.Error(codes.InvalidArgument, err.Error())
 	}
 	s.applyRuntimeEndpoints(c)
-	s.cfgSvc.Persist()
+	for _, effect := range effects {
+		effect()
+	}
+	if cloudEffect != nil {
+		if err := cloudEffect(); err != nil {
+			return &proto.UpdateConfigResponse{Success: false, Message: fmt.Sprintf("configuration saved; live cloud application failed: %v", err)}, nil
+		}
+	}
 
 	// Apply provider/runtime mutations. This runs after cfgSvc.Set so
 	// Reconfigure reads the fully-committed config when rebuilding providers.
@@ -2270,6 +2266,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 // every llama-server child before the process exits. Calling BeginShutdown()
 // alone would only close the event streams — kicking clients off while the
 // process (and its runtime children) kept running.
+
 func (s *Server) ShutdownAgent(ctx context.Context, req *proto.ShutdownAgentRequest) (*proto.ShutdownAgentResponse, error) {
 	if s.shutdownControl != nil {
 		return s.shutdownControl(req.GetStatusOnly()), nil

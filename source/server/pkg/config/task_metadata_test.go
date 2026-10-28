@@ -115,7 +115,7 @@ func TestTaskMetadataPersistenceAndAtomicity(t *testing.T) {
 		t.Fatal("clone aliases original")
 	}
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := Save(c, path); err != nil {
+	if err := saveFixture(t, c, path); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := Load(path)

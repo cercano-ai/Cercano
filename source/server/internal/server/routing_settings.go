@@ -2,7 +2,6 @@ package server
 
 import (
 	"cercano/source/server/internal/routingwire"
-	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 	"context"
 )
@@ -19,22 +18,12 @@ func (s *Server) UpdateRoutingAssignments(ctx context.Context, req *proto.Update
 	if req.GetAssignments() == nil {
 		return &proto.UpdateRoutingAssignmentsResponse{Ok: true}, nil
 	}
-	var validation error
-	err := s.cfgSvc.Mutate(func(c *config.Config) {
-		next := c.Clone()
-		routingwire.ApplyAssignments(&next, req.Assignments)
-		validation = next.ValidateRouting()
-		if validation == nil {
-			*c = next
-		}
-	})
-	if err != nil {
+	candidate := s.cfgSvc.Get()
+	routingwire.ApplyAssignments(&candidate, req.Assignments)
+	if err := candidate.ValidateRouting(); err != nil {
 		return &proto.UpdateRoutingAssignmentsResponse{Error: err.Error()}, nil
 	}
-	if validation != nil {
-		return &proto.UpdateRoutingAssignmentsResponse{Error: validation.Error()}, nil
-	}
-	if err := s.cfgSvc.Persist(); err != nil {
+	if err := s.cfgSvc.SaveAndSet(candidate); err != nil {
 		return &proto.UpdateRoutingAssignmentsResponse{Error: err.Error()}, nil
 	}
 	response := &proto.UpdateRoutingAssignmentsResponse{Ok: true}

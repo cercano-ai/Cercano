@@ -42,7 +42,7 @@ Objective: preserve ordinary execution features under exact conversation ownersh
 Objective: retain writable ordinary settings and credential behavior at existing authorities with both serialization and cross-host visibility. Files: pkg/config, internal/hostsvc/config, agent/permissions.go, server/config_watcher.go, hostsvc/credentials, secrets, anthropicauth, chatgptauth, cloudfactory and provider rebuild paths. Tests: two-host mutations, stale-save conflicts, fake rotating issuers, delayed callbacks and invalidation acknowledgements.
 
 - [~] Introduce narrowly scoped cross-process mutation coordination using existing lock patterns and fresh reads; publish config and permissions atomically without stale whole-file overwrites
-- [ ] Reuse ordinary watchers and apply/rebuild paths with revision/conflict handling, loop prevention and explicit durable-save versus live-application results
+- [~] Reuse ordinary watchers and apply/rebuild paths with revision/conflict handling, loop prevention and explicit durable-save versus live-application results
 - [ ] Preserve supported environment resolution, hot reload and explicit restart requirements without surprise generation replacement
 - [ ] Restore ordinary session and shared settings controls without treating credential disabling as a history/config freeze signal
 - [ ] Serialize credential refresh/login/logout by existing credential identity and reread after admission; prevent late refresh from resurrecting logout

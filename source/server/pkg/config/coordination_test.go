@@ -290,7 +290,7 @@ func TestCoordinatedSaveMatchesLegacySerialization(t *testing.T) {
 	path, s, base := coordinationFixture(t)
 	c := Defaults()
 	legacy := filepath.Join(t.TempDir(), "legacy.yaml")
-	if err := Save(c, legacy); err != nil {
+	if err := saveFixture(t, c, legacy); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Save(context.Background(), base, c); err != nil {

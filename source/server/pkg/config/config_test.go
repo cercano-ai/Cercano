@@ -107,7 +107,7 @@ func TestLoad_AgentShutdownOnLastClientCanBeDisabled(t *testing.T) {
 
 func TestSaveDefaultsWritesWatchdogDisabled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := Save(Defaults(), path); err != nil {
+	if err := saveFixture(t, Defaults(), path); err != nil {
 		t.Fatalf("Save Defaults failed: %v", err)
 	}
 	data, err := os.ReadFile(path)
@@ -169,7 +169,7 @@ func TestSavePreservesAutomaticLlamaServerContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Save(cfg, path); err != nil {
+	if err := saveFixture(t, cfg, path); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -312,7 +312,7 @@ func TestSave_CreatesDirectories(t *testing.T) {
 	cfg := Defaults()
 	cfg.OllamaURL = "http://saved:11434"
 
-	err := Save(cfg, path)
+	err := saveFixture(t, cfg, path)
 	if err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestSave_RoundTrip(t *testing.T) {
 	cfg.CloudModel = "gemini-2.0-flash"
 	cfg.Port = "50053"
 
-	if err := Save(cfg, path); err != nil {
+	if err := saveFixture(t, cfg, path); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
 
@@ -531,7 +531,7 @@ func TestSave_StripsLegacyCloudFieldsWhenProfilesPresent(t *testing.T) {
 		CloudProfiles:      []CloudProfile{{Name: "default", Flavor: "messages", Model: "obsolete", ModelPinned: true, TierOverrides: map[CostTier]string{CostPremium: "claude-real"}}},
 		ActiveCloudProfile: "default",
 	}
-	if err := Save(cfg, path); err != nil {
+	if err := saveFixture(t, cfg, path); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	data, err := os.ReadFile(path)
@@ -571,7 +571,7 @@ func TestSave_StripsUnpinnedCloudDefaults(t *testing.T) {
 	cfg.CloudProfiles = []CloudProfile{{Name: "claude", Flavor: "messages", Route: "subscription"}}
 	cfg.ActiveCloudProfile = "claude"
 
-	if err := Save(cfg, path); err != nil {
+	if err := saveFixture(t, cfg, path); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	data, err := os.ReadFile(path)
@@ -650,7 +650,7 @@ func TestSave_KeepsLegacyCloudFieldsBeforeMigration(t *testing.T) {
 		CloudProvider: "anthropic",
 		CloudModel:    "claude-pre-migration",
 	}
-	if err := Save(cfg, path); err != nil {
+	if err := saveFixture(t, cfg, path); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	data, _ := os.ReadFile(path)

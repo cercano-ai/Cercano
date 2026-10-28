@@ -27,7 +27,7 @@ func TestOrderedPrimaryBackups(t *testing.T) {
 		t.Fatal("clone aliases backup list")
 	}
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := Save(c, path); err != nil {
+	if err := saveFixture(t, c, path); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := Load(path)
@@ -37,8 +37,9 @@ func TestOrderedPrimaryBackups(t *testing.T) {
 	if !reflect.DeepEqual(loaded.PrimaryBackups(), []string{"pb", "sb"}) {
 		t.Fatal(loaded.PrimaryBackups())
 	}
+	c = loaded
 	c.SetPrimaryBackups(nil)
-	if err := Save(c, path); err != nil {
+	if err := saveFixture(t, c, path); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err = Load(path)
@@ -69,7 +70,7 @@ func TestAddedSubscriptionAccountsSurviveLoad(t *testing.T) {
 	c.ActiveCloudProfile = "claude"
 	c.SetPrimaryBackups([]string{"claude-2", "claude-3"})
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := Save(c, path); err != nil {
+	if err := saveFixture(t, c, path); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load(path)

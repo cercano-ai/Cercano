@@ -15,7 +15,10 @@ func TestSignInIdentityPersistsWithoutChangingAccountKey(t *testing.T) {
 	credentialtest.Enable(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	p := cfg.CloudProfile{Name: "claude-work", Flavor: "messages", Route: "subscription", TierOverrides: map[cfg.CostTier]string{cfg.CostPremium: "custom-model"}}
-	c := cfg.Defaults()
+	c, err := cfg.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	c.CloudProfiles = []cfg.CloudProfile{p}
 	c.ActiveCloudProfile = p.Name
 	store := secrets.NewMemory()
@@ -34,7 +37,9 @@ func TestSignInIdentityPersistsWithoutChangingAccountKey(t *testing.T) {
 		if !got.Reauthenticated || got.Profile.Name != p.Name || got.Profile.TierOverrides[cfg.CostPremium] != "custom-model" {
 			t.Fatal("changed account settings")
 		}
-		svc.Persist()
+		if err := svc.Persist(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	signIn(accountidentity.Identity{Email: "person@example.com", Name: "Person"})
 	loaded, err := cfg.Load(path)
