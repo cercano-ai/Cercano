@@ -19,7 +19,7 @@ import (
 
 func TestDevelopmentHostPreflightNeverConstructsDependencies(t *testing.T) {
 	called := false
-	factory := func(context.Context, developmentHostOptions, *devhostauth.Auth) (*server.Server, func(), error) {
+	factory := func(context.Context, developmentHostOptions, *devhostauth.Auth) (*server.Server, *preparedShutdown, error) {
 		called = true
 		t.Fatal("dependency/native boundary entered")
 		return nil, nil, nil

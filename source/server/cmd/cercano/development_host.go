@@ -35,10 +35,10 @@ type developmentHostOptions struct {
 
 // Factory injection is invocation-local, never an environment switch. Preflight
 // and executable verification run before any dependency factory is entered.
-type developmentHostFactory func(context.Context, developmentHostOptions, *devhostauth.Auth) (*server.Server, func(), error)
+type developmentHostFactory func(context.Context, developmentHostOptions, *devhostauth.Auth) (*server.Server, *preparedShutdown, error)
 
 func runDevelopmentHost(ctx context.Context, args []string, out io.Writer) error {
-	return runDevelopmentHostWithFactory(ctx, args, out, newProductionDevelopmentHost)
+	return retainPreparedShutdown(runDevelopmentHostWithFactory(ctx, args, out, newProductionDevelopmentHost))
 }
 func developmentPrivatePath(p string, directory bool) error {
 	if !filepath.IsAbs(p) || filepath.Clean(p) != p {
@@ -60,7 +60,7 @@ func developmentPrivatePath(p string, directory bool) error {
 	}
 	return nil
 }
-func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Writer, factory developmentHostFactory) error {
+func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Writer, factory developmentHostFactory) (result error) {
 	var o developmentHostOptions
 	fs := flag.NewFlagSet("development-host", flag.ContinueOnError)
 	fs.SetOutput(out)
@@ -154,25 +154,34 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 	if err != nil {
 		return err
 	}
-	srv, closeDependencies, err := factory(ctx, o, auth)
+	srv, dependencies, err := factory(ctx, o, auth)
 	if err != nil {
-		return err
-	}
-	if closeDependencies != nil {
-		defer closeDependencies()
+		return finishPreparedShutdown(dependencies, err)
 	}
 	if srv == nil {
-		return fmt.Errorf("dependency factory returned no server")
+		return finishPreparedShutdown(dependencies, fmt.Errorf("dependency factory returned no server"))
 	}
-	defer srv.Shutdown()
-	transport := grpc.NewServer(auth.ServerOptions()...)
+	gate := newProductionAdmissionGate()
+	transport := grpc.NewServer(append(auth.ServerOptions(), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream))...)
 	proto.RegisterAgentServer(transport, srv)
-	defer transport.Stop()
+	shutdown := newPreparedShutdown(func() { gate.close(); srv.FenceBackgroundWork() }, func() error {
+		srv.BeginShutdown()
+		gate.drain()
+		var err error
+		if dependencies != nil {
+			err = dependencies.Wait(context.Background())
+		} else {
+			srv.Shutdown()
+		}
+		transport.GracefulStop()
+		return err
+	})
+	srv.SetShutdownControl(shutdown.Control)
+	defer func() { result = finishPreparedShutdown(shutdown, result) }()
 	listener, err := net.Listen("tcp", o.Listen)
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
 	done := make(chan error, 1)
 	go func() { done <- transport.Serve(listener) }()
 	endpoint := listener.Addr().String()

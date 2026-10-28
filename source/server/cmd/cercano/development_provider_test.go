@@ -35,8 +35,8 @@ func TestDevelopmentProductionProviderConstructor(t *testing.T) {
 			sentinel := errors.New("constructor refused")
 			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 				openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
-				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
-					return localruntime.NewManager(), func() { closed++ }, nil
+				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
+					return localruntime.NewManager(), func() error { closed++; return nil }, nil
 				},
 				newOpenProvider: func(localruntime.Manager, config.Config) (inference.Provider, error) {
 					calls++
@@ -58,8 +58,8 @@ func TestDevelopmentProductionProviderConstructor(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer cleanup()
-			defer srv.Shutdown()
+			defer cleanup.Wait(context.Background())
+
 			if srv.DispatchCandidates().Open != fake {
 				t.Fatal("synthetic provider did not reach production dispatch graph")
 			}
@@ -80,7 +80,7 @@ func TestDevelopmentProductionCloudOnlyWithoutRuntime(t *testing.T) {
 	}
 	srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { return memory, nil },
-		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 			t.Fatal("cloud-only entered runtime connector")
 			return nil, nil, nil
 		},
@@ -92,8 +92,8 @@ func TestDevelopmentProductionCloudOnlyWithoutRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
-	defer srv.Shutdown()
+	defer cleanup.Wait(context.Background())
+
 	if srv.DispatchCandidates().Open != nil {
 		t.Fatal("cloud-only installed an open fallback")
 	}

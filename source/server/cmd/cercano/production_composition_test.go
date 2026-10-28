@@ -227,9 +227,9 @@ func TestProductionCompositionDisabledAdmissionRefusal(t *testing.T) {
 	secretOpens, runtimeConnects, providerOpens, mcpOpens := 0, 0, 0, 0
 	srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { secretOpens++; return secrets.NewMemory(), nil },
-		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 			runtimeConnects++
-			return localruntime.NewManager(), func() {}, nil
+			return localruntime.NewManager(), func() error { return nil }, nil
 		},
 		newOpenProvider: func(localruntime.Manager, config.Config) (inference.Provider, error) {
 			providerOpens++
@@ -241,7 +241,7 @@ func TestProductionCompositionDisabledAdmissionRefusal(t *testing.T) {
 		defer srv.Shutdown()
 	}
 	if cleanup != nil {
-		defer cleanup()
+		defer cleanup.Wait(context.Background())
 	}
 	if !errors.Is(err, secrets.ErrDisabled) || !strings.Contains(err.Error(), "open read-only credentials") || srv != nil || cleanup != nil {
 		t.Fatalf("expected disabled production admission: server=%v cleanup=%t err=%v", srv, cleanup != nil, err)

@@ -21,8 +21,8 @@ import (
 func developmentProductionDefaults() developmentProductionDependencies {
 	return developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
-		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
-			return localruntime.NewManager(), func() {}, nil
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
+			return localruntime.NewManager(), func() error { return nil }, nil
 		},
 		newOpenProvider: func(_ localruntime.Manager, cfg config.Config) (inference.Provider, error) {
 			fixtureRecord("constructed", inference.Call{Model: cfg.OpenRuntime + ":" + cfg.LlamaServer.DefaultModel})

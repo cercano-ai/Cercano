@@ -82,16 +82,16 @@ func TestDevelopmentProductionInjectedGraph(t *testing.T) {
 			}
 			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 				openSecrets: func() (secrets.Store, error) { opened++; return memory, nil },
-				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
+				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 					connected++
-					return localruntime.NewManager(), func() { closed++ }, nil
+					return localruntime.NewManager(), func() error { closed++; return nil }, nil
 				},
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer cleanup()
-			defer srv.Shutdown()
+			defer cleanup.Wait(context.Background())
+
 			wantRuntime := 1
 			if cloud {
 				wantRuntime = 0
@@ -156,8 +156,12 @@ func TestDevelopmentProductionInjectedGraph(t *testing.T) {
 			if err := srv.RetireCoexistence(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-			cleanup()
-			cleanup()
+			if err := cleanup.Wait(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := cleanup.Wait(context.Background()); err != nil {
+				t.Fatal(err)
+			}
 			if closed != wantRuntime {
 				t.Fatalf("runtime closed %d times", closed)
 			}
@@ -175,12 +179,15 @@ func TestDevelopmentProductionOpenerFailsOnceWithoutFallback(t *testing.T) {
 	sentinel := errors.New("injected opener failure")
 	_, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { calls++; return nil, sentinel },
-		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 			t.Fatal("runtime entered after failed credentials")
 			return nil, nil, nil
 		},
 	})
-	if !errors.Is(err, sentinel) || calls != 1 || cleanup != nil {
+	if cleanup != nil {
+		_ = cleanup.Wait(context.Background())
+	}
+	if !errors.Is(err, sentinel) || calls != 1 {
 		t.Fatalf("error=%v calls=%d cleanup=%v", err, calls, cleanup != nil)
 	}
 }
@@ -208,7 +215,7 @@ func TestDevelopmentProductionRejectsUnsupportedSnapshotBeforeDependencies(t *te
 			}
 			_, _, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 				openSecrets: func() (secrets.Store, error) { t.Fatal("unsupported config entered opener"); return nil, nil },
-				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
+				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 					t.Fatal("unsupported config entered runtime")
 					return nil, nil, nil
 				},
@@ -226,12 +233,15 @@ func TestDevelopmentProductionRuntimeErrorWithoutFallback(t *testing.T) {
 	sentinel := errors.New("protected modelhost unavailable")
 	_, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
 		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
-		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 			calls++
 			return nil, nil, sentinel
 		},
 	})
-	if !errors.Is(err, sentinel) || calls != 1 || cleanup != nil {
+	if cleanup != nil {
+		_ = cleanup.Wait(context.Background())
+	}
+	if !errors.Is(err, sentinel) || calls != 1 {
 		t.Fatalf("error=%v calls=%d cleanup=%v", err, calls, cleanup != nil)
 	}
 }

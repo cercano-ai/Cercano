@@ -66,8 +66,8 @@ func TestProductionProviderPairedRebuild(t *testing.T) {
 			return nil, nil
 		}, OneShot: func(context.Context, string) (string, error) { t.Fatal("prepared watchdog dispatched"); return "", nil }},
 		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
-		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
-			return localruntime.NewManager(), func() {}, nil
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
+			return localruntime.NewManager(), func() error { return nil }, nil
 		},
 		newOpenProvider: func(localruntime.Manager, config.Config) (inference.Provider, error) {
 			return &compositionCloudProvider{}, nil
@@ -80,11 +80,11 @@ func TestProductionProviderPairedRebuild(t *testing.T) {
 			t.Fatal(err)
 		}
 		if cleanup != nil {
-			cleanup()
+			cleanup.Wait(context.Background())
 		}
 	} else {
-		defer cleanup()
-		defer prepared.Shutdown()
+		defer cleanup.Wait(context.Background())
+
 		if err := prepared.RebuildCloud(); !errors.Is(err, secrets.ErrDisabled) {
 			t.Fatalf("prepared credential refusal: %v", err)
 		}

@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"cercano/source/server/internal/agent"
@@ -36,15 +36,15 @@ type developmentProductionDependencies struct {
 	cloudBuilder    providers.CloudBuilder
 	mcp             productionMCPDependencies
 	openSecrets     func() (secrets.Store, error)
-	connectRuntime  func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error)
+	connectRuntime  func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error)
 	newOpenProvider func(localruntime.Manager, config.Config) (inference.Provider, error)
 }
 
-func newProductionDevelopmentHost(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth) (*server.Server, func(), error) {
+func newProductionDevelopmentHost(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth) (*server.Server, *preparedShutdown, error) {
 	return newProductionDevelopmentHostWithDependencies(ctx, o, auth, developmentProductionDefaults())
 }
 
-func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, state, host string) (localruntime.Manager, func(), error) {
+func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, state, host string) (localruntime.Manager, func() error, error) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv(modelHostEnv)), "inprocess") {
 		return nil, nil, fmt.Errorf("development host requires protected shared modelhost; inprocess is forbidden")
 	}
@@ -76,10 +76,10 @@ func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, state, ho
 		return nil, nil, fmt.Errorf("attach protected modelhost (no launch/replacement/fallback): %w", err)
 	}
 	remote.SetEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg)))
-	return remote, func() { _ = remote.Close() }, nil
+	return remote, remote.Close, nil
 }
 
-func newProductionDevelopmentHostWithDependencies(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth, deps developmentProductionDependencies) (_ *server.Server, _ func(), err error) {
+func newProductionDevelopmentHostWithDependencies(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth, deps developmentProductionDependencies) (_ *server.Server, pending *preparedShutdown, err error) {
 	// Repeat the read-only contract check so even direct internal callers cannot
 	// enter the credential/runtime dependencies before preflight.
 	database := filepath.Join(o.State, "conversations.db")
@@ -147,7 +147,41 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	}
 	st = secrets.Guard(st, secrets.Options{ReadOnly: true})
 	var manager localruntime.Manager
-	closeRuntime := func() {}
+	closeRuntime := func() error { return nil }
+	closeMCP := func() {}
+	var store conversation.Store
+	resources := newPreparedShutdown(nil, func() error {
+		closeMCP()
+		var err error
+		if closeRuntime != nil {
+			err = closeRuntime()
+		}
+		if store != nil {
+			err = errors.Join(err, store.Close())
+		}
+		return err
+	})
+	ctx, cancel := context.WithCancel(ctx)
+	var ownedServer *server.Server
+	cleanup := newPreparedShutdown(func() {
+		if ownedServer != nil {
+			ownedServer.FenceBackgroundWork()
+		}
+	}, func() error {
+		cancel()
+		if ownedServer != nil {
+			ownedServer.BeginShutdown()
+			ownedServer.WaitForWatchers()
+			ownedServer.Shutdown()
+		}
+		return resources.Wait(context.Background())
+	})
+	defer func() {
+		if err != nil {
+			pending = cleanup
+			err = finishPreparedShutdown(cleanup, err)
+		}
+	}()
 	if local {
 		if deps.connectRuntime == nil {
 			return nil, nil, fmt.Errorf("local runtime connector required")
@@ -157,29 +191,9 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 			return nil, nil, err
 		}
 		if manager == nil || closeRuntime == nil {
-			if closeRuntime != nil {
-				closeRuntime()
-			}
 			return nil, nil, fmt.Errorf("runtime connector returned incomplete dependencies")
 		}
 	}
-	closeMCP := func() {}
-	var store conversation.Store
-	var once sync.Once
-	cleanup := func() {
-		once.Do(func() {
-			closeMCP()
-			closeRuntime()
-			if store != nil {
-				_ = store.Close()
-			}
-		})
-	}
-	defer func() {
-		if err != nil {
-			cleanup()
-		}
-	}()
 	registry := engine.NewEngineRegistry()
 	var open inference.Provider
 	var embedder engine.EmbeddingService
@@ -228,7 +242,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	srv, err := server.NewPreparedDurableServer(ctx, server.PreparedServerOptions{
 		Watchdog:     deps.watchdog,
 		CloudBuilder: deps.cloudBuilder,
-		Coexistence:  server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(context.Context) error { cleanup(); return nil }},
+		Coexistence:  server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(ctx context.Context) error { return resources.WaitBounded(ctx) }},
 		Config:       cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
 		Agent: func(prepared conversation.Store) (*agent.Agent, error) {
 			store, err = admission.conversationStore(prepared, nil)
@@ -242,11 +256,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() {
-		if err != nil {
-			srv.Shutdown()
-		}
-	}()
+	ownedServer = srv
 	srv.SetBuildVersion(version)
 	srv.SetRuntimeManager(manager)
 	// Prepared hosts must not load/watch the legacy permissions file. Start
