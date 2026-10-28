@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cercano/source/server/internal/invocationapproval"
 	"context"
 	"encoding/json"
 	"errors"
@@ -973,6 +974,7 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 				execCtx := agenttools.WithProgressEmitter(ctx, func(progress agenttools.ProgressEvent) {
 					emit(loopProgressEvent(pc.block.ToolUseID, pc.block.ToolName, progress))
 				})
+
 				emit(LoopEvent{Kind: LoopToolExecStart, ToolUseID: pc.block.ToolUseID, ToolName: pc.block.ToolName})
 				res, err := pc.tool.Execute(execCtx, pc.block.ToolInput)
 				out := llm.Block{Type: llm.BlockToolResult, ToolUseRef: pc.block.ToolUseID}
@@ -1044,9 +1046,13 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 				results = append(results, llm.Block{Type: llm.BlockToolResult, ToolUseRef: pc.block.ToolUseID, Content: fenceDenialMessage(in.Profile.Name, pc.block.ToolName, pc.tier), IsError: true})
 				continue
 			}
+			// Snapshot arguments before any external approval callback.
+			pc.block.ToolInput = append(json.RawMessage(nil), pc.block.ToolInput...)
+			approvedArgs := append(json.RawMessage(nil), pc.block.ToolInput...)
+			experiment := pc.block.ToolName == "plan_experiment"
 			watchdogApproved := false
 			if in.WatchdogGate != nil {
-				wd := in.WatchdogGate(ctx, pc.block.ToolName, pc.block.ToolInput, hist)
+				wd := in.WatchdogGate(ctx, pc.block.ToolName, append(json.RawMessage(nil), approvedArgs...), hist)
 				switch wd.Action {
 				case "challenge":
 					emit(LoopEvent{Kind: LoopWatchdogChallenge, ToolUseID: pc.block.ToolUseID, ToolName: pc.block.ToolName, Tier: string(pc.tier), Detail: wd.Protocol, Summary: wd.Challenge})
@@ -1077,7 +1083,7 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 						watchdogIntervened = true
 						continue
 					}
-					allow, err := in.PermissionRequester(ctx, pc.block.ToolUseID, pc.block.ToolName, pc.block.ToolInput, pc.tier, agenttools.IsDestructive(pc.tool))
+					allow, err := in.PermissionRequester(ctx, pc.block.ToolUseID, pc.block.ToolName, append(json.RawMessage(nil), approvedArgs...), pc.tier, agenttools.IsDestructive(pc.tool))
 					if err != nil {
 						return ToolLoopResult{}, err
 					}
@@ -1113,7 +1119,7 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 			// This ORs in ahead of the mode-based gate so no permission mode can
 			// skip it, and it deliberately sits outside the preauthorized check
 			// so a sub-agent tool grant cannot wave it through either.
-			forceConfirm := requiresForcedConfirm(pc.block.ToolName, pc.block.ToolInput)
+			forceConfirm := experiment || requiresForcedConfirm(pc.block.ToolName, pc.block.ToolInput)
 			if !watchdogApproved && (forceConfirm || (!preauthorized && GateDecisionForTool(mode, pc.tier, pc.block.ToolName, isMCP, allowlisted))) {
 				if in.PermissionRequester == nil {
 					results = append(results, llm.Block{
@@ -1125,7 +1131,7 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 				}
 				destructive := agenttools.IsDestructive(pc.tool)
 				emit(LoopEvent{Kind: LoopPermissionRequired, ToolUseID: pc.block.ToolUseID, ToolName: pc.block.ToolName, ArgsJSON: string(pc.block.ToolInput), Tier: string(pc.tier), Destructive: destructive})
-				allow, err := in.PermissionRequester(ctx, pc.block.ToolUseID, pc.block.ToolName, pc.block.ToolInput, pc.tier, destructive)
+				allow, err := in.PermissionRequester(ctx, pc.block.ToolUseID, pc.block.ToolName, append(json.RawMessage(nil), approvedArgs...), pc.tier, destructive)
 				var followUp *FollowUpDenial
 				if errors.As(err, &followUp) {
 					// "Chat about this": the user declined the tool but sent a redirect.
@@ -1159,6 +1165,10 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 			execCtx := agenttools.WithProgressEmitter(ctx, func(progress agenttools.ProgressEvent) {
 				emit(loopProgressEvent(pc.block.ToolUseID, pc.block.ToolName, progress))
 			})
+			if experiment {
+				execCtx = invocationapproval.With(execCtx, pc.block.ToolName, approvedArgs)
+				pc.block.ToolInput = approvedArgs
+			}
 			emit(LoopEvent{Kind: LoopToolExecStart, ToolUseID: pc.block.ToolUseID, ToolName: pc.block.ToolName})
 			res, err := pc.tool.Execute(execCtx, pc.block.ToolInput)
 			out := llm.Block{Type: llm.BlockToolResult, ToolUseRef: pc.block.ToolUseID}

@@ -19,8 +19,8 @@ func TestDispatch_Meta(t *testing.T) {
 	if c.Name() != "dispatch" {
 		t.Errorf("Name() = %q, want %q", c.Name(), "dispatch")
 	}
-	if c.Tier() != capabilities.TierW {
-		t.Errorf("Tier() = %q, want TierW", c.Tier())
+	if c.Tier() != capabilities.TierR {
+		t.Errorf("Tier() = %q, want TierR", c.Tier())
 	}
 	if !c.Surfaces().Has(capabilities.SurfaceAgent) {
 		t.Error("missing SurfaceAgent")
@@ -88,8 +88,8 @@ func TestDispatchLaunchFailsClosed(t *testing.T) {
 	}
 }
 
-// TestDispatchTierFor pins the dynamic tier: read-only grants stay W (silent
-// under permissive); write-capable, unknown, and prefix-mangled-unknown
+// TestDispatchTierFor pins the dynamic tier: read-only grants stay R (silent
+// in every mode); write-capable, unknown, and prefix-mangled-unknown
 // grants escalate the dispatch call to X so a human confirms the sub-agent's
 // toolset once. Display aliases and synonyms resolve like the live registry.
 func TestDispatchTierFor(t *testing.T) {
@@ -98,14 +98,14 @@ func TestDispatchTierFor(t *testing.T) {
 		args string
 		want capabilities.Tier
 	}{
-		{`{"task":"x"}`, capabilities.TierW},                              // default read-only grant
-		{`{"task":"x","tools":["Read","Grep","LS"]}`, capabilities.TierW}, // all R
-		{`{"task":"x","tools":["get_protocol"]}`, capabilities.TierW},     // canonical R name
+		{`{"task":"x"}`, capabilities.TierR},                              // default read-only grant
+		{`{"task":"x","tools":["Read","Grep","LS"]}`, capabilities.TierR}, // all R
+		{`{"task":"x","tools":["get_protocol"]}`, capabilities.TierR},     // canonical R name
 		{`{"task":"x","tools":["Read","Edit"]}`, capabilities.TierX},      // W in grant
 		{`{"task":"x","tools":["RunCommand"]}`, capabilities.TierX},
 		{`{"task":"x","tools":["Bash"]}`, capabilities.TierX},          // W via alias
 		{`{"task":"x","tools":["git_push"]}`, capabilities.TierX},      // X in grant
-		{`{"task":"x","tools":["mcp__oc__Read"]}`, capabilities.TierW}, // prefix-stripped R
+		{`{"task":"x","tools":["mcp__oc__Read"]}`, capabilities.TierR}, // prefix-stripped R
 		{`{"task":"x","tools":["mystery_tool"]}`, capabilities.TierX},  // unknown → conservative
 		{`{"task":"x","tools":["workflow"]}`, capabilities.TierX},      // synonym of dispatch (W)
 	}

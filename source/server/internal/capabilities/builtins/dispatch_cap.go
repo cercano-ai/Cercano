@@ -20,7 +20,7 @@ type dispatchCap struct{}
 func Dispatch() capabilities.Capability { return dispatchCap{} }
 
 func (dispatchCap) Name() string            { return "dispatch" }
-func (dispatchCap) Tier() capabilities.Tier { return capabilities.TierW }
+func (dispatchCap) Tier() capabilities.Tier { return capabilities.TierR }
 func (dispatchCap) Surfaces() capabilities.Surface {
 	return capabilities.SurfaceAgent | capabilities.SurfaceMCP
 }
@@ -103,8 +103,13 @@ func (dispatchCap) Execute(ctx context.Context, call *capabilities.Call) (*capab
 	if !config.ValidTask(task) {
 		return nil, fmt.Errorf("dispatch: unknown task class %q", task)
 	}
+	readOnly := (dispatchCap{}).TierFor(call.Args) == capabilities.TierR
+	if task == config.TaskReconnaissance && !readOnly {
+		return nil, errors.New("dispatch: reconnaissance requires read-only grants")
+	}
 	res, err := call.Svc.Tasks.Launch(ctx, dispatch.Spec{
-		Mode: dispatch.Agentic,
+		Mode:     dispatch.Agentic,
+		ReadOnly: readOnly,
 		// Task class, not legacy role, owns routing.
 		Role:           dispatch.RoleCoproc,
 		RoutingTask:    task,
@@ -179,20 +184,23 @@ func stripHostPrefix(name string) string {
 }
 
 // TierFor implements capabilities.ArgsTiered. A dispatch whose grant is all
-// read-only built-ins stays W (silent under permissive, like today); any
+// read-only built-ins stays R (no confirmation in any permission mode); any
 // write-capable or unknown grant (MCP tools, typos) escalates the dispatch
 // call itself to X so a human confirms ONCE — that approval authorizes the
 // sub-agent's whole granted toolset for the run.
 func (dispatchCap) TierFor(args json.RawMessage) capabilities.Tier {
 	var a dispatchArgs
 	if err := json.Unmarshal(args, &a); err != nil {
-		return capabilities.TierW
+		return capabilities.TierX
 	}
 	if len(a.Tools) == 0 {
-		return capabilities.TierW // least-privilege default grant: read-only
+		return capabilities.TierR // least-privilege default grant: read-only
 	}
 	tiers := agentGrantTiers()
 	for _, name := range a.Tools {
+		if plain := stripHostPrefix(name); plain == "dispatch" || plain == "workflow" {
+			return capabilities.TierX
+		}
 		t, ok := tiers[name]
 		if !ok {
 			t, ok = tiers[stripHostPrefix(name)]
@@ -201,5 +209,5 @@ func (dispatchCap) TierFor(args json.RawMessage) capabilities.Tier {
 			return capabilities.TierX
 		}
 	}
-	return capabilities.TierW
+	return capabilities.TierR
 }

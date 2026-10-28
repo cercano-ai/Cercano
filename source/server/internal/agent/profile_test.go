@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"cercano/source/server/internal/invocationapproval"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -42,7 +44,7 @@ func TestPlanProfile_AllowsReadAndFileWritesOnly(t *testing.T) {
 		{llm.PermW, "Edit", true},                  // file edit — permitted to author the plan
 		{llm.PermX, "request_plan_approval", true}, // handoff tool — permitted to leave planning after approval
 		{llm.PermX, "bash", false},                 // exec tier — fenced
-		{llm.PermX, "RunCommand", false},                 // exec tier — fenced (display alias)
+		{llm.PermX, "RunCommand", false},           // exec tier — fenced (display alias)
 		{llm.PermW, "git_commit", false},           // non-file write tool — fenced
 		{llm.PermW, "Checkpoint", false},           // git mutation — fenced
 	}
@@ -599,5 +601,69 @@ func TestFenceDenialMessage_SuggestPlanUnderPlanProfile_IsSelfAware(t *testing.T
 	other := fenceDenialMessage("plan", "run_command", llm.PermX)
 	if !strings.Contains(other, "unavailable") || !strings.Contains(other, "run_command") {
 		t.Fatalf("non-planning tool denial should keep the read-only explanation; got: %q", other)
+	}
+}
+
+func TestPlanningExperimentSingleInvocation(t *testing.T) {
+	for _, allow := range []bool{false, true} {
+		t.Run(fmt.Sprint(allow), func(t *testing.T) {
+			ran, shell := false, false
+			reg := agenttools.NewRegistry()
+			reg.MustRegister(stubTool{name: "plan_experiment", perm: agenttools.PermX, ran: &ran})
+			reg.MustRegister(stubTool{name: "RunCommand", perm: agenttools.PermW, ran: &shell})
+			prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+				{{Type: llm.BlockToolUse, ToolUseID: "one", ToolName: "plan_experiment", ToolInput: json.RawMessage(`{}`)}},
+				{{Type: llm.BlockToolUse, ToolUseID: "two", ToolName: "plan_experiment", ToolInput: json.RawMessage(`{}`)}, {Type: llm.BlockToolUse, ToolUseID: "shell", ToolName: "RunCommand", ToolInput: json.RawMessage(`{}`)}},
+				{{Type: llm.BlockText, Text: "done"}}}}
+			confirms := 0
+			_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, Profile: PlanProfile(), PreauthorizedTools: []string{"plan_experiment"}, UserInput: "experiment", PermissionRequester: func(context.Context, string, string, json.RawMessage, llm.Permission, bool) (bool, error) {
+				confirms++
+				return allow, nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := 1
+			if allow {
+				want = 2
+			}
+			if confirms != want || ran != allow || shell {
+				t.Fatalf("confirms=%d ran=%v shell=%v", confirms, ran, shell)
+			}
+		})
+	}
+}
+
+// The loop authorization survives adapter-style context forwarding, not replay.
+type experimentApprovalProbe struct {
+	stubTool
+	t *testing.T
+}
+
+func (p experimentApprovalProbe) Execute(ctx context.Context, args json.RawMessage) (*agenttools.Result, error) {
+	if string(args) != `{"package":".","test":"TestOne"}` {
+		p.t.Fatalf("approval mutated args: %s", args)
+	}
+	if !invocationapproval.Consume(ctx, "plan_experiment", args) {
+		p.t.Fatal("missing exact approval")
+	}
+	if invocationapproval.Consume(ctx, "plan_experiment", args) {
+		p.t.Fatal("replayed approval")
+	}
+	return p.stubTool.Execute(ctx, args)
+}
+func TestPlanningExperimentApprovalImmutable(t *testing.T) {
+	ran := false
+	reg := agenttools.NewRegistry()
+	reg.MustRegister(experimentApprovalProbe{stubTool: stubTool{name: "plan_experiment", perm: agenttools.PermX, ran: &ran}, t: t})
+	prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+		{{Type: llm.BlockToolUse, ToolUseID: "one", ToolName: "plan_experiment", ToolInput: json.RawMessage(`{"package":".","test":"TestOne"}`)}},
+		{{Type: llm.BlockText, Text: "done"}}}}
+	_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, Profile: PlanProfile(), UserInput: "experiment", PermissionRequester: func(_ context.Context, _, _ string, args json.RawMessage, _ llm.Permission, _ bool) (bool, error) {
+		args[0] = '!'
+		return true, nil
+	}})
+	if err != nil || !ran {
+		t.Fatalf("ran=%v err=%v", ran, err)
 	}
 }

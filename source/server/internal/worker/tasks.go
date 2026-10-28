@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cercano/source/server/internal/capabilities"
+	"cercano/source/server/internal/capabilities/builtins"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/dispatch"
 	"cercano/source/server/pkg/config"
@@ -45,7 +46,13 @@ func handleTaskControl(ctx context.Context, tasks capabilities.Tasks, parent str
 			response.Error = "invalid task class"
 			return response
 		}
-		result, err = tasks.Launch(ctx, dispatch.Spec{Mode: dispatch.Agentic, Role: dispatch.RoleCoproc, ConversationID: parent, Task: request.GetTask(), Tools: request.GetTools(), WorkDir: request.GetWorkDir(), RoutingTask: taskClass, Tier: config.Tier(request.GetTier())})
+		args, _ := json.Marshal(map[string]any{"tools": request.GetTools()})
+		readOnly := builtins.Dispatch().(capabilities.ArgsTiered).TierFor(args) == capabilities.TierR
+		if taskClass == config.TaskReconnaissance && !readOnly {
+			response.Error = "reconnaissance requires read-only grants"
+			return response
+		}
+		result, err = tasks.Launch(ctx, dispatch.Spec{ReadOnly: readOnly, Mode: dispatch.Agentic, Role: dispatch.RoleCoproc, ConversationID: parent, Task: request.GetTask(), Tools: request.GetTools(), WorkDir: request.GetWorkDir(), RoutingTask: taskClass, Tier: config.Tier(request.GetTier())})
 	case "list":
 		limit := int(request.GetLimit())
 		if limit < 1 || limit > 100 {

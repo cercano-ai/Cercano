@@ -53,6 +53,7 @@ func Register(reg *capabilities.Registry) {
 	reg.MustRegister(WriteFile())
 	reg.MustRegister(EditFile())
 	reg.MustRegister(RunCommand())
+	reg.MustRegister(PlanExperiment())
 	reg.MustRegister(GitAdd())
 	reg.MustRegister(GitCommit())
 	reg.MustRegister(Dispatch())
