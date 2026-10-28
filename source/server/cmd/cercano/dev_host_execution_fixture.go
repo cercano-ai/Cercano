@@ -123,6 +123,32 @@ func init() {
 	if os.Getenv("CERCANO_DISABLE_CREDENTIALS") != "1" {
 		os.Exit(90)
 	}
+	// Synthetic binaries only: every worker has a finite lifetime even if its
+	// host/test crashes. The private stop lease belongs to this invocation.
+	if stop := os.Getenv("CERCANO_DEV_FIXTURE_STOP"); stop != "" {
+		if !filepath.IsAbs(stop) || filepath.Clean(stop) != stop {
+			os.Exit(92)
+		}
+		if err := os.WriteFile(filepath.Join(filepath.Dir(stop), fmt.Sprintf("worker-%d.pid", os.Getpid())), []byte("owned fixture worker"), 0600); err != nil {
+			os.Exit(92)
+		}
+		go func() {
+			deadline := time.NewTimer(120 * time.Second)
+			ticker := time.NewTicker(25 * time.Millisecond)
+			defer deadline.Stop()
+			defer ticker.Stop()
+			for {
+				select {
+				case <-deadline.C:
+					os.Exit(93)
+				case <-ticker.C:
+					if _, err := os.Stat(stop); err == nil {
+						os.Exit(0)
+					}
+				}
+			}
+		}()
+	}
 	os.Setenv("HOME", filepath.Dir(socket))
 	os.Setenv("XDG_CONFIG_HOME", filepath.Dir(socket))
 	l, err := net.Listen("unix", socket)
