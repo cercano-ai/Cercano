@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -117,6 +118,7 @@ type Server struct {
 	diagnosticClose       sync.Once
 	coexistence           *coexistenceLifecycle // explicit lifecycle-only opt-in; never enabled by NewServer
 	pendingPrompts        pendingPromptHub
+	configApplyMu         sync.Mutex // serializes publication and runtime activation on this host
 	mistralMu             sync.Mutex
 	mistralCatalog        *mistralcatalog.Store
 	authenticationWaiters sync.Map
@@ -953,9 +955,6 @@ func profileByName(profiles []config.CloudProfile, name string) (config.CloudPro
 	return config.CloudProfile{}, false
 }
 
-// persistConfig saves the current config to disk if a path is set.
-func (s *Server) persistConfig() { s.cfgSvc.Persist() }
-
 // installAbsentCloud clears the native cloud provider and points both the
 // router and the coordinator's CloudModel at the absent sentinel, so a failed
 // rebuild never leaves a half-wired cloud.
@@ -1011,6 +1010,8 @@ func (s *Server) GetCloudProfiles(ctx context.Context, req *proto.GetCloudProfil
 
 // SetActiveCloudProfile implements proto.AgentServer — switches the active cloud profile.
 func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActiveCloudProfileRequest) (*proto.SetActiveCloudProfileResponse, error) {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
 		return nil, err
 	}
@@ -1025,11 +1026,16 @@ func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActive
 	defer func() {
 		log.Printf("[cloud] SetActiveCloudProfile(%q) took %v", req.GetName(), time.Since(start).Round(time.Millisecond))
 	}()
-	if req.GetName() != "" && s.cfgSvc.Get().BackupCloudProfile == req.GetName() {
+	if slices.Contains(s.cfgSvc.Get().PrimaryBackups(), req.GetName()) {
 		return &proto.SetActiveCloudProfileResponse{Error: "profile is already Primary backup; edit routing assignments to change both"}, nil
 	}
-	if !s.cfgSvc.SetActiveProfile(req.GetName()) {
+	candidate := s.cfgSvc.Get()
+	if _, ok := candidate.Profile(req.GetName()); !ok {
 		return &proto.SetActiveCloudProfileResponse{Ok: false, Error: fmt.Sprintf("no profile %q", req.GetName())}, nil
+	}
+	candidate.ActiveCloudProfile = req.GetName()
+	if err := s.cfgSvc.SaveAndSet(candidate); err != nil {
+		return &proto.SetActiveCloudProfileResponse{Error: err.Error()}, nil
 	}
 	if s.turnBroker != nil {
 		s.turnBroker.CancelAllTurns()
@@ -1044,10 +1050,8 @@ func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActive
 	}
 	if err := s.rebuildCloud(); err != nil {
 		// active is set, but the provider couldn't be built — report it, keep going.
-		s.persistConfig()
-		return &proto.SetActiveCloudProfileResponse{Ok: false, Error: err.Error()}, nil
+		return &proto.SetActiveCloudProfileResponse{Ok: false, Error: "configuration saved but not applied: " + err.Error()}, nil
 	}
-	s.persistConfig()
 	if prof, ok := s.activeProfile(); ok {
 		s.broadcastConfigChanged("active_cloud_profile", prof.Name)
 		s.broadcastConfigChanged("cloud_model", s.activeCloudModel())
@@ -1057,12 +1061,13 @@ func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActive
 
 // SetCloudProfileKey implements proto.AgentServer — stores an API key for a profile.
 func (s *Server) SetCloudProfileKey(ctx context.Context, req *proto.SetCloudProfileKeyRequest) (*proto.SetCloudProfileKeyResponse, error) {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
 		return nil, err
 	}
 	releaseCatalog := s.lockMistralConfiguration()
 	defer releaseCatalog()
-	s.invalidateMistralLocked(req.GetName())
 	st := s.cfgSvc.Secrets()
 	if st == nil {
 		return &proto.SetCloudProfileKeyResponse{Ok: false, Error: "keychain unavailable"}, nil
@@ -1079,12 +1084,16 @@ func (s *Server) SetCloudProfileKey(ctx context.Context, req *proto.SetCloudProf
 	// Primary when no valid selection exists yet.
 	c := s.cfgSvc.Get()
 	if _, ok := c.Profile(c.ActiveCloudProfile); !ok {
-		s.cfgSvc.SetActiveProfile(req.GetName())
-		s.persistConfig()
+		c.ActiveCloudProfile = req.GetName()
+		if err := s.cfgSvc.SaveAndSet(c); err != nil {
+			return &proto.SetCloudProfileKeyResponse{Error: "credential saved; configuration not applied: " + err.Error()}, nil
+		}
 	}
 	// If the key belongs to the active profile, rebuild so it takes effect now.
 	if s.cfgSvc.Get().ReferencesProfile(req.GetName()) {
-		_ = s.rebuildCloud()
+		if err := s.rebuildCloud(); err != nil {
+			return &proto.SetCloudProfileKeyResponse{Error: "credential saved but not applied: " + err.Error()}, nil
+		}
 	}
 	return &proto.SetCloudProfileKeyResponse{Ok: true}, nil
 }
@@ -1103,9 +1112,10 @@ func knownFlavor(f string) bool {
 // UpsertCloudProfile implements proto.AgentServer — creates or updates a profile's
 // metadata (the API key is managed separately via SetCloudProfileKey).
 func (s *Server) UpsertCloudProfile(ctx context.Context, req *proto.UpsertCloudProfileRequest) (*proto.UpsertCloudProfileResponse, error) {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	releaseCatalog := s.lockMistralConfiguration()
 	defer releaseCatalog()
-	s.invalidateMistralLocked(req.GetName())
 	name := strings.TrimSpace(req.GetName())
 	if name == "" {
 		return &proto.UpsertCloudProfileResponse{Ok: false, Error: "profile name is required"}, nil
@@ -1164,58 +1174,93 @@ func (s *Server) UpsertCloudProfile(ctx context.Context, req *proto.UpsertCloudP
 	if err := s.validateMistralChoiceEdits(ctx, previous, np); err != nil {
 		return &proto.UpsertCloudProfileResponse{Error: err.Error()}, nil
 	}
-	if req.GetCreateOnly() {
-		var collision error
-		err := s.cfgSvc.Mutate(func(current *config.Config) {
-			if _, exists := current.Profile(name); exists {
-				collision = fmt.Errorf("account %q already exists", name)
-				return
-			}
-			current.CloudProfiles = append(current.CloudProfiles, np.Clone())
-		})
-		if err != nil {
-			return &proto.UpsertCloudProfileResponse{Error: err.Error()}, nil
-		}
-		if collision != nil {
-			return &proto.UpsertCloudProfileResponse{Error: collision.Error()}, nil
-		}
-	} else {
-		s.cfgSvc.UpsertProfile(np)
+	if _, exists := c.Profile(name); exists && req.GetCreateOnly() {
+		return &proto.UpsertCloudProfileResponse{Error: fmt.Sprintf("account %q already exists", name)}, nil
 	}
+	replaced := false
+	for i, p := range c.CloudProfiles {
+		if p.Name == name {
+			c.CloudProfiles[i] = np.Clone()
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		c.CloudProfiles = append(c.CloudProfiles, np.Clone())
+	}
+	if err := s.cfgSvc.SaveAndSet(c); err != nil {
+		return &proto.UpsertCloudProfileResponse{Error: err.Error()}, nil
+	}
+
+	s.invalidateMistralLocked(name)
 	releaseCatalog()
 	if c.ReferencesProfile(name) {
 		if err := s.rebuildCloud(); err != nil {
 			// active is set, but the provider couldn't be built — report it, keep going.
-			s.persistConfig()
-			return &proto.UpsertCloudProfileResponse{Ok: true, Warning: err.Error()}, nil
+			return &proto.UpsertCloudProfileResponse{Ok: true, Warning: "configuration saved but not applied: " + err.Error()}, nil
 		}
 		s.broadcastConfigChanged("cloud_model", s.activeCloudModel())
 	}
-	s.persistConfig()
 	return &proto.UpsertCloudProfileResponse{Ok: true}, nil
 }
 
 // RemoveCloudProfile implements proto.AgentServer — deletes a profile and its
 // keychain key. Clears the active profile (→ absent cloud) if it was active.
 func (s *Server) RemoveCloudProfile(ctx context.Context, req *proto.RemoveCloudProfileRequest) (*proto.RemoveCloudProfileResponse, error) {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	releaseCatalog := s.lockMistralConfiguration()
 	defer releaseCatalog()
-	s.invalidateMistralLocked(req.GetName())
 	name := req.GetName()
 	referenced := s.cfgSvc.Get().ReferencesProfile(name)
-	existed, _ := s.cfgSvc.RemoveProfile(name)
+	candidate := s.cfgSvc.Get()
+	_, existed := candidate.Profile(name)
 	if !existed {
 		return &proto.RemoveCloudProfileResponse{Ok: false, Error: fmt.Sprintf("no profile %q", name)}, nil
 	}
 
-	if st := s.cfgSvc.Secrets(); st != nil {
-		_ = st.Delete(name) // best-effort; missing key is not an error
+	kept := candidate.CloudProfiles[:0]
+	for _, p := range candidate.CloudProfiles {
+		if p.Name != name {
+			kept = append(kept, p)
+		}
 	}
+	candidate.CloudProfiles = kept
+	if candidate.ActiveCloudProfile == name {
+		candidate.ActiveCloudProfile = ""
+	}
+	backups := candidate.PrimaryBackups()
+	keptBackups := backups[:0]
+	for _, backup := range backups {
+		if backup != name {
+			keptBackups = append(keptBackups, backup)
+		}
+	}
+	candidate.SetPrimaryBackups(keptBackups)
+	if candidate.SecondaryCloudProfile == name {
+		candidate.SecondaryCloudProfile = ""
+	}
+	if candidate.SecondaryBackupCloudProfile == name {
+		candidate.SecondaryBackupCloudProfile = ""
+	}
+	if err := s.cfgSvc.SaveAndSet(candidate); err != nil {
+		return &proto.RemoveCloudProfileResponse{Error: err.Error()}, nil
+	}
+
+	credentialFailed := false
+	if st := s.cfgSvc.Secrets(); st != nil {
+		credentialFailed = st.Delete(name) != nil
+	}
+	s.invalidateMistralLocked(name)
 	releaseCatalog()
 	if referenced {
-		_ = s.rebuildCloud()
+		if err := s.rebuildCloud(); err != nil {
+			return &proto.RemoveCloudProfileResponse{Error: "configuration saved but not applied: " + err.Error()}, nil
+		}
 	}
-	s.persistConfig()
+	if credentialFailed {
+		return &proto.RemoveCloudProfileResponse{Error: "configuration saved; credential removal failed"}, nil
+	}
 	return &proto.RemoveCloudProfileResponse{Ok: true}, nil
 }
 
@@ -1667,6 +1712,12 @@ func (s *Server) LocusMode() string {
 // (previously atomic under one cfgMu span) — a concurrent reader can momentarily
 // observe new config with old provider wiring (documented trade-off).
 func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigRequest) (*proto.UpdateConfigResponse, error) {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
+	return s.updateConfigLocked(ctx, req, nil)
+}
+
+func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfigRequest, authoritative *config.Config) (*proto.UpdateConfigResponse, error) {
 	if s.coexistence != nil {
 		return nil, cfgsvc.ErrFrozen
 	}
@@ -2109,7 +2160,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		effects = append(effects, func() { s.watchdog = s.buildWatchdogFrom(c.Watchdog, c.Models) })
 	}
 
-	if len(changes) == 0 {
+	if len(changes) == 0 && authoritative == nil {
 		return &proto.UpdateConfigResponse{
 			Success: true,
 			Message: "no changes requested",
@@ -2169,8 +2220,27 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	}
 
 	// Commit all config mutations to the service and persist.
-	if err := s.cfgSvc.SaveAndSet(c); err != nil {
-		return nil, grpcstatus.Error(codes.InvalidArgument, err.Error())
+	if authoritative != nil {
+		coordinator, err := config.NewConfigCoordinator(s.cfgSvc.Path())
+		if err != nil {
+			return nil, err
+		}
+		latest, err := coordinator.Read(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if latest.Revision != authoritative.Snapshot().Revision {
+			return nil, fmt.Errorf("configuration changed during reload; not applied")
+		}
+		c = authoritative.Clone()
+		if err := s.cfgSvc.Set(c); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.cfgSvc.SaveAndSet(c); err != nil {
+			return nil, grpcstatus.Error(codes.InvalidArgument, err.Error())
+		}
+		c = s.cfgSvc.Get()
 	}
 	s.applyRuntimeEndpoints(c)
 	for _, effect := range effects {
@@ -2244,7 +2314,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	// reapplying the same mode), rather than mixing new policy with old bindings.
 	// Rebuild also publishes the new policy when cloud is unavailable, so
 	// cloud-only fails closed instead of retaining a stale local-only route.
-	if req.LocusMode != "" {
+	if req.LocusMode != "" || authoritative != nil {
 		if err := s.rebuildCloud(); err != nil {
 			changes = append(changes, "routing refreshed; cloud unavailable: "+err.Error())
 		}

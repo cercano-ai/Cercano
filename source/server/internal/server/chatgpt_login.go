@@ -75,6 +75,8 @@ func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream pro
 	if err != nil {
 		return sendChatGPTLoginResult(stream, false, profile, "", loginStageFailure("ChatGPT", "credential encoding", err))
 	}
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	result, err := login.Commit(encoded, ts.Identity)
 	if err != nil {
 		return sendChatGPTLoginResult(stream, false, profile, "", loginStageFailure("ChatGPT", "credential saving", err))
@@ -84,11 +86,9 @@ func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream pro
 		// Rebind referenced accounts without changing their routing settings.
 		if result.Active && s.providerSvc != nil && s.providerSvc.Cloud() == nil {
 			if err := s.rebuildCloud(); err != nil {
-				s.persistConfig()
-				return sendChatGPTLoginResult(stream, false, profile, ts.AccountID, loginStageFailure("ChatGPT", "provider activation", err))
+				return sendChatGPTLoginResult(stream, false, profile, ts.AccountID, loginStageFailure("ChatGPT", "configuration saved but provider not activated", err))
 			}
 		}
-		s.persistConfig()
 		return sendChatGPTLoginResult(stream, true, profile, ts.AccountID, "")
 	}
 	isActive := result.Active
@@ -98,12 +98,10 @@ func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream pro
 
 	if isActive {
 		if err := s.rebuildCloud(); err != nil {
-			s.persistConfig()
-			return sendChatGPTLoginResult(stream, false, profile, ts.AccountID, loginStageFailure("ChatGPT", "provider activation", err))
+			return sendChatGPTLoginResult(stream, false, profile, ts.AccountID, loginStageFailure("ChatGPT", "configuration saved but provider not activated", err))
 		}
 		s.broadcastConfigChanged("cloud_model", np.Model)
 	}
-	s.persistConfig()
 	return sendChatGPTLoginResult(stream, true, profile, ts.AccountID, "")
 }
 

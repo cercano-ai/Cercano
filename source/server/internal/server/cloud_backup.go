@@ -17,6 +17,8 @@ import (
 // profile (empty clears it) and rewires the provider chain. Mirrors
 // SetActiveCloudProfile's shape: validate, publish, apply, rebuild.
 func (s *Server) SetBackupCloudProfile(ctx context.Context, req *proto.SetBackupCloudProfileRequest) (*proto.SetBackupCloudProfileResponse, error) {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
 		return nil, err
 	}

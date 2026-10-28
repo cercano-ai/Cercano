@@ -120,5 +120,7 @@ func (s *Server) GetOpenRuntimeStatus(ctx context.Context, req *proto.GetOpenRun
 // publishDetectedRuntime separates config publication from installation, which
 // has already completed and is not rolled back on a publication conflict.
 func (s *Server) publishDetectedRuntime(candidate config.Config) error {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	return s.cfgSvc.SaveAndSet(candidate)
 }

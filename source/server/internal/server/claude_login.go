@@ -89,6 +89,8 @@ func (s *Server) runClaudeLogin(req *proto.StartClaudeLoginRequest, stream proto
 	if err != nil {
 		return sendClaudeLoginResult(stream, false, profile, loginStageFailure("Claude", "credential encoding", err))
 	}
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	result, err := login.Commit(encoded, ts.Identity)
 	if err != nil {
 		return sendClaudeLoginResult(stream, false, profile, loginStageFailure("Claude", "credential saving", err))
@@ -98,11 +100,9 @@ func (s *Server) runClaudeLogin(req *proto.StartClaudeLoginRequest, stream proto
 		// Rebind referenced accounts without changing their routing settings.
 		if result.Active && s.providerSvc != nil && s.providerSvc.Cloud() == nil {
 			if err := s.rebuildCloud(); err != nil {
-				s.persistConfig()
-				return sendClaudeLoginResult(stream, false, profile, loginStageFailure("Claude", "provider activation", err))
+				return sendClaudeLoginResult(stream, false, profile, loginStageFailure("Claude", "configuration saved but provider not activated", err))
 			}
 		}
-		s.persistConfig()
 		return sendClaudeLoginResult(stream, true, profile, "")
 	}
 	isActive := result.Active
@@ -110,13 +110,11 @@ func (s *Server) runClaudeLogin(req *proto.StartClaudeLoginRequest, stream proto
 
 	if isActive {
 		if err := s.rebuildCloud(); err != nil {
-			s.persistConfig()
-			return sendClaudeLoginResult(stream, false, profile, loginStageFailure("Claude", "provider activation", err))
+			return sendClaudeLoginResult(stream, false, profile, loginStageFailure("Claude", "configuration saved but provider not activated", err))
 		}
 		s.broadcastConfigChanged("active_cloud_profile", profile)
 		s.broadcastConfigChanged("cloud_model", np.Model)
 	}
-	s.persistConfig()
 	return sendClaudeLoginResult(stream, true, profile, "")
 }
 
