@@ -235,15 +235,16 @@ func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (resul
 		}
 	}, func() error {
 		cancel()
+		var shutdownErr error
 		if srvOwned != nil {
 			srvOwned.BeginShutdown()
 			srvOwned.WaitForWatchers()
 		}
 		gate.drain()
 		if srvOwned != nil {
-			srvOwned.Shutdown()
+			shutdownErr = srvOwned.Shutdown()
 		}
-		err := resources.Wait(context.Background())
+		err := errors.Join(shutdownErr, resources.Wait(context.Background()))
 		if constructorRollback != nil {
 			err = errors.Join(err, constructorRollback())
 		}

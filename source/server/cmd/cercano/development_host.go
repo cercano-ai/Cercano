@@ -171,7 +171,7 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		if dependencies != nil {
 			err = dependencies.Wait(context.Background())
 		} else {
-			srv.Shutdown()
+			err = srv.Shutdown()
 		}
 		transport.GracefulStop()
 		return err

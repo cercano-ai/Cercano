@@ -167,12 +167,13 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		}
 	}, func() error {
 		cancel()
+		var shutdownErr error
 		if ownedServer != nil {
 			ownedServer.BeginShutdown()
 			ownedServer.WaitForWatchers()
-			ownedServer.Shutdown()
+			shutdownErr = ownedServer.Shutdown()
 		}
-		err := resources.Wait(context.Background())
+		err := errors.Join(shutdownErr, resources.Wait(context.Background()))
 		if constructorRollback != nil {
 			err = errors.Join(err, constructorRollback())
 		}

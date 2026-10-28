@@ -16,6 +16,8 @@ import (
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/localruntime"
 	"cercano/source/server/internal/secrets"
+	"cercano/source/server/internal/server"
+	"cercano/source/server/internal/watchdog"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/devhostauth"
 	"cercano/source/server/pkg/proto"
@@ -243,5 +245,57 @@ func TestDevelopmentProductionRuntimeErrorWithoutFallback(t *testing.T) {
 	}
 	if !errors.Is(err, sentinel) || calls != 1 {
 		t.Fatalf("error=%v calls=%d cleanup=%v", err, calls, cleanup != nil)
+	}
+}
+
+// A failing server-owned diagnostic must not be lost by the prepared adapter.
+type failingDevelopmentAudit struct {
+	startupAudit
+	err error
+}
+
+func (a *failingDevelopmentAudit) Close() error { a.closes.Add(1); return a.err }
+
+func TestDevelopmentProductionCleanupShutdownError(t *testing.T) {
+	// Only the injected memory opener is allowed; no native backend is used.
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
+	for _, resourceFailure := range []bool{false, true} {
+		t.Run(map[bool]string{false: "shutdown-only", true: "joined-resource-error"}[resourceFailure], func(t *testing.T) {
+			o, auth := developmentProductionFixture(t)
+			if err := os.WriteFile(filepath.Join(o.State, "config.yaml"), []byte("open_runtime: llama_server\nlocus_mode: open_only\nwatchdog:\n  enabled: true\n  audit:\n    enabled: true\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			sentinel := errors.New("audit close sentinel")
+			var runtimeErr error
+			if resourceFailure {
+				runtimeErr = errors.New("runtime close sentinel")
+			}
+			audit := &failingDevelopmentAudit{err: sentinel}
+			closed := 0
+			srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+				openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
+				watchdog:    server.WatchdogDependencies{OpenAudit: func(string) (watchdog.AuditLogger, error) { return audit, nil }},
+				connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
+					return localruntime.NewManager(), func() error { closed++; return runtimeErr }, nil
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Prepared startup deliberately leaves supervision inactive. Initialize only
+			// this injected audit owner; no turn or model call is made.
+			srv.InitWatchdog()
+			for i := 0; i < 2; i++ {
+				err := cleanup.Wait(context.Background())
+				st := cleanup.Status()
+				control := cleanup.Control(true)
+				if (runtimeErr != nil && !errors.Is(err, runtimeErr)) || !errors.Is(err, sentinel) || st.Complete || control.Complete || control.Phase != "failed" || !errors.Is(st.Err, sentinel) {
+					t.Fatalf("cleanup error=%v status=%+v", err, st)
+				}
+			}
+			if audit.closes.Load() != 1 || closed != 1 {
+				t.Fatalf("close counts audit=%d runtime=%d", audit.closes.Load(), closed)
+			}
+		})
 	}
 }
