@@ -16,6 +16,7 @@ import (
 	"cercano/source/server/pkg/proto"
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -120,7 +121,10 @@ func TestProductionCompositionFailureAndIsolation(t *testing.T) {
 	}
 }
 
-func TestProductionCompositionServiceParity(t *testing.T) {
+// This compares shared service registration only, not production opener, worker,
+// provider, transport, or lifecycle parity. The prepared graph is built below
+// the credential admission boundary with an explicit temporary store.
+func TestProductionCompositionSharedServiceRegistrationParity(t *testing.T) {
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	t.Setenv("HOME", t.TempDir())
 	routing := composeProductionRouting(productionRoutingDependencies{open: &compositionRunner{name: "memory"}, classificationDisabled: true})
@@ -130,9 +134,15 @@ func TestProductionCompositionServiceParity(t *testing.T) {
 	}
 	defer store.Close()
 	a := agent.NewAgent(routing.router, routing.coordinator, agent.WithPersistentStore(store))
-	ordinary := server.NewServer(a, routing.router, routing.coordinator, nil, engine.NewEngineRegistry())
+	logs := t.TempDir()
+	ordinary := server.NewServerWithLogs(a, routing.router, routing.coordinator, nil, engine.NewEngineRegistry(), filepath.Join(logs, "ordinary-routing.jsonl"), filepath.Join(logs, "ordinary-failures.jsonl"))
 	defer ordinary.Shutdown()
-	ordinary.SetSecrets(secrets.NewMemory())
+	if err := ordinary.SetSecrets(secrets.NewMemory()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ordinary.SetConfigPersistence("", config.Defaults()); err != nil {
+		t.Fatal(err)
+	}
 	ordinary.SetOpenLLMProvider(&developmentSyntheticProvider{})
 	loader := projectctx.NewLoader()
 	bindProductionAgent(ordinary, a, loader, agent.NewStaticPermissionStore(agent.ModeStrict), agent.NewPendingDecisions())
@@ -142,23 +152,52 @@ func TestProductionCompositionServiceParity(t *testing.T) {
 	if a.PersistentStore() != store {
 		t.Fatal("composition replaced caller store")
 	}
+	o, _ := developmentProductionFixture(t)
+	spawn, err := worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: o.Generation, ManifestPath: filepath.Join(o.Generation, "manifest.json"), HostInstance: o.Host, ResourceRoot: o.RuntimeRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := productionExecutionPolicy{prepared: &spawn}
+	preparedRouting := composeProductionRouting(productionRoutingDependencies{open: &compositionRunner{name: "memory"}, classificationDisabled: true})
+	preparedLoader := projectctx.NewLoader()
+	var preparedAgent *agent.Agent
+	var preparedStore conversation.Store
+	prepared, err := server.NewPreparedServer(context.Background(), server.PreparedServerOptions{
+		Coexistence: server.CoexistenceOptions{
+			StorePath: filepath.Join(o.State, "conversations.db"), Build: "registration-test", Host: o.Host,
+			Contract:           conversation.DevelopmentCoexistenceDeclaration(),
+			Reload:             func(context.Context, conversation.Store, *conversation.Ownership) error { return nil },
+			CloseParticipation: func(context.Context) error { return nil },
+		},
+		Config: config.Defaults(), Secrets: secrets.NewMemory(),
+		RoutingPath: filepath.Join(logs, "prepared-routing.jsonl"), FailurePath: filepath.Join(logs, "prepared-failures.jsonl"),
+		Agent: func(st conversation.Store) (*agent.Agent, error) {
+			preparedStore = st
+			preparedAgent = agent.NewAgent(preparedRouting.router, preparedRouting.coordinator, agent.WithPersistentStore(st))
+			return preparedAgent, nil
+		},
+	}, preparedRouting.router, preparedRouting.coordinator, nil, engine.NewEngineRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer preparedStore.Close()
+	defer prepared.Shutdown()
+	prepared.SetOpenLLMProvider(&developmentSyntheticProvider{})
+	bindProductionAgent(prepared, preparedAgent, preparedLoader, agent.NewStaticPermissionStore(agent.ModeStrict), agent.NewPendingDecisions())
+	if err := composeProductionServices(prepared, preparedAgent, preparedLoader, toolstack.EngineDeps{}, policy); err != nil {
+		t.Fatal(err)
+	}
+	if preparedAgent.PersistentStore() != preparedStore || preparedStore == store {
+		t.Fatal("shared service composition replaced or shared the prepared store")
+	}
 	mcpOpens := 0
-	o, auth := developmentProductionFixture(t)
-	prepared, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
-		mcp:         productionMCPDependencies{newManager: func(*agenttools.Registry, string, time.Duration) *mcphost.Manager { mcpOpens++; return nil }},
-		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
-		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
-			return localruntime.NewManager(), func() {}, nil
-		},
-		newOpenProvider: func(localruntime.Manager, config.Config) (inference.Provider, error) {
-			return &developmentSyntheticProvider{}, nil
-		},
-	})
+	cleanup, err := composeProductionMCP(prepared, o.State, productionMCPDependencies{
+		newManager: func(*agenttools.Registry, string, time.Duration) *mcphost.Manager { mcpOpens++; return nil },
+	}, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
-	defer prepared.Shutdown()
 	if mcpOpens != 0 {
 		t.Fatal("prepared composition opened unsafe MCP integration")
 	}
@@ -176,6 +215,39 @@ func TestProductionCompositionServiceParity(t *testing.T) {
 	left, right := names(ordinary), names(prepared)
 	if len(left) == 0 || !reflect.DeepEqual(left, right) {
 		t.Fatalf("service registrations differ: ordinary=%v prepared=%v", left, right)
+	}
+}
+
+// Disabled credentials must refuse production admission before even injected
+// dependency factories. Do not bypass this boundary to test graph registration.
+func TestProductionCompositionDisabledAdmissionRefusal(t *testing.T) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	t.Setenv("HOME", t.TempDir())
+	o, auth := developmentProductionFixture(t)
+	secretOpens, runtimeConnects, providerOpens, mcpOpens := 0, 0, 0, 0
+	srv, cleanup, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{
+		openSecrets: func() (secrets.Store, error) { secretOpens++; return secrets.NewMemory(), nil },
+		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error) {
+			runtimeConnects++
+			return localruntime.NewManager(), func() {}, nil
+		},
+		newOpenProvider: func(localruntime.Manager, config.Config) (inference.Provider, error) {
+			providerOpens++
+			return &developmentSyntheticProvider{}, nil
+		},
+		mcp: productionMCPDependencies{newManager: func(*agenttools.Registry, string, time.Duration) *mcphost.Manager { mcpOpens++; return nil }},
+	})
+	if srv != nil {
+		defer srv.Shutdown()
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if !errors.Is(err, secrets.ErrDisabled) || !strings.Contains(err.Error(), "open read-only credentials") || srv != nil || cleanup != nil {
+		t.Fatalf("expected disabled production admission: server=%v cleanup=%t err=%v", srv, cleanup != nil, err)
+	}
+	if secretOpens != 0 || runtimeConnects != 0 || providerOpens != 0 || mcpOpens != 0 {
+		t.Fatalf("disabled admission entered factories: secrets=%d runtime=%d provider=%d mcp=%d", secretOpens, runtimeConnects, providerOpens, mcpOpens)
 	}
 }
 
