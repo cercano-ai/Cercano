@@ -12,9 +12,11 @@ Source baseline: `533f12c29fef28641209973fed0aa1619874b010`; the checkpoint cont
 - Scheduler callbacks derive exact authority from incoming prepared capability/epoch, not current-owner lookup by conversation ID; `BeginRetainedWork` admits before timer creation through existing scoped persistence bridges.
 - Background fence closes producer admission; join and shutdown wait for producer Close, including final callbacks. Cancellation alone is not completion.
 
-## Focused offline verification
+## Focused verification
 
-Run from `source/server`, 2026-10-28:
+The original child-reported command below uses `CERCANO_CREDENTIALS_DISABLED`, which is **not** the credential-policy variable. It is retained verbatim for provenance and must not be treated as proof that credential admission was disabled in that run. Source safety of that test selection is under separate read-only review; no claim about actual native access is inferred from the typo alone.
+
+Originally reported from `source/server`, 2026-10-28:
 
 ```sh
 CERCANO_CREDENTIALS_DISABLED=1 GOPROXY=off GOSUMDB=off go test -race \
@@ -24,6 +26,8 @@ CERCANO_CREDENTIALS_DISABLED=1 GOPROXY=off GOSUMDB=off go test -race \
 ```
 
 PASS all five packages (server 4.358s, agent 1.562s, persistence 3.426s, compactiongen 3.024s, recap 2.088s). `git diff --check` passed before evidence addition.
+
+Parent verification used the **correct** explicit environment `CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off`, the same package/test selection, and `-count=2`. It passed with exit 0: server 6.737s, agent 2.175s, persistence 5.645s, compactiongen 1.736s, recap 2.888s (2026-10-28). This is a new correctly gated run, not retrospective proof of isolation for the original run.
 
 Integration tests cover disabled/default gap, pending recap/compaction/both timers, forged epoch/ambient/sibling refusal, release and accepted-destination handover busy refusal without source reservation, fence/join drain, final usage callback held across shutdown and handover, history assembly while shared config stays frozen, and scoped callback write failure retaining a conservative readiness blocker after join. Agent tests cover incoming foreground context preservation and legacy scheduling parity. Existing generator/bridge owned tests cover retry and persistence boundaries; they are included in the focused command.
 
