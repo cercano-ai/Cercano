@@ -56,6 +56,7 @@ import (
 	"cercano/source/server/internal/modelmetadata"
 	"cercano/source/server/internal/modelpolicy"
 	"cercano/source/server/internal/runner"
+	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/usage"
 	pkgcfg "cercano/source/server/pkg/config"
 	proto "cercano/source/server/pkg/proto"
@@ -1123,6 +1124,17 @@ func (w *workerRunner) resolveCredential(ctx context.Context, cfg pkgcfg.Config,
 	st := w.cfg.Secrets()
 	if st == nil {
 		return "", "", fmt.Errorf("credential: secrets store not configured")
+	}
+
+	// Worker credential IPC exports reusable raw material, not a single admitted
+	// request attempt. Until it carries per-attempt authority, no coordinated
+	// profile may use it (including subscriptions and otherwise anonymous routes).
+	// Detect the capability through facades, before Get or any token source.
+	if secrets.IsCoordinated(st) {
+		return "", "", &llm.CredentialError{
+			Class: llm.ErrCredential, Provider: "worker", Profile: profileName,
+			Method: "worker_export", Reason: llm.CredentialSource,
+		}
 	}
 
 	// ChatGPT subscription: call the token source to get a fresh access token.
