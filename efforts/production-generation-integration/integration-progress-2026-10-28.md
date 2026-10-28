@@ -11,7 +11,11 @@ This is partial implementation evidence, not production acceptance or activation
 
 These checks do not establish complete production composition, coordinated legacy/config callers, watcher convergence, migration readiness, or native credential/model behavior.
 
-## Telemetry review remains unresolved
+## Telemetry review — resolved in bounded follow-up
+
+Follow-up checkpoint `c85261c60e81ae9b85f4e561c51e997e03a912a0` reproduced and fixed the two constructor-validation counterexamples below. Added coverage includes all eight additive-column combinations, the oldest no-sessions layout, canonical rowid variants, historical nullable TEXT session keys, and rollback after the first successful ALTER. Parent verification on 2026-10-28: `CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off go test -race ./internal/telemetry -count=3` passed (exit 0, package 8.895s). Independent read-only review `task_e6eb5ef60b30348ec8a2762954f35999` found no concrete blocker in this slice. Constructor WAL admission still precedes validation; rejection is not a byte-for-byte or read-only preflight guarantee. Production accounting integration and retirement acceptance remain incomplete.
+
+### Original unresolved findings (historical)
 
 Read-only review identified two schema-compatibility counterexamples needing full constructor regressions and fixes:
 
