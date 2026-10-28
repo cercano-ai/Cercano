@@ -716,3 +716,13 @@ func stripAnsiCSI(s string) string {
 	}
 	return b.String()
 }
+
+func TestPlanningExperimentConfirmationDisclosesExecution(t *testing.T) {
+	m := minimalModel()
+	s := stripAnsiCSI(m.renderConfirmPrompt(&pendingToolCall{Name: "plan_experiment", Permission: "X", Args: `{"package":"./internal/example","test":"TestOne"}`}))
+	for _, want := range []string{"arbitrary repository code", "not sandboxed", "go test -count=1 -timeout=60s -run=^TestOne$ ./internal/example", "Planning stays active", "this invocation only"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("confirmation missing %q: %s", want, s)
+		}
+	}
+}

@@ -667,3 +667,60 @@ func TestPlanningExperimentApprovalImmutable(t *testing.T) {
 		t.Fatalf("ran=%v err=%v", ran, err)
 	}
 }
+
+// Leaving planning drops only the profile fence, never the execution gate.
+func TestPlanExitDoesNotApproveImplementation(t *testing.T) {
+	ran := false
+	reg := agenttools.NewRegistry()
+	reg.MustRegister(stubTool{name: "plan_exit", perm: agenttools.PermW})
+	reg.MustRegister(stubTool{name: "implementation", perm: agenttools.PermX, ran: &ran})
+	prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+		{{Type: llm.BlockToolUse, ToolUseID: "exit", ToolName: "plan_exit", ToolInput: json.RawMessage(`{}`)}},
+		{{Type: llm.BlockToolUse, ToolUseID: "write", ToolName: "implementation", ToolInput: json.RawMessage(`{}`)}},
+	}}
+	confirms := 0
+	_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, Profile: PlanProfile(), UserInput: "abandon plan", PermissionRequester: func(_ context.Context, _, name string, _ json.RawMessage, _ llm.Permission, _ bool) (bool, error) {
+		if name != "implementation" {
+			t.Fatalf("unexpected confirmation: %s", name)
+		}
+		confirms++
+		return false, nil
+	}})
+	if err != nil || confirms != 1 || ran {
+		t.Fatalf("err=%v confirms=%d implementation=%v", err, confirms, ran)
+	}
+}
+
+func TestPlanningExperimentPreauthorizationWithoutReviewerFailsClosed(t *testing.T) {
+	ran := false
+	reg := agenttools.NewRegistry()
+	reg.MustRegister(stubTool{name: "plan_experiment", perm: agenttools.PermX, ran: &ran})
+	prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+		{{Type: llm.BlockToolUse, ToolUseID: "test", ToolName: "plan_experiment", ToolInput: json.RawMessage(`{}`)}},
+	}}
+	_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, Profile: PlanProfile(), UserInput: "experiment", PreauthorizedTools: []string{"plan_experiment"}})
+	if err != nil || ran {
+		t.Fatalf("err=%v ran=%v", err, ran)
+	}
+}
+
+func TestQueuedPlanningFenceCannotBeLaunderedByWorkerGrant(t *testing.T) {
+	ran := false
+	reg := agenttools.NewRegistry()
+	reg.MustRegister(stubTool{name: "suggest_plan", perm: agenttools.PermX})
+	reg.MustRegister(stubTool{name: "implementation", perm: agenttools.PermX, ran: &ran})
+	prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+		{{Type: llm.BlockToolUse, ToolUseID: "enter", ToolName: "suggest_plan", ToolInput: json.RawMessage(`{}`)},
+			{Type: llm.BlockToolUse, ToolUseID: "write", ToolName: "implementation", ToolInput: json.RawMessage(`{}`)}},
+		{{Type: llm.BlockText, Text: "planning"}},
+	}}
+	_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, UserInput: "plan first", PreauthorizedTools: []string{"implementation"}, PermissionRequester: func(_ context.Context, _, name string, _ json.RawMessage, _ llm.Permission, _ bool) (bool, error) {
+		if name != "suggest_plan" {
+			t.Fatalf("fenced implementation reached approval: %s", name)
+		}
+		return true, nil
+	}})
+	if err != nil || ran {
+		t.Fatalf("err=%v implementation=%v", err, ran)
+	}
+}

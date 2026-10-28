@@ -4715,6 +4715,12 @@ func confirmPromptDetails(p *pendingToolCall) []string {
 		return nil
 	}
 	details := make([]string, 0, 2)
+	if p.Name == "plan_experiment" {
+		details = append(details,
+			"Warning: tests execute arbitrary repository code and are not sandboxed; they may modify files, access credentials or the network, and start processes.",
+			"Command: go test -count=1 -timeout=60s -run=^"+oneLine(stringArg(obj, "test"))+"$ "+oneLine(stringArg(obj, "package")),
+			"GOFLAGS is cleared; GOENV=off. Process timeout: 90s. Approval is for this invocation only. Planning stays active.")
+	}
 	if command := gitStashCommand(p); command != "" {
 		details = append(details, "Command: "+truncateArgs(command, 200))
 		if cwd := oneLine(stringArg(obj, "cwd")); cwd != "" {
