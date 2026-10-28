@@ -62,7 +62,7 @@ func EnableHermetic(t *testing.T) {
 	// not just the API key. t.Setenv restores each value during cleanup.
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
-		if strings.HasPrefix(key, "ANTHROPIC_") {
+		if strings.HasPrefix(key, "ANTHROPIC_") || strings.HasPrefix(key, "OPENAI_") || strings.HasPrefix(key, "AZURE_OPENAI_") || strings.Contains(key, "INTEGRATION") {
 			t.Setenv(key, "")
 		}
 	}

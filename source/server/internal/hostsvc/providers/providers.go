@@ -438,7 +438,8 @@ func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error
 	// sources support coordinated admission. Other routes remain fail closed.
 	staticMessages := prof.Flavor == cloudfactory.FlavorMessages && (prof.Route == "" || prof.Route == "direct")
 	subscriptionMessages := prof.Flavor == cloudfactory.FlavorMessages && prof.Route == cloudfactory.RouteSubscription
-	if coordinated && !staticMessages && !subscriptionMessages && (prof.Flavor != cloudfactory.FlavorResponses || (prof.Route != "" && prof.Route != cloudfactory.RouteChatGPT)) {
+	staticChat := prof.Flavor == cloudfactory.FlavorChatCompletions && prof.Route == ""
+	if coordinated && !staticChat && !staticMessages && !subscriptionMessages && (prof.Flavor != cloudfactory.FlavorResponses || (prof.Route != "" && prof.Route != cloudfactory.RouteChatGPT)) {
 		return nil, fmt.Errorf("coordinated credential route unsupported")
 	}
 	key := ""

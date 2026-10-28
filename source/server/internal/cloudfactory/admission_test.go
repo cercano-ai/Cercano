@@ -21,10 +21,10 @@ func TestCoordinatedUnsupportedBeforeConstructor(t *testing.T) {
 		{Name: "fixture", Flavor: FlavorBedrock, Region: "us-east-1"},
 		{Name: "fixture", Flavor: FlavorMessages, Route: RouteSubscription},
 		{Name: "fixture", Flavor: FlavorMessages, Route: "unknown"},
-		{Name: "fixture", Flavor: FlavorChatCompletions},
+		{Name: "fixture", Flavor: FlavorChatCompletions, Route: "unsupported"},
 		{Name: "fixture", Flavor: FlavorResponses, Route: RouteChatGPT},
 	} {
-		if _, err := BuildCloudProvider(p, "", Options{Credentials: requestFake{}, AnthropicBaseTransport: &credentialtest.ForbiddenTransport{}}); err == nil {
+		if _, err := BuildCloudProvider(p, "", Options{Credentials: requestFake{}, AnthropicBaseTransport: &credentialtest.ForbiddenTransport{}, OpenAIBaseTransport: &credentialtest.ForbiddenTransport{}}); err == nil {
 			t.Fatalf("allowed %s/%s", p.Flavor, p.Route)
 		}
 	}
@@ -37,5 +37,23 @@ func TestCoordinatedStaticMessagesConstruction(t *testing.T) {
 		if err != nil || p == nil {
 			t.Fatalf("route=%q error=%v", route, err)
 		}
+	}
+}
+
+func TestCoordinatedStaticChatConstruction(t *testing.T) {
+	credentialtest.EnableHermetic(t)
+	wire := &credentialtest.ForbiddenTransport{}
+	for _, route := range []string{"", "direct", "chatgpt", "subscription", "unknown"} {
+		p, err := BuildCloudProvider(config.CloudProfile{Name: "fixture", Flavor: FlavorChatCompletions, Route: route, Provider: "mistral"}, "ignored", Options{Credentials: requestFake{}, OpenAIBaseTransport: wire})
+		if route == "" {
+			if err != nil || p == nil {
+				t.Fatalf("static: %v", err)
+			}
+		} else if err == nil {
+			t.Fatalf("allowed route %q", route)
+		}
+	}
+	if wire.Calls.Load() != 0 {
+		t.Fatal("construction reached wire")
 	}
 }

@@ -39,6 +39,7 @@ const RouteSubscription = anthropic.RouteSubscription
 type Options struct {
 	// AnthropicBaseTransport is an optional invocation-local Messages wire dependency.
 	AnthropicBaseTransport http.RoundTripper
+	OpenAIBaseTransport    http.RoundTripper
 	// Credentials enables bounded coordinated Responses attempt admission.
 	// ChatGPT subscription additionally requires an atomic snapshot token source.
 	Credentials secrets.RequestCredentials
@@ -89,7 +90,17 @@ func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (
 	if err := secrets.CheckAllowed(); err != nil {
 		return nil, err
 	}
+	if p.Flavor == FlavorChatCompletions && p.Backend == "" {
+		endpoint, _ := url.Parse(p.BaseURL)
+		if p.Provider == "mistral" || (endpoint != nil && endpoint.User == nil && strings.EqualFold(endpoint.Hostname(), "api.mistral.ai")) {
+			p.Backend = "mistral"
+		}
+	}
 	if len(opts) > 0 && opts[0].Credentials != nil {
+		if p.Flavor == FlavorChatCompletions && p.Name != "" && p.Route == "" && opts[0].TokenSource == nil && opts[0].AnthropicTokenSource == nil {
+			return openai.NewClient(openai.Config{BaseURL: p.BaseURL, Model: p.Model, Backend: p.Backend, AccountingProfile: p.Name, Credentials: opts[0].Credentials, CredentialProfile: p.Name, BaseTransport: opts[0].OpenAIBaseTransport, SupportsVision: visionConfirmed(opts, p.Model)}), nil
+		}
+
 		if p.Flavor == FlavorMessages && p.Name != "" && (p.Route == "" || p.Route == "direct") && opts[0].TokenSource == nil && opts[0].AnthropicTokenSource == nil {
 			return anthropic.NewClient(anthropic.Config{BaseURL: p.BaseURL, Model: p.Model, Route: p.Route, Credentials: opts[0].Credentials, CredentialProfile: p.Name, BaseTransport: opts[0].AnthropicBaseTransport}), nil
 		}
