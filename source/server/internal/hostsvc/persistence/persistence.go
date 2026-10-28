@@ -549,6 +549,14 @@ func (x *svc) PersistTurn(ctx context.Context, convID string, m llm.Message) {
 	}); err != nil {
 		ReportWriteFailure(ctx, err)
 		fmt.Fprintf(os.Stderr, "[tool-loop] Append(%s, %s) failed: %v\n", role, convID, err)
+		return
+	}
+	if m.Role == llm.RoleAssistant {
+		if owned, ok := x.convAgent.(ownedSchedulingAgent); ok {
+			if err := owned.SchedulePersistedAssistant(ctx, convID); err != nil {
+				ReportWriteFailure(ctx, err)
+			}
+		}
 	}
 }
 
@@ -581,11 +589,19 @@ func (x *svc) assembleHistoryForTarget(ctx context.Context, convID string, targe
 	state, _ := store.GetCompaction(ctx, convID)
 	assembled := requestassembly.Assemble(turns, state, x.cfgSvc.Get().Compaction, x.elisionFloor(convID), target, contextmeter.Default())
 	acct := assembled.Accounting
-	if schedule && acct.Scheduled && !x.sharedWritesFrozen() {
+	owned, hasOwned := x.convAgent.(ownedSchedulingAgent)
+	ownedEnabled := hasOwned && owned.HasOwnedScheduling()
+	if schedule && acct.Scheduled && (ownedEnabled || !x.sharedWritesFrozen()) {
 		// Never compact inline — kick the background generator (debounced,
 		// deduped, timeout-bounded) and bring THIS turn under the limit with
 		// LLM-free steps only.
-		x.convAgent.ScheduleCompaction(convID)
+		if ownedEnabled {
+			if err := owned.ScheduleCompactionContext(ctx, convID); err != nil {
+				ReportWriteFailure(ctx, err)
+			}
+		} else {
+			x.convAgent.ScheduleCompaction(convID)
+		}
 		if acct.Truncated {
 			fmt.Fprintf(os.Stderr, "[compaction] hard-override %s: %d tokens > limit %d — truncated %d oldest messages (background pass scheduled)\n",
 				convID, acct.InitialTokens, acct.HardLimit, acct.DroppedMessages)
@@ -1577,4 +1593,12 @@ func (x *svc) SetLocalRuntimeContext(fn func(string) (llm.RuntimeContext, error)
 // of credential admission: disabling credentials must not disable ordinary history work.
 func (x *svc) sharedWritesFrozen() bool {
 	return x.cfgSvc != nil && x.cfgSvc.Frozen()
+}
+
+// Optional prepared-only bridge. Frozen shared configuration remains frozen;
+// only conversation producer admission is enabled by this explicit injection.
+type ownedSchedulingAgent interface {
+	HasOwnedScheduling() bool
+	SchedulePersistedAssistant(context.Context, string) error
+	ScheduleCompactionContext(context.Context, string) error
 }

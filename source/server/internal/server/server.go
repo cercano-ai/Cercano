@@ -211,6 +211,7 @@ type Server struct {
 	// at NewServer time) and lives for the server's lifetime, independent of
 	// any turn. Closed in Shutdown, before the persistence store goes down;
 	// unfinished executions are then reconciled at the next start.
+	preparedScheduling      *preparedScheduling // immutable after prepared construction
 	workFenced              atomic.Bool
 	taskFenceTarget         atomic.Pointer[taskrun.Manager]
 	shutdownControl         func(bool) *proto.ShutdownAgentResponse
@@ -607,6 +608,7 @@ func (s *Server) Shutdown() error {
 			s.watchdogAudits = nil
 		})
 		// Cancel background execution before tearing down its runtime dependencies.
+		s.preparedScheduling.close()
 		s.closeTaskManager()
 		// Drain the per-conversation worker pool (kill warm workers + stop the
 		// idle-reaper) when worker mode is armed. The in-process runner has nothing

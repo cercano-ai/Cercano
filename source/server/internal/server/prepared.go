@@ -27,6 +27,7 @@ type PreparedServerOptions struct {
 	// handle. It must retain (not execute) disposal until construction returns.
 	RetainFailure func(dispose func() error)
 
+	Scheduling               PreparedSchedulingFactory
 	Watchdog                 WatchdogDependencies
 	CloudBuilder             providers.CloudBuilder
 	Coexistence              CoexistenceOptions
@@ -65,6 +66,7 @@ func newPreparedServerWithLifecycle(o PreparedServerOptions, router RouterCloudU
 	// Disable before exposing the prepared agent; startup must not start generators.
 	agent.WithRecapScheduler(nil)(a)
 	agent.WithCompactionScheduler(nil)(a)
+	agent.WithOwnedScheduling(nil)(a)
 	if o.Secrets == nil {
 		o.Secrets = secrets.NewMemory()
 	} // No native backend fallback.
@@ -78,6 +80,9 @@ func newPreparedServerWithLifecycle(o PreparedServerOptions, router RouterCloudU
 		if s.workerRunner == nil {
 			return nil, preparedConstructionFailure(o, s, true, fmt.Errorf("prepared worker runner factory returned nil"))
 		}
+	}
+	if o.Scheduling != nil {
+		s.installPreparedScheduling(a, o.Scheduling)
 	}
 	return s, nil
 }

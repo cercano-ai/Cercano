@@ -104,6 +104,7 @@ func DrainThenStop(gs *grpc.Server, grace time.Duration) bool {
 // FenceBackgroundWork is nonblocking and retains existing callback authority.
 func (s *Server) FenceBackgroundWork() {
 	s.workFenced.Store(true)
+	s.preparedScheduling.fence()
 	s.watchAdmission.Fence()
 	if p, ok := s.providerSvc.(interface{ FenceRebuild() }); ok {
 		p.FenceRebuild()
@@ -127,4 +128,7 @@ func (s *Server) SetShutdownControl(control func(bool) *proto.ShutdownAgentRespo
 }
 
 // JoinBackgroundWork retains the join independently of any requesting RPC.
-func (s *Server) JoinBackgroundWork() { s.closeTaskManager() }
+func (s *Server) JoinBackgroundWork() {
+	s.preparedScheduling.close()
+	s.closeTaskManager()
+}
