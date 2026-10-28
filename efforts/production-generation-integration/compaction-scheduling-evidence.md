@@ -113,3 +113,62 @@ credential, migration or activation acceptance. Recap/metering/rollover and the
 remaining acceptance gates are not completed by this compaction slice. No SQL
 transaction is introduced around inference or callbacks. No live/user data,
 launcher, native credentials, provider transports, push or merge were used.
+
+
+## Regression hardening after read-only review64c00201e1a5 — 2026-10-27
+
+This follow-up changes **tests and this evidence only**. Review had no confirmed
+valid-path defect; the new tests also exposed none, so no production fix was
+made. Concurrent shutdown-worker production/plan edits are excluded from this
+slice's explicit-path checkpoint.
+
+Added coverage:
+
+- `TestOwnedPanicAndSaveFailureSuppressSuccess`: actual summary, save, and usage
+  callback panics through `ScheduleOwned`, plus a directly returned save error
+  and void usage outcome failure. Each must return a non-success outcome, emit
+  no `pass ok`, and retain an unresolved broker blocker even after generator
+  drain; `Ticket.Complete` must still return busy. Error identity is checked for
+  returned failures. These are fake-store tests; no rollback guarantee is implied.
+- `TestOwnedBacklogRetryTimerContinuouslyCounted`: real `Advance` produces an
+  explicit `more=true`; Go `testing/synctest` drives the initial one-hour timer
+  and waits until the worker blocks on its retry timer. The owner remains busy
+  at retry entry and halfway through that timer, with only one admission. Cancel
+  then drains the counted timer without reconciling any failed writes.
+- `TestOwnedRepeatedConcurrentScheduleCancelDrainBusyExpiry`: 32 simultaneous
+  admissions expire against a held conversation claim; synthetic-time barriers
+  establish busy retries before repeated concurrent schedule/cancel/Close calls.
+  All accepted original work is drained and readiness is restored. This is
+  deterministic phase coverage plus race-detector interleaving, not an exhaustive
+  scheduler proof or a production shutdown integration test.
+- The persistence bridge now asserts that the parent failure observer sees the
+  actual rejected usage write exactly once, that the completion error contains
+  that failure, and that successful persistence does not notify the observer.
+- `TestOwnedSummaryDoesNotHoldSQLiteWriteTransaction`: real SQLite turns feed
+  `Advance`; the fake summary blocks on a channel while a **second independently
+  opened SQLite handle to the same database** commits and reads back usage for
+  another capability-owned conversation. Only then is inference released, and
+  the first handle's durable summary is verified. This tests absence of a held
+  SQLite write transaction across this inference path, not absence of every
+  possible read transaction (WAL readers can coexist with a writer), nor a
+  same-conversation/multi-host authority transfer.
+
+### Execution (not merely proposed)
+
+From `source/server`, with
+`CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off`:
+
+```
+go test -race ./internal/compactiongen ./internal/hostsvc/persistence -count=1
+# PASS: compactiongen 1.622s; persistence 2.656s
+
+go test -race ./internal/compactiongen ./internal/hostsvc/persistence -count=20
+# PASS after final test edits: compactiongen 2.437s; persistence 17.610s
+```
+
+Both commands actually executed and exited 0. `gofmt` ran on both changed Go
+files. No native inference/network dependencies, provider calls, global generator
+activation, or lifecycle changes were introduced. Test-local generators alone
+are enabled. These passes complete the bounded regression additions, **not** the
+outstanding broad compaction/production-composition acceptance, full server
+suite, shutdown-worker validation, or other Phase 2 producers.
