@@ -1067,7 +1067,9 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "development-host":
-			if err := runDevelopmentHost(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+			if err := runDevelopmentHost(ctx, os.Args[2:], os.Stdout); err != nil {
 				fmt.Fprintln(os.Stderr, "development-host:", err)
 				os.Exit(1)
 			}

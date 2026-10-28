@@ -34,7 +34,7 @@ func newPreparedShutdown(fence func(), dispose func() error) *preparedShutdown {
 func (h *preparedShutdown) Status() preparedShutdownStatus {
 	select {
 	case <-h.done:
-		return preparedShutdownStatus{true, h.err}
+		return preparedShutdownStatus{h.err == nil, h.err}
 	default:
 		return preparedShutdownStatus{}
 	}
@@ -100,7 +100,7 @@ func (h *preparedShutdown) Control(observe bool) *proto.ShutdownAgentResponse {
 		r.Phase = "draining"
 		r.IncompleteReason = "callbacks or resource disposal pending"
 	}
-	if st.Complete {
+	if st.Complete || st.Err != nil {
 		r.Phase = "complete"
 		r.IncompleteReason = ""
 		if st.Err != nil {

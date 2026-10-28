@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"google.golang.org/grpc"
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
@@ -37,14 +39,19 @@ type CoexistenceOptions struct {
 }
 
 type coexistenceLifecycle struct {
-	mu        sync.Mutex
-	options   CoexistenceOptions
-	store     conversation.Store
-	admission *broker.Admission
-	owners    map[string]*conversation.Ownership
-	incoming  map[broker.IncomingHandover]*IncomingAcceptance
-	ready     map[broker.Owner]bool
-	closures  map[broker.Owner]*relinquishReservation
+	mu             sync.Mutex
+	retireMu       sync.Mutex
+	retireDone     chan struct{}
+	retireErr      error
+	storeCloseOnce sync.Once
+	storeCloseErr  error
+	options        CoexistenceOptions
+	store          conversation.Store
+	admission      *broker.Admission
+	owners         map[string]*conversation.Ownership
+	incoming       map[broker.IncomingHandover]*IncomingAcceptance
+	ready          map[broker.Owner]bool
+	closures       map[broker.Owner]*relinquishReservation
 }
 
 // NewCoexistenceServer constructs a lifecycle-only server. Do not serve ordinary
@@ -369,20 +376,49 @@ func (s *Server) ClaimIncoming(ctx context.Context, a *IncomingAcceptance) (brok
 // RetireCoexistence is a readiness reservation, NOT a shutdown probe. Hook errors
 // leave admission retired/closed and are surfaced; normal Shutdown is never used.
 func (s *Server) RetireCoexistence(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
 	l, e := s.lifecycle()
 	if e != nil {
 		return e
 	}
-	if e = l.admission.Retire(); e != nil {
-		return e
+	l.retireMu.Lock()
+	if l.retireDone == nil {
+		if e = l.admission.Retire(); e != nil {
+			l.retireMu.Unlock()
+			return e
+		}
+		l.retireDone = make(chan struct{})
+		go func() {
+			// Caller cancellation bounds observation, never the retained cleanup.
+			err := s.closeTaskManagerContext(context.Background())
+			err = errors.Join(err, l.options.CloseParticipation(context.Background()))
+			l.retireErr = errors.Join(err, s.CloseCoexistenceStore())
+			close(l.retireDone)
+		}()
 	}
-	// Admission is retired and has no outstanding task tickets. Close the
-	// prepared manager before closing the shared agent/persistence store.
-	if e = s.closeTaskManagerContext(ctx); e != nil {
-		return e
+	done := l.retireDone
+	l.retireMu.Unlock()
+	select {
+	case <-done:
+		return l.retireErr
+	default:
 	}
-	if e = l.options.CloseParticipation(ctx); e != nil {
-		return e
+	select {
+	case <-done:
+		return l.retireErr
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return l.store.Close()
+}
+
+// CloseCoexistenceStore is the single disposal owner for the borrowed prepared
+// store. Call only after callbacks and RPCs drain; retirement shares this owner.
+func (s *Server) CloseCoexistenceStore() error {
+	l, err := s.lifecycle()
+	if err != nil {
+		return err
+	}
+	l.storeCloseOnce.Do(func() { l.storeCloseErr = l.store.Close() })
+	return l.storeCloseErr
 }

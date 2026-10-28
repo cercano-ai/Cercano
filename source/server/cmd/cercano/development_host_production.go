@@ -156,9 +156,6 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		if closeRuntime != nil {
 			err = closeRuntime()
 		}
-		if store != nil {
-			err = errors.Join(err, store.Close())
-		}
 		return err
 	})
 	ctx, cancel := context.WithCancel(ctx)
@@ -174,7 +171,11 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 			ownedServer.WaitForWatchers()
 			ownedServer.Shutdown()
 		}
-		return resources.Wait(context.Background())
+		err := resources.Wait(context.Background())
+		if ownedServer != nil {
+			err = errors.Join(err, ownedServer.CloseCoexistenceStore())
+		}
+		return err
 	})
 	defer func() {
 		if err != nil {
@@ -242,7 +243,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	srv, err := server.NewPreparedDurableServer(ctx, server.PreparedServerOptions{
 		Watchdog:     deps.watchdog,
 		CloudBuilder: deps.cloudBuilder,
-		Coexistence:  server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(ctx context.Context) error { return resources.WaitBounded(ctx) }},
+		Coexistence:  server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(ctx context.Context) error { return resources.Wait(ctx) }},
 		Config:       cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
 		Agent: func(prepared conversation.Store) (*agent.Agent, error) {
 			store, err = admission.conversationStore(prepared, nil)

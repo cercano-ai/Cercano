@@ -225,7 +225,6 @@ func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (resul
 	resources := newPreparedShutdown(nil, remote.Close)
 	var srvOwned *server.Server
 	var transport *grpc.Server
-	var preparedStore conversation.Store
 	ctx, cancel := context.WithCancel(ctx)
 	gate := newProductionAdmissionGate()
 	cleanup := newPreparedShutdown(func() {
@@ -244,8 +243,8 @@ func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (resul
 			srvOwned.Shutdown()
 		}
 		err := resources.Wait(context.Background())
-		if preparedStore != nil {
-			err = errors.Join(err, preparedStore.Close())
+		if srvOwned != nil {
+			err = errors.Join(err, srvOwned.CloseCoexistenceStore())
 		}
 		if transport != nil {
 			transport.GracefulStop()
@@ -266,7 +265,7 @@ func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (resul
 				}
 				return grpc.NewClient(endpoint, append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, a.DialOptions()...)...)
 			},
-			CloseParticipation: func(ctx context.Context) error { return resources.WaitBounded(ctx) },
+			CloseParticipation: func(ctx context.Context) error { return resources.Wait(ctx) },
 		},
 		WorkerRunner: func(history runnersvc.TurnHistory, frozen cfgsvc.Service, perms permissions.Broker) runnersvc.TurnRunner {
 			// Execution remains gated; no provider or child-launch callbacks are installed.
@@ -277,7 +276,6 @@ func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (resul
 		Config: cfg, ConfigPath: filepath.Join(*root, "config.json"), Secrets: secretStore,
 		RoutingPath: filepath.Join(*root, "routing.jsonl"), FailurePath: filepath.Join(*root, "failures.jsonl"),
 		Agent: func(st conversation.Store) (*agent.Agent, error) {
-			preparedStore = st
 			return agent.NewAgent(nil, nil, agent.WithPersistentStore(st)), nil
 		},
 	}, nil, nil, nil, nil)

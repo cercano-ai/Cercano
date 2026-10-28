@@ -131,3 +131,16 @@ func TestPreparedShutdownControlRemainsObservable(t *testing.T) {
 		t.Fatal("local error lost")
 	}
 }
+
+func TestPreparedShutdownFailureNeverComplete(t *testing.T) {
+	failure := errors.New("disposal failed")
+	h := newPreparedShutdown(nil, func() error { return failure })
+	if err := h.Wait(context.Background()); !errors.Is(err, failure) {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if s := h.Control(true); s.Complete || s.Phase != "failed" {
+			t.Fatal(s)
+		}
+	}
+}

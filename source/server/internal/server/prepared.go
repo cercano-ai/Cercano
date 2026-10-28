@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"cercano/source/server/internal/agent"
@@ -47,12 +48,10 @@ func NewPreparedServer(ctx context.Context, o PreparedServerOptions, router Rout
 	st := lifecycle.coexistence.store
 	a, err := o.Agent(st)
 	if err != nil {
-		_ = st.Close()
-		return nil, err
+		return nil, errors.Join(err, lifecycle.CloseCoexistenceStore())
 	}
 	if a == nil || a.PersistentStore() != st {
-		_ = st.Close()
-		return nil, fmt.Errorf("agent must use the prepared lifecycle store")
+		return nil, errors.Join(fmt.Errorf("agent must use the prepared lifecycle store"), lifecycle.CloseCoexistenceStore())
 	}
 	// Existing schedulers accept only IDs and may launch untracked timers.
 	// Disable before exposing the prepared agent; startup must not start generators.
@@ -70,8 +69,7 @@ func NewPreparedServer(ctx context.Context, o PreparedServerOptions, router Rout
 		s.workerRunner = o.WorkerRunner(s.persistSvc, s.cfgSvc, s.permBroker)
 		if s.workerRunner == nil {
 			s.Shutdown()
-			_ = st.Close()
-			return nil, fmt.Errorf("prepared worker runner factory returned nil")
+			return nil, errors.Join(fmt.Errorf("prepared worker runner factory returned nil"), lifecycle.CloseCoexistenceStore())
 		}
 	}
 	return s, nil
