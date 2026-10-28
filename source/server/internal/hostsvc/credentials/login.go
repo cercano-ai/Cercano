@@ -41,12 +41,12 @@ func (s *Service) BeginLogin(ctx context.Context, profile, provider string) (*Lo
 		return nil, errNoStore
 	}
 	var revision string
-	if store, ok := p.store.(*CoordinatedStore); ok {
-		r, err := store.snapshot(ctx, profile)
+	if secrets.IsCoordinated(p.store) {
+		r, err := p.store.(secrets.Coordinated).CredentialRevision(ctx, profile)
 		if err != nil {
 			return nil, err
 		}
-		revision = r.Revision
+		revision = r
 	}
 	p.cancelLogin()
 	loginCtx, cancel := context.WithCancel(ctx)
@@ -81,8 +81,8 @@ func (a *LoginAttempt) Commit(encoded string) error {
 		return errNoStore
 	}
 	var err error
-	if store, ok := p.store.(*CoordinatedStore); ok {
-		err = store.replace(a.ctx, a.profile, a.revision, "active", encoded)
+	if secrets.IsCoordinated(p.store) {
+		err = p.store.(secrets.Coordinated).SetAtRevision(a.ctx, a.profile, a.revision, encoded)
 	} else {
 		err = p.store.Set(a.profile, encoded)
 	}

@@ -80,8 +80,8 @@ func (s *Service) ReplaceStore(store secrets.Store) error {
 	defer s.mu.Unlock()
 	// A coordinated authority cannot be downgraded or rebound through hot reload.
 	// A new owner requires explicit preflight; in-flight capabilities stay bound.
-	_, oldCoordinated := s.store.(*CoordinatedStore)
-	_, newCoordinated := store.(*CoordinatedStore)
+	oldCoordinated := secrets.IsCoordinated(s.store)
+	newCoordinated := secrets.IsCoordinated(store)
 	if (oldCoordinated || newCoordinated) && store != s.store {
 		return ErrCoordination
 	}
@@ -217,7 +217,7 @@ func (s *Service) acquire(ctx context.Context, profile, provider string, resolve
 		p.mu.Lock()
 		// Do not let legacy auth sources publish or reuse coordinated tokens
 		// until pending-rotation and request-dispatch hooks are integrated.
-		if _, coordinated := p.store.(*CoordinatedStore); coordinated {
+		if secrets.IsCoordinated(p.store) {
 			p.mu.Unlock()
 			return token{}, ErrProviderIntegration
 		}
