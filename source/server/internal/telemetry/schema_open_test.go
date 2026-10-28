@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestSchemaOpenRejectsView(t *testing.T) {
@@ -104,7 +105,9 @@ func TestSchemaOpenConcurrentLegacyPreservation(t *testing.T) {
 	}
 }
 
-func TestSchemaOpenRejectsMalformedWithoutMutation(t *testing.T) {
+// WAL admission precedes validation; only schema SQL and stored data, not
+// journal mode or filesystem bytes, are promised unchanged on rejection.
+func TestSchemaOpenRejectsMalformedPreservesSchemaAndData(t *testing.T) {
 	for _, ddl := range []string{
 		`ALTER TABLE events DROP COLUMN model`,
 		`ALTER TABLE events ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0`,
@@ -226,5 +229,66 @@ func TestSchemaOpenCurrentCompatibleExtension(t *testing.T) {
 	}
 	if err := store.RecordEvent(context.Background(), NewEvent("new", "fake")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWALAdmissionRetriesOnlyBusyAndIsBounded(t *testing.T) {
+	path, db := legacySchemaFixture(t)
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.ExecContext(context.Background(), "ROLLBACK")
+	other, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	_, busy := other.Exec("PRAGMA journal_mode=WAL")
+	if busy == nil {
+		t.Fatal("expected competing writer to block WAL admission")
+	}
+	attempts := 0
+	if err := admitWAL(context.Background(), func(context.Context) error {
+		attempts++
+		if attempts == 1 {
+			return busy
+		}
+		return nil
+	}); err != nil || attempts != 2 {
+		t.Fatalf("busy was not retried: attempts=%d err=%v", attempts, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := admitWAL(ctx, func(context.Context) error { return busy }); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("retry did not expire: %v", err)
+	}
+	_, nonBusy := other.Exec("SELECT * FROM nonexistent_table")
+	if nonBusy == nil {
+		t.Fatal("expected SQL error")
+	}
+	for _, failure := range []error{nonBusy, errors.New("connection failed")} {
+		attempts = 0
+		err := admitWAL(context.Background(), func(context.Context) error { attempts++; return failure })
+		if !errors.Is(err, failure) || attempts != 1 {
+			t.Fatalf("masked/retried non-BUSY: attempts=%d err=%v", attempts, err)
+		}
+	}
+}
+
+func TestSchemaOpenConstructorIOErrorVisible(t *testing.T) {
+	// A directory cannot be opened as a SQLite database.
+	store, err := NewSQLiteStore(t.TempDir())
+	if store != nil {
+		store.Close()
+		t.Fatal("returned store on failed open")
+	}
+	if err == nil || !strings.Contains(err.Error(), "failed to enable WAL mode") {
+		t.Fatalf("lost constructor error: %v", err)
 	}
 }

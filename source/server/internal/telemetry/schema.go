@@ -4,8 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"modernc.org/sqlite"
 )
 
 type schemaConnection interface {
@@ -34,6 +38,44 @@ var legacyColumns = map[string]map[string]string{
 		"cloud_output_tokens": "INTEGER", "cloud_provider": "TEXT", "cloud_model": "TEXT",
 	},
 	"sessions": {"session_id": "TEXT", "started_at": "DATETIME"},
+}
+
+// enableWAL retains the ordinary startup ordering: journal mode is set before
+// schema validation. A rejected schema leaves table definitions and rows intact,
+// but may have changed journal mode/created WAL sidecars; this is not a read-only
+// preflight or a promise that the database file is byte-for-byte unchanged.
+func enableWAL(db *sql.DB) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return admitWAL(ctx, func(ctx context.Context) error {
+		_, err := db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
+		return err
+	})
+}
+
+// Concurrent journal-mode transitions can return SQLITE_BUSY immediately even
+// with the DSN busy_timeout: unlike BEGIN IMMEDIATE, this admission step cannot
+// rely on SQLite waiting. Retry only BUSY (including extended BUSY codes), with
+// a startup deadline, never schema errors or SQLITE_LOCKED. An in-flight SQLite
+// call is also subject to the connection's busy_timeout.
+func admitWAL(ctx context.Context, attempt func(context.Context) error) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := attempt(ctx)
+		var sqliteErr *sqlite.Error
+		if !errors.As(err, &sqliteErr) || sqliteErr.Code()&0xff != 5 {
+			return err
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("WAL admission deadline: %w (last SQLite error: %v)", ctx.Err(), err)
+		case <-timer.C:
+		}
+	}
 }
 
 func initializeLegacySchema(db *sql.DB) error {
