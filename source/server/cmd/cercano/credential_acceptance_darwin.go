@@ -7,8 +7,8 @@ package main
 #include <Security/Security.h>
 #include <CoreFoundation/CoreFoundation.h>
 
-static int readAcceptanceCredential(void) {
- OSStatus status = SecKeychainSetUserInteractionAllowed(false);
+static int readAcceptanceCredential(int interactive) {
+ OSStatus status = SecKeychainSetUserInteractionAllowed(interactive ? true : false);
  if (status != errSecSuccess) return status;
  CFMutableDictionaryRef q = CFDictionaryCreateMutable(NULL, 0,
    &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
@@ -29,15 +29,17 @@ static int readAcceptanceCredential(void) {
 import "C"
 
 import (
-	"os"
 	"runtime"
 )
 
-func queryAcceptanceCredential() int {
-	if os.Getenv("CERCANO_DISABLE_CREDENTIALS") == "1" {
-		return -4
-	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	return int(C.readAcceptanceCredential())
+func queryAcceptanceCredential(interactive bool) int {
+	return runAcceptanceCredential(interactive, func(allow bool) int {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		flag := C.int(0)
+		if allow {
+			flag = 1
+		}
+		return int(C.readAcceptanceCredential(flag))
+	})
 }
