@@ -4257,6 +4257,9 @@ func (m Model) applyProgressiveResumeEvent(msg resumeViewportStreamMsg) (Model, 
 // resume until the user takes their next turn. The cmd is the only way to
 // drive the meter from this code path; callers MUST plumb it through.
 func (m Model) applyResume(conversationID string) (Model, tea.Cmd) {
+	if m.devHost != nil {
+		return m.beginProgressiveResume(conversationID)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	turns, err := m.agent.ResumeConversation(ctx, conversationID)
