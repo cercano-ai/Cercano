@@ -14,9 +14,13 @@ import (
 	"cercano/source/server/pkg/proto"
 )
 
-// Test-only evidence emitted by the actual worker handling StartTurn, not by
-// its host/provider proxy. No credentials, prompt text, or native state.
-func observeAcceptanceTurn(start *proto.StartTurn) {
+// ObserveAcceptanceStartup is called only at child entry, never by StartTurn.
+func ObserveAcceptanceStartup() { observeAcceptanceEvent("worker-startup", nil) }
+
+func observeAcceptanceTurn(start *proto.StartTurn) { observeAcceptanceEvent("worker-turn", start) }
+
+// Test-only child evidence. No credentials, prompt text, or native state.
+func observeAcceptanceEvent(kind string, start *proto.StartTurn) {
 	root := os.Getenv("CERCANO_FIXTURE_BARRIER")
 	if root == "" {
 		return
@@ -43,7 +47,11 @@ func observeAcceptanceTurn(start *proto.StartTurn) {
 	if !ok {
 		panic("missing worker build info")
 	}
-	event := map[string]any{"event": "worker-turn", "pid": os.Getpid(), "parent_pid": os.Getppid(), "executable": exe, "sha256": hex.EncodeToString(sum[:]), "manifest_sha256": hex.EncodeToString(manifestSum[:]), "build_info": info.String(), "conversation": start.ConversationId, "turn_generation": start.Gen, "unix_nano": time.Now().UnixNano()}
+	event := map[string]any{"event": kind, "pid": os.Getpid(), "parent_pid": os.Getppid(), "executable": exe, "sha256": hex.EncodeToString(sum[:]), "manifest_sha256": hex.EncodeToString(manifestSum[:]), "build_info": info.String(), "unix_nano": time.Now().UnixNano()}
+	if start != nil {
+		event["conversation"] = start.ConversationId
+		event["turn_generation"] = start.Gen
+	}
 	b, err := json.Marshal(event)
 	if err != nil {
 		panic(err)

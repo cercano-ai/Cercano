@@ -2205,6 +2205,7 @@ func parseWorkerArgs(args []string) (socket string, prepared bool, err error) {
 // it; with per-conversation worker reuse the host drives many sequential
 // RunTurn streams over one connection to a warm worker.
 func runWorkerMode(args []string) {
+	worker.ObserveAcceptanceStartup()
 	socketPath, prepared, err := parseWorkerArgs(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "worker: %v\n", err)

@@ -32,7 +32,19 @@ class Terminal:
         except subprocess.TimeoutExpired: self.p.kill(); self.p.wait()
         os.close(self.fd)
 
+def assert_new_worker(events, pre_pids, boundary, conversation):
+    turns=[e for e in events if e['event']=='worker-turn' and e['conversation']==conversation]
+    assert turns, 'missing first turn'
+    pid=turns[0]['pid']
+    assert pid not in pre_pids, 'reused pre-publication worker'
+    births=[e for e in events if e['event']=='worker-startup' and e['pid']==pid]
+    assert len(births)==1, 'missing unique child-entry startup (StartTurn is not birth)'
+    birth=births[0]
+    assert boundary < birth['unix_nano'] < turns[0]['unix_nano'], 'startup must follow B publication and precede first turn'
+    return birth, turns
+
 def run(repo,evidence):
+    assert all(os.environ.get(k)==v for k,v in {"CERCANO_DISABLE_CREDENTIALS":"1","GOPROXY":"off","GOSUMDB":"off"}.items()), "required outer offline/credential guards missing"
     evidence.mkdir(parents=True,exist_ok=True)
     report={'scope':'actual shell -> real publisher -> compiled production host -> compiled CLI PTY','steps':[],'passed':False}
     terminals=[]; hosts=[]
@@ -121,6 +133,18 @@ def run(repo,evidence):
             wait(lambda:any('FIXTURE_ORIGINAL_HISTORY' in json.dumps(e['request'].get('Messages')) for e in events() if e['event']=='call'),'A initial foreground')
             wait(lambda:b'FIXTURE_OK' in a.data,'A initial response')
             pidA=[e['pid'] for e in events() if e['event']=='call'][0]
+            # Retain a second ordinary A conversation without ever sending a turn.
+            spare,ss,S=launch('A-unstarted')
+            assert S['Identity']['host']==A['Identity']['host']
+            assert not any(e.get('conversation')==S['Conversation'] for e in worker_events())
+            a.send('FIXTURE_DISPATCH\r')
+            wait(lambda:b'wants to run a delegated agent' in a.data,'ordinary dispatch permission prompt')
+            a.send('y\r')
+            wait(lambda:any(x['event']=='child-entered' for x in events()),'original independent task active before B',40)
+            assert rows('select status from delegated_tasks')==[('running',)]
+            pre_b_workers=worker_events()
+            pre_b_pids=sorted({e['pid'] for e in pre_b_workers})
+            record('pre-B worker set', workers=pre_b_workers, pids=pre_b_pids, unstarted_conversation=S['Conversation'])
             change=copy/'source/server/cmd/cercano/development_provider_fixture.go'
             change.write_text(change.read_text()+'\n// generation B source byte change\n')
             b,sb,B=launch('B')
@@ -129,27 +153,22 @@ def run(repo,evidence):
             os.kill(pidA,0)
             record('B published and launched without stopping A',A=A,B=B,pidA=pidA)
             published_b_ns=time.time_ns()
-            worker_offset=len(worker_events())
+            record('B publication observed boundary', unix_nano=published_b_ns, B=B)
+            spare.send('FIXTURE_NEW_WORKER_AFTER_B\r')
+            wait(lambda:any(e.get('conversation')==S['Conversation'] for e in worker_events()),'new A child first turn after B',40)
+            birth,later=assert_new_worker(worker_events(),pre_b_pids,published_b_ns,S['Conversation'])
+            record('actual new A child entry after B', startup=birth, first_turn=later[0])
             offset=len(events())
             a.send('FIXTURE_AFTER_B\r')
             wait(lambda:any('FIXTURE_AFTER_B' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'A fresh foreground after B')
             assert {e['pid'] for e in events()[offset:] if e['event']=='call'}=={pidA}
             time.sleep(2)
-            a.send('FIXTURE_DISPATCH\r')
-            wait(lambda:b'wants to run a delegated agent' in a.data,'ordinary dispatch permission prompt')
-            a.send('y\r')
-            wait(lambda:any(x['event']=='child-entered' for x in events()[offset:]),'later independent dispatch reached provider barrier',40)
-            assert {e['pid'] for e in events()[offset:] if e['event']=='child-entered'}=={pidA}
             task=rows('select id,parent_id,status,child_id from delegated_tasks')
             assert len(task)==1 and task[0][2]=='running',task
-            # Delegated tasks execute through the parent runner; identify the
-            # actual pinned worker's later foreground turns, not the child ID.
-            later=[e for e in worker_events()[worker_offset:] if e['conversation']==task[0][1]]
-            assert later, worker_events()
             manifest_path=P(A['Generation'])/'manifest.json'
             manifest=json.loads(manifest_path.read_text())
             manifest_hash=hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-            for e in later:
+            for e in [birth,*later]:
                 assert e['pid']!=pidA and e['parent_pid']==pidA, e
                 assert e['unix_nano']>published_b_ns, e
                 assert P(e['executable'])==P(A['Generation'])/'cercano', e
@@ -163,7 +182,8 @@ def run(repo,evidence):
                 assert '-tags=developmentfixture,cercano_development_acceptance' in e['build_info'], e
                 assert e['sha256']!=json.loads((P(B['Generation'])/'manifest.json').read_text())['binaries']['cercano']['sha256']
             shutil.copyfile(manifest_path,evidence/'A-manifest.json')
-            record('fresh A foreground and actual later pinned worker after B',pidA=pidA,tasks=task,workers=later,A_manifest_sha256=manifest_hash,A_build_id=manifest['build_id'],A_generation=manifest['generation'])
+            shutil.copyfile(P(B['Generation'])/'manifest.json',evidence/'B-manifest.json')
+            record('fresh A foreground and newly born pinned worker after B',pidA=pidA,tasks=task,workers=later,A_manifest_sha256=manifest_hash,A_build_id=manifest['build_id'],A_generation=manifest['generation'])
             # A client really exits; its host and independent task must survive.
             a.stop();terminals.remove(a);time.sleep(1)
             b.send('/resume '+A['Conversation']+'\r')
@@ -198,6 +218,8 @@ def run(repo,evidence):
             os.kill(pidA,0)
             control(sa,'list')
             record('physical client restart and ordinary resume on B with original history; A still alive',calls=calls, original_conversation=A['Conversation'], durable_row_columns=['conversation_id','role','content'], durable_rows=rows("select conversation_id,role,content from turns where role='user' and content in ('FIXTURE_REOPENED_ON_B','FIXTURE_ORIGINAL_HISTORY') order by content"))
+            export={'columns':['conversation_id','role','content'], 'rows':rows("select conversation_id,role,content from turns where conversation_id='"+A['Conversation']+"' order by rowid")}
+            (evidence/'synthetic-reopened-rows.json').write_text(json.dumps(export,indent=2)+'\n')
             report['passed']=True
             record('PASS all compiled ordinary-launcher acceptance assertions')
         except Exception as e:
