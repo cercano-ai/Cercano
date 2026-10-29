@@ -26,57 +26,56 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 	if err != nil {
 		return destination, err
 	}
-	for _, path := range paths {
+	source, owner, err := findReopenOwner(paths, conversation, func(path string) (DevHostSelection, *proto.LifecycleControlResponse, error) {
+		// A dead unrelated endpoint must not exhaust the whole reopen budget.
+		ctx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
 		st, err := os.Lstat(path)
 		if err != nil || !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 {
-			return destination, fmt.Errorf("cannot read private host record")
+			return DevHostSelection{}, nil, fmt.Errorf("cannot read private host record")
 		}
 		source, err := ReadDevHostSelection(path)
 		if err != nil {
-			return destination, err
+			return source, nil, err
 		}
 		if source.Identity.Store != destination.Identity.Store || source.Identity.Contract != destination.Identity.Contract || source.Identity.Schema != destination.Identity.Schema {
-			return destination, fmt.Errorf("incompatible host record")
+			return source, nil, fmt.Errorf("incompatible host record")
+		}
+		sc, err := source.controls(ctx)
+		if err != nil {
+			return source, nil, err
+		}
+		defer sc.Close()
+		listing, err := sc.LifecycleList(ctx, &proto.LifecycleControlRequest{Target: source.Identity, Management: true})
+		return source, listing, err
+	})
+	if err != nil {
+		return destination, err
+	}
+	if owner != nil {
+		if protobuf.Equal(source.Identity, destination.Identity) {
+			destination.Conversation, destination.Epoch = conversation, owner.Epoch
+			return destination, nil
 		}
 		sc, err := source.controls(ctx)
 		if err != nil {
 			return destination, err
 		}
-		listing, err := sc.LifecycleList(ctx, &proto.LifecycleControlRequest{Target: source.Identity, Management: true})
-		if err != nil {
+		var nonce [16]byte
+		if _, err = rand.Read(nonce[:]); err != nil {
 			sc.Close()
 			return destination, err
 		}
-		if !protobuf.Equal(listing.Identity, source.Identity) {
-			sc.Close()
-			return destination, fmt.Errorf("host identity mismatch")
-		}
-		for _, owner := range listing.Retained {
-			if owner.Conversation != conversation {
-				continue
-			}
-			if protobuf.Equal(source.Identity, destination.Identity) {
-				sc.Close()
-				destination.Conversation, destination.Epoch = conversation, owner.Epoch
-				return destination, nil
-			}
-			var nonce [16]byte
-			if _, err = rand.Read(nonce[:]); err != nil {
-				sc.Close()
-				return destination, err
-			}
-			result, err := sc.Transfer(ctx, dc, &proto.LifecycleControlRequest{Target: source.Identity, Source: source.Identity, Destination: destination.Identity, DestinationEndpoint: destination.Endpoint, Owner: owner, Management: true, HandoverId: hex.EncodeToString(nonce[:])})
-			sc.Close()
-			if err != nil || result.GetPending() || result.GetOwner() == nil {
-				if result.GetReceipt() != "" {
-					return destination, fmt.Errorf("reopen was not completed; handover needs explicit recovery; no retry scheduled: %v", err)
-				}
-				return destination, fmt.Errorf("conversation remains on its original host; outstanding work or attached clients must finish first. Work is preserved; no transfer is scheduled: %v", err)
-			}
-			destination.Conversation, destination.Epoch = conversation, result.Owner.Epoch
-			return destination, nil
-		}
+		result, err := sc.Transfer(ctx, dc, &proto.LifecycleControlRequest{Target: source.Identity, Source: source.Identity, Destination: destination.Identity, DestinationEndpoint: destination.Endpoint, Owner: owner, Management: true, HandoverId: hex.EncodeToString(nonce[:])})
 		sc.Close()
+		if err != nil || result.GetPending() || result.GetOwner() == nil {
+			if result.GetReceipt() != "" {
+				return destination, fmt.Errorf("reopen was not completed; handover needs explicit recovery; no retry scheduled: %v", err)
+			}
+			return destination, fmt.Errorf("conversation remains on its original host; outstanding work or attached clients must finish first. Work is preserved; no transfer is scheduled: %v", err)
+		}
+		destination.Conversation, destination.Epoch = conversation, result.Owner.Epoch
+		return destination, nil
 	}
 	result, err := dc.LifecycleAcquire(ctx, &proto.LifecycleControlRequest{Target: destination.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}})
 	if err != nil {
@@ -87,6 +86,41 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 	}
 	destination.Conversation, destination.Epoch = conversation, result.Owner.Epoch
 	return destination, nil
+}
+
+// A positive retained owner is authoritative under the store's exclusive ownership
+// contract. Scan all reachable hosts to reject conflicting live claims. With no
+// positive owner, ANY uncertainty forbids acquisition; never infer owner death.
+func findReopenOwner(paths []string, conversation string, list func(string) (DevHostSelection, *proto.LifecycleControlResponse, error)) (DevHostSelection, *proto.LifecycleOwner, error) {
+	var selected DevHostSelection
+	var found *proto.LifecycleOwner
+	var uncertain error
+	for _, path := range paths {
+		source, listing, err := list(path)
+		if err != nil {
+			uncertain = err
+			continue
+		}
+		if listing == nil || !protobuf.Equal(listing.Identity, source.Identity) {
+			return selected, nil, fmt.Errorf("host identity mismatch")
+		}
+		for _, owner := range listing.Retained {
+			if owner.Conversation != conversation {
+				continue
+			}
+			if owner.Host != source.Identity.Host || owner.Epoch == "" {
+				return selected, nil, fmt.Errorf("invalid retained owner")
+			}
+			if found != nil {
+				return selected, nil, fmt.Errorf("ambiguous retained ownership")
+			}
+			selected, found = source, owner
+		}
+	}
+	if found == nil && uncertain != nil {
+		return selected, nil, uncertain
+	}
+	return selected, found, nil
 }
 
 func (m Model) beginDevHostReopen(conversation string) (Model, tea.Cmd) {

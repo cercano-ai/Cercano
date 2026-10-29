@@ -142,6 +142,8 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 		return status.Errorf(codes.InvalidArgument, "worker: first message must be StartTurn")
 	}
 
+	observeAcceptanceTurn(start)
+
 	if start.GetEnterpriseManaged() != managed {
 		return status.Error(codes.FailedPrecondition, "managed turn requires the enterprise worker protocol")
 	}

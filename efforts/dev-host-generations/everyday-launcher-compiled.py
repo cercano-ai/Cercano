@@ -93,6 +93,9 @@ def run(repo,evidence):
             # Python's macOS SQLite cannot open a fresh WAL database read-only
             # before -shm exists. rw forbids creation; SQL remains observation only.
             with sqlite3.connect('file:'+str(state/'conversations.db')+'?mode=rw',uri=True) as db:return db.execute(sql).fetchall()
+        def worker_events():
+            f=barrier/'worker.jsonl'
+            return [json.loads(x) for x in f.read_text().splitlines()] if f.exists() else []
         def events():
             f=barrier/'provider.jsonl'
             return [json.loads(x) for x in f.read_text().splitlines()] if f.exists() else []
@@ -125,6 +128,8 @@ def run(repo,evidence):
             assert a.p.poll() is None
             os.kill(pidA,0)
             record('B published and launched without stopping A',A=A,B=B,pidA=pidA)
+            published_b_ns=time.time_ns()
+            worker_offset=len(worker_events())
             offset=len(events())
             a.send('FIXTURE_AFTER_B\r')
             wait(lambda:any('FIXTURE_AFTER_B' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'A fresh foreground after B')
@@ -137,7 +142,23 @@ def run(repo,evidence):
             assert {e['pid'] for e in events()[offset:] if e['event']=='child-entered'}=={pidA}
             task=rows('select id,parent_id,status,child_id from delegated_tasks')
             assert len(task)==1 and task[0][2]=='running',task
-            record('fresh A foreground and later worker after B use A host build',pidA=pidA,tasks=task)
+            later=[e for e in worker_events()[worker_offset:] if e['conversation']==task[0][3]]
+            assert later, worker_events()
+            manifest_path=P(A['Generation'])/'manifest.json'
+            manifest=json.loads(manifest_path.read_text())
+            manifest_hash=hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+            for e in later:
+                assert e['pid']!=pidA and e['parent_pid']==pidA, e
+                assert e['unix_nano']>published_b_ns, e
+                assert P(e['executable'])==P(A['Generation'])/'cercano', e
+                assert e['sha256']==manifest['binaries']['cercano']['sha256'], e
+                assert e['manifest_sha256']==manifest_hash, e
+                assert manifest['build_id']==A['Identity']['build']
+                assert manifest['generation']==P(A['Generation']).name
+                assert 'vcs.revision='+manifest['source_commit'] in e['build_info'], e
+                assert e['sha256']!=json.loads((P(B['Generation'])/'manifest.json').read_text())['binaries']['cercano']['sha256']
+            shutil.copyfile(manifest_path,evidence/'A-manifest.json')
+            record('fresh A foreground and actual later pinned worker after B',pidA=pidA,tasks=task,workers=later,A_manifest_sha256=manifest_hash,A_build_id=manifest['build_id'],A_generation=manifest['generation'])
             # A client really exits; its host and independent task must survive.
             a.stop();terminals.remove(a);time.sleep(1)
             b.send('/resume '+A['Conversation']+'\r')
@@ -171,7 +192,7 @@ def run(repo,evidence):
             wait(lambda:rows("select conversation_id from turns where role='user' and content='FIXTURE_REOPENED_ON_B'")==[(A['Conversation'],)],'reopened turn persisted in original conversation')
             os.kill(pidA,0)
             control(sa,'list')
-            record('physical client restart and ordinary resume on B with original history; A still alive',calls=calls)
+            record('physical client restart and ordinary resume on B with original history; A still alive',calls=calls, original_conversation=A['Conversation'], durable_row_columns=['conversation_id','role','content'], durable_rows=rows("select conversation_id,role,content from turns where role='user' and content in ('FIXTURE_REOPENED_ON_B','FIXTURE_ORIGINAL_HISTORY') order by content"))
             report['passed']=True
             record('PASS all compiled ordinary-launcher acceptance assertions')
         except Exception as e:
@@ -184,7 +205,7 @@ def run(repo,evidence):
                 try:t.stop()
                 except Exception:pass
             # Record logs before deleting test-private roots. Only recorded children owned by this invocation.
-            for name,source in [('provider.jsonl',barrier/'provider.jsonl'),('routing-config.json',barrier/'routing-config.json'),('build.jsonl',trace)]:
+            for name,source in [('worker.jsonl',barrier/'worker.jsonl'),('provider.jsonl',barrier/'provider.jsonl'),('routing-config.json',barrier/'routing-config.json'),('build.jsonl',trace)]:
                 if source.exists():shutil.copyfile(source,evidence/name)
             if state.exists():
                 # Never export host token files, even to local evidence.
