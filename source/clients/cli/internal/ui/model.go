@@ -2630,11 +2630,8 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		if msg.ch != nil {
 			cmds = append(cmds, drainChatGPTLoginCmd(msg.ch, msg.attempt))
 		}
-		// Auto-open the verification page once, the moment we have the URL, so
-		// the user lands on it without hunting for the link in the modal.
-		if !m.chatgptLoginModal.browserOpened && m.chatgptLoginModal.verificationURL != "" {
-			m.chatgptLoginModal.browserOpened = true
-			cmds = append(cmds, openBrowserCmd(m.chatgptLoginModal.verificationURL))
+		if cmd := m.chatgptLoginModal.autoOpenBrowser(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
 
@@ -5768,6 +5765,11 @@ func (m Model) View() tea.View {
 		ReportAssociatedText:       true,
 	}
 	v.MouseMode = tea.MouseModeCellMotion
+	// Release mouse tracking only for ChatGPT's selectable device URL/code.
+	// Claude's compact browser and code-entry actions remain clickable.
+	if m.chatgptLoginModal != nil && m.chatgptLoginModal.showsCode() {
+		v.MouseMode = tea.MouseModeNone
+	}
 	// Drive the real terminal cursor to the input caret position. Only
 	// when the chat input owns focus (no overlay, no pending confirm).
 	if m.searchVisible() && m.searchCanOwnInput() {
