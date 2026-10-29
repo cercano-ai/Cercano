@@ -141,7 +141,7 @@ func spawnWorkerWithPolicy(ctx context.Context, conversationID string, gen uint6
 	// Kill() / Shutdown() / idle-reap / startup orphan-sweep. The turn ctx still
 	// bounds STARTUP via waitForSocket(ctx, …) below, so a hung spawn during this
 	// turn is still abortable (and the partial handle is Killed on that path).
-	cmd := workerCommand(bin, sockPath, policy.pinned)
+	cmd := workerCommandWithPolicy(bin, sockPath, policy)
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
@@ -377,5 +377,14 @@ func workerCommand(binary, socket string, prepared ...bool) *exec.Cmd {
 	}
 	cmd := exec.Command(binary, args...)
 	setProcessGroup(cmd)
+	return cmd
+}
+
+// workerCommandWithPolicy transports private log authority with the pinned launch.
+func workerCommandWithPolicy(binary, socket string, policy SpawnPolicy) *exec.Cmd {
+	cmd := workerCommand(binary, socket, policy.pinned)
+	if policy.pinned {
+		cmd.Args = append(cmd.Args, "--failure-log", policy.failureLogPath())
+	}
 	return cmd
 }

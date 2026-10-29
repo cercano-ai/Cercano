@@ -54,6 +54,7 @@ import (
 
 // WorkerServer implements the gRPC Worker service (worker-side).
 type WorkerServer struct {
+	failureLogPath      string
 	prepared            bool // immutable constructor contract, independent of RPC metadata
 	managed             atomic.Bool
 	processGuard        bool
@@ -102,7 +103,7 @@ func New(options ...Option) *WorkerServer {
 }
 
 // NewPrepared creates a dedicated prepared worker; metadata cannot downgrade it.
-func NewPrepared() *WorkerServer { return New(WithPrepared()) }
+func NewPrepared(options ...Option) *WorkerServer { return New(append(options, WithPrepared())...) }
 
 // NewWithSecretStore creates an in-process worker with an explicitly supplied
 // capability credential store. It retains the full production tool stack, but
@@ -434,6 +435,11 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 // ─── buildDeps ────────────────────────────────────────────────────────────────
 
 func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, credSource *streamCredentialSource, openProxy *streamOpenProvider, subPersist *streamSubagentPersist, profileCtl *streamSessionProfileController, mcpControl *streamMCPControl, autonomyLedger *streamAutonomyLedger, permStoreRef *atomic.Pointer[agent.PermissionStore], sessionModel chatroute.Control, tasks capabilities.Tasks, restart ...runtimeRestartFunc) (runner.Deps, error) {
+	if w.prepared {
+		if err := ValidatePreparedFailureLog(w.failureLogPath); err != nil {
+			return runner.Deps{}, err
+		}
+	}
 	// Build config from snapshot.
 	cfg := ConfigFromSnapshot(start.GetConfig())
 	cfgService := cfgsvc.New("", cfg, secrets.NewMemory())
@@ -559,8 +565,15 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 		Mode:          func() locus.Mode { m, _ := locus.ParseMode(cfg.LocusMode); return m },
 	})
 
-	failureLog, err := failurelog.NewWriter("")
+	openFailureLog := failurelog.NewWriter
+	if w.prepared {
+		openFailureLog = failurelog.NewPrivateWriter
+	}
+	failureLog, err := openFailureLog(w.failureLogPath)
 	if err != nil {
+		if w.prepared {
+			return runner.Deps{}, fmt.Errorf("prepared worker open failure log: %w", err)
+		}
 		log.Printf("[failures] worker open log: %v", err)
 	}
 
