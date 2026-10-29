@@ -165,7 +165,10 @@ def run(repo,evidence):
             reopened.send('FIXTURE_REOPENED_ON_B\r')
             wait(lambda:any('FIXTURE_REOPENED_ON_B' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'reopened B foreground',40)
             calls=[e for e in events()[offset:] if e['event']=='call']
-            assert calls and all(e['pid']!=pidA and e['conversation']==A['Conversation'] for e in calls)
+            assert calls and all(e['pid']!=pidA for e in calls)
+            # Foreground inference does not populate Call.ConversationID. Verify
+            # the actual durable turn association rather than inventing metadata.
+            wait(lambda:rows("select conversation_id from turns where role='user' and content='FIXTURE_REOPENED_ON_B'")==[(A['Conversation'],)],'reopened turn persisted in original conversation')
             os.kill(pidA,0)
             control(sa,'list')
             record('physical client restart and ordinary resume on B with original history; A still alive',calls=calls)
