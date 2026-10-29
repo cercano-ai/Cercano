@@ -5637,6 +5637,9 @@ func (m Model) composeFrame() (parts []string, inputIdx int) {
 			parts = append(parts, m.styles.BorderDim.Render(strings.Repeat("▔", m.width)))
 		}
 		parts = append(parts, m.renderViewportWithScrollbar())
+		if row, _ := m.agentActivityRow(); row != "" {
+			parts = append(parts, row)
+		}
 		if m.recap != "" {
 			parts = append(parts, m.renderRecap())
 		}
@@ -5644,9 +5647,6 @@ func (m Model) composeFrame() (parts []string, inputIdx int) {
 
 	promptLine := lipgloss.NewStyle().Foreground(m.promptBorderColor).Render(strings.Repeat("─", m.width))
 	promptParts := []string{}
-	if row, _ := m.agentActivityRow(); row != "" {
-		promptParts = append(promptParts, row)
-	}
 	// Queued messages float just above the prompt border on the main chat page.
 	// Content pages such as /c should show only their own page body and the prompt;
 	// queued chat turns remain pending but do not leak into the page chrome.

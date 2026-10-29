@@ -35,6 +35,7 @@ func (m Model) agentActivityRow() (string, []agentActivityLink) {
 	if c := m.pendingConfirm; c != nil && !c.stale && (c.tool != nil || c.auth != nil) {
 		text = "! Approval required | " + text
 	}
+	text = strings.Repeat(" ", min(entryIndent, max(0, m.width))) + m.styles.Muted.Render(text)
 	var links []agentActivityLink
 	shown := len(live)
 	if shown > 2 {
@@ -42,7 +43,7 @@ func (m Model) agentActivityRow() (string, []agentActivityLink) {
 	}
 	for i, tab := range live[:shown] {
 		if i > 0 {
-			text += " · "
+			text += m.styles.Muted.Render(" · ")
 		}
 		status := "running"
 		if tab.taskStatus == "accepted" {
@@ -62,14 +63,14 @@ func (m Model) agentActivityRow() (string, []agentActivityLink) {
 		}
 		label = ansi.Truncate(label+" ("+status+")", budget, "…")
 		start := lipgloss.Width(text)
-		text += lipgloss.NewStyle().Underline(true).Render(label)
+		text += m.styles.Muted.Underline(true).Render(label)
 		links = append(links, agentActivityLink{tab.id, start, lipgloss.Width(text)})
 	}
 	// The existing task pane tracks TaskNode checklist entries, not these
 	// delegated child lifecycles. Keep overflow informational until there is a
 	// task-list navigation target for this same population.
 	if remaining := len(live) - len(links); remaining > 0 {
-		text += fmt.Sprintf(" +%d more", remaining)
+		text += m.styles.Muted.Render(fmt.Sprintf(" +%d more", remaining))
 	}
 	return ansi.Truncate(text, max(0, m.width), ""), links
 }

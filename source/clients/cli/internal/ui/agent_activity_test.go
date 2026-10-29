@@ -54,7 +54,7 @@ func TestAgentActivityRendering(t *testing.T) {
 		t.Fatal("stale approval: " + row)
 	}
 	m.pendingConfirm = nil
-	for _, width := range []int{1, 10, 24, 40, 80} {
+	for _, width := range []int{0, 1, 2, 10, 24, 40, 80} {
 		m.width = width
 		row, links = m.agentActivityRow()
 		if lipgloss.Width(row) > width || strings.Contains(row, "\n") {
@@ -170,6 +170,67 @@ func TestAgentActivitySubscriptionRelayout(t *testing.T) {
 		}
 		if m.input.Value() != "draft" {
 			t.Fatal("subscription lost draft")
+		}
+	}
+}
+
+func TestAgentActivityGutterAndMutedStyle(t *testing.T) {
+	m := activityModel(t)
+	row, links := m.agentActivityRow()
+	want := strings.Repeat(" ", entryIndent) + m.styles.Muted.Render("Agents 2: ") +
+		m.styles.Muted.Underline(true).Render("Research (running)") +
+		m.styles.Muted.Render(" · ") + m.styles.Muted.Underline(true).Render("Tests (running)")
+	if row != want {
+		t.Errorf("activity must use chat gutter and muted secondary text: got %q want %q", row, want)
+	}
+	if len(links) != 2 || links[0].start != entryIndent+lipgloss.Width("Agents 2: ") {
+		t.Errorf("links must include gutter offset: %+v", links)
+	}
+}
+
+func TestAgentActivityBeforeRecap(t *testing.T) {
+	for _, width := range []int{40, 100} {
+		m := activityModel(t)
+		m = send(t, m, tea.WindowSizeMsg{Width: width, Height: 30})
+		m.recap = "RECAPSENTINEL summary wraps at narrow widths"
+		m.input.SetValue("DRAFTSENTINEL")
+		m.relayout()
+		parts, _ := m.composeFrame()
+		row, links := m.agentActivityRow()
+		activityIdx, activityY := -1, 0
+		for i, part := range parts {
+			if part == row {
+				activityIdx = i
+				break
+			}
+			activityY += countLines([]string{part})
+		}
+		if activityIdx < 1 || parts[activityIdx-1] != m.renderViewportWithScrollbar() || activityIdx+1 >= len(parts) || parts[activityIdx+1] != m.renderRecap() {
+			t.Errorf("width %d: activity must directly follow viewport and precede recap (index %d)", width, activityIdx)
+		}
+		for x := 0; x < width; x++ {
+			want := ""
+			for _, link := range links {
+				if x >= link.start && x < link.end {
+					want = link.id
+				}
+			}
+			if got := m.agentActivityHit(x, activityY); got != want {
+				t.Fatalf("x=%d y=%d hit=%q want=%q", x, activityY, got, want)
+			}
+			if got := m.agentActivityHit(x, activityY+1); got != "" {
+				t.Fatalf("off-row hit %q", got)
+			}
+		}
+		lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+		if lines[activityY] != ansi.Strip(row) {
+			t.Fatal("activity hit coordinates do not match rendered frame")
+		}
+		if len(lines) > m.height {
+			t.Fatalf("frame overflows: %d > %d", len(lines), m.height)
+		}
+		if !strings.Contains(lines[m.promptTop()], "DRAFTSENTINEL") {
+			t.Fatal("prompt coordinates drifted")
 		}
 	}
 }
