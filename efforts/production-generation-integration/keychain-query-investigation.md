@@ -35,7 +35,21 @@ With `CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off CGO_ENABLED=1`:
 No native queries, credentials, login, inference, agent restart, or cloud host
 launch were used. Prior private run files and environment dumps were not read.
 
-## What remains unknown
+## Authorized native follow-up (2026-10-29)
+
+The later user-authorized read-only comparison found a HOME-dependent native
+lookup problem: ordinary HOME resolves a default keychain and finds target
+metadata; either private HOME has no default keychain (OSStatus -25307), a
+smaller search list, and native target-not-found (-25300). The selected backend
+remains keychain, not file. The same helper under ordinary HOME receives
+-25293 for a no-interaction data query, which must not be generalized to the
+actual generation executable's ACL. See
+[native-keychain-observation-2026-10-29.md](native-keychain-observation-2026-10-29.md)
+for exact commands, sanitized observations, causal confidence, and boundaries.
+No host/provider launch, native mutation, credential output, or inference was
+performed. The historical unknowns/proposal below describe the earlier stage.
+
+## What remained unknown before the follow-up
 
 The bug proves that a native error *can* masquerade as missing; it does not prove
 that this caused the reported isolated-host failure. A genuinely absent item,
