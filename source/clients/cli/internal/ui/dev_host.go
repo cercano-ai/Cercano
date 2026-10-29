@@ -182,6 +182,15 @@ func (m Model) runDevHost(line string) (tea.Model, tea.Cmd) {
 func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 	m.devHost.busy = false
 	if r.client != nil {
+		if r.selection != nil {
+			m.devHost.selection = *r.selection
+		}
+		if m.taskSubscriptionCancel != nil {
+			m.taskSubscriptionCancel()
+		}
+		if r.action == "reopen" && m.agent != nil {
+			m.agent.Close()
+		}
 		// New client-bound slash handlers, same running executable and TUI identity.
 		n := New(r.client, false).WithVersion(m.devHost.version).WithDevHost(m.devHost.selection, m.devHost.version)
 		// New rebuilds client-bound handlers, but queued subscription messages
@@ -191,6 +200,11 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 		n.taskSubscriptionGeneration = m.taskSubscriptionGeneration + 1
 		n.width, n.height = m.width, m.height
 		return n, tea.Batch(n.Init(), func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} })
+	}
+	if r.action == "reopen" {
+		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "Could not reopen conversation: " + fmt.Sprint(r.err)})
+		m.refreshViewport()
+		return m, nil
 	}
 	if r.selection != nil {
 		m.devHost.selection = *r.selection

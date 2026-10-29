@@ -3292,8 +3292,8 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 		if len(f) > 0 && f[0] == "/host" {
 			return m.runDevHost(line)
 		}
-		if len(f) > 0 && f[0] != "/version" && f[0] != "/quit" && f[0] != "/search" {
-			m.errMsg = "Pinned development mode: /host, /version, /search, /quit only"
+		if len(f) > 0 && f[0] != "/version" && f[0] != "/quit" && f[0] != "/search" && f[0] != "/history" && f[0] != "/resume" {
+			m.errMsg = "Pinned development mode: /history, /resume, /host, /version, /search, /quit only"
 			return m, nil
 		}
 	}
@@ -4167,8 +4167,7 @@ func (m *Model) restoreSubAgentTabs(ctx context.Context, conversationID string) 
 
 func (m Model) beginProgressiveResume(conversationID string) (Model, tea.Cmd) {
 	if m.devHost != nil && (m.devHost.detached || conversationID != m.devHost.selection.Conversation) {
-		m.errMsg = "Pinned session: changing conversation requires explicit startup selection"
-		return m, nil
+		return m.beginDevHostReopen(conversationID)
 	}
 	if m.agent == nil {
 		m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "resume failed: agent unavailable"})

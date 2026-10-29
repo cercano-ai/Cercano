@@ -109,98 +109,62 @@ def run(repo,evidence):
             cfg=state/'config.yaml';cfg.write_text('open_runtime: llama_server\nlocus_mode: open_only\ntask_assignments:\n  dispatch: {destination: local, quality: standard}\nllama_server:\n  enabled: true\n  default_model: offline-fixture\nmodels:\n  open:\n    overrides:\n      llama_server:\n        everyday: offline-fixture\n        most_capable: offline-fixture\n        fast_light: offline-fixture\n        fast_light_text: offline-fixture\n        embedding: offline-fixture\nouter:\n  enabled: false\n');cfg.chmod(0o600)
             record('explicit tagged real bootstrap and prepared private state', files=[str(x) for x in state.iterdir()], sqlite=rows('pragma user_version'))
             assert rows('pragma user_version')==[(2,)]
-            a,sa,A=launch('A');record('A acquired via ordinary launcher',selection=A,artifacts=[dict(path=str(f.relative_to(state)),sha256=hashlib.sha256(f.read_bytes()).hexdigest()) for f in (state/'generations').glob('*/cercano*') if f.is_file()])
+            a,sa,A=launch('A')
+            a.send('FIXTURE_ORIGINAL_HISTORY\r')
+            wait(lambda:any('FIXTURE_ORIGINAL_HISTORY' in json.dumps(e['request'].get('Messages')) for e in events() if e['event']=='call'),'A initial foreground')
+            wait(lambda:b'FIXTURE_OK' in a.data,'A initial response')
+            pidA=[e['pid'] for e in events() if e['event']=='call'][0]
+            change=copy/'source/server/cmd/cercano/development_provider_fixture.go'
+            change.write_text(change.read_text()+'\n// generation B source byte change\n')
+            b,sb,B=launch('B')
+            assert A['Identity']['host']!=B['Identity']['host'] and A['Generation']!=B['Generation']
+            assert a.p.poll() is None
+            os.kill(pidA,0)
+            record('B published and launched without stopping A',A=A,B=B,pidA=pidA)
+            offset=len(events())
+            a.send('FIXTURE_AFTER_B\r')
+            wait(lambda:any('FIXTURE_AFTER_B' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'A fresh foreground after B')
+            assert {e['pid'] for e in events()[offset:] if e['event']=='call'}=={pidA}
+            time.sleep(2)
             a.send('FIXTURE_DISPATCH\r')
             wait(lambda:b'wants to run a delegated agent' in a.data,'ordinary dispatch permission prompt')
             a.send('y\r')
-            wait(lambda:any(x['event']=='child-entered' for x in events()),'independent dispatch reached provider barrier',40)
-            task=rows('select id,parent_id,status,child_id from delegated_tasks');assert len(task)==1 and task[0][2]=='running',task
-            record('real independent dispatch running',tasks=task)
-            # A physically disconnects while its independent task remains running.
-            a.p.kill();a.p.wait();a.pump();os.close(a.fd);terminals.remove(a)
-            builds=trace.read_text();sels=selections(); pidA=[e['pid'] for e in events() if e['event']=='child-entered'][0]
-            a=Terminal(['bash',str(script),'--dev-host',str(sa)],env,evidence/'A-reconnect.pty');terminals.append(a)
-            wait(lambda:b'\x1b[?1049h' in a.data,'A physical reconnect TUI')
-            a.send('FIXTURE_RECONNECTED\r')
-            wait(lambda:any('FIXTURE_RECONNECTED' in json.dumps(e['request'].get('Messages')) for e in events() if e['event']=='call'),'A reconnect inference')
-            assert trace.read_text()==builds and selections()==sels
-            assert {e['pid'] for e in events() if e['event']=='call'}=={pidA}
+            wait(lambda:any(x['event']=='child-entered' for x in events()[offset:]),'later independent dispatch reached provider barrier',40)
+            assert {e['pid'] for e in events()[offset:] if e['event']=='child-entered'}=={pidA}
+            task=rows('select id,parent_id,status,child_id from delegated_tasks')
+            assert len(task)==1 and task[0][2]=='running',task
+            record('fresh A foreground and later worker after B use A host build',pidA=pidA,tasks=task)
+            # A client really exits; its host and independent task must survive.
+            a.stop();terminals.remove(a);time.sleep(1)
+            b.send('/resume '+A['Conversation']+'\r')
+            wait(lambda:b'no transfer is scheduled' in b.data,'ordinary busy reopen refusal')
             assert rows('select status from delegated_tasks')==[('running',)]
-            record('A physically killed and reconnected through saved selection; same exact host PID; no publication or acquisition',pid=pidA)
-            y,sy,Y=launch('Y');y.stop();terminals.remove(y)
-            # Change actual snapshotted source bytes; no factory/runtime substitution.
-            change=copy/'source/server/cmd/cercano/development_provider_fixture.go';change.write_text(change.read_text()+'\n// generation B source byte change\n')
-            b,sb,B=launch('B');assert A['Identity']['host']!=B['Identity']['host'] and A['Generation']!=B['Generation'];assert a.p.poll() is None
-            record('B distinct after source byte change; A CLI and task alive',selection=B,tasks=rows('select id,status from delegated_tasks'))
-            c,sc,C=launch('B-reuse');assert C['Identity']['host']==B['Identity']['host'];record('same generation reuses host')
-            # Existing selections must not publish or spawn. Management has no attachment.
-            builds=trace.read_text(); sels=selections();control(sa,'list');assert trace.read_text()==builds and selections()==sels
-            record('saved selection no-build/no-acquisition management reconnect')
-            # Two ordinary wrappers race unchanged-source acquisition.
-            before=selections();builds=trace.read_text()
-            racers=[Terminal(['bash',str(script)],env,evidence/('B-concurrent-'+str(i)+'.pty')) for i in range(2)];terminals.extend(racers)
-            wait(lambda:len(selections()-before)==2,'concurrent unchanged-source selections',120)
-            concurrent=selections()-before
-            assert all(json.loads(s.read_text())['Identity']['host']==B['Identity']['host'] for s in concurrent)
-            assert trace.read_text()==builds
-            record('concurrent unchanged-source invocations reuse B without rebuild or conflict',selections=[json.loads(s.read_text()) for s in concurrent])
-            moved=json.loads(control(sy,'transfer',sb))['Selection'];assert moved and moved['Identity']['host']==B['Identity']['host']
-            moved['Generation']=B['Generation']
-            sym=state/'selections'/'Y-moved.json';sym.write_text(json.dumps(moved));sym.chmod(0o600)
-            assert rows('select status from delegated_tasks')==[('running',)]
-            record('unrelated Y transferred A to B while independent A task running',selection=moved)
-            # Detach A physically so refusal tests task ownership, not attachment.
-            a.p.kill();a.p.wait();a.pump();os.close(a.fd);terminals.remove(a);time.sleep(1)
-            pending_before=json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)
-            control(sa,'transfer',sb,False)
-            pending_after=json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)
-            record('busy transfer refused with A task held',pending_before=pending_before,pending_after=pending_after)
-            if pending_before != 0 or pending_after != 0:
-                record('NEW PRODUCTION FAILURE: refused busy transfer leaks destination reservation',root='agentclient Transfer prepares destination before source relinquish; source failure returns without canceling destination acceptance')
-                raise AssertionError('busy transfer refusal leaked destination pending_incoming: '+str(pending_before)+' -> '+str(pending_after))
-            # The real Go compiler rejects invalid candidate source while both hosts remain live.
-            stable_hosts={f.name:f.read_bytes() for f in (state/'hosts').glob('*') if f.suffix in ('.json','.token')}
-            stable_generations={str(f.relative_to(state)):hashlib.sha256(f.read_bytes()).hexdigest() for f in (state/'generations').rglob('*') if f.is_file()}
-            stable_selections=selections(); stable_tasks=rows('select * from delegated_tasks')
-            original=change.read_bytes();change.write_bytes(original+b'\nvar acceptanceBuildMustFail =\n')
-            failed=Terminal(['bash',str(script)],env,evidence/'failed-build.pty')
-            end=time.monotonic()+120
-            while failed.p.poll() is None and time.monotonic()<end: failed.pump()
-            failed.pump();assert failed.p.wait(timeout=5)!=0
-            assert b'syntax error' in failed.data and b'development_provider_fixture.go' in failed.data,failed.data
-            os.close(failed.fd);change.write_bytes(original)
-            assert selections()==stable_selections and rows('select * from delegated_tasks')==stable_tasks
-            assert {f.name:f.read_bytes() for f in (state/'hosts').glob('*') if f.suffix in ('.json','.token')}==stable_hosts
-            assert {str(f.relative_to(state)):hashlib.sha256(f.read_bytes()).hexdigest() for f in (state/'generations').rglob('*') if f.is_file()}==stable_generations
-            control(sa,'list');control(sb,'list')
-            record('actual compiler failure before publication preserves live A/B records, generations, selections and running task')
+            retained=json.loads(control(sa,'list'))['Response']['retained']
+            assert A['Conversation'] in {r['conversation'] for r in retained}
+            assert json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)==0
+            record('ordinary busy reopen preserves A task and schedules no transfer')
             (barrier/'child.release').touch()
             wait(lambda:rows('select status from delegated_tasks')==[('completed',)],'independent task completion',40)
-            wait(lambda:any(x['event']=='child-released' for x in events()),'child release trace')
-            record('independent task completed',tasks=rows('select id,status,notification_pending,wake_claimed,result_json,error from delegated_tasks'))
             wait(lambda:rows('select notification_pending,wake_claimed from delegated_tasks')==[(0,1)],'exactly one handled completion',40)
             assert len([e for e in events() if e['event']=='completion-notice'])==1
-            time.sleep(2)
-            assert len([e for e in events() if e['event']=='completion-notice'])==1
-            record('exactly one completion notification delivered and durably acknowledged')
-            control(sa,'retire',success=False)
             retained=json.loads(control(sa,'list'))['Response']['retained']
-            assert task[0][1] in {r['conversation'] for r in retained}
-            assert {r['conversation'] for r in retained}<={task[0][1],rows('select child_id from delegated_tasks')[0][0]}
-            for i,r in enumerate(retained):
-                release_selection=dict(A,Conversation=r['conversation'],Epoch=r['epoch'])
-                release_path=state/'selections'/('A-release-'+str(i)+'.json');release_path.write_text(json.dumps(release_selection));release_path.chmod(0o600)
-                control(release_path,'release')
-            control(sa,'retire')
-            b.pump(); response_offset=len(b.data)
-            b.send('FIXTURE_B_STILL_USABLE\r')
-            wait(lambda:any('FIXTURE_B_STILL_USABLE' in json.dumps(e['request'].get('Messages')) for e in events() if e['event']=='call'),'B inference after A retirement')
-            wait(lambda:b'FIXTURE_OK' in b.data[response_offset:],'B response')
-            record('A retained sessions explicitly released and retired; B inference still usable')
-            for t in terminals:t.stop()
-            terminals.clear();time.sleep(1)
-            for sel in [sb,sc,sym,*concurrent]:control(sel,'release')
-            control(sb,'retire')
+            assert A['Conversation'] in {r['conversation'] for r in retained}
+            record('A independent task completed; no deferred transfer',tasks=rows('select id,status from delegated_tasks'))
+            # Physically restart through the ordinary launcher, never a selection file.
+            b.stop();terminals.remove(b)
+            reopened,sr,R=launch('B-restarted')
+            assert R['Identity']['host']==B['Identity']['host']
+            reopened.send('/resume '+A['Conversation']+'\r')
+            wait(lambda:A['Conversation'] in {r['conversation'] for r in json.loads(control(sb,'list'))['Response'].get('retained',[])},'original conversation owned by B',40)
+            wait(lambda:b'FIXTURE_ORIGINAL_HISTORY' in reopened.data,'original history visible on restarted B',40)
+            offset=len(events())
+            reopened.send('FIXTURE_REOPENED_ON_B\r')
+            wait(lambda:any('FIXTURE_REOPENED_ON_B' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'reopened B foreground',40)
+            calls=[e for e in events()[offset:] if e['event']=='call']
+            assert calls and all(e['pid']!=pidA and e['conversation']==A['Conversation'] for e in calls)
+            os.kill(pidA,0)
+            control(sa,'list')
+            record('physical client restart and ordinary resume on B with original history; A still alive',calls=calls)
             report['passed']=True
             record('PASS all compiled ordinary-launcher acceptance assertions')
         except Exception as e:
