@@ -12,6 +12,7 @@ import (
 	"cercano/source/server/internal/localruntime"
 	mcphost "cercano/source/server/internal/mcp_host"
 	"cercano/source/server/internal/secrets"
+	"cercano/source/server/internal/telemetry"
 	"cercano/source/server/internal/watchdog"
 	"cercano/source/server/pkg/config"
 )
@@ -34,6 +35,9 @@ func fullDevelopmentFakes(t *testing.T, overrides developmentProductionDependenc
 	counts := &developmentBoundaryCounts{}
 	memory := secrets.NewMemory()
 	d := overrides
+	if d.accounting.open == nil {
+		d.accounting.open = func(string) (*telemetry.SQLiteStore, error) { return telemetry.NewSQLiteStore(":memory:") }
+	}
 	if d.openSecrets == nil {
 		d.openSecrets = func() (secrets.Store, error) { return memory, nil }
 	}

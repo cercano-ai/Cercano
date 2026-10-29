@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"cercano/source/server/internal/agent"
 	projectctx "cercano/source/server/internal/context"
@@ -33,7 +34,7 @@ import (
 // Invocation-local seams: tests never open a native credential backend or attach
 // to a real runtime. There are deliberately no environment-selected fixtures.
 type developmentProductionDependencies struct {
-	accounting      toolstack.EngineDeps
+	accounting      productionAccountingDependencies
 	watchdog        server.WatchdogDependencies
 	cloudBuilder    providers.CloudBuilder
 	mcp             productionMCPDependencies
@@ -133,6 +134,22 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	}
 	executionPolicy := productionExecutionPolicy{prepared: &policy}
 
+	// Use the admitted configuration authority, never the ambient user's policy.
+	// The ordinary store coordinates fresh-read mutations and rereads at each
+	// gate; malformed existing policy must fail before opening dependencies.
+	permissionsPath := filepath.Join(filepath.Dir(configPath), "permissions.yaml")
+	permissions, err := agent.LoadPermissionStore(permissionsPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("prepared permissions: %w", err)
+	}
+	if _, err := os.Stat(permissionsPath); os.IsNotExist(err) {
+		// A prepared snapshot without an explicitly supplied policy retains
+		// its strict default; do not silently adopt ordinary permissive mode.
+		permissions = agent.NewStaticPermissionStore(agent.ModeStrict)
+	} else if err != nil {
+		return nil, nil, fmt.Errorf("prepared permissions: %w", err)
+	}
+
 	if err := executionPolicy.validate(); err != nil {
 		return nil, nil, err
 	}
@@ -147,15 +164,18 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	var manager localruntime.Manager
 	closeRuntime := func() error { return nil }
 	closeMCP := func() {}
+	closeAccounting := func() error { return nil }
+	stopPermissionWatcher := func() {}
 	var store conversation.Store
 	var constructorRollback func() error
 	resources := newPreparedShutdown(nil, func() error {
+		stopPermissionWatcher()
 		closeMCP()
 		var err error
 		if closeRuntime != nil {
 			err = closeRuntime()
 		}
-		return err
+		return errors.Join(err, closeAccounting())
 	})
 	ctx, cancel := context.WithCancel(ctx)
 	var ownedServer *server.Server
@@ -171,10 +191,13 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 			ownedServer.WaitForWatchers()
 			shutdownErr = ownedServer.Shutdown()
 		}
-		err := errors.Join(shutdownErr, resources.Wait(context.Background()))
+		err := shutdownErr
 		if constructorRollback != nil {
+			// A partially constructed server may already own producers. Join
+			// those before closing their accounting/runtime dependencies too.
 			err = errors.Join(err, constructorRollback())
 		}
+		err = errors.Join(err, resources.Wait(context.Background()))
 		if ownedServer != nil {
 			err = errors.Join(err, ownedServer.CloseCoexistenceStore())
 		}
@@ -252,8 +275,18 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if local {
 		schedulingDeps.loop.OpenRuntimeContext = llamaengine.NewEngine(manager).RuntimeContext
 	}
+	accounting := deps.accounting
+	if accounting.open == nil {
+		accounting = productionAccountingDefaults()
+	}
+	collector, drainAccounting, err := composeProductionAccounting(admission, o.Host, accounting)
+	if err != nil {
+		return nil, nil, fmt.Errorf("prepared accounting: %w", err)
+	}
+	closeAccounting = drainAccounting
+	accountingSinks := toolstack.EngineDeps{UsageSink: server.UsageEventSink(collector.Emit), AttemptSink: collector.EmitAttempt}
 	schedulingOptions := ordinarySchedulingOptions()
-	schedulingOptions.attempts = deps.accounting.AttemptSink
+	schedulingOptions.attempts = accountingSinks.AttemptSink
 	srv, err := newProductionPreparedServer(ctx, server.PreparedServerOptions{
 		RetainFailure: func(dispose func() error) { constructorRollback = dispose },
 		Watchdog:      deps.watchdog,
@@ -273,11 +306,18 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		return nil, nil, err
 	}
 	ownedServer = srv
+	srv.SetUsageSink(accountingSinks.UsageSink)
+	srv.SetAccountingCollector(collector)
 	srv.SetBuildVersion(version)
 	srv.SetRuntimeManager(manager)
-	// Prepared hosts must not load/watch the legacy permissions file. Start
-	// conservatively with session-local decisions and no persisted allowlist.
-	bindProductionAgent(srv, orchestrator, loader, agent.NewStaticPermissionStore(agent.ModeStrict), agent.NewPendingDecisions())
+	bindProductionAgent(srv, orchestrator, loader, permissions, agent.NewPendingDecisions())
+	stopPermissionWatcher = func() {
+		cancel()
+		srv.WaitForWatchers()
+	}
+	if err := srv.StartPermissionWatcher(ctx, permissionsPath); err != nil {
+		return nil, nil, fmt.Errorf("prepared permission watcher: %w", err)
+	}
 	srv.SetOpenLLMProvider(open)
 	if setFailureLog != nil {
 		setFailureLog(srv)
@@ -290,7 +330,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	} else if cfg.LocusMode != "open_only" {
 		return nil, nil, fmt.Errorf("cloud routing selected without an active prepared cloud profile")
 	}
-	if err = composeProductionServices(srv, orchestrator, loader, deps.accounting, executionPolicy); err != nil {
+	if err = composeProductionServices(srv, orchestrator, loader, accountingSinks, executionPolicy); err != nil {
 		return nil, nil, err
 	}
 	mcpCleanup, err := composeProductionMCP(srv, filepath.Dir(configPath), deps.mcp, executionPolicy)

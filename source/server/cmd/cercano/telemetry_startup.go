@@ -26,10 +26,11 @@ func productionAccountingDefaults() productionAccountingDependencies {
 }
 
 func composeProductionAccounting(a productionStartupAdmission, session string, d productionAccountingDependencies) (*telemetry.Collector, func() error, error) {
-	// Until producer ownership is integrated, prepared policy refuses before
-	// opening or migrating telemetry; it cannot accidentally select legacy I/O.
-	if err := a.validateActivation(); err != nil {
-		return nil, nil, err
+	// Accounting is passive: producers supply observations and the caller owns
+	// their join before collector drainage. This does not activate other services
+	// or bypass the canonical parity gate. Prepared callers need real preflight.
+	if a.paths.config == "" || a.paths.conversations == "" || (!a.legacy && !a.generationPreflight) {
+		return nil, nil, fmt.Errorf("accounting requires admitted production authority")
 	}
 	return startAgentTelemetryWithDependencies(filepath.Join(filepath.Dir(a.paths.config), "telemetry.db"), session, d)
 }

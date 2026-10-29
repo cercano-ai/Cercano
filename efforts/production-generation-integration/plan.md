@@ -71,7 +71,7 @@ Objective: preserve ordinary MCP, enterprise and runtime/model functionality whi
 
 Objective: retain production maintenance and observability without stale writes or data loss. Files: internal/telemetry, catalog, watchdog, taskmodel, research, diagnostic writers and startup/shutdown composition. Tests: concurrent opens/writes, schema faults, collector drain and file conflict cases.
 
-- [~] Install ordinary telemetry/accounting and verify compatible schema opening, strict migration error propagation, revision-based deduplication and retirement drainage
+- [-] Install ordinary telemetry/accounting and verify compatible schema opening, strict migration error propagation, revision-based deduplication and retirement drainage
 - [ ] Test simultaneous host accounting, retry, consumer refresh and any retention interaction without losing acknowledged usage
 - [ ] Restore catalog refresh, watchdog and provider rebuilding with counted lifecycle work and safe cancellation
 - [ ] Preserve authoritative model/catalog paths and distinguish reconstructible caches from retained history, telemetry and downloaded assets

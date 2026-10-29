@@ -30,6 +30,8 @@ func canonicalGenerationStartup() productionStartupPolicy {
 type productionStartupAdmission struct {
 	paths  productionAuthorityPaths
 	legacy bool
+	// Set only after read-only generation compatibility preflight succeeds.
+	generationPreflight bool
 }
 
 // admit must precede enterprise, runtime, credentials, config loading/migration
@@ -50,7 +52,7 @@ func (p productionStartupPolicy) admit(ctx context.Context) (productionStartupAd
 			return productionStartupAdmission{}, fmt.Errorf("generation authority admission: %w", err)
 		}
 	}
-	return productionStartupAdmission{paths: paths, legacy: p.legacy}, nil
+	return productionStartupAdmission{paths: paths, legacy: p.legacy, generationPreflight: !p.legacy}, nil
 }
 
 // conversationStore is the shared store-selection stage. Prepared callers pass
