@@ -1,5 +1,7 @@
 # Real-cloud bounded run: observed credential refusal
 
+> **2026-10-29 later status:** A separate [bounded real-cloud A/B result](real-cloud-ab-result-2026-10-29.md) records successful A/B replies, ordinary resume/history transfer at quiescence, A retirement and a subsequent B reply (cumulative 9 attempts, 83,317 input / 104 output tokens). The original blocked evidence below is preserved and applies to this earlier run; the later success does not establish how its credential blocker was resolved. Independent-task qualification was skipped; full parity and live migration are not claimed.
+
 ## Authorization and implementation
 
 The user approved 40 aggregate inference attempts, 120 seconds per attempt, a 30-minute run excluding compilation, and admission stop thresholds of 300,000 reported input/output tokens or 30,000 output tokens, with acknowledged in-flight overruns. Only `openai-responses` / `gpt-6-astra`, Responses/ChatGPT route; no fallback. No refresh persistence or login authorization was granted.
