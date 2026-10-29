@@ -143,6 +143,7 @@ func NewClient(cfg Config) *Client {
 		// Redirects are separate attempts, not covered by the original admission.
 		transport.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
+	transport = acceptanceHTTPClient(cfg, transport)
 	return &Client{credentials: cfg.Credentials, credentialProfile: cfg.CredentialProfile, http: modelpolicy.Client(transport, "openai", "external", modelpolicy.Responses), baseURL: base, accountingProfile: cfg.AccountingProfile, apiKey: cfg.APIKey, model: cfg.Model, route: cfg.Route, tokens: cfg.TokenSource, supportsVision: cfg.SupportsVision}
 }
 

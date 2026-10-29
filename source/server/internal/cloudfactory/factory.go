@@ -84,6 +84,9 @@ func ValidateFlavor(flavor string) error {
 
 // BuildCloudProvider maps a profile (+ its key) to an inference.Provider.
 func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (inference.Provider, error) {
+	if err := acceptanceProfile(p); err != nil {
+		return nil, err
+	}
 	if err := ValidateFlavor(p.Flavor); err != nil {
 		return nil, err
 	}
@@ -163,7 +166,7 @@ func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (
 			if ts == nil {
 				return nil, fmt.Errorf("responses route %q requires a token source", p.Route)
 			}
-			return responses.NewClient(responses.Config{Model: p.Model, Route: p.Route, TokenSource: ts, SupportsVision: visionConfirmed(opts, p.Model)}), nil
+			return responses.NewClient(responses.Config{Model: p.Model, Route: p.Route, TokenSource: ts, AccountingProfile: p.Name, SupportsVision: visionConfirmed(opts, p.Model)}), nil
 		}
 		return responses.NewClient(responses.Config{BaseURL: p.BaseURL, APIKey: apiKey, Model: p.Model, AccountingProfile: p.Name, SupportsVision: visionConfirmed(opts, p.Model)}), nil
 	case FlavorBedrock:
