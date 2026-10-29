@@ -2,6 +2,7 @@ package routinglog
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -33,6 +34,21 @@ func NewWriter(path string) (*Writer, error) {
 		return nil, err
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	return &Writer{f: f}, nil
+}
+
+// NewPrivateWriter opens an explicit destination in an already prepared parent.
+// Unlike NewWriter it never resolves a HOME default or creates directories.
+// The caller must validate its private namespace before dependency assembly;
+// this opener does not itself enforce ownership, modes, or symlink exclusion.
+func NewPrivateWriter(path string) (*Writer, error) {
+	if path == "" {
+		return nil, fmt.Errorf("private routing log requires a path")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}

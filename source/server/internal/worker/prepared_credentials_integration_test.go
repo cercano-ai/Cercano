@@ -87,7 +87,7 @@ func TestPreparedCredentialsRealWorkerIsolation(t *testing.T) {
 			}))
 			defer endpoint.Close()
 			store := secrets.NewMemory()
-			ws := NewWithSecretStore(store, WithPrepared())
+			ws := NewWithSecretStore(store, preparedLogTestOptions(t)...)
 			// Counting injection replaces the constructor's closure, not the native
 			// opener. Leave BOTH factories nil so assembly cannot be bypassed.
 			ws.secretOpener = func() capabilities.SecretStore { openerCalls.Add(1); return store }

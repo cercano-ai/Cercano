@@ -29,14 +29,14 @@ func init() {
 	if os.Getenv("CERCANO_PREPARED_POLICY_TEST_CHILD") != "1" {
 		return
 	}
-	if os.Getenv("CERCANO_DISABLE_CREDENTIALS") != "1" || len(os.Args) != 5 || os.Args[1] != "worker" || os.Args[2] != "--socket" || os.Args[4] != "--prepared" {
+	if os.Getenv("CERCANO_DISABLE_CREDENTIALS") != "1" || len(os.Args) != 9 || os.Args[1] != "worker" || os.Args[2] != "--socket" || os.Args[4] != "--prepared" || os.Args[5] != "--failure-log" || os.Args[7] != "--routing-log" {
 		os.Exit(94)
 	}
 	listener, err := net.Listen("unix", os.Args[3])
 	if err != nil {
 		os.Exit(95)
 	}
-	ws := NewWithSecretStore(secrets.NewMemory(), WithPrepared())
+	ws := NewWithSecretStore(secrets.NewMemory(), WithPrepared(), WithFailureLogPath(os.Args[6]), WithRoutingLogPath(os.Args[8]))
 	ws.providerFactory = preparedFakeProviders
 	ws.secretOpener = func() capabilities.SecretStore {
 		f, err := os.OpenFile(os.Getenv("CERCANO_PREPARED_POLICY_TEST_COUNT"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)

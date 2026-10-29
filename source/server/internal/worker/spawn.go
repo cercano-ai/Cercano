@@ -384,7 +384,7 @@ func workerCommand(binary, socket string, prepared ...bool) *exec.Cmd {
 func workerCommandWithPolicy(binary, socket string, policy SpawnPolicy) *exec.Cmd {
 	cmd := workerCommand(binary, socket, policy.pinned)
 	if policy.pinned {
-		cmd.Args = append(cmd.Args, "--failure-log", policy.failureLogPath())
+		cmd.Args = append(cmd.Args, "--failure-log", policy.failureLogPath(), "--routing-log", policy.routingLogPath())
 	}
 	return cmd
 }

@@ -112,13 +112,13 @@ func init() {
 	if len(os.Args) < 2 || os.Args[1] != "worker" {
 		return
 	}
-	socket, prepared, err := parseWorkerArgs(os.Args[2:])
+	socket, prepared, failureLog, routingLog, err := parseWorkerArgs(os.Args[2:])
 	if err != nil {
 		panic(err)
 	}
 	var options []worker.Option
 	if prepared {
-		options = append(options, worker.WithPrepared())
+		options = append(options, worker.WithPrepared(), worker.WithFailureLogPath(failureLog), worker.WithRoutingLogPath(routingLog))
 	}
 	if os.Getenv("CERCANO_DISABLE_CREDENTIALS") != "1" {
 		os.Exit(90)

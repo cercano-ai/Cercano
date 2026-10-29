@@ -55,6 +55,7 @@ import (
 // WorkerServer implements the gRPC Worker service (worker-side).
 type WorkerServer struct {
 	failureLogPath      string
+	routingLogPath      string
 	prepared            bool // immutable constructor contract, independent of RPC metadata
 	managed             atomic.Bool
 	processGuard        bool
@@ -439,6 +440,9 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 		if err := ValidatePreparedFailureLog(w.failureLogPath); err != nil {
 			return runner.Deps{}, err
 		}
+		if err := ValidatePreparedRoutingLog(w.routingLogPath); err != nil {
+			return runner.Deps{}, err
+		}
 	}
 	// Build config from snapshot.
 	cfg := ConfigFromSnapshot(start.GetConfig())
@@ -627,8 +631,16 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 	// when the watchdog is disabled — the runner's live accessor (c.d.Watchdog())
 	// then yields nil, the correct default-off behavior.
 	wd := buildWorkerWatchdog(cfg, engine)
-	routeLog, err := routinglog.NewWriter("")
+	openRoutingLog := routinglog.NewWriter
+	if w.prepared {
+		openRoutingLog = routinglog.NewPrivateWriter
+	}
+	routeLog, err := openRoutingLog(w.routingLogPath)
 	if err != nil {
+		if w.prepared {
+			failureLog.Close()
+			return runner.Deps{}, fmt.Errorf("prepared worker open routing log: %w", err)
+		}
 		log.Printf("[routing] worker open log: %v", err)
 	}
 	if provSvc != nil {

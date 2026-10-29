@@ -2152,42 +2152,47 @@ func runMCPMode(cfg config.Config, externalGRPC string, admission productionStar
 
 // parseWorkerArgs consumes every argument; unknown, duplicate, and positional
 // arguments fail rather than silently dropping the prepared launch contract.
-func parseWorkerArgs(args []string) (socket string, prepared bool, failureLog string, err error) {
+func parseWorkerArgs(args []string) (socket string, prepared bool, failureLog string, routingLog string, err error) {
 	seen := map[string]bool{}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if seen[arg] {
-			return "", false, "", fmt.Errorf("duplicate worker flag %q", arg)
+			return "", false, "", "", fmt.Errorf("duplicate worker flag %q", arg)
 		}
 		seen[arg] = true
 		switch arg {
-		case "--socket", "--failure-log":
+		case "--socket", "--failure-log", "--routing-log":
 			i++
 			if i >= len(args) || strings.HasPrefix(args[i], "--") {
-				return "", false, "", fmt.Errorf("%s requires a path", arg)
+				return "", false, "", "", fmt.Errorf("%s requires a path", arg)
 			}
 			if arg == "--socket" {
 				socket = args[i]
-			} else {
+			} else if arg == "--failure-log" {
 				failureLog = args[i]
+			} else {
+				routingLog = args[i]
 			}
 		case "--prepared":
 			prepared = true
 		default:
-			return "", false, "", fmt.Errorf("unknown worker argument %q", arg)
+			return "", false, "", "", fmt.Errorf("unknown worker argument %q", arg)
 		}
 	}
 	if socket == "" {
-		return "", false, "", fmt.Errorf("--socket <path> required")
+		return "", false, "", "", fmt.Errorf("--socket <path> required")
 	}
 	if prepared {
 		if err := worker.ValidatePreparedFailureLog(failureLog); err != nil {
-			return "", false, "", err
+			return "", false, "", "", err
 		}
-	} else if failureLog != "" {
-		return "", false, "", fmt.Errorf("--failure-log requires --prepared")
+		if err := worker.ValidatePreparedRoutingLog(routingLog); err != nil {
+			return "", false, "", "", err
+		}
+	} else if seen["--failure-log"] || seen["--routing-log"] {
+		return "", false, "", "", fmt.Errorf("log paths require --prepared")
 	}
-	return socket, prepared, failureLog, nil
+	return socket, prepared, failureLog, routingLog, nil
 }
 
 // runWorkerMode serves the Worker gRPC service over a Unix-domain socket until
@@ -2196,7 +2201,7 @@ func parseWorkerArgs(args []string) (socket string, prepared bool, failureLog st
 // RunTurn streams over one connection to a warm worker.
 func runWorkerMode(args []string) {
 	worker.ObserveAcceptanceStartup()
-	socketPath, prepared, failureLog, err := parseWorkerArgs(args)
+	socketPath, prepared, failureLog, routingLog, err := parseWorkerArgs(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "worker: %v\n", err)
 		os.Exit(1)
@@ -2218,7 +2223,7 @@ func runWorkerMode(args []string) {
 	)
 	ws := worker.New()
 	if prepared {
-		ws = worker.NewPrepared(worker.WithFailureLogPath(failureLog))
+		ws = worker.NewPrepared(worker.WithFailureLogPath(failureLog), worker.WithRoutingLogPath(routingLog))
 	}
 	proto.RegisterWorkerServer(srv, ws)
 
