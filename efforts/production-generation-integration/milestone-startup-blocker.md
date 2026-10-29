@@ -1,0 +1,24 @@
+# Milestone startup trace and executable-toolchain blocker
+
+**Superseded historical checkpoint.** The executable lookup failure was child-tool routing, not a missing parent toolchain. Parent Go 1.26.3 verification and the user-approved explicit isolated authority resolved this blocker. See `bounded-rehearsal-2026-10-29.md` for the completed compiled journey and exact candidate; this note is retained only as the initial failed task record. Its proposed canonical-HOME requirement was superseded by the user's explicit shared isolated authority scope.
+
+2026-10-29. Inspected source candidate `f81eae89ad927cdd5a11c43b04ee45770467b875`, including settings `4dbae0cbfe75` and MCP `f81eae89ad92`. This is bounded progress evidence, **not acceptance or parity**.
+
+## Concrete startup trace
+
+- `source/server/scripts/cercano-launcher.sh:10-13` selects the development-state authority and enters the Python publisher/launcher. `cercano-launcher.py:201-207` requires its prepared database and explicit config snapshot.
+- `source/server/cmd/cercano/development_host_production.go:85-99` overrides canonical resolvers with `State/conversations.db` and `State/config.yaml`. It does share agent, service, MCP, settings watcher and pinned-worker components; that is not ordinary startup convergence.
+- Intended ordinary authorities are `config.DefaultPath()` and `conversation.DefaultPath()` (`production_authority.go:20-21`), with MCP definitions in the admitted config directory (`development_host_production.go:334`). The ordinary MCP loader merges `mcp.json` and `mcp.yaml`, YAML winning collisions (`internal/mcp_host/config.go:45-63`). A qualifying disposable fixture must seed these canonical HOME/config authorities explicitly instead of silently populating a development config snapshot.
+- Precise guard: `production_startup.go:118-125` rejects missing config/database paths, then rejects **all nonlegacy admissions** with `canonical generation startup requires service parity; activation disabled`. `generationPreflight` does not override it. `main.go:210` checks before ordinary service creation. Removing this guard would not supply ordinary startup with exact prepared ownership: `main.go:345` still asks `conversationStore(nil, lifecycle.openStore)` and ordinary enterprise/runtime wiring precedes it.
+- Existing compiled harness (`efforts/dev-host-generations/everyday-launcher-compiled.py:137-143`) seeds a copied prepared config/database. Its A/B, task and later-worker assertions are reusable but cannot be called canonical authority acceptance unchanged.
+
+## Blocker / exclusions / hardening
+
+1. **Execution blocker reproduced:** `go version` and `go test ./cmd/cercano -run TestProduction -count=1` from `source/server` both failed before starting Go: `fork/exec /opt/homebrew/bin/go: no such file or directory`. The test attempt supplied `CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off`. Python itself reports `Python 3.14.6`. No test assertion ran and no compiled artifact was created. This is not a passing or failing Go regression.
+2. **Convergence still required:** introduce exact lifecycle/store/worker policy into ordinary composition, then exercise it through the existing shell/compiled harness. Do not expose a guard bypass or rename the restricted host as ordinary parity.
+3. **Explicit exclusions still present:** prepared credential access is read-only; absent permission file defaults to strict; ordinary enterprise/runtime integration and general activation remain gated. MCP per-host startup is present but definition mutation coordination remains separate. These cannot disappear from the qualification report.
+4. **Rehearsal admission evidence required:** canonical disposable authorities; synthetic provider/runtime dependencies; fake stores at every enabled host/worker boundary before credential admission; stdio MCP explicit credential-disable; exact owner/epoch store plus pinned workers; bounded owned-child teardown. Only a fixture-confined admission with those preconditions could be considered, never a general activation bypass. No such admission was implemented here.
+
+## Disposition
+
+No application source, launcher, credentials, database, installed process or safety guard changed. No migration, external traffic, publication, push or live operation occurred. The full compiled milestone has **not** run. No native/provider/runtime qualification is claimed. Toolchain repair or an explicitly supplied executable Go toolchain is needed to reproduce behavioral failures and verify any implementation; installing/repointing host tools is outside this task's disposable-fixture authorization. Recommend restoring the execution environment, not weakening acceptance or proceeding with unverified graph surgery. No deployment procedure was executed; real deployment remains separately permission-gated.
