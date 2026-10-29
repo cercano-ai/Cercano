@@ -214,14 +214,17 @@ func TestProductionCompositionSharedServiceRegistrationParity(t *testing.T) {
 
 	mcpOpens := 0
 	cleanup, err := composeProductionMCP(prepared, o.State, productionMCPDependencies{
-		newManager: func(*agenttools.Registry, string, time.Duration) *mcphost.Manager { mcpOpens++; return nil },
+		newManager: func(reg *agenttools.Registry, dir string, wait time.Duration) *mcphost.Manager {
+			mcpOpens++
+			return mcphost.New(reg, dir, wait)
+		},
 	}, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
-	if mcpOpens != 0 {
-		t.Fatal("prepared composition opened unsafe MCP integration")
+	if mcpOpens != 1 {
+		t.Fatal("prepared composition omitted its ordinary MCP manager")
 	}
 	names := func(s *server.Server) map[string]bool {
 		listed, err := s.ListTools(context.Background(), &proto.ListToolsRequest{})

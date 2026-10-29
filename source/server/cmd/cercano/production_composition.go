@@ -159,15 +159,12 @@ type productionMCPDependencies struct {
 
 // composeProductionMCP preserves ordinary register/start ordering and the
 // manager's asynchronous, log-only configuration/connect failure behavior.
-// Prepared activation remains disabled until shared-definition coordination and
-// exclusive integration ownership are safe; registration parity is not a reason
-// to launch a second user-configured subprocess.
+// Both policies own an ordinary manager and its exact connections/processes.
+// Definition mutation coordination and enterprise authority remain separate
+// admission concerns; this composition adds no cross-host connection sharing.
 func composeProductionMCP(s *server.Server, dir string, d productionMCPDependencies, policy productionExecutionPolicy) (func(), error) {
 	if err := policy.validate(); err != nil {
 		return nil, err
-	}
-	if !policy.legacy {
-		return func() {}, nil
 	}
 	if s == nil || dir == "" {
 		return nil, fmt.Errorf("MCP server and configuration directory required")

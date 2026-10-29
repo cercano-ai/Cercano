@@ -21,9 +21,9 @@ import (
 // producers; it does not enqueue work. Compactor construction may query runtime
 // capacity through the in-memory manager below, without preparing an instance.
 // Routing's cloud factory and embedder are lazy; Read/ListTools never enter them.
-// InstallCapabilities registers callbacks, not executions. Prepared MCP returns
-// before construction and composeProductionServices skips InitWatchdog. Trap
-// both anyway. ConfigurePreparedWorker only constructs a pool; these snapshots
+// InstallCapabilities registers callbacks, not executions. MCP uses a real
+// invocation-local manager but these graph-only fixtures suppress its Start;
+// stdio startup is qualified separately. composeProductionServices skips InitWatchdog. ConfigurePreparedWorker only constructs a pool; these snapshots
 // set worker_idle_timeout_seconds: -1 to disable even its idle reaper. Never call
 // a turn/worker/task capability here. This is bounded graph/readiness acceptance,
 // not inference, worker execution, or full startup acceptance.
@@ -62,12 +62,13 @@ func fullDevelopmentFakes(t *testing.T, overrides developmentProductionDependenc
 	if d.watchdog.OneShot == nil {
 		d.watchdog.OneShot = func(context.Context, string) (string, error) { panic("unexpected watchdog inference") }
 	}
-	d.mcp = productionMCPDependencies{
-		newManager: func(*agenttools.Registry, string, time.Duration) *mcphost.Manager {
-			panic("unexpected MCP construction")
-		},
-		start: func(*mcphost.Manager, context.Context) { panic("unexpected MCP start") },
-		stop:  func(*mcphost.Manager) { panic("unexpected MCP stop") },
+	if d.mcp.newManager == nil {
+		d.mcp = productionMCPDependencies{
+			newManager: func(reg *agenttools.Registry, dir string, wait time.Duration) *mcphost.Manager {
+				return mcphost.New(reg, dir, wait)
+			},
+			start: func(*mcphost.Manager, context.Context) {},
+		}
 	}
 	opener, runtime, open, cloud := d.openSecrets, d.connectRuntime, d.newOpenProvider, d.cloudBuilder
 	d.openSecrets = func() (secrets.Store, error) { counts.opener++; return opener() }
