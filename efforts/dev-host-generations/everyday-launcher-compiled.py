@@ -104,6 +104,10 @@ def run(repo,evidence):
             bootstrap=root/'bootstrap'
             call([wrapper,'build','-o',bootstrap,'./cmd/cercano/'],copy/'source/server')
             record('fresh bootstrap artifact', sha256=hashlib.sha256(bootstrap.read_bytes()).hexdigest(), build_info=call([go,'version','-m',bootstrap]))
+            # Preparation copies normal config discovery; seed only synthetic HOME.
+            synthetic=home/'.config/cercano/config.yaml'
+            synthetic.parent.mkdir(parents=True,mode=0o700)
+            synthetic.write_text('outer:\n  enabled: false\n');synthetic.chmod(0o600)
             prepared=call([bootstrap,'prepare-development','--new-state',state])
             record('fresh bootstrap preparation',output=prepared,files=[str(x) for x in state.iterdir()])
             cfg=state/'config.yaml';cfg.write_text('open_runtime: llama_server\nlocus_mode: open_only\ntask_assignments:\n  dispatch: {destination: local, quality: standard}\nllama_server:\n  enabled: true\n  default_model: offline-fixture\nmodels:\n  open:\n    overrides:\n      llama_server:\n        everyday: offline-fixture\n        most_capable: offline-fixture\n        fast_light: offline-fixture\n        fast_light_text: offline-fixture\n        embedding: offline-fixture\nouter:\n  enabled: false\n');cfg.chmod(0o600)
