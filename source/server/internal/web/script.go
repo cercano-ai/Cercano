@@ -35,7 +35,15 @@ func DefaultScriptDir() string {
 // reader never sees a partial script.
 func EnsureSearchScript(dir string) (string, error) {
 	if dir == "" {
-		dir = DefaultScriptDir()
+		// An explicit process-local override confines callers that use the legacy
+		// empty argument. Do not reinterpret XDG or change the legacy default.
+		dir = os.Getenv("CERCANO_SEARCH_SCRIPT_DIR")
+		if dir != "" && !filepath.IsAbs(dir) {
+			return "", fmt.Errorf("search script directory override must be absolute")
+		}
+		if dir == "" {
+			dir = DefaultScriptDir()
+		}
 	}
 	if dir == "" {
 		return "", fmt.Errorf("resolve script dir: no home directory")

@@ -1028,6 +1028,9 @@ Flags:
 `
 
 func main() {
+	if dispatchCredentialAcceptance(os.Args[1:], os.Stdout, queryAcceptanceCredential) {
+		return
+	}
 	// Handle subcommands before flag parsing.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
