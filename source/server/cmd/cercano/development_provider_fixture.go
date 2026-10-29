@@ -11,15 +11,34 @@ import (
 	"strings"
 	"time"
 
+	"cercano/source/server/internal/agenttools"
+	"cercano/source/server/internal/cloudfactory"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/localruntime"
+	mcphost "cercano/source/server/internal/mcp_host"
 	"cercano/source/server/internal/secrets"
+	"cercano/source/server/internal/server"
+	"cercano/source/server/internal/watchdog"
 	"cercano/source/server/pkg/config"
 )
 
 func developmentProductionDefaults() developmentProductionDependencies {
-	return developmentProductionDependencies{
+	d := developmentProductionDependencies{
+		cloudBuilder: func(config.CloudProfile, string, ...cloudfactory.Options) (inference.Provider, error) {
+			panic("unexpected acceptance cloud provider")
+		},
+		watchdog: server.WatchdogDependencies{
+			OpenAudit: func(string) (watchdog.AuditLogger, error) { panic("unexpected acceptance watchdog audit") },
+			OneShot:   func(context.Context, string) (string, error) { panic("unexpected acceptance watchdog inference") },
+		},
+		mcp: productionMCPDependencies{
+			newManager: func(*agenttools.Registry, string, time.Duration) *mcphost.Manager {
+				panic("unexpected acceptance MCP construction")
+			},
+			start: func(*mcphost.Manager, context.Context) { panic("unexpected acceptance MCP start") },
+			stop:  func(*mcphost.Manager) { panic("unexpected acceptance MCP stop") },
+		},
 		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
 		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
 			return localruntime.NewManager(), func() error { return nil }, nil
@@ -31,6 +50,10 @@ func developmentProductionDefaults() developmentProductionDependencies {
 			return &acceptanceProvider{}, nil
 		},
 	}
+	// Tagged offline process only: construct every non-dialing dependency before
+	// entering the enabled scope. The launcher and outer test remain disabled.
+	_ = os.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
+	return d
 }
 
 type acceptanceProvider struct{}
