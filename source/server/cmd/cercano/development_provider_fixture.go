@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,11 +35,11 @@ func developmentProductionDefaults() developmentProductionDependencies {
 			OneShot:   func(context.Context, string) (string, error) { panic("unexpected acceptance watchdog inference") },
 		},
 		mcp: productionMCPDependencies{
-			newManager: func(*agenttools.Registry, string, time.Duration) *mcphost.Manager {
-				panic("unexpected acceptance MCP construction")
+			newManager: func(registry *agenttools.Registry, dir string, timeout time.Duration) *mcphost.Manager {
+				// Only the validated fixture-owned stdio process may be started.
+				// Keep the ordinary manager, registration and tool-call path.
+				return mcphost.New(registry, dir, timeout)
 			},
-			start: func(*mcphost.Manager, context.Context) { panic("unexpected acceptance MCP start") },
-			stop:  func(*mcphost.Manager) { panic("unexpected acceptance MCP stop") },
 		},
 		openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil },
 		connectRuntime: func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error) {
@@ -114,6 +115,27 @@ func (*acceptanceProvider) Chat(ctx context.Context, req inference.Call) (infere
 		}
 		fixtureRecord(kind+"-released", req)
 	}
+	if strings.Contains(text, "FIXTURE_MCP") {
+		seen := false
+		for _, m := range req.Messages {
+			if m.Role == llm.RoleUser {
+				for _, b := range m.Blocks {
+					if b.Type == llm.BlockText && strings.Contains(b.Text, "FIXTURE_MCP") {
+						seen = false
+					}
+				}
+			}
+			for _, b := range m.Blocks {
+				if b.Type == llm.BlockToolResult && b.ToolUseRef == "acceptance-mcp" {
+					seen = true
+				}
+			}
+		}
+		if !seen {
+			return inference.Result{Blocks: []llm.Block{{Type: llm.BlockToolUse, ToolUseID: "acceptance-mcp", ToolName: "mcp__fixture__echo", ToolInput: json.RawMessage(`{"text":"FIXTURE_MCP_RESULT"}`)}}, StopReason: "tool_use"}, nil
+		}
+		fixtureRecord("mcp-result-request", req)
+	}
 	if strings.Contains(text, "FIXTURE_DISPATCH") {
 		seen := false
 		for _, m := range req.Messages {
@@ -159,6 +181,24 @@ func (s *acceptanceStream) Next() (llm.StreamEvent, bool, error) {
 func (*acceptanceStream) Close() error { return nil }
 
 func newProductionDevelopmentHost(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth) (*server.Server, *preparedShutdown, error) {
+	// Validate the one shared, explicitly selected authority before enabling
+	// credential admission. No ambient MCP definitions or executables qualify.
+	barrier := os.Getenv("CERCANO_FIXTURE_BARRIER")
+	if err := developmentPrivatePath(barrier, true); err != nil {
+		return nil, nil, err
+	}
+	fixture := filepath.Join(barrier, "mcp-fixture")
+	if err := developmentPrivatePath(fixture, false); err != nil {
+		return nil, nil, err
+	}
+	mcpConfig, err := mcphost.LoadConfig(o.State)
+	if err != nil {
+		return nil, nil, err
+	}
+	entry, ok := mcpConfig.Servers["fixture"]
+	if !ok || len(mcpConfig.Servers) != 1 || entry.Command != fixture || len(entry.Args) != 0 || len(entry.Env) != 1 || entry.Env["CERCANO_DISABLE_CREDENTIALS"] != "1" {
+		return nil, nil, fmt.Errorf("acceptance requires only the fixed fixture MCP definition with credentials disabled")
+	}
 	d := developmentProductionDefaults()
 	old, existed := os.LookupEnv("CERCANO_DISABLE_CREDENTIALS")
 	defer func() {

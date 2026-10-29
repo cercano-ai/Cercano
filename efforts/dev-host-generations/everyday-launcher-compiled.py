@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Offline compiled production A/B acceptance. Never substitutes a server/CLI."""
-import argparse, errno, fcntl, hashlib, json, os, pathlib, pty, select, shutil, signal, sqlite3, struct, subprocess, sys, tempfile, termios, time, traceback
+"""Offline compiled bounded A/B rehearsal; not ordinary-startup parity acceptance."""
+import argparse, errno, fcntl, hashlib, json, os, pathlib, pty, select, shlex, shutil, signal, sqlite3, struct, subprocess, sys, tempfile, termios, time, traceback
 P=pathlib.Path
+# Startup-worker coordination: pass an explicit private config-authority file
+# from launcher selection into ordinary host startup (including restart). It
+# must stay under this rehearsal's HOME, and UpdateConfig must persist there;
+# do not fall back to the operator's default config. This harness intentionally
+# does not edit launcher/startup composition or claim its convergence complete.
 
 class Terminal:
     def __init__(self, argv, env, log):
@@ -32,6 +37,79 @@ class Terminal:
         except subprocess.TimeoutExpired: self.p.kill(); self.p.wait()
         os.close(self.fd)
 
+class OwnedProcesses:
+    """Observe only fixture-recorded PIDs and children of verified own processes."""
+    def __init__(self, root):
+        self.root=root; self.identities={}; self.actions=[]
+    def identity(self, pid):
+        if not isinstance(pid,int) or pid<=1: return None
+        try:
+            p=subprocess.run(['ps','-ww','-p',str(pid),'-o','lstart=,command='],
+                             capture_output=True,text=True,timeout=2)
+            fields=p.stdout.strip().split(None,5)
+            if p.returncode or len(fields)!=6: return None
+            args=shlex.split(fields[5])
+            # Exact path components, never a substring match against a command line.
+            generation=self.root/'state/generations'
+            binary=P(args[0]) if args else P('.')
+            own_binary=(binary.name=='cercano' and binary.parent.parent==generation)
+            own_mcp=str(self.root/'barrier/mcp-fixture') in args[:2]
+            if not (own_binary or own_mcp): return None
+            return {'pid':pid,'start':' '.join(fields[:5]),'command':fields[5]}
+        except (OSError,ValueError,subprocess.TimeoutExpired): return None
+    def observe(self, pid):
+        if pid in self.identities: return
+        identity=self.identity(pid)
+        if identity and pid not in self.identities: self.identities[pid]=identity
+    def collect(self, barrier, state):
+        seen=set()
+        for path in [*barrier.glob('*.jsonl'),*(state/'hosts').glob('*.json')]:
+            try:
+                for line in path.read_text().splitlines() if path.suffix=='.jsonl' else [path.read_text()]:
+                    try: event=json.loads(line)
+                    except ValueError: continue  # writer may be midway through a line
+                    for key in ('pid','PID','parent_pid'):
+                        pid=event.get(key)
+                        if isinstance(pid,int) and pid not in seen:
+                            seen.add(pid); self.observe(pid)
+            except OSError: pass
+        # No system-wide process listing: only direct children of identities
+        # already proven to execute inside this invocation's exact private root.
+        pending=list(self.identities); visited=set()
+        while pending:
+            pid=pending.pop()
+            if pid in visited or self.identity(pid)!=self.identities[pid]: continue
+            visited.add(pid)
+            try:
+                p=subprocess.run(['pgrep','-P',str(pid)],capture_output=True,text=True,timeout=2)
+                for value in p.stdout.split():
+                    child=int(value); self.observe(child)
+                    if child in self.identities and child not in visited: pending.append(child)
+            except (OSError,ValueError,subprocess.TimeoutExpired): pass
+    def cleanup(self, barrier, state):
+        self.collect(barrier,state)
+        def send(sig):
+            for pid,identity in list(self.identities.items()):
+                # Recheck start time AND exact root-qualified command immediately
+                # before every signal, including escalation (PID reuse guard).
+                if self.identity(pid)!=identity: continue
+                try:
+                    os.kill(pid,sig); self.actions.append({'pid':pid,'signal':sig.name})
+                except ProcessLookupError: pass
+                except PermissionError: self.actions.append({'pid':pid,'skipped':'permission denied'})
+        def wait(seconds):
+            end=time.monotonic()+seconds
+            while time.monotonic()<end:
+                if not any(self.identity(pid)==identity for pid,identity in self.identities.items()): return
+                time.sleep(.1)
+        send(signal.SIGTERM); wait(5)
+        # Catch any own child created while the hosts were shutting down.
+        self.collect(barrier,state)
+        send(signal.SIGTERM); wait(2)
+        send(signal.SIGKILL); wait(2)
+        return {'identities':list(self.identities.values()),'actions':self.actions,
+                'remaining':[pid for pid,identity in self.identities.items() if self.identity(pid)==identity]}
+
 def assert_new_worker(events, pre_pids, boundary, conversation):
     turns=[e for e in events if e['event']=='worker-turn' and e['conversation']==conversation]
     assert turns, 'missing first turn'
@@ -47,13 +125,16 @@ def run(repo,evidence):
     assert all(os.environ.get(k)==v for k,v in {"CERCANO_DISABLE_CREDENTIALS":"1","GOPROXY":"off","GOSUMDB":"off"}.items()), "required outer offline/credential guards missing"
     evidence.mkdir(parents=True,exist_ok=True)
     report={'scope':'actual shell -> real publisher -> compiled production host -> compiled CLI PTY','steps':[],'passed':False}
-    terminals=[]; hosts=[]
+    terminals=[]
     def record(step,**kw):
         report['steps'].append(dict(step=step,**kw)); (evidence/'compiled.json').write_text(json.dumps(report,indent=2)+'\n'); print(step,flush=True)
     with __import__('contextlib').nullcontext(tempfile.mkdtemp(prefix='ca-',dir='/tmp')) as tmp:
-        root=P(tmp).resolve(); os.chmod(root,0o700); report['artifact_directory']=str(root); state=root/'state'; runtime=root/'r'; runtime.mkdir(mode=0o700)
+        root=P(tmp).resolve(); owned=OwnedProcesses(root); os.chmod(root,0o700); report['artifact_directory']=str(root); state=root/'state'; runtime=root/'r'; runtime.mkdir(mode=0o700)
         copy=root/'repo'; copy.mkdir(); shutil.copytree(repo/'source',copy/'source')
-        home=root/'home';home.mkdir(); barrier=root/'barrier';barrier.mkdir()
+        home=root/'home';home.mkdir(); barrier=root/'barrier';barrier.mkdir(mode=0o700)
+        mcp_fixture=barrier/'mcp-fixture'
+        mcp_source=(repo/'efforts/dev-host-generations/compiled-mcp-fixture.py').read_text()
+        mcp_fixture.write_text('#!'+sys.executable+'\n'+mcp_source.split('\n',1)[1]);mcp_fixture.chmod(0o700)
         go=shutil.which('go'); assert go
         def goenv(key): return subprocess.check_output([go,'env',key],text=True).strip()
         tools=root/'tools';tools.mkdir(); trace=root/'build.jsonl'
@@ -85,11 +166,7 @@ def run(repo,evidence):
             while time.monotonic()<end:
                 for t in terminals:t.pump()
                 if pred():return
-                for h in (state/'hosts').glob('*.json'):
-                    try:
-                        d=json.loads(h.read_text()); pid=d.get('PID') or d.get('pid')
-                        if pid and pid not in hosts:hosts.append(pid)
-                    except (ValueError,OSError):pass
+                owned.collect(barrier,state)
                 time.sleep(.1)
                 for t in terminals:
                     if t.p.poll() is not None: raise AssertionError('launcher exited: '+t.data.decode(errors='replace'))
@@ -118,6 +195,8 @@ def run(repo,evidence):
             record('fresh source provenance', checkout=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip(), snapshot=call(['git','rev-parse','HEAD'],copy).strip(), source_tree=call(['git','rev-parse','HEAD:source'],copy).strip(), fixture_sha256=hashlib.sha256((copy/'source/server/cmd/cercano/development_provider_fixture.go').read_bytes()).hexdigest())
             bootstrap=root/'bootstrap'
             call([wrapper,'build','-o',bootstrap,'./cmd/cercano/'],copy/'source/server')
+            settings_client=root/'settings-client'
+            call([wrapper,'build','-o',settings_client,'./cmd/compiled-settings-fixture/'],copy/'source/server')
             record('fresh bootstrap artifact', sha256=hashlib.sha256(bootstrap.read_bytes()).hexdigest(), build_info=call([go,'version','-m',bootstrap]))
             # Preparation copies normal config discovery; seed only synthetic HOME.
             synthetic=home/'.config/cercano/config.yaml'
@@ -128,6 +207,12 @@ def run(repo,evidence):
             cfg=state/'config.yaml';cfg.write_text('open_runtime: llama_server\nlocus_mode: open_only\ntask_assignments:\n  dispatch: {destination: local, quality: standard}\nllama_server:\n  enabled: true\n  default_model: offline-fixture\nmodels:\n  open:\n    overrides:\n      llama_server:\n        everyday: offline-fixture\n        most_capable: offline-fixture\n        fast_light: offline-fixture\n        fast_light_text: offline-fixture\n        embedding: offline-fixture\nouter:\n  enabled: false\n');cfg.chmod(0o600)
             record('explicit tagged real bootstrap and prepared private state', files=[str(x) for x in state.iterdir()], sqlite=rows('pragma user_version'))
             assert rows('pragma user_version')==[(2,)]
+            mcp_definition=state/'mcp.json'
+            mcp_definition.write_text(json.dumps({'mcpServers':{'fixture':{'command':str(mcp_fixture),'env':{'CERCANO_DISABLE_CREDENTIALS':'1'}}}}));mcp_definition.chmod(0o600)
+            mcp_digest=hashlib.sha256(mcp_definition.read_bytes()).hexdigest()
+            env['CERCANO_DEVELOPMENT_CONFIG_AUTHORITY']=str(cfg)
+            record('one explicit shared A/B configuration authority', config=str(cfg), mcp=str(mcp_definition), mcp_sha256=mcp_digest,
+                   exclusions=['not ordinary startup parity', 'no native credentials or loaded runtime', 'no enterprise integration', 'MCP definition mutation unsupported'])
             a,sa,A=launch('A')
             a.send('FIXTURE_ORIGINAL_HISTORY\r')
             wait(lambda:any('FIXTURE_ORIGINAL_HISTORY' in json.dumps(e['request'].get('Messages')) for e in events() if e['event']=='call'),'A initial foreground')
@@ -152,6 +237,33 @@ def run(repo,evidence):
             assert a.p.poll() is None
             os.kill(pidA,0)
             record('B published and launched without stopping A',A=A,B=B,pidA=pidA)
+            # First B turn exercises the ordinary model -> tool registry ->
+            # host-owned stdio manager -> synthetic peer -> model result path.
+            b.send('FIXTURE_MCP\r')
+            wait(lambda:(barrier/'mcp.jsonl').exists() or b'mcp/fixture/echo' in b.data, 'MCP call or permission prompt',40)
+            if not (barrier/'mcp.jsonl').exists(): b.send('y')
+            wait(lambda:any(e['event']=='mcp-result-request' and 'FIXTURE_MCP_RESULT' in json.dumps(e['request']) for e in events()),'MCP result returned to provider',40)
+            assert (barrier/'mcp.jsonl').exists(), 'provider text alone is not MCP execution evidence'
+            assert hashlib.sha256(mcp_definition.read_bytes()).hexdigest()==mcp_digest
+            record('B real MCP tool path', calls=[json.loads(x) for x in (barrier/'mcp.jsonl').read_text().splitlines()])
+            # Same ordinary B session; mutate through the public authenticated
+            # client, then observe the real loop's cap instruction in model input.
+            mutation=json.loads(call([settings_client,sb,'1'],timeout=20))
+            assert mutation['after_loop_limit']==1, mutation
+            offset=len(events()); mcp_before=len((barrier/'mcp.jsonl').read_text().splitlines())
+            screen_offset=len(b.data)
+            b.send('FIXTURE_MCP_SETTINGS_LIMIT\r')
+            wait(lambda:b'mcp/fixture/echo' in b.data[screen_offset:] or len((barrier/'mcp.jsonl').read_text().splitlines())>mcp_before,'post-settings MCP prompt or execution',40)
+            if len((barrier/'mcp.jsonl').read_text().splitlines())==mcp_before:b.send('y')
+            wait(lambda:len((barrier/'mcp.jsonl').read_text().splitlines())>mcp_before,'post-settings MCP execution',40)
+            wait(lambda:any("You've reached the 1-step tool limit" in json.dumps(e['request']) for e in events()[offset:] if e['event']=='call'),'changed loop limit reaches actual model request',40)
+            affected=[e for e in events()[offset:] if e['event']=='call']
+            assert any('FIXTURE_MCP_SETTINGS_LIMIT' in json.dumps(e['request']) for e in affected)
+            record('authenticated ordinary UpdateConfig affects subsequent model request',mutation=mutation,calls=affected,
+                   exact_behavior='one tool iteration then production loop adds 1-step tool limit final-answer instruction; no DB config injection')
+            restored=json.loads(call([settings_client,sb,str(mutation['before_loop_limit'])],timeout=20))
+            assert restored['after_loop_limit']==mutation['before_loop_limit']
+            record('settings restored through ordinary RPC',mutation=restored)
             published_b_ns=time.time_ns()
             record('B publication observed boundary', unix_nano=published_b_ns, B=B)
             spare.send('FIXTURE_NEW_WORKER_AFTER_B\r')
@@ -220,31 +332,41 @@ def run(repo,evidence):
             record('physical client restart and ordinary resume on B with original history; A still alive',calls=calls, original_conversation=A['Conversation'], durable_row_columns=['conversation_id','role','content'], durable_rows=rows("select conversation_id,role,content from turns where role='user' and content in ('FIXTURE_REOPENED_ON_B','FIXTURE_ORIGINAL_HISTORY') order by content"))
             export={'columns':['conversation_id','role','content'], 'rows':rows("select conversation_id,role,content from turns where conversation_id='"+A['Conversation']+"' order by rowid")}
             (evidence/'synthetic-reopened-rows.json').write_text(json.dumps(export,indent=2)+'\n')
+            spare.stop();terminals.remove(spare)
+            control(ss,'release')
+            remaining=json.loads(control(sa,'list'))['Response'].get('retained',[])
+            assert not remaining, remaining
+            control(sa,'retire')
+            def a_exited():
+                try: os.kill(pidA,0); return False
+                except ProcessLookupError: return True
+            wait(a_exited,'explicit A retirement process exit',20)
+            offset=len(events())
+            reopened.send('FIXTURE_B_AFTER_A_RETIREMENT\r')
+            wait(lambda:any('FIXTURE_B_AFTER_A_RETIREMENT' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'B fresh model work after A retirement',40)
+            wait(lambda:rows("select conversation_id from turns where role='user' and content='FIXTURE_B_AFTER_A_RETIREMENT'")==[(A['Conversation'],)],'post-retirement B durable turn')
+            record('explicit A retirement after transfer and release; B continues',calls=events()[offset:])
             report['passed']=True
-            record('PASS all compiled ordinary-launcher acceptance assertions')
+            record('PASS bounded compiled A/B rehearsal through validated launcher startup', limitations=['synthetic providers and memory credentials', 'not full ordinary-app production acceptance', 'canonical production activation remains denied'])
         except Exception as e:
             report['failure']=str(e);report['traceback']=traceback.format_exc()
             if (state/'conversations.db').exists():
                 record('failure task observation',tasks=rows('select id,parent_id,status,child_id,error,result_json from delegated_tasks'))
             raise
         finally:
+            owned.collect(barrier,state)
             for t in terminals:
                 try:t.stop()
                 except Exception:pass
-            # Record logs before deleting test-private roots. Only recorded children owned by this invocation.
-            for name,source in [('worker.jsonl',barrier/'worker.jsonl'),('provider.jsonl',barrier/'provider.jsonl'),('routing-config.json',barrier/'routing-config.json'),('build.jsonl',trace)]:
+            report['cleanup']=owned.cleanup(barrier,state)
+            # Export only test-private logs, after bounded cleanup.
+            for name,source in [('mcp.jsonl',barrier/'mcp.jsonl'),('worker.jsonl',barrier/'worker.jsonl'),('provider.jsonl',barrier/'provider.jsonl'),('routing-config.json',barrier/'routing-config.json'),('build.jsonl',trace)]:
                 if source.exists():shutil.copyfile(source,evidence/name)
             if state.exists():
                 # Never export host token files, even to local evidence.
                 record('private token hashes only', tokens=[{'name': f.name, 'sha256': hashlib.sha256(f.read_bytes()).hexdigest()} for f in (state/'hosts').glob('*.token')])
                 for h in (state/'hosts').glob('*'):
                     if h.is_file() and h.suffix in ('.log','.json'):shutil.copyfile(h,evidence/h.name)
-            for e in events():
-                pid=e.get('pid')
-                if pid and pid not in hosts:hosts.append(pid)
-            for pid in hosts:
-                try:os.kill(pid,signal.SIGTERM)
-                except ProcessLookupError:pass
             (evidence/'compiled.json').write_text(json.dumps(report,indent=2)+'\n')
     assert report['passed']
 
