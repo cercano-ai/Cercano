@@ -1,9 +1,15 @@
-"""Non-executing real-cloud preparation; no launch, publication, or authorization.
+"""Real-cloud descriptors and read-only executor checks; no launch authorization.
 
-Only private-path metadata is inspected. Commands are caller-supplied, not
-inferred from an installed application or from ambient configuration.
+Preparation inspects only private-path metadata. The separate execution check
+reads reviewed artifact bytes and the existing ledger, without changing either.
+Commands are caller-supplied, never inferred from ambient configuration.
 """
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+import stat
 from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping, Optional, Sequence
@@ -15,6 +21,62 @@ from acceptance_env import build_acceptance_env
 class PreparedCommand:
     argv: tuple[str, ...]
     env: Mapping[str, str]
+
+    def check_execution(self, artifact_sha256: Mapping[str, str]) -> None:
+        """Read-only, point-in-time checks, not authorization or HTTP admission.
+
+        Digests must come from separately reviewed artifacts, not be discovered
+        by the executor. Pin the executable and every absolute file argument
+        (including interpreter scripts/configs). No PATH or shell discovery.
+        The Go transport remains the locked, aggregate accounting authority.
+        """
+        _argv(self.argv)
+        if not artifact_sha256 or self.argv[0] not in artifact_sha256:
+            raise ValueError("explicit executable digest required")
+        for arg in self.argv:
+            path = Path(arg)
+            if path.is_absolute() and path.is_file() and arg not in artifact_sha256:
+                raise ValueError("absolute file argument requires reviewed digest")
+        for name, digest in artifact_sha256.items():
+            path = Path(name)
+            if not path.is_absolute() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                raise ValueError("artifact missing or digest mismatch")
+        if not os.access(self.argv[0], os.X_OK):
+            raise ValueError("executable permission required")
+        ledger = Path(self.env["CERCANO_ACCEPTANCE_LEDGER"])
+        info = ledger.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o077 or info.st_nlink != 1):
+            raise ValueError("unsafe ledger")
+        # Actual schema/limits: internal/llm/responses/acceptance_run.go.
+        # Never lock/create/write/reset this ledger in Python. A concurrent
+        # transport update can only make this preflight stale; HTTP admission
+        # rechecks under its existing lock before every request.
+        try:
+            state = json.loads(ledger.read_bytes())
+            def timestamp(value):
+                result = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                if result.tzinfo is None:
+                    raise ValueError("timezone required")
+                return result
+            now = datetime.now(timezone.utc)
+            age = (now - timestamp(state['started'])).total_seconds()
+            counts = [state[k] for k in ('attempts', 'input_tokens', 'output_tokens')]
+            if any(type(n) is not int or n < 0 for n in counts):
+                raise ValueError("invalid accounting counters")
+            attempts, input_tokens, output_tokens = counts
+            active = state['active']
+            if active is not None and not isinstance(active, dict):
+                raise ValueError("invalid active attempts")
+            if (type(state['halted']) is not bool or state['halted']
+                    or not 0 <= age < 1800 or attempts >= 40
+                    or input_tokens + output_tokens >= 300000 or output_tokens >= 30000
+                    # A launch/resume preflight is deliberately stricter than
+                    # HTTP admission: do not relaunch over any unresolved work.
+                    or bool(active)):
+                raise ValueError("halted, expired, unresolved or exhausted ledger")
+        except (KeyError, TypeError, AttributeError, OverflowError) as exc:
+            raise ValueError("invalid acceptance ledger") from exc
 
 
 @dataclass(frozen=True)

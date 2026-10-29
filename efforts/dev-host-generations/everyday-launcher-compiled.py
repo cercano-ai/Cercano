@@ -8,12 +8,53 @@ P=pathlib.Path
 # do not fall back to the operator's default config. This harness intentionally
 # does not edit launcher/startup composition or claim its convergence complete.
 
+def run_prepared(command, *, artifact_sha256, timeout, cwd=None):
+    """Bounded non-PTY alternative for one explicitly selected prepared role.
+
+    Does not run the compiled rehearsal, provision state, or grant permission.
+    Descendant hosts still require the existing OwnedProcesses identity cleanup.
+    """
+    if not 0 < timeout <= 1800:
+        raise ValueError('finite timeout within the existing run window required')
+    command.check_execution(artifact_sha256)
+    child = subprocess.Popen(command.argv, env=command.env, cwd=cwd,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             start_new_session=True)
+    try:
+        output, _ = child.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(command.argv, child.returncode, output)
+    except BaseException:
+        if child.poll() is None: child.terminate()
+        try: child.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            child.kill(); child.wait(timeout=2)
+        raise
+    finally:
+        child.stdout.close()
+
+
 class Terminal:
-    def __init__(self, argv, env, log):
+    def __init__(self, argv, env=None, log=None, *, artifact_sha256=None):
+        # Existing offline callers retain their explicit env contract. Prepared
+        # commands cannot accept an overlay, even an apparently benign one.
+        if hasattr(argv, 'check_execution'):
+            if env is not None:
+                raise ValueError('prepared env must replace, not overlay, ambient env')
+            argv.check_execution(artifact_sha256)
+            env=argv.env; argv=argv.argv
+        elif artifact_sha256 is not None:
+            raise ValueError('artifact checks require a PreparedCommand')
         self.fd, slave=pty.openpty()
-        fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',40,140,0,0))
-        self.p=subprocess.Popen(argv,stdin=slave,stdout=slave,stderr=slave,env=env,start_new_session=True)
-        os.close(slave); self.data=b''; self.log=log
+        self.closed=False
+        try:
+            fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',40,140,0,0))
+            self.p=subprocess.Popen(argv,stdin=slave,stdout=slave,stderr=slave,env=env,start_new_session=True)
+        except BaseException:
+            os.close(self.fd)
+            raise
+        finally:
+            os.close(slave)
+        self.data=b''; self.log=log
     def pump(self):
         while select.select([self.fd],[],[],.05)[0]:
             try: b=os.read(self.fd,65536)
@@ -30,12 +71,16 @@ class Terminal:
             if b'\x1b]10;?' in b: os.write(self.fd,b'\x1b]10;rgb:ffff/ffff/ffff\x1b\\')
     def send(self,s): os.write(self.fd,s.encode())
     def stop(self):
-        if self.p.poll() is None:
-            self.send('\x03'); time.sleep(.3); self.pump()
-        if self.p.poll() is None: self.p.terminate()
-        try: self.p.wait(timeout=5)
-        except subprocess.TimeoutExpired: self.p.kill(); self.p.wait()
-        os.close(self.fd)
+        if self.closed: return
+        try:
+            # Signal/wait only this invocation's unreaped Popen child. Detached
+            # hosts are handled separately by OwnedProcesses, never killpg.
+            if self.p.poll() is None: self.p.terminate()
+            try: self.p.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.p.kill(); self.p.wait(timeout=2)
+        finally:
+            os.close(self.fd); self.closed=True
 
 class OwnedProcesses:
     """Observe only fixture-recorded PIDs and children of verified own processes."""

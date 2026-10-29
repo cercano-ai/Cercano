@@ -99,6 +99,18 @@ arbitrary-filesystem sandbox; neither environment construction nor preparation
 authorizes native credential access, network requests, builds, or application
 launches.
 
+## Implemented executor seam (offline-tested)
+
+The existing compiled harness now accepts `Terminal(prepared.cli,
+log=private_log, artifact_sha256=reviewed_hashes)` and exposes a bounded
+`run_prepared(command, artifact_sha256=reviewed_hashes, timeout=seconds)` for
+non-PTY execution. Both use the descriptor environment as a replacement, not
+an ambient overlay, and perform read-only artifact/ledger preflight before
+Popen. The synthetic harness `run()` is unchanged and is not a real-cloud run.
+See [prepared executor evidence](prepared-executor-evidence.md) for exact fake
+fixture tests, cleanup limits, refusal rules and remaining authorization.
+Preparation itself remains non-executing and content-blind.
+
 ## Destination contract
 
 All destinations below are relative to the explicit private root:
