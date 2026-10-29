@@ -40,10 +40,6 @@ type developmentProductionDependencies struct {
 	newOpenProvider func(localruntime.Manager, config.Config) (inference.Provider, error)
 }
 
-func newProductionDevelopmentHost(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth) (*server.Server, *preparedShutdown, error) {
-	return newProductionDevelopmentHostWithDependencies(ctx, o, auth, developmentProductionDefaults())
-}
-
 func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, state, host string) (localruntime.Manager, func() error, error) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv(modelHostEnv)), "inprocess") {
 		return nil, nil, fmt.Errorf("development host requires protected shared modelhost; inprocess is forbidden")

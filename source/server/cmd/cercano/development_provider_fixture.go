@@ -21,6 +21,7 @@ import (
 	"cercano/source/server/internal/server"
 	"cercano/source/server/internal/watchdog"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/devhostauth"
 )
 
 func developmentProductionDefaults() developmentProductionDependencies {
@@ -52,7 +53,6 @@ func developmentProductionDefaults() developmentProductionDependencies {
 	}
 	// Tagged offline process only: construct every non-dialing dependency before
 	// entering the enabled scope. The launcher and outer test remain disabled.
-	_ = os.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
 	return d
 }
 
@@ -157,3 +157,17 @@ func (s *acceptanceStream) Next() (llm.StreamEvent, bool, error) {
 	return e, true, nil
 }
 func (*acceptanceStream) Close() error { return nil }
+
+func newProductionDevelopmentHost(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth) (*server.Server, *preparedShutdown, error) {
+	d := developmentProductionDefaults()
+	old, existed := os.LookupEnv("CERCANO_DISABLE_CREDENTIALS")
+	defer func() {
+		if existed {
+			_ = os.Setenv("CERCANO_DISABLE_CREDENTIALS", old)
+		} else {
+			_ = os.Unsetenv("CERCANO_DISABLE_CREDENTIALS")
+		}
+	}()
+	_ = os.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
+	return newProductionDevelopmentHostWithDependencies(ctx, o, auth, d)
+}
