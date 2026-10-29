@@ -1721,6 +1721,11 @@ func (s *Server) LocusMode() string {
 // (previously atomic under one cfgMu span) — a concurrent reader can momentarily
 // observe new config with old provider wiring (documented trade-off).
 func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigRequest) (*proto.UpdateConfigResponse, error) {
+	ctx, work, err := s.beginSettingsWork(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer work.finish()
 	s.configApplyMu.Lock()
 	defer s.configApplyMu.Unlock()
 	return s.updateConfigLocked(ctx, req, nil)
@@ -1728,7 +1733,9 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 
 func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfigRequest, authoritative *config.Config) (*proto.UpdateConfigResponse, error) {
 	if s.coexistence != nil {
-		return nil, cfgsvc.ErrFrozen
+		if err := s.validateSharedSettings(req, authoritative); err != nil {
+			return nil, err
+		}
 	}
 	if req.CloudApiKey != "" {
 		if err := secrets.CheckAllowed(); err != nil {
@@ -4712,9 +4719,11 @@ func (s *Server) mapRequest(req *proto.ProcessRequestRequest) *agent.Request {
 
 // SetPermissionMode implements proto.AgentServer.
 func (s *Server) SetPermissionMode(ctx context.Context, req *proto.SetPermissionModeRequest) (*proto.SetPermissionModeResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	_, work, err := s.beginSettingsWork(ctx)
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if s.permBroker == nil {
 		return &proto.SetPermissionModeResponse{Ok: false, Error: "permission store not configured"}, nil
 	}

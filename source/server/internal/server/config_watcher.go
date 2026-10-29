@@ -38,7 +38,7 @@ import (
 // Non-hot-reloadable diffs (port, embedding_model, llama_server.*,
 // compaction.*) are logged as warnings telling the user a restart is needed.
 func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) error {
-	if s.coexistence != nil {
+	if s.cfgSvc.Frozen() {
 		return cfgsvc.ErrFrozen
 	}
 	if configPath == "" {
@@ -102,7 +102,7 @@ func (s *Server) runWatchCallback(callback func()) {
 func (s *Server) applyConfigFromDisk(ctx context.Context) {
 	s.configApplyMu.Lock()
 	defer s.configApplyMu.Unlock()
-	if s.coexistence != nil {
+	if s.cfgSvc.Frozen() {
 		return
 	}
 	cfgPath := s.cfgSvc.Path()

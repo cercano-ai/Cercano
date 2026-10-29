@@ -75,8 +75,8 @@ func TestDevelopmentProductionInjectedGraph(t *testing.T) {
 				}
 			}
 			before, _ := os.ReadFile(filepath.Join(o.State, "config.yaml"))
-			// A conflicting environment value must never replace the state snapshot.
-			t.Setenv("CERCANO_OPEN_RUNTIME", "ollama")
+			// Ordinary supported overrides are resolved without rewriting disk.
+			t.Setenv("CERCANO_PORT", "17777")
 			opened, connected, closed := 0, 0, 0
 			memory := secrets.NewMemory()
 			if err := memory.Set("test-cloud", "synthetic-not-a-credential"); err != nil {
@@ -101,8 +101,8 @@ func TestDevelopmentProductionInjectedGraph(t *testing.T) {
 			if opened != 1 || connected != wantRuntime {
 				t.Fatalf("dependency counts %d/%d", opened, connected)
 			}
-			if srv.ConfigSnapshot().OpenRuntime != "llama_server" {
-				t.Fatal("machine environment replaced snapshot")
+			if srv.ConfigSnapshot().OpenRuntime != "llama_server" || srv.ConfigSnapshot().Port != "17777" {
+				t.Fatal("ordinary config resolution lost")
 			}
 			// Exercise the exact authenticated readiness/list bridge, not a direct call.
 			transport := grpc.NewServer(auth.ServerOptions()...)

@@ -97,20 +97,14 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		return nil, nil, fmt.Errorf("prepared identity, auth and dependencies required")
 	}
 	configPath := admission.paths.config
-	data, err := os.ReadFile(configPath)
+	// Ordinary loading retains the coordinator baseline and supported overrides.
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return nil, nil, err
-	}
-	// Intentionally not config.Load: that merges machine environment overrides
-	// and migrates legacy profiles. This host consumes only the prepared snapshot.
-	cfg := config.Defaults()
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, nil, fmt.Errorf("prepared config: %w", err)
 	}
 	if err := validateDevelopmentCloudProfiles(cfg); err != nil {
 		return nil, nil, err
 	}
-	cfg = cfg.WithSharedReadOnly()
 	if _, err := locus.ParseMode(cfg.LocusMode); err != nil {
 		return nil, nil, fmt.Errorf("prepared locus_mode: %w", err)
 	}
@@ -288,11 +282,12 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	schedulingOptions := ordinarySchedulingOptions()
 	schedulingOptions.attempts = accountingSinks.AttemptSink
 	srv, err := newProductionPreparedServer(ctx, server.PreparedServerOptions{
-		RetainFailure: func(dispose func() error) { constructorRollback = dispose },
-		Watchdog:      deps.watchdog,
-		CloudBuilder:  deps.cloudBuilder,
-		Coexistence:   server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(ctx context.Context) error { return resources.Wait(ctx) }},
-		Config:        cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
+		RetainFailure:    func(dispose func() error) { constructorRollback = dispose },
+		WritableSettings: true,
+		Watchdog:         deps.watchdog,
+		CloudBuilder:     deps.cloudBuilder,
+		Coexistence:      server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(ctx context.Context) error { return resources.Wait(ctx) }},
+		Config:           cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
 		Agent: func(prepared conversation.Store) (*agent.Agent, error) {
 			store, err = admission.conversationStore(prepared, nil)
 			if err != nil {
@@ -340,6 +335,9 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	closeMCP = mcpCleanup
 	if err = executionPolicy.install(srv); err != nil {
 		return nil, nil, err
+	}
+	if err := srv.StartConfigWatcher(ctx, configPath); err != nil {
+		return nil, nil, fmt.Errorf("prepared config watcher: %w", err)
 	}
 	return srv, cleanup, nil
 }

@@ -27,6 +27,8 @@ type PreparedServerOptions struct {
 	// handle. It must retain (not execute) disposal until construction returns.
 	RetainFailure func(dispose func() error)
 
+	// WritableSettings enables only the audited non-provider settings slice.
+	WritableSettings         bool
 	Scheduling               PreparedSchedulingFactory
 	Watchdog                 WatchdogDependencies
 	CloudBuilder             providers.CloudBuilder
@@ -70,7 +72,11 @@ func newPreparedServerWithLifecycle(o PreparedServerOptions, router RouterCloudU
 	if o.Secrets == nil {
 		o.Secrets = secrets.NewMemory()
 	} // No native backend fallback.
-	cfg := cfgsvc.New(o.ConfigPath, o.Config.WithSharedReadOnly(), secrets.Guard(o.Secrets, secrets.Options{ReadOnly: true}), cfgsvc.Options{Frozen: true})
+	initial := o.Config
+	if !o.WritableSettings {
+		initial = initial.WithSharedReadOnly()
+	}
+	cfg := cfgsvc.New(o.ConfigPath, initial, secrets.Guard(o.Secrets, secrets.Options{ReadOnly: true}), cfgsvc.Options{Frozen: !o.WritableSettings})
 	s := newServerWithConfig(a, router, coordinator, cloudFactory, registry, o.RoutingPath, o.FailurePath, cfg)
 	s.SetCloudProviderBuilder(o.CloudBuilder)
 	s.SetWatchdogDependencies(o.Watchdog)
