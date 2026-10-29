@@ -216,7 +216,7 @@ func (s *Service) acquire(ctx context.Context, profile, provider string, resolve
 		}
 		p.mu.Lock()
 		// Do not let legacy auth sources publish or reuse coordinated tokens
-		// until pending-rotation and request-dispatch hooks are integrated.
+		// through the legacy raw Token API; use snapshot/admission instead.
 		if secrets.IsCoordinated(p.store) {
 			p.mu.Unlock()
 			return token{}, ErrProviderIntegration
@@ -347,7 +347,7 @@ func (s *AnthropicSource) SubscriptionSnapshot(ctx context.Context) (secrets.Cre
 	defer cancel()
 	return s.service.RefreshSnapshot(ctx, s.profile, snapshot.Revision, func(ctx context.Context, payload string) (string, error) {
 		// The existing provider parser/issuer preserves identity fields.
-		// Its Save is staged only; durable pending is already published here.
+		// Its Save is staged only; the identity exclusion is held through publication.
 		t := &transaction{profile: s.profile, raw: payload}
 		if _, err := anthropicauth.NewSource(t, s.profile, s.flow).Token(ctx); err != nil {
 			return "", err
@@ -383,7 +383,7 @@ func (s *ChatGPTSource) SubscriptionSnapshot(ctx context.Context) (secrets.Crede
 	defer cancel()
 	return s.service.RefreshSnapshot(ctx, s.profile, snapshot.Revision, func(ctx context.Context, payload string) (string, error) {
 		// The existing provider parser/issuer preserves account and identity fields.
-		// Its Save is staged only; durable pending is already published here.
+		// Its Save is staged only; the identity exclusion is held through publication.
 		t := &transaction{profile: s.profile, raw: payload}
 		if _, _, err := chatgptauth.NewSource(t, s.profile, s.flow).Token(ctx); err != nil {
 			return "", err

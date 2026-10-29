@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +23,7 @@ import (
 // file atomically to fresh readers on the tested filesystem. All successful
 // writes close before rename; pre-rename errors preserve the old file. There is
 // no fsync, crash durability, uncertainty quarantine, native-store adapter, or
-// claim to qualify the full RecordBackend durability contract.
+// claim to qualify native durability.
 type processRecordBackend struct{ dir string }
 
 const processIdentity = "process-test-profile"
@@ -55,19 +54,6 @@ func (b processRecordBackend) Replace(name, raw string) error {
 	return os.Rename(f.Name(), filepath.Join(b.dir, "record"))
 }
 func (b processRecordBackend) Keys() ([]string, error) { return []string{processIdentity}, nil }
-
-// filelock.Lock consults Done only after a failed nonblocking acquisition.
-// This observes real contention, rather than inferring it from elapsed time.
-type processWaitingContext struct {
-	context.Context
-	once    sync.Once
-	waiting func()
-}
-
-func (c *processWaitingContext) Done() <-chan struct{} {
-	c.once.Do(c.waiting)
-	return c.Context.Done()
-}
 
 // This entry point is inert in ordinary test runs. Children use only the direct
 // coordinator and the fake above; policy remains disabled throughout.
@@ -118,7 +104,9 @@ func TestCredentialProcessHelper(t *testing.T) {
 				barrier()
 				return "delayed-refresh-secret", nil
 			})
-			stale(err)
+			if err != nil {
+				t.Fatal(err)
+			}
 		case "admit":
 			err = s.Admit(ctx, processIdentity, r.Revision, func() error { signal("ready"); barrier(); return nil })
 			if err != nil {
@@ -132,32 +120,33 @@ func TestCredentialProcessHelper(t *testing.T) {
 		if called {
 			t.Fatal("stale request dispatched")
 		}
-	case "contending-refresh":
-		waiting := &processWaitingContext{Context: ctx, waiting: func() { signal("waiting") }}
-		stale(s.refresh(waiting, processIdentity, strings.Repeat("ab", 32), func(context.Context, string) (string, error) {
-			t.Fatal("serialized stale refresh invoked issuer")
-			return "", nil
-		}))
+	case "busy-refresh", "busy-logout", "busy-replace", "busy-admit":
+		var err error
+		switch mode {
+		case "busy-refresh":
+			err = s.refresh(ctx, processIdentity, strings.Repeat("ab", 32), func(context.Context, string) (string, error) { t.Fatal("busy issuer ran"); return "", nil })
+		case "busy-logout":
+			err = s.Delete(processIdentity)
+		case "busy-replace":
+			err = s.Set(processIdentity, "other-secret")
+		case "busy-admit":
+			err = s.AdmitAttempt(ctx, processIdentity, strings.Repeat("ab", 32))
+		}
+		if !errors.Is(err, ErrBusy) {
+			t.Fatalf("want busy, got %v", err)
+		}
 	case "logout":
 		if err := s.Delete(processIdentity); err != nil {
 			t.Fatal(err)
 		}
-	case "probe-refresh", "probe-commit":
-		// Nonblocking OS-lock probes establish contention without a timing assertion.
-		// Use precisely the coordinator's identity-derived lock paths.
+	case "probe-commit":
 		sum := sha256.Sum256([]byte("cercano\x00" + processIdentity))
-		held := strings.TrimPrefix(mode, "probe-")
-		for _, kind := range []string{"commit", "refresh"} {
-			release, ok, err := filelock.TryLock(filepath.Join(dir, "locks", hex.EncodeToString(sum[:])+"."+kind+".lock"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if ok {
-				release()
-			}
-			if ok == (kind == held) {
-				t.Fatalf("%s availability=%v while %s held", kind, ok, held)
-			}
+		release, ok, err := filelock.TryLock(filepath.Join(dir, "locks", hex.EncodeToString(sum[:])+".commit.lock"))
+		if ok {
+			release()
+		}
+		if err != nil || ok {
+			t.Fatalf("exclusion unavailable: %v %v", ok, err)
 		}
 	default:
 		t.Fatalf("unknown mode %q", mode)
@@ -289,46 +278,40 @@ func seedCredentialProcess(t *testing.T) (string, processRecordBackend) {
 	return dir, b
 }
 func TestCredentialProcessLogoutFencesDelayedPublication(t *testing.T) {
-	for _, mode := range []string{"login", "refresh"} {
-		t.Run(mode, func(t *testing.T) {
-			dir, b := seedCredentialProcess(t)
-			delayed := startCredentialChild(t, dir, mode)
-			delayed.expect(t, "ready")
-			var contender *credentialChild
-			if mode == "refresh" {
-				contender = startCredentialChild(t, dir, "contending-refresh")
-				contender.expect(t, "waiting")
-				startCredentialChild(t, dir, "probe-refresh").finish(t)
-				raw, err := b.Read(processIdentity)
-				if err != nil {
-					t.Fatal(err)
-				}
-				r, err := decodeRecord(raw)
-				if err != nil || r.State != "pending" || r.Payload != "" {
-					t.Fatalf("pending record: %q %v", raw, err)
-				}
-			}
-			// Must complete while delayed issuer/login work is still blocked.
-			startCredentialChild(t, dir, "logout").finish(t)
-			marker, err := b.Read(processIdentity)
-			if err != nil {
-				t.Fatal(err)
-			}
-			r, err := decodeRecord(marker)
-			if err != nil || r.State != "logged-out" || r.Payload != "" || strings.Contains(marker, "secret") || strings.Contains(marker, "payload") {
-				t.Fatalf("unsafe marker: %q %v", marker, err)
-			}
-			delayed.release(t)
-			delayed.finish(t)
-			if contender != nil {
-				contender.finish(t)
-			}
-			after, err := b.Read(processIdentity)
-			if err != nil || after != marker {
-				t.Fatalf("logout marker changed: %q %v", after, err)
-			}
-		})
+	dir, b := seedCredentialProcess(t)
+	delayed := startCredentialChild(t, dir, "login")
+	delayed.expect(t, "ready")
+	startCredentialChild(t, dir, "logout").finish(t)
+	marker, err := b.Read(processIdentity)
+	if err != nil {
+		t.Fatal(err)
 	}
+	delayed.release(t)
+	delayed.finish(t)
+	after, err := b.Read(processIdentity)
+	if err != nil || after != marker {
+		t.Fatal("stale login changed marker", err)
+	}
+}
+
+func TestCredentialProcessRefreshExclusion(t *testing.T) {
+	dir, b := seedCredentialProcess(t)
+	holder := startCredentialChild(t, dir, "refresh")
+	holder.expect(t, "ready")
+	for _, mode := range []string{"busy-refresh", "busy-logout", "busy-replace", "busy-admit", "probe-commit"} {
+		startCredentialChild(t, dir, mode).finish(t)
+	}
+	raw, err := b.Read(processIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := decodeRecord(raw)
+	if err != nil || r.State != "active" || r.Payload != "original-secret" {
+		t.Fatal("refresh changed record before publication", err)
+	}
+	holder.release(t)
+	holder.finish(t)
+	startCredentialChild(t, dir, "logout").finish(t)
 }
 func TestCredentialProcessCommitExclusion(t *testing.T) {
 	dir, _ := seedCredentialProcess(t)

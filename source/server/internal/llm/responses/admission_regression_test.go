@@ -36,7 +36,7 @@ func (b *attemptRecords) Replace(_ string, raw string) error {
 func (b *attemptRecords) Keys() ([]string, error) { return []string{"profile"}, nil }
 func attemptOwners(t *testing.T) (secrets.RequestCredentials, *credentials.CoordinatedStore) {
 	t.Helper()
-	credentialtest.Enable(t)
+	credentialtest.EnableHermetic(t)
 	b := &attemptRecords{raw: `{"version":1,"revision":"` + strings.Repeat("ab", 32) + `","state":"active","payload":"fixture"}`}
 	root := t.TempDir()
 	a, err := credentials.NewCoordinatedStore(b, root)
@@ -246,5 +246,42 @@ func TestCoordinatedPolicyAndWireComposition(t *testing.T) {
 	}
 	if calls != 1 || checks != 2 {
 		t.Fatalf("wire=%d policy=%d", calls, checks)
+	}
+}
+
+// Reuse one constructed client: each new attempt resolves the current active
+// snapshot. This is not a retry of an already-admitted attempt or stale login.
+func TestCoordinatedCachedClientFreshActiveRevision(t *testing.T) {
+	owner, other := attemptOwners(t)
+	c := NewClient(Config{Credentials: owner, CredentialProfile: "profile"})
+	var sent []string
+	c.http = attemptDoer(func(r *http.Request) (*http.Response, error) {
+		sent = append(sent, r.Header.Get("Authorization"))
+		return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
+	})
+	send := func() {
+		t.Helper()
+		r, err := c.do(context.Background(), request{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+	}
+	send()
+	if err := other.Set("profile", "replacement-fixture"); err != nil {
+		t.Fatal(err)
+	}
+	send()
+	if len(sent) != 2 || sent[0] != "Bearer fixture" || sent[1] != "Bearer replacement-fixture" {
+		t.Fatalf("cached credentials: %v", sent)
+	}
+	if err := other.Delete("profile"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.do(context.Background(), request{}); !errors.Is(err, credentials.ErrStale) {
+		t.Fatalf("logged-out cached client: %v", err)
+	}
+	if len(sent) != 2 {
+		t.Fatal("logged-out request sent")
 	}
 }

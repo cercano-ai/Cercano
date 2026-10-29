@@ -11,7 +11,7 @@ import (
 )
 
 func TestNestedServiceStaleLogin(t *testing.T) {
-	credentialtest.Enable(t)
+	credentialtest.EnableHermetic(t)
 	a, b, _ := recordFixture(t)
 	outer, other := New(New(a)), New(b)
 	login, err := outer.BeginLogin(context.Background(), "profile", "fake")
@@ -31,7 +31,7 @@ func TestNestedServiceStaleLogin(t *testing.T) {
 }
 
 func TestGuardedCoordinatedAcquisitionRefused(t *testing.T) {
-	credentialtest.Enable(t)
+	credentialtest.EnableHermetic(t)
 	a, _, _ := recordFixture(t)
 	s := New(secrets.Guard(New(a), secrets.Options{ReadOnly: true}))
 	invoked := false
@@ -45,7 +45,7 @@ func TestGuardedCoordinatedAcquisitionRefused(t *testing.T) {
 }
 
 func TestFacadeReplacementCannotDowngradeOrRebind(t *testing.T) {
-	credentialtest.Enable(t)
+	credentialtest.EnableHermetic(t)
 	a, b, _ := recordFixture(t)
 	for _, wrapped := range []secrets.Store{New(a), secrets.Guard(a, secrets.Options{ReadOnly: true})} {
 		s := New(wrapped)
@@ -64,7 +64,7 @@ func TestFacadeReplacementCannotDowngradeOrRebind(t *testing.T) {
 }
 
 func TestFacadePolicyAndStrictRecord(t *testing.T) {
-	credentialtest.Enable(t)
+	credentialtest.EnableHermetic(t)
 	a, _, back := recordFixture(t)
 	ctx := context.Background()
 	guarded := secrets.Guard(a, secrets.Options{ReadOnly: true}).(secrets.Coordinated)
@@ -94,7 +94,7 @@ func TestFacadePolicyAndStrictRecord(t *testing.T) {
 }
 
 func TestLegacyFacadeStillUsesLegacyAcquisition(t *testing.T) {
-	credentialtest.Enable(t)
+	credentialtest.EnableHermetic(t)
 	s := New(New(secrets.NewMemory()))
 	if err := s.Set("profile", "old"); err != nil {
 		t.Fatal(err)

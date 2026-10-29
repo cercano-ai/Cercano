@@ -10,7 +10,7 @@ import (
 
 func TestAttemptReadonlySnapshotLogout(t *testing.T) {
 	// Every dependency is memory/fake; no fallback, issuer, or child process.
-	credentialtest.Enable(t)
+	credentialtest.EnableHermetic(t)
 	a, b, _ := recordFixture(t)
 	owner := New(a)
 	view := secrets.Guard(owner, secrets.Options{ReadOnly: true})

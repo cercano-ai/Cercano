@@ -1,5 +1,10 @@
 # Native credential backend contract audit — 2026-10-28
 
+Historical audit of the superseded pending/quarantine design. The approved reduced
+contract removes the stronger backend requirements discussed below; they are not
+current activation prerequisites. See [reduced coordination evidence](credential-reduced-coordination.md).
+No native adapter or activation is supplied by that change.
+
 Read-only source audit, no native API, security CLI, network, installed credential contents, or native tests.
 
 `internal/hostsvc/credentials/coordinated.go:22–35` requires fresh linearizable reads, durable whole-record replacement, prior-record preservation on definite failure, and durable cross-instance/restart quarantine after uncertain replacement. CRUD is explicitly insufficient. The opt-in implementation remains inactive for native stores.

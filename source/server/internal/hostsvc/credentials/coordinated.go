@@ -10,25 +10,22 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"time"
 
 	"cercano/source/server/internal/filelock"
 	"cercano/source/server/internal/secrets"
 )
 
 var ErrCoordination = errors.New("credential coordination unavailable or invalid")
+var ErrBusy = errors.New("credential identity busy")
 var ErrStale = errors.New("credential revision invalidated")
 var ErrProviderIntegration = errors.New("coordinated token source integration not yet available")
 
-// RecordBackend is NOT secrets.Store CRUD or a claim of native CAS. Implementers
-// must provide fresh, linearizable reads and whole-record durable replacement at
-// the EXISTING cercano/profile identity. A successful Replace survives restart.
-// A definite failure leaves the prior record intact. An uncertain result MUST
-// durably quarantine the identity: Read/Replace must fail across all instances
-// and restarts until explicit reconciliation. Never expose possibly-old active
-// data after an uncertain write. Keys includes markers. No adapter for the native
-// backend is supplied: its replacement/failure guarantees remain unqualified.
-// All participants must also use the same stable exclusion root, with legacy
-// readers/writers excluded. These obligations cannot be inferred from CRUD.
+// RecordBackend supplies fresh reads and whole-record replacement at the existing
+// identity. All participants must use the same exclusion root and exclude legacy
+// readers/writers. Replace errors are reported, never acknowledged as success;
+// no quarantine, recovery, backend CAS or native durability guarantee is implied.
+// No native adapter or adoption path is supplied.
 type RecordBackend interface {
 	Read(string) (string, error)
 	Replace(string, string) error
@@ -68,7 +65,7 @@ func decodeRecord(raw string) (credentialRecord, error) {
 		if r.Payload == "" {
 			return credentialRecord{}, ErrCoordination
 		}
-	case "logged-out", "pending":
+	case "logged-out":
 		if r.Payload != "" {
 			return credentialRecord{}, ErrCoordination
 		}
@@ -94,9 +91,19 @@ func NewCoordinatedStore(backend RecordBackend, root string) (*CoordinatedStore,
 	}
 	return &CoordinatedStore{backend: backend, root: filepath.Clean(root)}, nil
 }
-func (s *CoordinatedStore) lock(ctx context.Context, name, kind string) (func(), error) {
+func (s *CoordinatedStore) lock(ctx context.Context, name string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	sum := sha256.Sum256([]byte("cercano\x00" + name))
-	return filelock.Lock(ctx, filepath.Join(s.root, hex.EncodeToString(sum[:])+"."+kind+".lock"))
+	release, ok, err := filelock.TryLock(filepath.Join(s.root, hex.EncodeToString(sum[:])+".commit.lock"))
+	if err != nil {
+		return nil, ErrCoordination
+	}
+	if !ok {
+		return nil, ErrBusy
+	}
+	return release, nil
 }
 func (s *CoordinatedStore) read(name string) (credentialRecord, error) {
 	raw, err := s.backend.Read(name)
@@ -124,7 +131,7 @@ func (s *CoordinatedStore) write(name, state, payload string) (credentialRecord,
 	return r, nil
 }
 func (s *CoordinatedStore) snapshot(ctx context.Context, name string) (credentialRecord, error) {
-	unlock, err := s.lock(ctx, name, "commit")
+	unlock, err := s.lock(ctx, name)
 	if err != nil {
 		return credentialRecord{}, err
 	}
@@ -145,13 +152,13 @@ func (s *CoordinatedStore) Set(name, value string) error {
 	return s.replace(context.Background(), name, "", "active", value)
 }
 
-// Delete's successful durable replacement is the logout boundary. No secret is
+// Delete's successful replacement is the logout boundary. No secret is
 // retained in the marker. Missing state is an error, not a reusable generation.
 func (s *CoordinatedStore) Delete(name string) error {
 	return s.replace(context.Background(), name, "", "logged-out", "")
 }
 func (s *CoordinatedStore) replace(ctx context.Context, name, expected, state, payload string) error {
-	unlock, err := s.lock(ctx, name, "commit")
+	unlock, err := s.lock(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -191,7 +198,7 @@ func (s *CoordinatedStore) List() ([]string, error) {
 // local bookkeeping only: no network, blocking work, or reusable authorization.
 // Admission, not physical send, is the logout boundary. Prefer AdmitAttempt.
 func (s *CoordinatedStore) Admit(ctx context.Context, name, expected string, start func() error) error {
-	unlock, err := s.lock(ctx, name, "commit")
+	unlock, err := s.lock(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -209,60 +216,39 @@ func (s *CoordinatedStore) Admit(ctx context.Context, name, expected string, sta
 	return start()
 }
 
-// refresh is called only when the source has determined rotation is necessary.
-// Separate refresh exclusion spans the fake/real issuer, but commit exclusion
-// never does. Pending has no secrets and survives issuer/commit failure. No
-// automatic replay or retry is performed. Legacy error-only callers discard the
-// committed snapshot; subscription acquisition uses RefreshSnapshot directly.
+// refresh is called only when rotation is necessary. One per-identity exclusion
+// spans fresh read, bounded issuer work and publication. Contenders return busy.
+// No pending state, automatic retry, rollback or recovery is performed.
 func (s *CoordinatedStore) refresh(ctx context.Context, name, expected string, issuer func(context.Context, string) (string, error)) error {
 	_, err := s.RefreshSnapshot(ctx, name, expected, issuer)
 	return err
 }
 
-// RefreshSnapshot returns only the atomic record committed by this rotation.
-// No reread or separately sampled revision may be paired with issuer material.
+// RefreshSnapshot returns the exact snapshot published by this rotation. Issuers
+// must honor context cancellation; no goroutine is abandoned with issuer access.
+// An ambiguous issuer/write failure is returned, not durably journaled or replayed.
 func (s *CoordinatedStore) RefreshSnapshot(ctx context.Context, name, expected string, issuer func(context.Context, string) (string, error)) (secrets.CredentialSnapshot, error) {
 	var zero secrets.CredentialSnapshot
-	release, err := s.lock(ctx, name, "refresh")
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	unlock, err := s.lock(ctx, name)
 	if err != nil {
 		return zero, err
 	}
-	defer release()
-	unlock, err := s.lock(ctx, name, "commit")
-	if err != nil {
-		return zero, err
-	}
+	defer unlock()
 	r, err := s.read(name)
-	if err == nil && (r.State != "active" || r.Revision != expected) {
-		err = ErrStale
-	}
-	var pending credentialRecord
-	if err == nil {
-		pending, err = s.write(name, "pending", "")
-	}
-	unlock()
 	if err != nil {
 		return zero, err
 	}
-	// Cancellation after pending is conservative uncertainty, never rollback.
+	if r.State != "active" || r.Revision != expected {
+		return zero, ErrStale
+	}
 	if err = ctx.Err(); err != nil {
 		return zero, err
 	}
 	value, err := issuer(ctx, r.Payload)
 	if err != nil {
 		return zero, err
-	}
-	unlock, err = s.lock(ctx, name, "commit")
-	if err != nil {
-		return zero, err
-	}
-	defer unlock()
-	current, err := s.read(name)
-	if err != nil {
-		return zero, err
-	}
-	if current.State != "pending" || current.Revision != pending.Revision {
-		return zero, ErrStale
 	}
 	if err = ctx.Err(); err != nil {
 		return zero, err

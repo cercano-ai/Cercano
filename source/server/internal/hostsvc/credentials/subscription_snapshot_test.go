@@ -18,8 +18,8 @@ type snapshotIssuer func(*http.Request) (*http.Response, error)
 func (f snapshotIssuer) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestSubscriptionSnapshot(t *testing.T) {
-	credentialtest.Enable(t)
-	for _, mode := range []string{"fresh", "refresh", "readonly-fresh", "readonly-expired", "logout", "issuer-uncertain", "commit-uncertain"} {
+	credentialtest.EnableHermetic(t)
+	for _, mode := range []string{"fresh", "refresh", "readonly-fresh", "readonly-expired", "logout", "issuer-uncertain", "commit-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			a, b, backend := recordFixture(t)
 			expired := mode != "fresh" && mode != "readonly-fresh"
@@ -36,20 +36,22 @@ func TestSubscriptionSnapshot(t *testing.T) {
 			calls := 0
 			issuer := snapshotIssuer(func(*http.Request) (*http.Response, error) {
 				calls++
-				if snapshotTest(t, b).State != "pending" {
-					t.Fatal("issuer without pending")
+				raw, _ := backend.Read("profile")
+				record, decodeErr := decodeRecord(raw)
+				if decodeErr != nil || record.State != "active" {
+					t.Fatal("issuer changed active record")
 				}
 				switch mode {
 				case "logout":
-					// Same-owner logout must not block behind issuer work.
-					if err := svc.Delete("profile"); err != nil {
+					// Same-owner logout conflicts with issuer exclusion.
+					if err := svc.Delete("profile"); !errors.Is(err, ErrBusy) {
 						t.Fatal(err)
 					}
 				case "issuer-uncertain":
 					return nil, errors.New("uncertain issuer")
-				case "commit-uncertain":
+				case "commit-failure":
 					backend.mu.Lock()
-					backend.uncertainAfterWrite = true
+					backend.fail = true
 					backend.mu.Unlock()
 				}
 				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}`))}, nil
@@ -57,7 +59,7 @@ func TestSubscriptionSnapshot(t *testing.T) {
 			source := svc.ChatGPT("profile", chatgptauth.Flow{Issuer: "https://issuer.invalid", Client: &http.Client{Transport: issuer}})
 			got, err := source.SubscriptionSnapshot(context.Background())
 			switch mode {
-			case "fresh", "readonly-fresh", "refresh":
+			case "fresh", "readonly-fresh", "refresh", "logout":
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -65,7 +67,7 @@ func TestSubscriptionSnapshot(t *testing.T) {
 				if err != nil || got != stored {
 					t.Fatalf("not committed atomic snapshot: %v", err)
 				}
-				if mode == "refresh" {
+				if mode == "refresh" || mode == "logout" {
 					if got.Revision == before.Revision || calls != 1 {
 						t.Fatal("rotation missing")
 					}
@@ -99,25 +101,13 @@ func TestSubscriptionSnapshot(t *testing.T) {
 						t.Fatal("readonly mutation")
 					}
 				} else {
-					if mode == "commit-uncertain" {
-						if _, err := b.CredentialSnapshot(context.Background(), "profile"); err == nil {
-							t.Fatal("uncertain commit escaped quarantine")
-						}
-					} else {
-						wantState := "pending"
-						if mode == "logout" {
-							wantState = "logged-out"
-						}
-						if snapshotTest(t, b).State != wantState {
-							t.Fatal("failed rotation lost blocker")
-						}
+					// No pending journal or retry: failed issuer/publication leaves
+					// the previous active record and reports the operation error.
+					after, readErr := b.CredentialSnapshot(context.Background(), "profile")
+					if readErr != nil || after != before || calls != 1 {
+						t.Fatalf("failure changed record/retried: %v", readErr)
 					}
-					if _, err := source.SubscriptionSnapshot(context.Background()); err == nil {
-						t.Fatal("failed rotation replayed")
-					}
-					if calls != 1 {
-						t.Fatal("issuer automatically replayed")
-					}
+
 				}
 			}
 		})
