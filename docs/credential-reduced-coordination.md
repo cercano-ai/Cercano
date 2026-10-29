@@ -118,3 +118,16 @@ before activation; no native adapter or initial-record provisioning is supplied.
 The stronger requirements in `native-credential-contract-audit.md` are historical,
 not prerequisites restored by this change. Full production integration/acceptance
 is not claimed. No unresolved choice within the approved reduced design.
+
+## Parent verification of final code
+
+Code revision: `74c909eec9dc0c18fef22bbebaafa9df25489297`. Parent ran the following from `source/server`, with `CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off`:
+
+```text
+go test -race ./internal/hostsvc/credentials ./internal/llm ./internal/llm/responses -run '^(TestReduced.*|TestCoordinated.*|TestCredentialProcess.*|TestSubscriptionSnapshot|TestAnthropicSubscriptionSnapshot|TestNestedServiceStaleLogin|TestGuardedCoordinatedAcquisitionRefused|TestFacade.*|TestLegacyFacadeStillUsesLegacyAcquisition|TestAttemptReadonlySnapshotLogout|TestCredentialBusy.*|TestCredentialCachedClientReplacement|TestCredentialTransportGuards)$' -count=2 -timeout=120s
+# PASS, exit 0: credentials 26.016s; llm 1.566s; responses 1.632s
+go build ./...
+# PASS, exit 0, 5.780s
+```
+
+Independent bounded read-only review of the busy follow-up found no remaining concrete blocker. It did not execute tests. It noted same-login retry after contention with an unchanged revision is not separately exercised; stale login after replacement/logout is exercised. These are focused synthetic/fake-backend results, not a full-suite, native-backend, issuer recovery, or production activation qualification. No live data, native credentials, adoption, activation, push, or merge was performed in this slice.
