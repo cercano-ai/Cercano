@@ -9,10 +9,13 @@ import (
 	"time"
 
 	projectctx "cercano/source/server/internal/context"
+	"cercano/source/server/internal/contextmeter"
+	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/locus"
 	"cercano/source/server/internal/server"
 	"cercano/source/server/internal/toolstack"
 	"cercano/source/server/internal/worker"
+	"cercano/source/server/pkg/config"
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/engine"
@@ -54,6 +57,31 @@ func composeProductionRouting(d productionRoutingDependencies) productionRouting
 		return agent.NewSmartRouterFromBytes(d.open, d.cloud, d.embeddingModel, d.embedder, agent.DefaultPrototypes(), d.cloudFactory)
 	}, d.open, d.cloud)
 	return productionRouting{sessions: sessions, coordinator: coordinator, router: router}
+}
+
+// composeProductionAgent is the concrete conversation graph used by both
+// entrypoints. It never opens a store or resolves a provider: prepared callers
+// must pass the exact ownership-aware store supplied by the server constructor.
+// Only ordinary startup supplies legacy ID-only scheduling here; prepared
+// scheduling belongs to PreparedServerOptions.Scheduling and its counted runner.
+func composeProductionAgent(routing productionRouting, store conversation.Store, cfg config.Config, scheduling productionScheduling) (*agent.Agent, *projectctx.Loader, error) {
+	if store == nil || routing.sessions == nil || routing.router == nil || routing.coordinator == nil {
+		return nil, nil, fmt.Errorf("production agent requires store and complete routing")
+	}
+	loader := projectctx.NewLoader()
+	opts := []agent.AgentOption{
+		agent.WithConversationStore(agent.NewConversationStore(routing.sessions, 3)),
+		agent.WithPersistentStore(store),
+		agent.WithContextMeter(contextmeter.NewRegistry(), openChatModel(cfg)),
+		agent.WithContextLoader(loader),
+	}
+	if scheduling.recap != nil {
+		opts = append(opts, agent.WithRecapScheduler(scheduling.recap))
+	}
+	if scheduling.compaction != nil {
+		opts = append(opts, agent.WithCompactionScheduler(scheduling.compaction))
+	}
+	return agent.NewAgent(routing.router, routing.coordinator, opts...), loader, nil
 }
 
 // productionExecutionPolicy is explicit: a zero value cannot silently select

@@ -233,9 +233,9 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		open: openRunner, cloud: cloud, cloudFactory: cloudFactory,
 		embeddingModel: openEmbeddingModel(cfg), embedder: embedder, classificationDisabled: !local,
 	})
-	sessions, coordinator, router := routing.sessions, routing.coordinator, routing.router
+	coordinator, router := routing.coordinator, routing.router
 
-	loader := projectctx.NewLoader()
+	var loader *projectctx.Loader
 	var orchestrator *agent.Agent
 	diagnostics := filepath.Join(o.State, "hosts", o.Host)
 	if err := os.MkdirAll(diagnostics, 0700); err != nil {
@@ -252,8 +252,8 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 			if err != nil {
 				return nil, err
 			}
-			orchestrator = agent.NewAgent(router, coordinator, agent.WithPersistentStore(store), agent.WithConversationStore(agent.NewConversationStore(sessions, 3)), agent.WithContextLoader(loader))
-			return orchestrator, nil
+			orchestrator, loader, err = composeProductionAgent(routing, store, cfg, productionScheduling{})
+			return orchestrator, err
 		},
 	}, router, coordinator, cloudFactory, registry)
 	if err != nil {

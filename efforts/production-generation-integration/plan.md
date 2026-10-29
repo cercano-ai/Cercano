@@ -15,6 +15,7 @@ Objective: make generation lifecycle a policy of the existing full application, 
 - [x] Create a dedicated execution worktree from the approved planning commit and preserve unrelated working-tree changes
 - [x] Convert the specification's functionality list into an acceptance matrix with ordinary baseline behavior, affected implementation, automated test and explicit qualification boundary
 - [~] Factor ordinary startup dependency composition so ordinary and generation-aware hosts use the same production services and provider/tool graph
+  - 2026-10-28: both entrypoints now use the same concrete conversation-agent construction (exact store/routing, session adapter, loader and meter); duplicate agent-option assembly removed. See [bounded convergence evidence and retained gates](conversation-composition-convergence.md). Full startup convergence remains incomplete.
   - [ ] Inject store/lifecycle, generation-pinned worker and service authority policies without invoking legacy opening, global reconciliation or unpinned runner replacement
   - [ ] Preserve authoritative path resolution and supported overrides without creating another copied config/history authority
   - [ ] Require compatibility preflight before any schema, persistent-setting, credential-migration or task-reconciliation side effect

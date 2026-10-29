@@ -121,9 +121,10 @@ func TestProductionCompositionFailureAndIsolation(t *testing.T) {
 	}
 }
 
-// This compares shared service registration only, not production opener, worker,
-// provider, transport, or lifecycle parity. The prepared graph is built below
-// the credential admission boundary with an explicit temporary store.
+// This checks shared concrete agent construction, exact store binding and service
+// registration, not production opener, worker execution, provider, transport or
+// lifecycle parity. The prepared graph is built below the credential admission
+// boundary with an explicit temporary store.
 func TestProductionCompositionSharedServiceRegistrationParity(t *testing.T) {
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	t.Setenv("HOME", t.TempDir())
@@ -133,7 +134,10 @@ func TestProductionCompositionSharedServiceRegistrationParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	a := agent.NewAgent(routing.router, routing.coordinator, agent.WithPersistentStore(store))
+	a, loader, err := composeProductionAgent(routing, store, config.Defaults(), productionScheduling{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	logs := t.TempDir()
 	ordinary := server.NewServerWithLogs(a, routing.router, routing.coordinator, nil, engine.NewEngineRegistry(), filepath.Join(logs, "ordinary-routing.jsonl"), filepath.Join(logs, "ordinary-failures.jsonl"))
 	defer ordinary.Shutdown()
@@ -144,7 +148,6 @@ func TestProductionCompositionSharedServiceRegistrationParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	ordinary.SetOpenLLMProvider(&developmentSyntheticProvider{})
-	loader := projectctx.NewLoader()
 	bindProductionAgent(ordinary, a, loader, agent.NewStaticPermissionStore(agent.ModeStrict), agent.NewPendingDecisions())
 	if err := composeProductionServices(ordinary, a, loader, toolstack.EngineDeps{}, productionExecutionPolicy{legacy: true}); err != nil {
 		t.Fatal(err)
@@ -159,22 +162,22 @@ func TestProductionCompositionSharedServiceRegistrationParity(t *testing.T) {
 	}
 	policy := productionExecutionPolicy{prepared: &spawn}
 	preparedRouting := composeProductionRouting(productionRoutingDependencies{open: &compositionRunner{name: "memory"}, classificationDisabled: true})
-	preparedLoader := projectctx.NewLoader()
+	var preparedLoader *projectctx.Loader
 	var preparedAgent *agent.Agent
 	var preparedStore conversation.Store
-	prepared, err := server.NewPreparedServer(context.Background(), server.PreparedServerOptions{
+	prepared, err := server.NewPreparedDurableServer(context.Background(), server.PreparedServerOptions{
 		Coexistence: server.CoexistenceOptions{
 			StorePath: filepath.Join(o.State, "conversations.db"), Build: "registration-test", Host: o.Host,
 			Contract:           conversation.DevelopmentCoexistenceDeclaration(),
-			Reload:             func(context.Context, conversation.Store, *conversation.Ownership) error { return nil },
 			CloseParticipation: func(context.Context) error { return nil },
 		},
 		Config: config.Defaults(), Secrets: secrets.NewMemory(),
 		RoutingPath: filepath.Join(logs, "prepared-routing.jsonl"), FailurePath: filepath.Join(logs, "prepared-failures.jsonl"),
 		Agent: func(st conversation.Store) (*agent.Agent, error) {
 			preparedStore = st
-			preparedAgent = agent.NewAgent(preparedRouting.router, preparedRouting.coordinator, agent.WithPersistentStore(st))
-			return preparedAgent, nil
+			var err error
+			preparedAgent, preparedLoader, err = composeProductionAgent(preparedRouting, st, config.Defaults(), productionScheduling{})
+			return preparedAgent, err
 		},
 	}, preparedRouting.router, preparedRouting.coordinator, nil, engine.NewEngineRegistry())
 	if err != nil {
@@ -187,9 +190,28 @@ func TestProductionCompositionSharedServiceRegistrationParity(t *testing.T) {
 	if err := composeProductionServices(prepared, preparedAgent, preparedLoader, toolstack.EngineDeps{}, policy); err != nil {
 		t.Fatal(err)
 	}
+	if err := policy.install(prepared); err != nil {
+		t.Fatal(err)
+	}
 	if preparedAgent.PersistentStore() != preparedStore || preparedStore == store {
 		t.Fatal("shared service composition replaced or shared the prepared store")
 	}
+	// Both real server constructors consume the same concrete agent graph. The
+	// prepared callback's store must survive binding and capability installation.
+	for _, a := range []*agent.Agent{a, preparedAgent} {
+		a.RecordContextUsage("same-conversation", "fixture-model", 42, 7)
+		if used, _ := a.GetContextUsage(context.Background(), "same-conversation"); used != 49 {
+			t.Fatalf("production context meter missing: used=%d", used)
+		}
+	}
+	a.RecordContextUsage("same-conversation", "fixture-model", 100, 1)
+	if used, _ := preparedAgent.GetContextUsage(context.Background(), "same-conversation"); used != 49 {
+		t.Fatalf("meter state shared between hosts: used=%d", used)
+	}
+	if loader == preparedLoader {
+		t.Fatal("context loader shared between hosts")
+	}
+
 	mcpOpens := 0
 	cleanup, err := composeProductionMCP(prepared, o.State, productionMCPDependencies{
 		newManager: func(*agenttools.Registry, string, time.Duration) *mcphost.Manager { mcpOpens++; return nil },
@@ -271,5 +293,21 @@ func TestProductionCompositionPolicyFailsBeforeAssembly(t *testing.T) {
 	})
 	if err == nil || calls != 0 {
 		t.Fatalf("worker preflight did not precede dependencies: calls=%d err=%v", calls, err)
+	}
+}
+
+func TestProductionCompositionAgentRequiresExactDependencies(t *testing.T) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	routing := composeProductionRouting(productionRoutingDependencies{open: &compositionRunner{name: "memory"}})
+	if a, loader, err := composeProductionAgent(routing, nil, config.Defaults(), productionScheduling{}); err == nil || a != nil || loader != nil {
+		t.Fatal("missing persistence accepted")
+	}
+	store, err := conversation.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if a, loader, err := composeProductionAgent(productionRouting{}, store, config.Defaults(), productionScheduling{}); err == nil || a != nil || loader != nil {
+		t.Fatal("missing routing accepted")
 	}
 }

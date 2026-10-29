@@ -26,8 +26,6 @@ import (
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/cloudfactory"
-	projectctx "cercano/source/server/internal/context"
-	"cercano/source/server/internal/contextmeter"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/crashlog"
 	"cercano/source/server/internal/engine"
@@ -338,9 +336,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		open: openProvider, cloud: cloudProvider, cloudFactory: cloudFactory,
 		embeddingModel: openEmbeddingModel(cfg), embedder: selectEmbedEngine(cfg, ollamaEng, llamaEng),
 	})
-	sessionSvc, coordinator, lazyRouter := routing.sessions, routing.coordinator, routing.router
-
-	convStore := agent.NewConversationStore(sessionSvc, 3)
+	coordinator, lazyRouter := routing.coordinator, routing.router
 
 	// Persistent SQLite-backed conversation store for /history and /resume.
 	// The public agent must not bind without it: otherwise /resume renders an
@@ -378,21 +374,6 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		return closeData()
 	})
 
-	// Context-window meter: per-conversation running token counters keyed
-	// by conversation id. The CLI polls GetContextUsage after each turn.
-	meterRegistry := contextmeter.NewRegistry()
-
-	// Project context loader: reads .cercano/context.md from the request's
-	// WorkDir and prepends it to the prompt so the model has project
-	// awareness on every turn.
-	ctxLoader := projectctx.NewLoader()
-
-	agentOpts := []agent.AgentOption{
-		agent.WithConversationStore(convStore),
-		agent.WithPersistentStore(persistentStore),
-		agent.WithContextMeter(meterRegistry, openChatModel(cfg)),
-		agent.WithContextLoader(ctxLoader),
-	}
 	// Routing is resolved live after server construction, exactly as for dispatch.
 	var compactionCandidates func() inference.Tiers
 	recapModel := ""
@@ -418,14 +399,6 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	}, ordinarySchedulingOptions())
 	recapGen, compGen := producers.recap, producers.compaction
 	newLoopCompactor := producers.newLoopCompactor
-	// Legacy ID-only scheduling is an explicit ordinary-startup policy, never
-	// part of the shared constructor or the prepared adapter.
-	if recapGen != nil {
-		agentOpts = append(agentOpts, agent.WithRecapScheduler(recapGen))
-	}
-	if compGen != nil {
-		agentOpts = append(agentOpts, agent.WithCompactionScheduler(compGen))
-	}
 	var markIncomplete func()
 	var producersOnce sync.Once
 	var producerErr error
@@ -473,7 +446,10 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		cancelSweeper = cancel
 		sweeperDone = sweeper.Start(sweepCtx)
 	}
-	orchestrator := agent.NewAgent(lazyRouter, coordinator, agentOpts...)
+	orchestrator, ctxLoader, err := composeProductionAgent(routing, persistentStore, cfg, producers)
+	if err != nil {
+		return "", nil, err
+	}
 
 	// Startup orphan-sweep: a hard-killed previous host leaves worker process
 	// groups + pidfiles/sockets behind. Reap the ones still alive that identify
