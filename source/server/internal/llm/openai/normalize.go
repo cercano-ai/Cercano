@@ -23,6 +23,12 @@ func (c *Client) normalize(err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
+	// Credential contention precedes SDK URL/network classification.
+	var credential *llm.CredentialError
+	if errors.As(err, &credential) {
+		return llm.NormalizeCredentialFailure(err, c.Name(), credential.Profile)
+	}
+
 	var ae *goopenai.APIError
 	if errors.As(err, &ae) {
 		if overflow, used, limit := llm.DetectContextOverflow(ae.Message); overflow {

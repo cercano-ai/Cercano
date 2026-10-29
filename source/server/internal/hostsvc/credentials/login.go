@@ -87,6 +87,9 @@ func (a *LoginAttempt) Commit(encoded string) error {
 		err = p.store.Set(a.profile, encoded)
 	}
 	if err != nil {
+		if errors.Is(err, ErrBusy) {
+			return llm.NormalizeCredentialFailure(err, a.provider, a.profile)
+		}
 		return &llm.CredentialError{Class: llm.ErrCredential, Provider: a.provider, Profile: a.profile, Method: llm.AuthSubscription, Reason: llm.CredentialStore, Cause: err}
 	}
 	p.invalidate()

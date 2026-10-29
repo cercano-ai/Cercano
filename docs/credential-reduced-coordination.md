@@ -47,6 +47,66 @@ go test -race ./internal/llm/responses -run '^TestCoordinated(SnapshotMutationRe
 # ok (1.227s)
 ```
 
+## Public Busy propagation correction — 2026-10-28
+
+The earlier statement that contention returns `ErrBusy`, not an authentication
+error, described the coordinator but overstated the public contract at
+`da25095a7750b81e49d75ec8b80ccedec09d2817`. Memory-only regressions reproduced
+Responses/OpenAI Chat and Stream returning Unknown, Anthropic returning Network,
+and login Commit returning terminal CredentialError. The coordinator sentinel
+alone did not establish consistent public Busy classification.
+
+`ErrBusy` now uses the existing `llm.CredentialError` seam with class `llm.ErrBusy`
+and safe `identity_busy` diagnostics. Sentinel identity survives normalization
+and SDK wrapping (`errors.Is`). OpenAI recognizes that seam before network
+classification; Commit preserves Busy before its terminal store-error wrapper.
+BeginLogin, snapshots, admission, and refresh inherit the same temporary class.
+No generic Busy retry/failover policy was changed. No stale-login rebase, logout
+bypass, automatic issuer retry, or ambiguity recovery was added.
+
+Audit scope is only the new `internal/llm/credential_busy_integration_test.go`
+tests. They call `credentialtest.EnableHermetic` before construction, use
+constructor-injected non-dialing HTTP wires with synthetic `.invalid` URLs,
+in-memory record storage, and fake inline issuers. Only exclusion files use
+`t.TempDir`; no native backend, real SDK endpoint, DNS, sockets, or loopback
+server is used. Responses gained the same explicit `BaseTransport` injection
+seam already available on the other providers. It remains inside the existing
+non-replay wrapper and redirect refusal; the default production transport is
+unchanged.
+
+From `source/server`, with the outer environment shown verbatim:
+
+```text
+CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off go test ./internal/llm -run '^TestCredentialBusy' -count=1 -timeout=30s
+# baseline error-path implementation: FAIL (exit 1), all 12 provider cases;
+# BeginLogin/snapshot/admission/refresh Unknown; Commit CredentialError.
+
+CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off go test -race ./internal/llm -run '^TestCredential(Busy|CachedClientReplacement|TransportGuards)' -count=1 -timeout=30s
+# fixed implementation: ok cercano/source/server/internal/llm 1.382s (exit 0)
+
+CERCANO_DISABLE_CREDENTIALS=1 GOPROXY=off GOSUMDB=off go test -race ./internal/llm -run '^TestCredential(Busy|CachedClientReplacement|TransportGuards)' -count=10 -timeout=60s
+# ok cercano/source/server/internal/llm 1.658s (exit 0)
+```
+
+The initial failing regressions preceded the fix. The baseline was additionally
+rechecked by temporarily loading the original `coordinated.go`, `login.go`, and
+OpenAI `normalize.go` with `git show da25095a7750b81e49d75ec8b80ccedec09d2817:<path>`;
+a Python `try/finally` restored the fixed files. The Responses injection-only
+seam remained so no original native/default transport was needed.
+
+Coverage: snapshot/admission contention through all three public providers'
+Chat and Stream, no wire dispatch or record mutation on Busy, sentinel identity,
+safe diagnostics, unchanged generic Busy resilience membership, public
+BeginLogin/Commit and refresh contention (issuer not invoked), subsequent
+stale-revision Commit refusal and no logout bypass. The same cached clients use
+replacement credentials on the next independent attempt and do not dispatch
+after logout. Transport checks assert stripped `GetBody`, one wire call for
+synthetic 503 (no SDK retries), and one for 307 (no redirect following), across
+all three providers and both APIs. An initial guard-test expectation that every
+SDK must *error* on 307 failed for Anthropic; it was narrowed to the existing
+no-follow contract, not fixed by changing provider behavior. These tests do not
+claim uniform 3xx decoding behavior. No whole provider suite was run.
+
 ## Limits / remaining prerequisites
 
 No broad suite, native qualification, live-provider call, migration, activation,

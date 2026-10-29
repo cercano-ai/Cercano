@@ -13,11 +13,16 @@ import (
 	"time"
 
 	"cercano/source/server/internal/filelock"
+	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/secrets"
 )
 
 var ErrCoordination = errors.New("credential coordination unavailable or invalid")
-var ErrBusy = errors.New("credential identity busy")
+
+// ErrBusy is temporary local contention, not an authentication failure. Use
+// the existing credential error seam so SDK URL wrappers cannot turn it into
+// a network/unknown failure. Its identity remains available to errors.Is.
+var ErrBusy error = &llm.CredentialError{Class: llm.ErrBusy, Reason: "identity_busy"}
 var ErrStale = errors.New("credential revision invalidated")
 var ErrProviderIntegration = errors.New("coordinated token source integration not yet available")
 

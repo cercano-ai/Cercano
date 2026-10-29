@@ -54,6 +54,7 @@ type Config struct {
 	// ChatGPT additionally requires an atomic SubscriptionCredentials source.
 	Credentials       secrets.RequestCredentials
 	CredentialProfile string
+	BaseTransport     http.RoundTripper
 	BaseURL           string
 	APIKey            string
 	Model             string
@@ -130,11 +131,15 @@ func NewClient(cfg Config) *Client {
 	if base == "" {
 		base = defaultBaseURL
 	}
-	transport := &http.Client{}
+	transport := &http.Client{Transport: cfg.BaseTransport}
 	if cfg.Credentials != nil {
 		// Restrict coordinated requests to HTTP/1; HTTP/2 retry behavior has
 		// not been qualified for this bounded path.
-		transport.Transport = nonReplayTransport{next: &http.Transport{DisableKeepAlives: true, Proxy: http.ProxyFromEnvironment, TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{}}}
+		next := cfg.BaseTransport
+		if next == nil {
+			next = &http.Transport{DisableKeepAlives: true, Proxy: http.ProxyFromEnvironment, TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{}}
+		}
+		transport.Transport = nonReplayTransport{next: next}
 		// Redirects are separate attempts, not covered by the original admission.
 		transport.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
