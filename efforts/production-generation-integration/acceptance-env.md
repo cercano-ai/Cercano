@@ -46,6 +46,59 @@ Go proxy/checksum downloads and toolchain auto-download are disabled. These
 settings do not build or approve a build. A caller needing another compiler
 contract must make a separately reviewed extension, not copy ambient flags.
 
+## Non-executing real-cloud preparation entrypoint
+
+Repository inspection found no reusable real-cloud preparation script: the
+launcher and generation-publisher scripts perform launch/publication work, and
+the synthetic Go dev-host harness is not this integration point.
+`acceptance_preparation.py:prepare_real_cloud_launch` now wires the environment
+helper into preparation, without importing or invoking those scripts:
+
+```python
+from acceptance_preparation import prepare_real_cloud_launch
+
+prepared = prepare_real_cloud_launch(
+    home=supplied_ordinary_home,
+    private_root=canonical_private_root,
+    credential_policy=explicit_policy,
+    ledger_path=original_aggregate_ledger_path,
+    launcher_argv=explicit_launcher_argv,
+    host_argv=explicit_host_argv,
+    cli_argv=explicit_cli_argv,
+    # tool_paths={"PATH": supplied_tool_path, "GOROOT": supplied_go_root},
+)
+```
+
+All argv sequences require an explicit absolute normalized executable; no shell
+parsing or ambient executable discovery occurs. Preparation returns launcher,
+host, and CLI command descriptors sharing **one immutable allowlist**, constructed
+once by `build_acceptance_env`. It never executes a command, creates directories,
+or opens file contents. Unlike the lower-level helper, preparation refuses a
+missing ledger. It does not copy/reset/initialize/unhalt the existing ledger or
+infer remaining authorization from its presence. Existing ledger device/inode,
+bytes, size and modification time remain unchanged in the tests. Runtime ledger
+instrumentation may legitimately replace the file atomically; this preparation
+check is not a lifetime inode lock.
+
+A separately reviewed and authorized executor must use each descriptor's
+`argv` and `env` directly (`env=command.env`, not an ambient overlay). These are
+alternative process-role descriptors, **not** instructions to start three
+processes or duplicate a host already spawned by the launcher. Workers must
+inherit the host's allowlist with no ambient additions. Fake host/worker tests
+exercise that inheritance; this module does not modify or qualify the actual
+Go host/worker spawn implementation. Python/macOS runtime-added locale variables
+are checked separately in fake-process observations, not added to the allowlist.
+
+Remaining prerequisites: provision private directory destinations/parents; review
+actual launcher/host/CLI flags, selected artifacts/build tags and private log
+paths; verify real worker environment propagation, read-only credential guards,
+original ledger authority/remaining budgets, explicit route/model configuration,
+process lifetime and cleanup controls. The previously observed credential refusal
+and halted ledger are not resolved here. Retaining HOME is intentional, not an
+arbitrary-filesystem sandbox; neither environment construction nor preparation
+authorizes native credential access, network requests, builds, or application
+launches.
+
 ## Destination contract
 
 All destinations below are relative to the explicit private root:
@@ -87,11 +140,12 @@ See `normal-home-first-prompt-residual-audit.md` and
 From the repository root, using Python on PATH:
 
 ```
-python3 -B -m unittest discover -s efforts/production-generation-integration -p test_acceptance_env.py -v
+python3 -B -m unittest discover -s efforts/production-generation-integration -p 'test_acceptance*.py' -v
 ```
 
-Tests inspect output only, using fake HOME/private temporary directories and a
-hostile ambient environment. They cover the exact allowlist, disabled default
+Environment tests inspect output only; preparation tests execute only temporary
+fake Python commands (including a fake host's inheriting worker), using fake
+HOME/private temporary directories and a hostile ambient environment. They cover the exact allowlist, disabled default
 flags, both explicit credential policies, absent required arguments, invalid
 paths/tool overrides, canonical root, private permissions/types, symlinks,
 hardlinks, unchanged ledger contents, and no HOME metadata/content access.
