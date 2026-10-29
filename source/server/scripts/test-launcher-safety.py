@@ -82,7 +82,8 @@ assert pathlib.Path(sys.argv[sys.argv.index('--generation')+1])==pathlib.Path(sy
 if os.environ.get('FAKE_HOST_FAIL'): sys.exit(9)
 selections=state/'selections'; selections.mkdir(mode=0o700,exist_ok=True)
 fd,path=tempfile.mkstemp(prefix='selection-',dir=selections)
-with os.fdopen(fd,'w') as f: json.dump({'Generation':str(pathlib.Path(sys.argv[0]).parent)},f)
+authority=sys.argv[sys.argv.index('--config-authority')+1]
+with os.fdopen(fd,'w') as f: json.dump({'Generation':str(pathlib.Path(sys.argv[0]).parent), 'ConfigAuthority':authority},f)
 print(path)
 ''')
         (state / 'cercano-cli').write_text('''#!/usr/bin/env python3
@@ -289,6 +290,59 @@ print(json.dumps(sys.argv[1:]))
             self.assertEqual(selection.read_bytes(), before)
             self.assertEqual(list(selection.parent.iterdir()), [selection])
 
+    def test_selection_authority_absent_or_mismatched_refuses_reuse(self):
+        for damage in ('absent', 'mismatch'):
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as root:
+                env = self.fixture(root)
+                initial = self.source_launch(env)
+                self.assertEqual(initial.returncode, 0, initial.stderr)
+                selection = Path(json.loads(initial.stdout)[1])
+                record = json.loads(selection.read_text())
+                self.assertEqual(record.pop('ConfigAuthority'),
+                                 str(Path(env['CERCANO_DEVELOPMENT_STATE']) / 'config.yaml'))
+                if damage == 'mismatch':
+                    record['ConfigAuthority'] = str(Path(root) / 'other-config.yaml')
+                selection.write_text(json.dumps(record))
+                before = selection.read_bytes()
+                log = Path(env['FAKE_ENV_LOG']); log.write_text('')
+                result = self.source_launch(env, '--dev-host', str(selection))
+                self.assertEqual(result.returncode, 78, result.stderr)
+                self.assertIn('selection config authority mismatch', result.stderr)
+                self.assertEqual(log.read_text(), '')
+                self.assertEqual(selection.read_bytes(), before)
+
+    def test_explicit_shared_private_config_authority(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = self.fixture(root)
+            state = Path(env['CERCANO_DEVELOPMENT_STATE'])
+            shared = state / 'shared'
+            shared.mkdir(mode=0o700)
+            authority = shared / 'config.yaml'
+            authority.write_text('# explicit shared private settings\n')
+            authority.chmod(0o600)
+            env['CERCANO_DEVELOPMENT_CONFIG_AUTHORITY'] = str(authority)
+            selections = []
+            for _ in range(2):
+                result = self.source_launch(env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                selection = Path(json.loads(result.stdout)[1])
+                self.assertEqual(json.loads(selection.read_text())['ConfigAuthority'], str(authority))
+                selections.append(selection)
+            self.assertNotEqual(*selections)
+            for selection in selections:
+                log = Path(env['FAKE_ENV_LOG']); log.write_text('')
+                result = self.source_launch(env, '--dev-host', str(selection))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([json.loads(line)[0] for line in log.read_text().splitlines()], ['cli'])
+            env.pop('CERCANO_DEVELOPMENT_CONFIG_AUTHORITY')
+            log.write_text('')
+            result = self.source_launch(env, '--dev-host', str(selections[0]))
+            self.assertEqual(result.returncode, 78, result.stderr)
+            self.assertIn('selection config authority mismatch', result.stderr)
+            self.assertEqual(log.read_text(), '')
+            self.assertEqual(authority.read_text(), '# explicit shared private settings\n')
+            self.assertEqual((state / 'config.yaml').read_text(), '{}')
+
     def test_flag_preflight_has_no_side_effects(self):
         for args in [('--dev-host=',), ('-dev-host=',), ('--dev-host', ''),
                      ('--dev-host', 'a', '-dev-host=b'), ('--dev-host=a', '--dev-host=a'),
@@ -322,7 +376,9 @@ print(json.dumps(sys.argv[1:]))
                 elif damage == 'selection-type':
                     selection.write_text('[]')
                 elif damage == 'generation-type':
-                    selection.write_text('{"Generation": []}')
+                    record = json.loads(selection.read_text())
+                    record['Generation'] = []
+                    selection.write_text(json.dumps(record))
                 result = self.source_launch(env, '-dev-host=' + str(selection))
                 self.assertEqual(result.returncode, 0 if damage == 'none' else 78, result.stderr)
                 self.assertNotIn('Traceback', result.stderr)

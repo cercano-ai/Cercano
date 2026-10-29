@@ -194,14 +194,21 @@ def main():
     runtime_env = dict(os.environ, CERCANO_LAUNCHED_DEVELOPMENT='1')
     repo = Path(sys.argv[2]).resolve()
     state = Path(os.environ['CERCANO_DEVELOPMENT_STATE'])
+    explicit_authority = os.environ.get('CERCANO_DEVELOPMENT_CONFIG_AUTHORITY')
     if selected is None:
+        if explicit_authority and explicit_authority != str(state / 'config.yaml') and not state.exists():
+            raise ValueError('explicit config authority requires already prepared isolated state; no ambient provisioning')
         prepare_if_absent(state, repo, runtime_env)
     state = private(state)
     # Read-only prerequisite check before any build; authoritative Go preflight follows.
     db = state / 'conversations.db'
-    if db.is_symlink() or not db.is_file() or not (state / 'config.yaml').is_file():
+    authority = Path(os.environ.get('CERCANO_DEVELOPMENT_CONFIG_AUTHORITY', str(state / 'config.yaml')))
+    if not authority.is_absolute() or authority.resolve() != authority or state not in authority.parents:
+        raise ValueError('config authority must be canonical and inside isolated prepared state')
+    private(authority.parent)
+    if db.is_symlink() or not db.is_file() or not authority.is_file():
         raise ValueError('prepared database and explicit config.yaml required')
-    for p in (db, state / 'config.yaml'):
+    for p in (db, authority):
         s = p.lstat()
         if not stat.S_ISREG(s.st_mode) or s.st_uid != os.getuid() or s.st_mode & 0o077:
             raise ValueError('database and config.yaml must be owned private regular files (0600)')
@@ -212,6 +219,8 @@ def main():
     if selected is not None:
         selection_path = selection_file(selected, state)
         selection = object_json(selection_path)
+        if selection.get('ConfigAuthority') != str(authority):
+            raise ValueError('selection config authority mismatch; refusing reuse')
         generation = validate_generation(selection.get('Generation'), state)
         os.execve(str(generation / 'cercano-cli'), [str(generation / 'cercano-cli'), *args], runtime_env)
     runtime = os.environ.get('CERCANO_RUNTIME_ROOT')
@@ -247,7 +256,7 @@ def main():
         raise ValueError('publisher returned noncanonical generation')
     validate_generation(generation, state)
     binary = str(Path(generation) / 'cercano')
-    selection = subprocess.check_output([binary, 'development-launch', '--state', str(state), '--generation', generation, '--runtime-root', str(runtime)], env=runtime_env, text=True).strip()
+    selection = subprocess.check_output([binary, 'development-launch', '--state', str(state), '--generation', generation, '--runtime-root', str(runtime), '--config-authority', str(authority)], env=runtime_env, text=True).strip()
     selection_file(selection, state)
     validate_generation(generation, state)
     cli = str(Path(generation) / 'cercano-cli')

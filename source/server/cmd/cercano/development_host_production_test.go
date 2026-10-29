@@ -62,7 +62,16 @@ func developmentProductionFixture(t *testing.T) (developmentHostOptions, *devhos
 	if err != nil {
 		t.Fatal(err)
 	}
-	return developmentHostOptions{State: state, Generation: generation, Host: "production-test", RuntimeRoot: resources, Identity: &proto.LifecycleIdentity{Build: "prepared-test", Host: "production-test", Store: filepath.Join(state, "conversations.db"), Contract: conversation.DevelopmentCoexistenceDeclaration().Contract, Schema: int32(conversation.DevelopmentCoexistenceDeclaration().SchemaVersion)}}, auth
+	o := developmentHostOptions{State: state, Generation: generation, Host: "production-test", RuntimeRoot: resources, Identity: &proto.LifecycleIdentity{Build: "prepared-test", Host: "production-test", Store: filepath.Join(state, "conversations.db"), Contract: conversation.DevelopmentCoexistenceDeclaration().Contract, Schema: int32(conversation.DevelopmentCoexistenceDeclaration().SchemaVersion)}}
+	o.ConfigAuthority = filepath.Join(state, "config.yaml")
+	// Lower-level constructor fixture only: this does not exercise or attest
+	// launcher/executable validation. Real acceptance uses the actual launcher.
+	binding := developmentBinding(o)
+	o.startupAdmission = productionStartupAdmission{
+		paths:               productionAuthorityPaths{config: o.ConfigAuthority, conversations: o.Identity.Store},
+		generationPreflight: true, bounded: &binding,
+	}
+	return o, auth
 }
 
 func TestDevelopmentProductionInjectedGraph(t *testing.T) {
@@ -194,9 +203,9 @@ func TestDevelopmentProductionOpenerFailsOnceWithoutFallback(t *testing.T) {
 	}
 }
 
-func TestDevelopmentProductionPreflightBeforeOpener(t *testing.T) {
+func TestDevelopmentProductionMissingAdmissionBeforeOpener(t *testing.T) {
 	o, auth := developmentProductionFixture(t)
-	os.Remove(filepath.Join(o.State, "conversations.db"))
+	o.startupAdmission = productionStartupAdmission{}
 	_, _, err := newProductionDevelopmentHostWithDependencies(context.Background(), o, auth, developmentProductionDependencies{openSecrets: func() (secrets.Store, error) { t.Fatal("opener entered before preflight"); return nil, nil }})
 	if err == nil || strings.Contains(err.Error(), "dependencies required") {
 		t.Fatalf("preflight result: %v", err)
@@ -293,6 +302,51 @@ func TestDevelopmentProductionCleanupShutdownError(t *testing.T) {
 			}
 			if audit.closes.Load() != 1 || closed != 1 {
 				t.Fatalf("close counts audit=%d runtime=%d", audit.closes.Load(), closed)
+			}
+		})
+	}
+}
+
+// Constructor-level admission tests, not entrypoint acceptance.
+func TestDevelopmentValidatedStartupBinding(t *testing.T) {
+	o, auth := developmentProductionFixture(t)
+	if err := o.startupAdmission.validateDevelopmentBinding(o); err != nil {
+		t.Fatal(err)
+	}
+	canonical := canonicalGenerationStartup()
+	canonical.authorities = productionAuthorityResolvers{
+		configPath:       func() string { return o.ConfigAuthority },
+		conversationPath: func() (string, error) { return o.Identity.Store, nil },
+	}
+	if _, err := canonical.admitActivation(context.Background()); err == nil {
+		t.Fatal("canonical activation admitted")
+	}
+	for _, field := range []string{"absent", "state", "config", "store", "host", "build", "generation"} {
+		t.Run(field, func(t *testing.T) {
+			bad := o
+			id := *o.Identity
+			bad.Identity = &id
+			switch field {
+			case "absent":
+				bad.startupAdmission = productionStartupAdmission{}
+			case "state":
+				bad.State += "-other"
+			case "config":
+				bad.ConfigAuthority += "-missing"
+			case "store":
+				bad.Identity.Store += "-other"
+			case "host":
+				bad.Host += "-other"
+			case "build":
+				bad.Identity.Build += "-other"
+			case "generation":
+				bad.Generation += "-other"
+			}
+			_, _, err := newProductionDevelopmentHostWithDependencies(context.Background(), bad, auth, developmentProductionDependencies{
+				openSecrets: func() (secrets.Store, error) { t.Fatal("dependency entered before admission"); return nil, nil },
+			})
+			if err == nil || !strings.Contains(err.Error(), "binding required") {
+				t.Fatalf("expected binding denial before config/dependencies: %v", err)
 			}
 		})
 	}

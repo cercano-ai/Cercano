@@ -79,24 +79,20 @@ func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, state, ho
 }
 
 func newProductionDevelopmentHostWithDependencies(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth, deps developmentProductionDependencies) (_ *server.Server, pending *preparedShutdown, err error) {
-	// Repeat the read-only contract check so even direct internal callers cannot
-	// enter the credential/runtime dependencies before preflight.
-	database := filepath.Join(o.State, "conversations.db")
-	startup := canonicalGenerationStartup()
-	// Existing prepared entry retains its explicitly selected snapshot authority;
-	// canonical generation policy never falls back to these paths.
-	startup.authorities = productionAuthorityResolvers{
-		configPath:       func() string { return filepath.Join(o.State, "config.yaml") },
-		conversationPath: func() (string, error) { return database, nil },
-	}
-	admission, err := startup.admit(ctx)
-	if err != nil {
+	// Consume the launcher's validated admission before config loading or any
+	// dependencies. Direct callers cannot manufacture admission from paths.
+	admission := o.startupAdmission
+	if err := admission.validateDevelopmentBinding(o); err != nil {
 		return nil, nil, err
 	}
+	database := admission.paths.conversations
 	if o.Identity == nil || auth == nil || deps.openSecrets == nil {
 		return nil, nil, fmt.Errorf("prepared identity, auth and dependencies required")
 	}
-	configPath := admission.paths.config
+	configPath, err := developmentConfigAuthority(o.State, admission.paths.config)
+	if err != nil {
+		return nil, nil, err
+	}
 	// Ordinary loading retains the coordinator baseline and supported overrides.
 	cfg, err := config.Load(configPath)
 	if err != nil {

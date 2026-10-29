@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/pkg/config"
@@ -32,6 +33,32 @@ type productionStartupAdmission struct {
 	legacy bool
 	// Set only after read-only generation compatibility preflight succeeds.
 	generationPreflight bool
+	bounded             *validatedDevelopmentBinding
+}
+
+// validatedDevelopmentBinding is an invocation-local snapshot, not an activation
+// switch. Only the validated launcher mints it in production. Copy scalar identity
+// fields so later mutation of the protobuf cannot change the admitted identity.
+type validatedDevelopmentBinding struct {
+	state, config, store, generation, host, build, contract string
+	schema                                                  int32
+}
+
+func developmentBinding(o developmentHostOptions) validatedDevelopmentBinding {
+	b := validatedDevelopmentBinding{state: o.State, config: o.ConfigAuthority, generation: o.Generation, host: o.Host}
+	if o.Identity != nil {
+		b.store, b.build, b.contract, b.schema = o.Identity.Store, o.Identity.Build, o.Identity.Contract, o.Identity.Schema
+	}
+	return b
+}
+
+func (a productionStartupAdmission) validateDevelopmentBinding(o developmentHostOptions) error {
+	if a.legacy || !a.generationPreflight || a.bounded == nil || o.Identity == nil ||
+		*a.bounded != developmentBinding(o) || o.Identity.Host != o.Host ||
+		a.paths.config != o.ConfigAuthority || a.paths.conversations != o.Identity.Store {
+		return fmt.Errorf("validated development startup binding required")
+	}
+	return a.validateActivation()
 }
 
 // admit must precede enterprise, runtime, credentials, config loading/migration
@@ -120,7 +147,13 @@ func (a productionStartupAdmission) validateActivation() error {
 		return fmt.Errorf("startup admission required")
 	}
 	if !a.legacy {
-		return fmt.Errorf("canonical generation startup requires service parity; activation disabled")
+		b := a.bounded
+		contract := conversation.DevelopmentCoexistenceDeclaration()
+		if !a.generationPreflight || b == nil || b.state == "" || b.generation == "" || b.host == "" || b.build == "" ||
+			b.config != a.paths.config || b.store != a.paths.conversations ||
+			b.store != filepath.Join(b.state, "conversations.db") || b.contract != contract.Contract || b.schema != int32(contract.SchemaVersion) {
+			return fmt.Errorf("canonical generation startup requires service parity; activation disabled")
+		}
 	}
 	return nil
 }

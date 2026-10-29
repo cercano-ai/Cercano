@@ -22,15 +22,18 @@ import (
 )
 
 type developmentHostSelection struct {
-	Endpoint     string
-	TokenFile    string
-	Identity     *proto.LifecycleIdentity
-	Conversation string
-	Epoch        string
+	ConfigAuthority string
+	Endpoint        string
+	TokenFile       string
+	Identity        *proto.LifecycleIdentity
+	Conversation    string
+	Epoch           string
 }
 type developmentHostOptions struct {
 	State, Generation, Host, TokenFile, Record, RuntimeRoot, Listen string
+	ConfigAuthority                                                 string
 	Identity                                                        *proto.LifecycleIdentity
+	startupAdmission                                                productionStartupAdmission
 }
 
 // Factory injection is invocation-local, never an environment switch. Preflight
@@ -64,6 +67,7 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 	var o developmentHostOptions
 	fs := flag.NewFlagSet("development-host", flag.ContinueOnError)
 	fs.SetOutput(out)
+	fs.StringVar(&o.ConfigAuthority, "config-authority", "", "absolute isolated config authority (adjacent MCP and permissions)")
 	fs.StringVar(&o.State, "state", "", "absolute prepared private state")
 	fs.StringVar(&o.Generation, "generation", "", "absolute immutable published generation")
 	fs.StringVar(&o.Host, "host", "", "exact host instance")
@@ -131,7 +135,11 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		return fmt.Errorf("published executable digest mismatch")
 	}
 	database := filepath.Join(o.State, "conversations.db")
-	for _, p := range []string{database, filepath.Join(o.State, "config.yaml")} {
+	o.ConfigAuthority, err = developmentConfigAuthority(o.State, o.ConfigAuthority)
+	if err != nil {
+		return err
+	}
+	for _, p := range []string{database, o.ConfigAuthority} {
 		if err := developmentPrivatePath(p, false); err != nil {
 			return err
 		}
@@ -150,6 +158,16 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		return err
 	}
 	o.Identity = &proto.LifecycleIdentity{Build: manifest.Build, Host: o.Host, Store: database, Contract: contract.Contract, Schema: int32(contract.SchemaVersion)}
+	// Hand off exactly this invocation's completed validation; canonical startup
+	// remains disabled and the constructor must match these options before load.
+	binding := developmentBinding(o)
+	o.startupAdmission = productionStartupAdmission{
+		paths:               productionAuthorityPaths{config: o.ConfigAuthority, conversations: database},
+		generationPreflight: true, bounded: &binding,
+	}
+	if err := o.startupAdmission.validateDevelopmentBinding(o); err != nil {
+		return err
+	}
 	auth, err := devhostauth.Load(o.Host, o.TokenFile)
 	if err != nil {
 		return err
@@ -192,7 +210,7 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		return fmt.Errorf("authenticated readiness: %w", err)
 	}
 	conn.Close()
-	record := developmentHostSelection{Endpoint: endpoint, TokenFile: o.TokenFile, Identity: o.Identity}
+	record := developmentHostSelection{ConfigAuthority: o.ConfigAuthority, Endpoint: endpoint, TokenFile: o.TokenFile, Identity: o.Identity}
 	if err := publishDevelopmentRecord(o.Record, record); err != nil {
 		return err
 	}

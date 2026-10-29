@@ -18,11 +18,13 @@ import (
 )
 
 type DevHostSelection struct {
-	Endpoint     string
-	TokenFile    string
-	Identity     *proto.LifecycleIdentity
-	Conversation string
-	Epoch        string
+	// Retain the launcher's explicit authority when emitting updated selections.
+	ConfigAuthority string
+	Endpoint        string
+	TokenFile       string
+	Identity        *proto.LifecycleIdentity
+	Conversation    string
+	Epoch           string
 }
 
 func ReadDevHostSelection(path string) (DevHostSelection, error) {

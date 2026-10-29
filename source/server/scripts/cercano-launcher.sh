@@ -8,6 +8,8 @@ if [[ $# == 1 ]]; then
 fi
 if [[ "$INFO_ONLY" == 0 ]]; then
     export CERCANO_DEVELOPMENT_STATE="${CERCANO_DEVELOPMENT_STATE:-${HOME}/.config/cercano-development}"
+    # Explicit isolated authority is passed unchanged through Python to both Go entries.
+    export CERCANO_DEVELOPMENT_CONFIG_AUTHORITY="${CERCANO_DEVELOPMENT_CONFIG_AUTHORITY:-${CERCANO_DEVELOPMENT_STATE}/config.yaml}"
 fi
 REPO="${CERCANO_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 exec python3 "$REPO/source/server/scripts/cercano-launcher.py" --repo "$REPO" "$@"

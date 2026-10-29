@@ -107,7 +107,7 @@ func TestDevelopmentLaunchAuthenticatedConcurrentReuse(t *testing.T) {
 	pb.RegisterAgentServer(server, &launchTestHost{identity: id})
 	go server.Serve(listener)
 	defer server.Stop()
-	record := launchSelection{Endpoint: listener.Addr().String(), TokenFile: token, Identity: id}
+	record := launchSelection{ConfigAuthority: filepath.Join(state, "config.yaml"), Endpoint: listener.Addr().String(), TokenFile: token, Identity: id}
 	if e = launchExclusive(base+".json", record); e != nil {
 		t.Fatal(e)
 	}
