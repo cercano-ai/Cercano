@@ -1,0 +1,105 @@
+package ui
+
+import (
+	"fmt"
+	"strings"
+
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+)
+
+// Activity is derived from existing child lifecycles, never the parent's turn or
+// a timer. In particular, terminal/error tabs retained for review aren't live.
+type agentActivityLink struct {
+	id         string
+	start, end int
+}
+
+func (m Model) agentActivityRow() (string, []agentActivityLink) {
+	if m.contentPageActive() {
+		return "", nil
+	}
+	var live []*chatTab
+	for _, id := range m.chatTabs.order {
+		tab := m.chatTabs.tabs[id]
+		if id != mainChatTabID && tab != nil && !tab.done && !strings.HasPrefix(id, "activity:") {
+			live = append(live, tab)
+		}
+	}
+	if len(live) == 0 {
+		return "", nil
+	}
+	text := fmt.Sprintf("Agents %d: ", len(live))
+	// Permission gates are session-scoped: there is no reliable child attribution.
+	// Don't imply every child is blocked or display a stale reconnect gate as live.
+	if c := m.pendingConfirm; c != nil && !c.stale && (c.tool != nil || c.auth != nil) {
+		text = "! Approval required | " + text
+	}
+	var links []agentActivityLink
+	shown := len(live)
+	if shown > 2 {
+		shown = 2
+	}
+	for i, tab := range live[:shown] {
+		if i > 0 {
+			text += " · "
+		}
+		status := "running"
+		if tab.taskStatus == "accepted" {
+			status = "queued"
+		}
+		label := strings.Join(strings.Fields(ansi.Strip(tab.title)), " ")
+		if label == "" {
+			label = "Agent"
+		}
+		suffix := ""
+		if remaining := len(live) - i - 1; remaining > 0 {
+			suffix = fmt.Sprintf(" +%d more", remaining)
+		}
+		budget := m.width - lipgloss.Width(text) - lipgloss.Width(suffix)
+		if budget < 4 {
+			break
+		}
+		label = ansi.Truncate(label+" ("+status+")", budget, "…")
+		start := lipgloss.Width(text)
+		text += lipgloss.NewStyle().Underline(true).Render(label)
+		links = append(links, agentActivityLink{tab.id, start, lipgloss.Width(text)})
+	}
+	// The existing task pane tracks TaskNode checklist entries, not these
+	// delegated child lifecycles. Keep overflow informational until there is a
+	// task-list navigation target for this same population.
+	if remaining := len(live) - len(links); remaining > 0 {
+		text += fmt.Sprintf(" +%d more", remaining)
+	}
+	return ansi.Truncate(text, max(0, m.width), ""), links
+}
+
+func (m Model) agentActivityHeight() int {
+	row, _ := m.agentActivityRow()
+	if row != "" {
+		return 1
+	}
+	return 0
+}
+
+// Use the rendered frame, including spare padding and queued input, as the
+// coordinate source just as prompt hit testing does.
+func (m Model) agentActivityHit(x, y int) string {
+	row, links := m.agentActivityRow()
+	if row == "" {
+		return ""
+	}
+	parts, _ := m.composeFrame()
+	top := 0
+	for _, part := range parts {
+		if part == row && top == y {
+			for _, link := range links {
+				if x >= link.start && x < link.end {
+					return link.id
+				}
+			}
+		}
+		top += countLines([]string{part})
+	}
+	return ""
+}

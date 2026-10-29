@@ -98,7 +98,8 @@ type Model struct {
 	// sub-agent tab created mid-turn, or the last one closed) cannot leave bodyH
 	// and scrollbarTop stale — which pushes the status bar off-screen and
 	// misaligns the tab-click row until some other event forces a relayout.
-	stripShown bool
+	stripShown         bool
+	agentActivityShown bool
 
 	// contentScrollbarDragging is the same gesture, but for a reusable content
 	// page scrollbar rather than the main chat scrollback.
@@ -1038,6 +1039,11 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 	}
 	if update, ok := msg.(taskSubscriptionMsg); ok {
 		cmd := m.applyTaskSubscription(update)
+		// Durable child lifecycle events bypass the main stream handlers. Their
+		// chrome must reserve/reclaim rows in this same frame too.
+		if (m.hasSubAgentTabs() && !m.contentPageActive()) != m.stripShown || (m.agentActivityHeight() > 0) != m.agentActivityShown {
+			m.relayout()
+		}
 		return m, cmd
 	}
 	if result, ok := msg.(conversationSearchResultMsg); ok {
@@ -1251,6 +1257,11 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		if m.taskPane.Expanded && m.taskPaneHit(mouse.X, mouse.Y) {
 			// The expanded pane body belongs to task interactions; do not let a
 			// click through to scrollback selection behind the right-side drawer.
+			return m, nil
+		}
+		if id := m.agentActivityHit(mouse.X, mouse.Y); id != "" {
+			m.switchChatTab(id)
+			m.refreshViewport()
 			return m, nil
 		}
 		if m.hasSubAgentTabs() && mouse.Y == m.scrollbarTop-2 {
@@ -3570,7 +3581,7 @@ func (m *Model) relayout() {
 	if contentW < 20 {
 		contentW = 20
 	}
-	const chromeNoInput = 5 // header + 3 dividers + status (input height added below)
+	chromeNoInput := 4 + countLines([]string{m.renderStatus()}) // header + 3 dividers + status (which wraps on narrow terminals)
 	splashH := 0
 	if m.splashEffective() {
 		splashH = 9 // 8 banner rows + 1 blank
@@ -3610,7 +3621,7 @@ func (m *Model) relayout() {
 	// this width; the body claims whatever rows are left.
 	m.input.SetWidth(contentW - 4)
 	inputH := m.input.Height()
-	bodyH := m.height - chromeNoInput - inputH - splashH - suggestH - recapH - queuedH - searchH
+	bodyH := m.height - chromeNoInput - inputH - splashH - suggestH - recapH - queuedH - searchH - m.agentActivityHeight()
 	if m.hasSubAgentTabs() && !m.contentPageActive() {
 		bodyH -= 2 // chat tab strip row + its underline rule
 	}
@@ -3628,6 +3639,7 @@ func (m *Model) relayout() {
 	// Record the strip's shown-state so refreshViewport() can detect a drift
 	// (a tab created/closed between layouts) and re-run us before painting.
 	m.stripShown = m.hasSubAgentTabs() && !m.contentPageActive()
+	m.agentActivityShown = m.agentActivityHeight() > 0
 	m.refreshViewport()
 }
 
@@ -3778,7 +3790,7 @@ func (m *Model) refreshViewport() {
 	// reserved). Re-lay-out first; relayout() calls back here with stripShown in
 	// sync, so this recurses at most once. Single choke point that keeps every
 	// tab-mutation path (create, sweep, close) self-correcting.
-	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown {
+	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown || (m.agentActivityHeight() > 0) != m.agentActivityShown {
 		m.relayout()
 		return
 	}
@@ -3794,7 +3806,7 @@ func (m *Model) refreshVisibleDynamicViewport() {
 	// structural, so fall back to the full layout pass that recalculates bodyH and
 	// scrollbarTop. Ordinary token deltas keep the existing layout and repaint only
 	// visible dynamic units; this is the hot path while the model streams.
-	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown {
+	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown || (m.agentActivityHeight() > 0) != m.agentActivityShown {
 		m.relayout()
 		return
 	}
@@ -5635,6 +5647,9 @@ func (m Model) composeFrame() (parts []string, inputIdx int) {
 
 	promptLine := lipgloss.NewStyle().Foreground(m.promptBorderColor).Render(strings.Repeat("─", m.width))
 	promptParts := []string{}
+	if row, _ := m.agentActivityRow(); row != "" {
+		promptParts = append(promptParts, row)
+	}
 	// Queued messages float just above the prompt border on the main chat page.
 	// Content pages such as /c should show only their own page body and the prompt;
 	// queued chat turns remain pending but do not leak into the page chrome.
