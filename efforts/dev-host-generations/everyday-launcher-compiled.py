@@ -311,7 +311,7 @@ def run(repo,evidence):
             assert len([e for e in events() if e['event']=='completion-notice'])==1
             retained=json.loads(control(sa,'list'))['Response']['retained']
             assert A['Conversation'] in {r['conversation'] for r in retained}
-            record('A independent task completed; no deferred transfer',tasks=rows('select id,status from delegated_tasks'))
+            record('A independent task completed; no deferred transfer',tasks=rows('select id,status,notification_pending,wake_claimed from delegated_tasks'), completion_notices=len([e for e in events() if e['event']=='completion-notice']))
             # Physically restart through the ordinary launcher, never a selection file.
             b.stop();terminals.remove(b)
             reopened,sr,R=launch('B-restarted')
@@ -345,7 +345,9 @@ def run(repo,evidence):
             reopened.send('FIXTURE_B_AFTER_A_RETIREMENT\r')
             wait(lambda:any('FIXTURE_B_AFTER_A_RETIREMENT' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'B fresh model work after A retirement',40)
             wait(lambda:rows("select conversation_id from turns where role='user' and content='FIXTURE_B_AFTER_A_RETIREMENT'")==[(A['Conversation'],)],'post-retirement B durable turn')
-            record('explicit A retirement after transfer and release; B continues',calls=events()[offset:])
+            post_reply_sql="select role,content from turns where conversation_id='"+A['Conversation']+"' and role='assistant' and rowid > (select rowid from turns where role='user' and content='FIXTURE_B_AFTER_A_RETIREMENT')"
+            wait(lambda:any('FIXTURE_OK' in r[1] for r in rows(post_reply_sql)),'B durable assistant reply after A retirement',40)
+            record('explicit A retirement after transfer and release; B continues',calls=events()[offset:], durable_assistant_reply=rows(post_reply_sql))
             report['passed']=True
             record('PASS bounded compiled A/B rehearsal through validated launcher startup', limitations=['synthetic providers and memory credentials', 'not full ordinary-app production acceptance', 'canonical production activation remains denied'])
         except Exception as e:
