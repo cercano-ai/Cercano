@@ -42,6 +42,7 @@ type coexistenceLifecycle struct {
 	mu             sync.Mutex
 	retireMu       sync.Mutex
 	retireDone     chan struct{}
+	retired        chan struct{}
 	retireErr      error
 	storeCloseOnce sync.Once
 	storeCloseErr  error
@@ -69,7 +70,7 @@ func NewCoexistenceServer(ctx context.Context, o CoexistenceOptions) (*Server, e
 	if err != nil {
 		return nil, err
 	}
-	return &Server{coexistence: &coexistenceLifecycle{options: o, store: store, admission: broker.NewAdmission(o.Host), owners: make(map[string]*conversation.Ownership), ready: make(map[broker.Owner]bool), incoming: make(map[broker.IncomingHandover]*IncomingAcceptance)}}, nil
+	return &Server{coexistence: &coexistenceLifecycle{options: o, store: store, retired: make(chan struct{}), admission: broker.NewAdmission(o.Host), owners: make(map[string]*conversation.Ownership), ready: make(map[broker.Owner]bool), incoming: make(map[broker.IncomingHandover]*IncomingAcceptance)}}, nil
 }
 func (s *Server) lifecycle() (*coexistenceLifecycle, error) {
 	if s.coexistence == nil {
@@ -395,6 +396,9 @@ func (s *Server) RetireCoexistence(ctx context.Context) error {
 			err = errors.Join(err, l.options.CloseParticipation(context.Background()))
 			l.retireErr = errors.Join(err, s.CloseCoexistenceStore())
 			close(l.retireDone)
+			if l.retireErr == nil {
+				close(l.retired)
+			}
 		}()
 	}
 	done := l.retireDone
@@ -410,6 +414,17 @@ func (s *Server) RetireCoexistence(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// CoexistenceRetired notifies the transport owner only after successful retained
+// retirement, never on a busy reservation, observer timeout, or disposal error.
+// The owner must drain active RPC responses before closing its transport.
+// A server without coexistence returns nil (no retirement notification).
+func (s *Server) CoexistenceRetired() <-chan struct{} {
+	if s.coexistence == nil {
+		return nil
+	}
+	return s.coexistence.retired
 }
 
 // CloseCoexistenceStore is the single disposal owner for the borrowed prepared

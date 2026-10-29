@@ -179,22 +179,7 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 	if srv == nil {
 		return finishPreparedShutdown(dependencies, fmt.Errorf("dependency factory returned no server"))
 	}
-	gate := newProductionAdmissionGate()
-	transport := grpc.NewServer(append(auth.ServerOptions(), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream))...)
-	proto.RegisterAgentServer(transport, srv)
-	shutdown := newPreparedShutdown(func() { gate.close(); srv.FenceBackgroundWork() }, func() error {
-		srv.BeginShutdown()
-		gate.drain()
-		var err error
-		if dependencies != nil {
-			err = dependencies.Wait(context.Background())
-		} else {
-			err = srv.Shutdown()
-		}
-		transport.GracefulStop()
-		return err
-	})
-	srv.SetShutdownControl(shutdown.Control)
+	transport, shutdown := newDevelopmentHostTransport(srv, dependencies, auth)
 	defer func() { result = finishPreparedShutdown(shutdown, result) }()
 	listener, err := net.Listen("tcp", o.Listen)
 	if err != nil {
@@ -215,13 +200,43 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		return err
 	}
 	fmt.Fprintf(out, "development-host ready %s build=%s host=%s\n", endpoint, manifest.Build, o.Host)
+	return waitDevelopmentHost(ctx, done, srv.CoexistenceRetired())
+}
+
+// Retirement wakes the same owner that handles cancellation and Serve failure.
+// Its prepared shutdown drains admission and GracefulStop drains the final RPC
+// response; the retirement worker itself must not stop the transport.
+func waitDevelopmentHost(ctx context.Context, served <-chan error, retired <-chan struct{}) error {
 	select {
 	case <-ctx.Done():
 		return nil
-	case err := <-done:
+	case err := <-served:
 		return err
+	case <-retired:
+		return nil
 	}
 }
+
+func newDevelopmentHostTransport(srv *server.Server, dependencies *preparedShutdown, auth *devhostauth.Auth) (*grpc.Server, *preparedShutdown) {
+	gate := newProductionAdmissionGate()
+	transport := grpc.NewServer(append(auth.ServerOptions(), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream))...)
+	proto.RegisterAgentServer(transport, srv)
+	shutdown := newPreparedShutdown(func() { gate.close(); srv.FenceBackgroundWork() }, func() error {
+		srv.BeginShutdown()
+		gate.drain()
+		var err error
+		if dependencies != nil {
+			err = dependencies.Wait(context.Background())
+		} else {
+			err = srv.Shutdown()
+		}
+		transport.GracefulStop()
+		return err
+	})
+	srv.SetShutdownControl(shutdown.Control)
+	return transport, shutdown
+}
+
 func developmentDialIdentity(ctx context.Context, endpoint string, auth *devhostauth.Auth, want *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
 	if !devLoopback(endpoint) || want == nil {
 		return nil, fmt.Errorf("invalid peer identity or endpoint")
