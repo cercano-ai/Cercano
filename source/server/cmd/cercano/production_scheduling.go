@@ -8,6 +8,7 @@ import (
 	"cercano/source/server/internal/compactiongen"
 	"cercano/source/server/internal/contextmeter"
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/internal/engine"
 	"cercano/source/server/internal/loopcompact"
 	"cercano/source/server/internal/recap"
 	"cercano/source/server/internal/server"
@@ -79,4 +80,17 @@ func preparedProductionScheduling(d productionSchedulingDependencies, o producti
 		p := composeProductionScheduling(st, d, o)
 		return p.recap, p.compaction
 	}
+}
+
+// newProductionPreparedServer binds the surviving prepared composition to the
+// exact-store factory. The server installs exact-owner callbacks and owns their
+// fence/join, including constructor rollback; no legacy scheduler is installed.
+func newProductionPreparedServer(ctx context.Context, options server.PreparedServerOptions, routing productionRouting, cloud agent.CloudFactory, registry *engine.EngineRegistry, d productionSchedulingDependencies, o productionSchedulingOptions) (*server.Server, error) {
+	options.Scheduling = preparedProductionScheduling(d, o)
+	s, err := server.NewPreparedDurableServer(ctx, options, routing.router, routing.coordinator, cloud, registry)
+	if err != nil {
+		return nil, err
+	}
+	s.SetLoopCompactorFactory(loopcompact.NewFactory(d.loop))
+	return s, nil
 }

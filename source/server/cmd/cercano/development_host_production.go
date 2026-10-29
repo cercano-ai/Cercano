@@ -20,6 +20,7 @@ import (
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/localruntime"
 	"cercano/source/server/internal/locus"
+	"cercano/source/server/internal/loopcompact"
 	"cercano/source/server/internal/modelhost"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/server"
@@ -32,6 +33,7 @@ import (
 // Invocation-local seams: tests never open a native credential backend or attach
 // to a real runtime. There are deliberately no environment-selected fixtures.
 type developmentProductionDependencies struct {
+	accounting      toolstack.EngineDeps
 	watchdog        server.WatchdogDependencies
 	cloudBuilder    providers.CloudBuilder
 	mcp             productionMCPDependencies
@@ -233,7 +235,6 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		open: openRunner, cloud: cloud, cloudFactory: cloudFactory,
 		embeddingModel: openEmbeddingModel(cfg), embedder: embedder, classificationDisabled: !local,
 	})
-	coordinator, router := routing.coordinator, routing.router
 
 	var loader *projectctx.Loader
 	var orchestrator *agent.Agent
@@ -241,7 +242,19 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if err := os.MkdirAll(diagnostics, 0700); err != nil {
 		return nil, nil, err
 	}
-	srv, err := server.NewPreparedDurableServer(ctx, server.PreparedServerOptions{
+	schedulingDeps := productionSchedulingDependencies{
+		recapRunner: openRunner,
+		loop:        loopcompact.WiringDeps{Cfg: cfg, ChatModel: openChatModel(cfg), Candidates: func() inference.Tiers { return ownedServer.DispatchCandidates() }},
+	}
+	if id, ok := openTierModelOK(cfg, config.TierFastLightText); ok {
+		schedulingDeps.recapModel = id
+	}
+	if local {
+		schedulingDeps.loop.OpenRuntimeContext = llamaengine.NewEngine(manager).RuntimeContext
+	}
+	schedulingOptions := ordinarySchedulingOptions()
+	schedulingOptions.attempts = deps.accounting.AttemptSink
+	srv, err := newProductionPreparedServer(ctx, server.PreparedServerOptions{
 		RetainFailure: func(dispose func() error) { constructorRollback = dispose },
 		Watchdog:      deps.watchdog,
 		CloudBuilder:  deps.cloudBuilder,
@@ -255,7 +268,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 			orchestrator, loader, err = composeProductionAgent(routing, store, cfg, productionScheduling{})
 			return orchestrator, err
 		},
-	}, router, coordinator, cloudFactory, registry)
+	}, routing, cloudFactory, registry, schedulingDeps, schedulingOptions)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -277,7 +290,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	} else if cfg.LocusMode != "open_only" {
 		return nil, nil, fmt.Errorf("cloud routing selected without an active prepared cloud profile")
 	}
-	if err = composeProductionServices(srv, orchestrator, loader, toolstack.EngineDeps{}, executionPolicy); err != nil {
+	if err = composeProductionServices(srv, orchestrator, loader, deps.accounting, executionPolicy); err != nil {
 		return nil, nil, err
 	}
 	mcpCleanup, err := composeProductionMCP(srv, filepath.Dir(configPath), deps.mcp, executionPolicy)

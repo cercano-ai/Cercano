@@ -26,8 +26,7 @@ import (
 
 // productionRoutingDependencies is invocation-local: callers supply resolved
 // providers and embedding transport, never ambient credential/runtime openers.
-// Store opening and compatibility preflight remain host responsibilities;
-// execution policy below keeps prepared background producers disabled.
+// Store opening and compatibility preflight remain host responsibilities.
 type productionRoutingDependencies struct {
 	open, cloud    agent.TurnRunner
 	cloudFactory   agent.CloudFactory
@@ -123,8 +122,8 @@ func bindProductionAgent(s *server.Server, a *agent.Agent, loader *projectctx.Lo
 // composeProductionServices installs the real shared dispatch/capability graph
 // onto the caller's exact server and agent; it never opens or replaces a store.
 // Worker installation remains a separate final startup step so ordinary MCP
-// registration keeps its historical ordering. No background producers are
-// enabled for prepared hosts. Accounting sinks are invocation-local inputs.
+// registration keeps its historical ordering. Prepared scheduling is installed
+// separately through the exact-owner factory. Accounting sinks are invocation-local inputs.
 func composeProductionServices(s *server.Server, a *agent.Agent, loader *projectctx.Loader, accounting toolstack.EngineDeps, policy productionExecutionPolicy) error {
 	if err := policy.validate(); err != nil {
 		return err

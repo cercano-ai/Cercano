@@ -16,8 +16,10 @@ import (
 	"cercano/source/server/pkg/config"
 )
 
-// Reachability audit: NewPreparedDurableServer disables scheduling; routing's
-// cloud factory and embedder are lazy and Read/ListTools never enter them.
+// Reachability audit: prepared production construction installs idle scheduling
+// producers; it does not enqueue work. Compactor construction may query runtime
+// capacity through the in-memory manager below, without preparing an instance.
+// Routing's cloud factory and embedder are lazy; Read/ListTools never enter them.
 // InstallCapabilities registers callbacks, not executions. Prepared MCP returns
 // before construction and composeProductionServices skips InitWatchdog. Trap
 // both anyway. ConfigurePreparedWorker only constructs a pool; these snapshots
