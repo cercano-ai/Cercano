@@ -2,6 +2,9 @@ module cercano/source/server
 
 go 1.26.0
 
+// Preserve Darwin query errors; see third_party/keyring/README.cercano.md.
+replace github.com/99designs/keyring => ./third_party/keyring
+
 require (
 	github.com/99designs/keyring v1.2.2
 	github.com/PuerkitoBio/goquery v1.12.0
