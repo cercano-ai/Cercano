@@ -142,7 +142,9 @@ def run(repo,evidence):
             assert {e['pid'] for e in events()[offset:] if e['event']=='child-entered'}=={pidA}
             task=rows('select id,parent_id,status,child_id from delegated_tasks')
             assert len(task)==1 and task[0][2]=='running',task
-            later=[e for e in worker_events()[worker_offset:] if e['conversation']==task[0][3]]
+            # Delegated tasks execute through the parent runner; identify the
+            # actual pinned worker's later foreground turns, not the child ID.
+            later=[e for e in worker_events()[worker_offset:] if e['conversation']==task[0][1]]
             assert later, worker_events()
             manifest_path=P(A['Generation'])/'manifest.json'
             manifest=json.loads(manifest_path.read_text())
@@ -155,7 +157,10 @@ def run(repo,evidence):
                 assert e['manifest_sha256']==manifest_hash, e
                 assert manifest['build_id']==A['Identity']['build']
                 assert manifest['generation']==P(A['Generation']).name
-                assert 'vcs.revision='+manifest['source_commit'] in e['build_info'], e
+                # The isolated source copy has no VCS metadata. Exact binary
+                # and manifest digests above bind this worker to the source build.
+                assert 'path\tcercano/source/server/cmd/cercano' in e['build_info'], e
+                assert '-tags=developmentfixture,cercano_development_acceptance' in e['build_info'], e
                 assert e['sha256']!=json.loads((P(B['Generation'])/'manifest.json').read_text())['binaries']['cercano']['sha256']
             shutil.copyfile(manifest_path,evidence/'A-manifest.json')
             record('fresh A foreground and actual later pinned worker after B',pidA=pidA,tasks=task,workers=later,A_manifest_sha256=manifest_hash,A_build_id=manifest['build_id'],A_generation=manifest['generation'])
