@@ -5,6 +5,10 @@ import (
 	"strings"
 
 	"cercano/source/clients/cli/internal/render"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 // This file implements the scrollback render cache. SetEntries used to
@@ -277,7 +281,7 @@ func (c *chatView) committedPrefix(e *Entry, blocks []render.MdBlock, textW int)
 		return sp.prefix
 	}
 	var parts []string
-	for _, b := range blocks {
+	for i, b := range blocks {
 		s := c.renderMdBlock(b, textW)
 		if isHeadingBlock(b) {
 			// A blank line before a heading gives it breathing room — but not
@@ -293,6 +297,9 @@ func (c *chatView) committedPrefix(e *Entry, blocks []render.MdBlock, textW int)
 			// caller (renderAssistantMarkdown) when no streaming tail follows.
 			s += "\n"
 		}
+		if i > 0 && endsWithBlockquote(blocks[i-1]) && quoteNeedsGap(parts[i-1], s) {
+			s = "\n" + s
+		}
 		parts = append(parts, s)
 	}
 	*sp = streamPrefixCache{
@@ -304,4 +311,26 @@ func (c *chatView) committedPrefix(e *Entry, blocks []render.MdBlock, textW int)
 		prefix:     strings.Join(parts, "\n"),
 	}
 	return sp.prefix
+}
+
+// endsWithBlockquote uses Markdown structure rather than rendered indentation:
+// lists/code also indent, and quote paragraphs can have lazy continuation lines.
+func endsWithBlockquote(b render.MdBlock) bool {
+	if b.Kind != render.MdProse {
+		return false
+	}
+	doc := goldmark.DefaultParser().Parse(text.NewReader([]byte(b.Raw)))
+	last := doc.LastChild()
+	return last != nil && last.Kind() == ast.KindBlockquote
+}
+
+// quoteNeedsGap accounts for existing heading spacing and Glamour's leading
+// blank quote line. Never change content indentation or add terminal padding.
+func quoteNeedsGap(left, right string) bool {
+	if left == "" || right == "" {
+		return false
+	}
+	last := left[strings.LastIndex(left, "\n")+1:]
+	first, _, _ := strings.Cut(right, "\n")
+	return strings.TrimSpace(ansi.Strip(last)) != "" && strings.TrimSpace(ansi.Strip(first)) != ""
 }
