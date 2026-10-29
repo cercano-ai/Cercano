@@ -37,7 +37,20 @@ func (s *Server) installPreparedScheduling(a *agent.Agent, factory PreparedSched
 			if r == nil {
 				return nil
 			}
-			_, err = persistsvc.ScheduleOwnedRecap(ctx, r, owner, s.BeginRetainedWork)
+			// Serialize admission with dispatch finalization and retain the producer
+			// result so child ownership cannot be released under delayed writeback.
+			scope, _ := ctx.Value(preparedDispatchKey{}).(*preparedDispatchScope)
+			if scope != nil {
+				scope.mu.Lock()
+				defer scope.mu.Unlock()
+				if scope.closed {
+					return broker.ErrAdmissionClosed
+				}
+			}
+			work, err := persistsvc.ScheduleOwnedRecap(ctx, r, owner, s.BeginRetainedWork)
+			if err == nil && scope != nil {
+				scope.waits = append(scope.waits, func() error { <-work.Done; return work.Err })
+			}
 			return err
 		},
 		Compaction: func(ctx context.Context, id string) error {
@@ -52,7 +65,20 @@ func (s *Server) installPreparedScheduling(a *agent.Agent, factory PreparedSched
 			if c == nil {
 				return nil
 			}
-			_, err = persistsvc.ScheduleOwnedCompaction(ctx, c, owner, s.BeginRetainedWork)
+			// Serialize admission with dispatch finalization and retain the producer
+			// result so child ownership cannot be released under delayed writeback.
+			scope, _ := ctx.Value(preparedDispatchKey{}).(*preparedDispatchScope)
+			if scope != nil {
+				scope.mu.Lock()
+				defer scope.mu.Unlock()
+				if scope.closed {
+					return broker.ErrAdmissionClosed
+				}
+			}
+			work, err := persistsvc.ScheduleOwnedCompaction(ctx, c, owner, s.BeginRetainedWork)
+			if err == nil && scope != nil {
+				scope.waits = append(scope.waits, func() error { <-work.Done; return work.Err })
+			}
 			return err
 		},
 	})(a)

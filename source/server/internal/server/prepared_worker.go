@@ -127,6 +127,7 @@ func (a *preparedWorkerAuthority) Context(ctx context.Context, id string) (conte
 	}
 	return a.ctx, nil
 }
+
 // Close is deliberately conservative: its caller supplies only a run error,
 // not proof that terminal evidence was committed and execution drained. Thus
 // even a backend error with durable evidence retains this worker's ticket. This
@@ -144,6 +145,27 @@ func (a *preparedWorkerAuthority) Close(err error) {
 
 // preparedDispatchKey bounds descendants to a single admitted level.
 type preparedDispatchKey struct{}
+
+// A dispatch owns its child until every scheduled producer has returned, including
+// its final persistence callback. Closing the scope fences new schedules before
+// joining; cancellation or a returned model response is not completion.
+type preparedDispatchScope struct {
+	mu     sync.Mutex
+	closed bool
+	waits  []func() error
+}
+
+func (d *preparedDispatchScope) join() error {
+	d.mu.Lock()
+	d.closed = true
+	waits := d.waits
+	d.mu.Unlock()
+	var err error
+	for _, wait := range waits {
+		err = errors.Join(err, wait())
+	}
+	return err
+}
 
 func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string) (context.Context, func(error) error, error) {
 	if ctx.Value(preparedDispatchKey{}) != nil || parent == child || child == "" {
@@ -186,17 +208,46 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 		}
 		return nil, nil, err
 	}
+	// The child is an exact admitted identity, not just a store capability.
+	// Keep the parent's ticket across registration, producers and durable release.
+	childOwner := ownerOf(owned)
+	l.mu.Lock()
+	err = l.admission.RegisterOwner(childOwner)
+	var childTicket *broker.WorkTicket
+	if err == nil {
+		childTicket, err = l.admission.AdmitWork(childOwner, broker.PersistenceWork)
+	}
+	if err == nil {
+		l.ready[childOwner] = true
+	}
+	l.mu.Unlock()
+	if err != nil {
+		_ = ticket.PersistenceFailed()
+		return nil, nil, err
+	}
 	ctx = conversation.WithOwnership(ctx, cap, owned)
-	ctx = context.WithValue(ctx, preparedDispatchKey{}, true)
+	ctx = WithPreparedTaskOwnership(ctx, childOwner, owned)
+	scope := &preparedDispatchScope{}
+	ctx = context.WithValue(ctx, preparedDispatchKey{}, scope)
 	var once sync.Once
 	var closeErr error
 	complete := func(runErr error) error {
 		once.Do(func() {
-			closeErr = persistsvc.WriteFailure(ctx)
-			if closeErr == nil {
-				closeErr = runErr
-			}
+			closeErr = errors.Join(scope.join(), persistsvc.WriteFailure(ctx), runErr)
 			if closeErr != nil {
+				_ = ticket.PersistenceFailed()
+				return
+			}
+			// All child tickets must be drained before its durable release.
+			l.mu.Lock()
+			err := childTicket.Complete()
+			var closure *broker.Closure
+			if err == nil {
+				closure, err = l.admission.CloseOwner(childOwner, nil)
+			}
+			l.mu.Unlock()
+			if err != nil {
+				closeErr = err
 				_ = ticket.PersistenceFailed()
 				return
 			}
@@ -206,7 +257,13 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 				_ = ticket.PersistenceFailed()
 				return
 			}
+			closeErr = closure.Relinquished()
+			if closeErr != nil {
+				_ = ticket.PersistenceFailed()
+				return
+			}
 			l.mu.Lock()
+			delete(l.ready, childOwner)
 			delete(l.owners, child)
 			l.mu.Unlock()
 			closeErr = ticket.Complete()
