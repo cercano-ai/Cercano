@@ -143,13 +143,14 @@ func (a *preparedWorkerAuthority) Close(err error) {
 	_ = a.ticket.Complete()
 }
 
-// preparedDispatchKey bounds descendants to a single admitted level.
+// preparedDispatchKey carries the exact dispatch scope, not stream ancestry.
 type preparedDispatchKey struct{}
 
 // A dispatch owns its child until every scheduled producer has returned, including
 // its final persistence callback. Closing the scope fences new schedules before
 // joining; cancellation or a returned model response is not completion.
 type preparedDispatchScope struct {
+	owner  broker.Owner
 	mu     sync.Mutex
 	closed bool
 	waits  []func() error
@@ -168,13 +169,36 @@ func (d *preparedDispatchScope) join() error {
 }
 
 func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string) (context.Context, func(error) error, error) {
-	if ctx.Value(preparedDispatchKey{}) != nil || parent == child || child == "" {
-		return nil, nil, fmt.Errorf("nested or invalid prepared dispatch")
+	if parent == child || child == "" {
+		return nil, nil, fmt.Errorf("invalid prepared dispatch")
 	}
 	cap, err := s.resolvePreparedTaskOwner(ctx, parent)
 	if err != nil {
 		return nil, nil, err
 	}
+	// Reserve a join slot before acquisition. Closing the parent and registering
+	// a descendant are atomic under the scope lock; no lifecycle lock is held
+	// during acquisition or a join. Only the immediate parent's authority works.
+	parentScope, _ := ctx.Value(preparedDispatchKey{}).(*preparedDispatchScope)
+	done := make(chan struct{})
+	var descendantErr error
+	registered := false
+	if parentScope != nil {
+		parentScope.mu.Lock()
+		if parentScope.owner != ownerOf(cap) || parentScope.closed {
+			parentScope.mu.Unlock()
+			return nil, nil, broker.ErrAdmissionClosed
+		}
+		parentScope.waits = append(parentScope.waits, func() error { <-done; return descendantErr })
+		parentScope.mu.Unlock()
+	}
+	// Failed admission has no completion callback. Release its join slot; any
+	// uncertain acquisition still retains the existing parent work blocker.
+	defer func() {
+		if !registered {
+			close(done)
+		}
+	}()
 	ctx, ticket, err := s.BeginRetainedWork(ctx, ownerOf(cap), broker.PersistenceWork)
 	if err != nil {
 		return nil, nil, err
@@ -227,12 +251,16 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 	}
 	ctx = conversation.WithOwnership(ctx, cap, owned)
 	ctx = WithPreparedTaskOwnership(ctx, childOwner, owned)
-	scope := &preparedDispatchScope{}
+	scope := &preparedDispatchScope{owner: childOwner}
 	ctx = context.WithValue(ctx, preparedDispatchKey{}, scope)
 	var once sync.Once
 	var closeErr error
 	complete := func(runErr error) error {
 		once.Do(func() {
+			defer func() {
+				descendantErr = closeErr
+				close(done)
+			}()
 			closeErr = errors.Join(scope.join(), persistsvc.WriteFailure(ctx), runErr)
 			if closeErr != nil {
 				_ = ticket.PersistenceFailed()
@@ -270,5 +298,6 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 		})
 		return closeErr
 	}
+	registered = true
 	return ctx, complete, nil
 }
