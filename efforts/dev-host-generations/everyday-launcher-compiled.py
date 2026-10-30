@@ -166,7 +166,7 @@ def assert_new_worker(events, pre_pids, boundary, conversation):
     assert boundary < birth['unix_nano'] < turns[0]['unix_nano'], 'startup must follow B publication and precede first turn'
     return birth, turns
 
-def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordinary_session_close=False,same_conversation_close=False):
+def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordinary_session_close=False,same_conversation_close=False,offline_upgrade=False):
     assert all(os.environ.get(k)==v for k,v in {"CERCANO_DISABLE_CREDENTIALS":"1","GOPROXY":"off","GOSUMDB":"off"}.items()), "required outer offline/credential guards missing"
     evidence.mkdir(parents=True,exist_ok=True)
     report={'scope':'actual shell -> real publisher -> compiled production host -> compiled CLI PTY','steps':[],'passed':False,'worker_delegation_required':worker_delegation}
@@ -236,7 +236,9 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
         def rows(sql):
             # Python's macOS SQLite cannot open a fresh WAL database read-only
             # before -shm exists. rw forbids creation; SQL remains observation only.
-            with sqlite3.connect('file:'+str(state/'conversations.db')+'?mode=rw',uri=True) as db:return db.execute(sql).fetchall()
+            db=sqlite3.connect('file:'+str(state/'conversations.db')+'?mode=rw',uri=True)
+            try: return db.execute(sql).fetchall()
+            finally: db.close()
         def worker_events():
             f=barrier/'worker.jsonl'
             return [json.loads(x) for x in f.read_text().splitlines()] if f.exists() else []
@@ -259,6 +261,41 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             synthetic.write_text('watchdog:\n  enabled: true\n  audit:\n    enabled: true\n');synthetic.chmod(0o600)
             prepared=call([bootstrap,'prepare-development','--new-state',state])
             record('fresh bootstrap preparation',output=prepared,files=[str(x) for x in state.iterdir()])
+            if offline_upgrade:
+                # Disposable historical schema, not a prepared-store marker rewrite.
+                for suffix in ('', '-wal', '-shm'):
+                    (state/('conversations.db'+suffix)).unlink(missing_ok=True)
+                (state/'conversations.db').touch(mode=0o600,exist_ok=False)
+                legacy=sqlite3.connect(state/'conversations.db')
+                try:
+                    legacy.executescript((copy/'source/server/internal/conversation/schema.sql').read_text())
+                    legacy.execute("insert into conversations(id,title,started_at,last_turn_at) values('offline-original','Before upgrade',1,1)")
+                    legacy.execute("insert into turns(id,conversation_id,role,content,created_at) values('offline-turn','offline-original','user','FIXTURE_PRE_UPGRADE_HISTORY',1)")
+                    legacy.executescript("""CREATE TABLE delegated_tasks (
+                        id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, status TEXT NOT NULL,
+                        task TEXT NOT NULL, work_dir TEXT NOT NULL, child_id TEXT NOT NULL DEFAULT '',
+                        result_json TEXT NOT NULL DEFAULT 'null', error TEXT NOT NULL DEFAULT '',
+                        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+                        notification_pending INTEGER NOT NULL DEFAULT 0, wake_claimed INTEGER NOT NULL DEFAULT 0);""")
+                    for status in ('accepted','running','completed'):
+                        legacy.execute("insert into delegated_tasks(id,parent_id,status,task,work_dir,created_at,updated_at) values(?,?,?,?,?,1,1)",('offline-'+status,'offline-original',status,'SYNTHETIC_NOT_FOR_REPLAY',''))
+                    legacy.commit()
+                finally:
+                    # A connection context manager commits; it does NOT close.
+                    legacy.close()
+                historical_tasks=rows("select * from delegated_tasks order by id")
+                assert rows('pragma user_version')==[(0,)]
+                operation=root/'offline-upgrade-fixture'
+                call([wrapper,'build','-o',operation,'./cmd/compiled-offline-upgrade-fixture/'],copy/'source/server')
+                # Controlled no-pre-existing-writers condition: private root, closed
+                # writer, no hosts launched yet. Never invoke live discovery here.
+                upgrade=call([operation,state/'conversations.db'])
+                repeated=call([operation,state/'conversations.db'])
+                assert rows("select content from turns where id='offline-turn'")==[('FIXTURE_PRE_UPGRADE_HISTORY',)]
+                assert rows("select * from delegated_tasks order by id")==historical_tasks
+                record('real UpgradeOffline preserved history and task rows; repeat safe',output=upgrade,repeat=repeated,
+                       historical_tasks=historical_tasks, production_discovery_end_to_end=False,
+                       writer_closed_before_upgrade=True, operation_sha256=hashlib.sha256(operation.read_bytes()).hexdigest())
             cfg=state/'config.yaml';cfg.write_text('open_runtime: llama_server\nlocus_mode: open_only\ntask_assignments:\n  dispatch: {destination: local, quality: standard}\n  review: {destination: local, quality: standard}\nllama_server:\n  enabled: true\n  default_model: offline-fixture\nmodels:\n  open:\n    overrides:\n      llama_server:\n        everyday: offline-fixture\n        most_capable: offline-fixture\n        fast_light: offline-fixture\n        fast_light_text: offline-fixture\n        embedding: offline-fixture\nwatchdog:\n  enabled: true\n  audit:\n    enabled: true\n');cfg.chmod(0o600)
             record('explicit tagged real bootstrap and prepared private state', files=[str(x) for x in state.iterdir()], sqlite=rows('pragma user_version'))
             assert rows('pragma user_version')==[(2,)]
@@ -284,10 +321,10 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             wait(lambda:b'wants to run a delegated agent' in a.data,'ordinary dispatch permission prompt')
             a.send('y\r')
             wait(lambda:any(x['event']=='child-entered' for x in events()),'original independent task active before B',40)
-            assert rows('select status from delegated_tasks')==[('running',)]
+            assert rows('select status from delegated_tasks where parent_id != "offline-original"')==[('running',)]
             if worker_delegation:
                 assert any(e['event']=='worker-delegation-request' for e in events()), 'host dispatch alone is not worker delegation'
-                independent=rows('select child_id from delegated_tasks')[0][0]
+                independent=rows('select child_id from delegated_tasks where parent_id != "offline-original"')[0][0]
                 nested=rows("select id,parent_id,kind from conversations where parent_id='"+independent+"'")
                 assert len(nested)==1 and nested[0][2]=='subagent', nested
                 descendant=nested[0][0]
@@ -319,6 +356,23 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             assert json.loads(current_path.read_bytes())['Identity']==B['Identity']
             target_b=current_path.read_bytes()
             record('normal new session chooses B',selection=F)
+            if offline_upgrade:
+                # Acquire unowned historical history while both hosts are reachable.
+                # After A retires, its stale record correctly makes unknown-owner
+                # acquisition fail closed; that is not an upgrade failure.
+                history,sh,H=launch('B-upgraded-history')
+                assert H['Identity']==B['Identity']
+                history.send('/resume offline-original\r')
+                wait(lambda:b'FIXTURE_PRE_UPGRADE_HISTORY' in history.data,'pre-upgrade history resumed on B',40)
+                offset=len(events())
+                history.send('FIXTURE_UPGRADED_HISTORY_REPLY\r')
+                wait(lambda:rows("select conversation_id from turns where role='user' and content='FIXTURE_UPGRADED_HISTORY_REPLY'")==[('offline-original',)],'fresh B turn in pre-upgrade history',40)
+                wait(lambda:any('FIXTURE_OK' in r[0] for r in rows("select content from turns where role='assistant' and conversation_id='offline-original'")),'fresh B reply in pre-upgrade history',40)
+                assert all(e['pid']!=pidA for e in events()[offset:] if e['event']=='call')
+                intentional_quit(history)
+                history.stop();terminals.remove(history)
+                assert rows("select * from delegated_tasks where parent_id='offline-original' order by id")==historical_tasks
+                record('pre-upgrade original history resumed and fresh B reply persisted')
             # First B turn exercises the ordinary model -> tool registry ->
             # host-owned stdio manager -> synthetic peer -> model result path.
             b.send('FIXTURE_MCP\r')
@@ -357,7 +411,7 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             wait(lambda:any('FIXTURE_AFTER_B' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'A fresh foreground after B')
             assert {e['pid'] for e in events()[offset:] if e['event']=='call'}=={pidA}
             time.sleep(2)
-            task=rows('select id,parent_id,status,child_id from delegated_tasks')
+            task=rows('select id,parent_id,status,child_id from delegated_tasks where parent_id != "offline-original"')
             assert len(task)==1 and task[0][2]=='running',task
             manifest_path=P(A['Generation'])/'manifest.json'
             manifest=json.loads(manifest_path.read_text())
@@ -384,14 +438,14 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
                 terminals.remove(spare)
                 retained=json.loads(control(sa,'list'))['Response'].get('retained',[])
                 assert S['Conversation'] not in {r['conversation'] for r in retained}, retained
-                assert rows('select status from delegated_tasks')==[('running',)]
+                assert rows('select status from delegated_tasks where parent_id != "offline-original"')==[('running',)]
                 os.kill(pidA,0)
                 record('intentional /quit releases sibling A session while original A independent work survives; not same-conversation drain acceptance')
             # A client really exits; its host and independent task must survive.
             a.stop();terminals.remove(a);time.sleep(1)
             b.send('/resume '+A['Conversation']+'\r')
             wait(lambda:b'no transfer is scheduled' in b.data,'ordinary busy reopen refusal')
-            assert rows('select status from delegated_tasks')==[('running',)]
+            assert rows('select status from delegated_tasks where parent_id != "offline-original"')==[('running',)]
             retained=json.loads(control(sa,'list'))['Response']['retained']
             assert A['Conversation'] in {r['conversation'] for r in retained}
             assert json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)==0
@@ -403,26 +457,26 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
                 assert json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)==0
                 record('descendant execution barrier refuses transfer and retirement')
             (barrier/'child.release').touch()
-            wait(lambda:rows('select status from delegated_tasks')==[('completed',)],'independent task completion',40)
+            wait(lambda:rows('select status from delegated_tasks where parent_id != "offline-original"')==[('completed',)],'independent task completion',40)
             if worker_delegation:
                 wait(lambda:any(e['event']=='final-entered' for e in events()),'completion callback final-write barrier',40)
                 assert any(e['event']=='worker-delegation-result' for e in events()), 'worker did not observe nested tool result'
                 history=rows("select kind,payload from dispatch_events where conversation_id='"+descendant+"' order by seq")
                 assert sum(k=='dispatch_done' for k,_ in history)==1, history
                 assert any('FIXTURE_OK' in payload for _,payload in history), history
-                assert rows('select notification_pending,wake_claimed from delegated_tasks')==[(1,1)]
+                assert rows('select notification_pending,wake_claimed from delegated_tasks where parent_id != "offline-original"')==[(1,1)]
                 control(sa,'transfer',sb,success=False)
                 control(sa,'retire',success=False)
                 assert json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)==0
                 record('descendant durable completion before blocked final callback', history=history,
                        ancestry=rows("select id,parent_id,kind from conversations where id in ('"+independent+"','"+descendant+"')"),
-                       outcomes=rows('select id,parent_id,status,child_id,error,result_json from delegated_tasks'))
+                       outcomes=rows('select id,parent_id,status,child_id,error,result_json from delegated_tasks where parent_id != "offline-original"'))
                 (barrier/'final.release').touch()
-            wait(lambda:rows('select notification_pending,wake_claimed from delegated_tasks')==[(0,1)],'exactly one handled completion',40)
+            wait(lambda:rows('select notification_pending,wake_claimed from delegated_tasks where parent_id != "offline-original"')==[(0,1)],'exactly one handled completion',40)
             assert len([e for e in events() if e['event']=='completion-notice'])==1
             retained=json.loads(control(sa,'list'))['Response']['retained']
             assert A['Conversation'] in {r['conversation'] for r in retained}
-            record('A independent task completed; no deferred transfer',tasks=rows('select id,status,notification_pending,wake_claimed from delegated_tasks'), completion_notices=len([e for e in events() if e['event']=='completion-notice']))
+            record('A independent task completed; no deferred transfer',tasks=rows('select id,status,notification_pending,wake_claimed from delegated_tasks where parent_id != "offline-original"'), completion_notices=len([e for e in events() if e['event']=='completion-notice']))
             # Physically restart through the ordinary launcher, never a selection file.
             b.stop();terminals.remove(b)
             reopened,sr,R=launch('B-restarted')
@@ -493,6 +547,10 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             post_reply_sql="select role,content from turns where conversation_id='"+A['Conversation']+"' and role='assistant' and rowid > (select rowid from turns where role='user' and content='FIXTURE_B_AFTER_A_RETIREMENT')"
             wait(lambda:any('FIXTURE_OK' in r[1] for r in rows(post_reply_sql)),'B durable assistant reply after A retirement',40)
             record('automatic A retirement after same-conversation closure drain; B continues' if same_conversation_close else 'automatic A retirement after transfer and release; B continues',calls=events()[offset:], durable_assistant_reply=rows(post_reply_sql))
+            if offline_upgrade:
+                assert rows("select * from delegated_tasks where parent_id='offline-original' order by id")==historical_tasks
+                record('historical task rows remain untouched after A/B drain')
+
             watchdog_opens=[e for e in events() if e['event']=='watchdog-open']
             assert {pidA, calls[0]['pid']}.issubset({e['pid'] for e in watchdog_opens}), watchdog_opens
             record('ordinary watchdog enabled on A and B with offline audit',opens=watchdog_opens)
@@ -501,7 +559,10 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
         except Exception as e:
             report['failure']=str(e);report['traceback']=traceback.format_exc()
             if (state/'conversations.db').exists():
-                record('failure task observation',tasks=rows('select id,parent_id,status,child_id,error,result_json from delegated_tasks'))
+                try:
+                    record('failure task observation',tasks=rows('select id,parent_id,status,child_id,error,result_json from delegated_tasks where parent_id != "offline-original"'))
+                except sqlite3.OperationalError as observation_error:
+                    record('failure task observation unavailable before initialization',error=str(observation_error))
             raise
         finally:
             owned.collect(barrier,state)
@@ -521,4 +582,4 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
     assert report['passed']
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');p.add_argument('--ordinary-closure-probe',action='store_true',help='check ordinary PTY quit and automatic retirement without management release');p.add_argument('--ordinary-session-close',action='store_true',help='close A session via /quit while independent work runs; contrast unexpected disconnect');p.add_argument('--same-conversation-close',action='store_true',help='preserve disconnect/reopen then quit the exact A conversation owning a second independent task');a=p.parse_args();assert not (a.same_conversation_close and (a.worker_delegation or a.ordinary_session_close or a.ordinary_closure_probe));assert not (a.ordinary_closure_probe and a.ordinary_session_close);run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation,a.ordinary_closure_probe,a.ordinary_session_close,a.same_conversation_close)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');p.add_argument('--ordinary-closure-probe',action='store_true',help='check ordinary PTY quit and automatic retirement without management release');p.add_argument('--ordinary-session-close',action='store_true',help='close A session via /quit while independent work runs; contrast unexpected disconnect');p.add_argument('--same-conversation-close',action='store_true',help='preserve disconnect/reopen then quit the exact A conversation owning a second independent task');p.add_argument('--offline-upgrade',action='store_true',help='run real UpgradeOffline on private synthetic history/tasks; excludes production discovery');a=p.parse_args();assert not (a.same_conversation_close and (a.worker_delegation or a.ordinary_session_close or a.ordinary_closure_probe));assert not (a.ordinary_closure_probe and a.ordinary_session_close);run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation,a.ordinary_closure_probe,a.ordinary_session_close,a.same_conversation_close,a.offline_upgrade)

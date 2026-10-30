@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,5 +38,24 @@ func TestOfflineUpgradeDetectionLimits(t *testing.T) {
 	}
 	if err := runUpgradeStore(context.Background(), []string{"--database", "/unused"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "ALL legacy") {
 		t.Fatal(err)
+	}
+}
+
+// An unavailable detector must fail closed before even opening a missing DB.
+// No live discovery: both outcomes are controlled by the injected preflight.
+func TestOfflineUpgradeDiscoveryErrorBeforeOpen(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "missing.db")
+	discoveryErr := errors.New("synthetic discovery unavailable")
+	calls := 0
+	err := runUpgradeStoreChecked(context.Background(), []string{"--database", p, "--all-legacy-agents-stopped"}, &bytes.Buffer{}, func(context.Context) error {
+		calls++
+		return discoveryErr
+	})
+	if !errors.Is(err, discoveryErr) || calls != 1 {
+		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+	entries, err := os.ReadDir(filepath.Dir(p))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("database opened before preflight: entries=%v err=%v", entries, err)
 	}
 }
