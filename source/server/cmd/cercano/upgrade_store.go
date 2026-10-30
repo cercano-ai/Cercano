@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"cercano/source/server/internal/brewrestart"
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/pkg/config"
 )
 
 // Detection is deliberately bounded: same-user processes with the known
@@ -80,9 +82,26 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 		return fmt.Errorf("usage: cercano upgrade-store --database /absolute/path/conversations.db --all-legacy-agents-stopped; prerequisite: stop ALL legacy Cercano agents")
 	}
 	if *stopConfig != "" {
-		// No supported host provides a qualified worker-spawn/drain barrier.
-		// Snapshot-based shutdown is diagnostic only, never migration authorization.
-		return fmt.Errorf("host lacks verified worker-spawn/drain shutdown control; upgrade not performed")
+		// Match ordinary configuration port selection, but never treat a missing
+		// authority as permission to stop the default listener.
+		info, err := os.Stat(*stopConfig)
+		if err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("upgrade shutdown requires an existing regular config file")
+		}
+		cfg, err := config.Load(*stopConfig)
+		if err != nil {
+			return fmt.Errorf("load upgrade shutdown config: %w", err)
+		}
+		endpoint, err := netip.ParseAddrPort("127.0.0.1:" + cfg.Port)
+		if err != nil || !endpoint.Addr().IsLoopback() || endpoint.Port() == 0 || endpoint.Addr().Zone() != "" {
+			return fmt.Errorf("upgrade shutdown requires a numeric loopback endpoint with nonzero configured port")
+		}
+		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err = upgradeHostStop(stopCtx, endpoint)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("upgrade host shutdown failed before opening database: %w", err)
+		}
 	}
 	// Do not open, initialize, or change the database before detection succeeds.
 	if err := check(ctx); err != nil {

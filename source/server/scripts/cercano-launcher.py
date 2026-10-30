@@ -250,9 +250,6 @@ def confirmed_upgrade(state, db, authority, repo, env):
     print('Database upgrade required\n\nThis version of Cercano needs to upgrade your existing conversation database. Your saved history will be preserved, and a backup will be created before migration.\n\nContinuing will shut down incompatible agent hosts, disconnect their sessions, and stop any work in progress. Unsaved progress may be lost.\n\nIf you have work in progress that you want to finish, choose No and run Cercano again when it is complete.\n\nStop agents and upgrade now? [y/N]', end='', file=sys.stderr, flush=True)
     if sys.stdin.readline().rstrip('\r\n') not in ('y', 'Y'):
         raise ValueError('upgrade declined; database and permissions unchanged')
-    # Temporary containment: no host has a qualified spawn/drain barrier.
-    # Refuse before building a helper, requesting shutdown, or mutating the store.
-    raise ValueError("host lacks verified worker-spawn/drain shutdown control; upgrade not performed")
     # Build away from live binaries, without credential access. The helper retains
     # the production detector after verified shutdown.
     backup = None

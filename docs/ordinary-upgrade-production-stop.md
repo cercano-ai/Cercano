@@ -1,4 +1,63 @@
-# Production worker shutdown probe (2026-10-30)
+# Confirmed ordinary upgrade wiring (2026-10-30)
+
+The bounded path is now enabled by explicit authorization; the historical guard
+statements below describe earlier checkpoints, not current behavior. This is not
+a universal containment claim. Production discovery was not changed or bypassed.
+
+After exact y/Y consent and under the existing launch lock, the launcher builds
+its helper and invokes `upgrade-store --check-only --stop-hosts-config`. The native
+command requires an existing regular config, uses ordinary `config.Load` port
+selection (including its existing environment convention), validates the numeric
+127.0.0.1 endpoint/nonzero port, and gives `brewrestart.StopUpgradeHost` a 30-second
+maximum deadline. A failed stop refuses before database access; successful stop
+is followed by the existing known-agent check. Backup still precedes chmod, and
+the migration command repeats discovery before real `UpgradeInterruptedOffline`.
+The existing supported generation startup is unchanged.
+
+## Verification of this wiring
+
+Before editing, `python3 source/server/scripts/test-ordinary-upgrade.py
+OrdinaryUpgrade.test_confirm_refuses_before_helper_or_shutdown` passed (one test),
+reproducing the y/Y unconditional refusal. After editing:
+
+- `python3 source/server/scripts/test-ordinary-upgrade.py`: **13 passed**. Disposable
+  SQLite, real compiled offline migration, synthetic stop/discovery and generation
+  publisher/host/CLI. Tests cover consent, success and compatible relaunch, WAL
+  backup, nested authority, lock serialization, second-check refusal, build and
+  startup failures. The helper is built by the fixture build driver below; no
+  production discovery runs in this Python suite.
+- `python3 source/server/scripts/test-launcher-safety.py`: **20 passed**.
+- `python3 test/fixtures/production-stop/build.py test ./internal/brewrestart
+  ./cmd/cercano ./internal/conversation -run
+  'Test(Upgrade|AutomaticUpgrade|.*Discovery|.*Cancellation|Offline|Ordinary)'
+  -count=1`: **all three packages passed**, including injected native-command
+  stop/check ordering, invalid config/endpoint, failed shutdown and remaining or
+  unresolved process refusals. Log and allowlisted environment retained in
+  `/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/upgrade-build-3rnzqfkb`.
+- `python3 test/fixtures/production-stop/build.py`: **passed**; artifacts and
+  environment log in `upgrade-build-mk_b6iam` under that same temporary parent.
+- `python3 test/fixtures/production-stop/run.py combined`: **passed**, evidence
+  `/private/tmp/cstop-o41zs5rn`. Native stop exited 0; ticks were 4 after stop
+  returned and remained 4; shared model host survived shutdown; schema 2, three
+  original history rows preserved, interrupted task, resumed conversation and
+  durable fresh `FIXTURE_OK` reply through supported generation startup. Both
+  cleanup survivor sets were empty. Its source_commit records the pre-edit HEAD
+  `f03b6451875b72421484c156270e18e08a4d7a76`; binaries included these uncommitted
+  wiring edits.
+
+The combined fixture uses scoped native discovery against private identity-verified
+production host/worker processes, then acceptance-tagged migration discovery. It
+is **not** a run of global production discovery, nor an end-to-end automatic
+launcher shutdown of ambient agents. Unit sequencing plus disposable launcher
+acceptance and scoped native combined acceptance verify the separate boundaries.
+No live database, credentials, installation, push or landing was used. Existing
+limits (renamed/custom writers, detached descendants and kernel fork publication)
+remain; no new lifecycle architecture or universal proof was introduced.
+
+---
+
+## Historical production worker shutdown probe (2026-10-30)
+
 
 Status: bounded isolated combined acceptance passes; **not global ordinary-upgrade qualification**.
 The production discovery implementation and `--stop-hosts-config` safety refusal

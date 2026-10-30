@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOfflineUpgradeKnownAgentBeforeChanges(t *testing.T) {
@@ -76,32 +76,73 @@ func TestOfflineUpgradeCheckOnlyNeverOpensStore(t *testing.T) {
 	}
 }
 
-// No native discovery or shutdown: the automatic path must refuse before either.
-func TestAutomaticUpgradeRefusesWithoutSpawnDrainBarrier(t *testing.T) {
-	for _, checkOnly := range []bool{false, true} {
-		t.Run(fmt.Sprint(checkOnly), func(t *testing.T) {
+// Shutdown is injected: these tests never discover or signal ambient processes.
+func TestAutomaticUpgradeStopThenCheck(t *testing.T) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	t.Setenv("CERCANO_PORT", "")
+	for _, tc := range []struct{ name, config, stopErr, checkErr, want string }{
+		{"success", "port: 54321", "", "", ""},
+		{"missing", "", "", "", "existing regular config"},
+		{"invalid", "[", "", "", "load upgrade shutdown config"},
+		{"zero", "port: '0'", "", "", "loopback endpoint"},
+		{"remote", "port: '1.2.3.4:80'", "", "", "loopback endpoint"},
+		{"failed-stop", "port: 54321", "identity changed", "", "shutdown failed"},
+		{"remaining", "port: 54321", "", "known process remains", "known process remains"},
+		{"unknown", "port: 54321", "", "discovery unavailable", "discovery unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			p := filepath.Join(dir, "history.db")
-			before := []byte("untouched store")
-			if err := os.WriteFile(p, before, 0644); err != nil {
-				t.Fatal(err)
+			db, cfg := filepath.Join(dir, "missing.db"), filepath.Join(dir, "config.yaml")
+			if tc.config != "" {
+				if err := os.WriteFile(cfg, []byte(tc.config), 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			previous := upgradeHostStop
-			upgradeHostStop = func(context.Context, netip.AddrPort) error { t.Fatal("requested shutdown"); return nil }
 			defer func() { upgradeHostStop = previous }()
-			args := []string{"--database", p, "--all-legacy-agents-stopped", "--stop-hosts-config", filepath.Join(dir, "missing-config")}
-			if checkOnly {
-				args = append(args, "--check-only")
+			var calls []string
+			upgradeHostStop = func(ctx context.Context, endpoint netip.AddrPort) error {
+				calls = append(calls, "stop")
+				deadline, ok := ctx.Deadline()
+				if !ok || time.Until(deadline) > 30*time.Second || endpoint.String() != "127.0.0.1:54321" {
+					t.Fatalf("invalid shutdown: %v %v", endpoint, deadline)
+				}
+				if tc.stopErr != "" {
+					return errors.New(tc.stopErr)
+				}
+				return nil
 			}
-			err := runUpgradeStoreChecked(context.Background(), args, &bytes.Buffer{}, func(context.Context) error { t.Fatal("requested discovery"); return nil })
-			if err == nil || !strings.Contains(err.Error(), "host lacks verified worker-spawn/drain shutdown control; upgrade not performed") {
+			err := runUpgradeStoreChecked(context.Background(), []string{"--database", db, "--all-legacy-agents-stopped", "--check-only", "--stop-hosts-config", cfg}, &bytes.Buffer{}, func(context.Context) error {
+				if strings.Join(calls, ",") != "stop" {
+					t.Fatal(calls)
+				}
+				calls = append(calls, "check")
+				if tc.checkErr != "" {
+					return errors.New(tc.checkErr)
+				}
+				return nil
+			})
+			if tc.want == "" {
+				if err != nil || strings.Join(calls, ",") != "stop,check" {
+					t.Fatalf("%v %v", err, calls)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatal(err)
 			}
-			after, _ := os.ReadFile(p)
-			info, _ := os.Stat(p)
-			entries, _ := os.ReadDir(dir)
-			if !bytes.Equal(before, after) || info.Mode().Perm() != 0644 || len(entries) != 1 {
-				t.Fatal("store changed")
+			if tc.config == "" || tc.name == "invalid" || tc.name == "zero" || tc.name == "remote" {
+				if len(calls) != 0 {
+					t.Fatal(calls)
+				}
+			}
+			if tc.stopErr != "" && strings.Join(calls, ",") != "stop" {
+				t.Fatal(calls)
+			}
+			if _, err := os.Stat(db); !os.IsNotExist(err) {
+				t.Fatal("database accessed", err)
+			}
+			matches, _ := filepath.Glob(db + "*")
+			if len(matches) != 0 {
+				t.Fatal(matches)
 			}
 		})
 	}
