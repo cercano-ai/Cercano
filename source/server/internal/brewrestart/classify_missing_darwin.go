@@ -69,8 +69,9 @@ func missingExecutableEvidence(pid int) (Identity, error) {
 		return Identity{}, fmt.Errorf("unresolved plausible writer: saved launch path still exists or is inaccessible (possible alias or replacement)")
 	}
 	// Do not apply this evidence after an exec has made normal inspection work.
-	if _, err := Inspect(pid); !errors.Is(err, syscall.ENOENT) {
-		return Identity{}, fmt.Errorf("candidate executable state changed: %v", err)
+	_, inspectErr := Inspect(pid)
+	if err := missingExecutableStateError(inspectErr); err != nil {
+		return Identity{}, err
 	}
 	return Identity{PID: pid, ParentPID: int(after.pbi_ppid), ProcessGroup: int(after.pbi_pgid), UID: uint32(after.pbi_uid), Executable: string(raw[:n]), StartSeconds: uint64(after.pbi_start_tvsec), StartMicroseconds: uint64(after.pbi_start_tvusec)}, nil
 }
@@ -90,11 +91,43 @@ func inspectUpgradeCandidate(pid int, endpoint netip.AddrPort) (Identity, error)
 	}
 	owns, socketErr := holdsListenerInspected(evidence, endpoint, missingExecutableEvidence)
 	if socketErr != nil {
-		return Identity{}, fmt.Errorf("upgrade blocker pid=%d: missing executable; listener unresolved: %w", pid, socketErr)
+		return Identity{}, missingListenerError(pid, socketErr, missingIdentityError)
 	}
 	if owns {
 		return Identity{}, fmt.Errorf("upgrade blocker pid=%d: missing executable %s owns target listener; unresolved plausible writer", pid, evidence.Executable)
 	}
 	// Neither a bounded known writer nor a target listener. No signal authority.
 	return Identity{}, nil
+}
+
+// A successful inspection invalidates missing-path evidence; a real error must
+// retain its identity so confirmed disappearance remains skippable.
+func missingExecutableStateError(err error) error {
+	if errors.Is(err, syscall.ENOENT) {
+		return nil
+	}
+	if err == nil {
+		return fmt.Errorf("candidate executable state changed: inspection succeeded")
+	}
+	return fmt.Errorf("candidate executable state changed: %w", err)
+}
+
+// Descriptor errors (even ESRCH) do not prove process death. Only a fresh BSD
+// identity query may authorize the discovery loop to skip this candidate.
+func missingListenerError(pid int, socketErr error, probe func(int) error) error {
+	identityErr := probe(pid)
+	if errors.Is(identityErr, syscall.ESRCH) {
+		return fmt.Errorf("upgrade candidate pid=%d disappeared after listener inspection: %w", pid, identityErr)
+	}
+	// Deliberately do not wrap socketErr: its ESRCH may describe an empty or
+	// unstable FD inventory, not a missing process.
+	return fmt.Errorf("upgrade blocker pid=%d: missing executable; listener unresolved: %v; fresh kernel identity: %v", pid, socketErr, identityErr)
+}
+
+func missingIdentityError(pid int) error {
+	var info C.struct_proc_bsdinfo
+	if code := C.missing_info(C.int(pid), &info); code != 0 {
+		return syscall.Errno(code)
+	}
+	return nil
 }

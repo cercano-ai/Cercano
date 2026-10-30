@@ -14,7 +14,8 @@ package brewrestart
 static int cercano_listener(int pid, const char *address, int port, int *found) {
  errno=0;
  int n=proc_pidinfo(pid,PROC_PIDLISTFDS,0,NULL,0);
- if(n<=0) return errno ? errno : ESRCH;
+ // An empty FD inventory is ambiguous, not evidence of process death.
+ if(n<=0) return errno ? errno : EAGAIN;
  if(n>16*1024*1024) return EOVERFLOW;
  int capacity=n+32*sizeof(struct proc_fdinfo);
  struct proc_fdinfo *fds=calloc(1,capacity);
