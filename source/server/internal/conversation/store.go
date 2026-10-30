@@ -392,6 +392,16 @@ func Open(path string) (Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite at %s: %w", path, err)
 	}
+	// Fail closed before persistent pragmas or migrations. Marked stores must
+	// enter through OpenCoexistence and explicit ownership capabilities.
+	marked, err := tableExists(db, "coexistence_metadata")
+	if err != nil || marked {
+		db.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("marked store requires OpenCoexistence with explicit ownership; ordinary Open is forbidden")
+	}
 	// Pin the store to a single physical SQLite connection.
 	//
 	// database/sql otherwise maintains a *pool* of independent connections, and
@@ -414,17 +424,38 @@ func Open(path string) (Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("pragma setup: %w", err)
 	}
-	if err := migrateAutonomyRunsToAppendOnly(db); err != nil {
+	if _, err := db.Exec("BEGIN IMMEDIATE"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("migrate autonomy runs: %w", err)
+		return nil, err
+	}
+	// Recheck after writer admission: an offline upgrade may have won the race.
+	marked, err = tableExists(db, "coexistence_metadata")
+	if err == nil && marked {
+		err = fmt.Errorf("marked store requires OpenCoexistence with explicit ownership")
+	}
+	if err == nil {
+		err = initializeConversationSchema(db)
+	}
+	if err == nil {
+		_, err = db.Exec("COMMIT")
+	}
+	if err != nil {
+		db.Exec("ROLLBACK")
+		db.Close()
+		return nil, err
+	}
+	return &sqliteStore{db: db}, nil
+}
+
+func initializeConversationSchema(db *sql.DB) error {
+	if err := migrateAutonomyRunsToAppendOnly(db); err != nil {
+		return fmt.Errorf("migrate autonomy runs: %w", err)
 	}
 	if _, err := db.Exec(schemaSQL); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("apply schema: %w", err)
+		return fmt.Errorf("apply schema: %w", err)
 	}
 	if err := migrateContentJSON(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate content_json: %w", err)
+		return fmt.Errorf("migrate content_json: %w", err)
 	}
 	// Migrate pre-existing DBs that predate the recap columns. ALTER fails
 	// with "duplicate column name" once applied — ignore that case.
@@ -443,18 +474,16 @@ func Open(path string) (Store, error) {
 		`ALTER TABLE autonomy_runs ADD COLUMN blocker_json TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-			db.Close()
-			return nil, fmt.Errorf("migrate recap columns: %w", err)
+			return fmt.Errorf("migrate recap columns: %w", err)
 		}
 	}
 	// Preserve legacy request snapshots before a background pass can replace them.
 	// Explicit columns also handle databases whose runtime columns were appended.
 	if _, err := db.Exec(`INSERT OR IGNORE INTO conversation_request_usage (conversation_id, tokens_used, raw_tokens, message_tokens, system_tokens, tool_schema_tokens, output_reserve, estimated_request, context_window, window_known, model, source, computed_at, provider, runtime_instance_id)
 		SELECT conversation_id, tokens_used, raw_tokens, message_tokens, system_tokens, tool_schema_tokens, output_reserve, estimated_request, context_window, window_known, model, source, computed_at, provider, runtime_instance_id FROM conversation_context_usage WHERE source = 'turn'`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate request usage: %w", err)
+		return fmt.Errorf("migrate request usage: %w", err)
 	}
-	return &sqliteStore{db: db}, nil
+	return nil
 }
 
 // migrateContentJSON adds the content_json column if missing. SQLite's

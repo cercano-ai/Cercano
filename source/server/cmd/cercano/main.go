@@ -1117,6 +1117,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "upgrade-store":
+			if err := runUpgradeStore(context.Background(), os.Args[2:], os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
 		case "prepare-development":
 			if err := runPrepareDevelopment(context.Background(), os.Args[2:], os.Stdout); err != nil {
 				fmt.Fprintln(os.Stderr, err)
