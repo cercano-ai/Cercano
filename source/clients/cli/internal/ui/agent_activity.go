@@ -29,13 +29,13 @@ func (m Model) agentActivityRow() (string, []agentActivityLink) {
 	if len(live) == 0 {
 		return "", nil
 	}
-	text := fmt.Sprintf("Agents %d: ", len(live))
+	text := m.styles.Success.Render(fmt.Sprintf("Agents %d: ", len(live)))
 	// Permission gates are session-scoped: there is no reliable child attribution.
 	// Don't imply every child is blocked or display a stale reconnect gate as live.
 	if c := m.pendingConfirm; c != nil && !c.stale && (c.tool != nil || c.auth != nil) {
-		text = "! Approval required | " + text
+		text = m.styles.Info.Render("! Approval required | ") + text
 	}
-	text = strings.Repeat(" ", min(entryIndent, max(0, m.width))) + m.styles.Info.Render(text)
+	text = strings.Repeat(" ", min(entryIndent, max(0, m.width))) + text
 	var links []agentActivityLink
 	shown := len(live)
 	if shown > 2 {

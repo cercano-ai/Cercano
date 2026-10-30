@@ -176,20 +176,40 @@ func TestAgentActivitySubscriptionRelayout(t *testing.T) {
 	}
 }
 
-func TestAgentActivityGutterAndBlueStyle(t *testing.T) {
+func TestAgentActivityGutterAndCountStyle(t *testing.T) {
 	m := activityModel(t)
 	for _, palette := range []theme.Palette{theme.Cracker(), builtinPaletteForTest("daylight")} {
 		m.styles = theme.NewStyles(palette)
+		if m.styles.Success.Render("Agents 2: ") == m.styles.Info.Render("Agents 2: ") {
+			t.Fatal("styling regression requires distinguishable green and blue output")
+		}
 		row, links := m.agentActivityRow()
-		want := strings.Repeat(" ", entryIndent) + m.styles.Info.Render("Agents 2: ") +
+		want := strings.Repeat(" ", entryIndent) + m.styles.Success.Render("Agents 2: ") +
 			m.styles.Info.Render("⠋ ") + m.styles.Info.Underline(true).Render("Research (running)") +
 			m.styles.Info.Render(" · ") + m.styles.Info.Render("⠋ ") + m.styles.Info.Underline(true).Render("Tests (running)")
 		if row != want {
-			t.Errorf("activity must use chat gutter and theme blue text: got %q want %q", row, want)
+			t.Errorf("activity must use chat gutter, green count, and blue agent details: got %q want %q", row, want)
 		}
 		if len(links) != 2 || links[0].start != entryIndent+lipgloss.Width("Agents 2: ⠋ ") {
 			t.Errorf("links must include gutter offset: %+v", links)
 		}
+		m.pendingConfirm = &confirmRequest{tool: &pendingToolCall{Name: "Edit"}}
+		approvalRow, approvalLinks := m.agentActivityRow()
+		approvalPrefix := m.styles.Info.Render("! Approval required | ")
+		approvalWant := strings.Repeat(" ", entryIndent) + approvalPrefix + strings.TrimPrefix(want, strings.Repeat(" ", entryIndent))
+		if approvalRow != approvalWant {
+			t.Errorf("approval must stay blue with only the count green: got %q want %q", approvalRow, approvalWant)
+		}
+		if len(approvalLinks) != len(links) {
+			t.Fatalf("approval changed links: %+v", approvalLinks)
+		}
+		for i, link := range links {
+			shift := lipgloss.Width(approvalPrefix)
+			if got := approvalLinks[i]; got.id != link.id || got.start != link.start+shift || got.end != link.end+shift {
+				t.Errorf("approval link offset changed: %+v", got)
+			}
+		}
+		m.pendingConfirm = nil
 	}
 }
 
