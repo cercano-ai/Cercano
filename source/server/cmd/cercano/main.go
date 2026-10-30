@@ -939,8 +939,10 @@ func connectRuntimeManager(ctx context.Context, cfg config.Config, events *crash
 }
 
 // newModelHostRemote connects to the shared model host in the default run
-// directory, launching this binary as the host when none is running. The
-// whole connect is bounded by modelHostConnectBudget. A failed NewRemote has
+// directory, launching this binary as the host when none is running. An older
+// live host is left untouched: ordinary startup falls back locally rather than
+// disrupting its clients. Explicit restart-after-upgrade owns replacement.
+// The whole connect is bounded by modelHostConnectBudget. A failed NewRemote has
 // already closed its client, so nothing keeps retrying in the background.
 func newModelHostRemote(ctx context.Context) (*modelhost.Remote, error) {
 	runDir, err := modelhost.RunDir()
@@ -951,10 +953,11 @@ func newModelHostRemote(ctx context.Context) (*modelhost.Remote, error) {
 	defer cancel()
 	remote, err := modelhost.NewRemote(bctx, modelhost.RemoteOptions{
 		Ensure: modelhost.EnsureOptions{
-			RunDir:        runDir,
-			ClientVersion: version,
-			Launch:        launchModelHost(runDir),
-			Timeout:       modelHostEnsureTimeout,
+			RefuseOlderHost: true,
+			RunDir:          runDir,
+			ClientVersion:   version,
+			Launch:          launchModelHost(runDir),
+			Timeout:         modelHostEnsureTimeout,
 		},
 		// The active profile is reported once profiles reach the agent host.
 		Profile: "",
