@@ -2,7 +2,7 @@
 """Publish canonical signed inputs, then delegate authenticated acquisition to that binary."""
 import json
 import hashlib
-from contextlib import closing
+from contextlib import closing, contextmanager
 import fcntl
 import os
 from pathlib import Path
@@ -18,6 +18,26 @@ import shutil
 def feedback(message):
     """Human-readable progress stays off the CLI/publisher stdout protocol."""
     print('[cercano] ' + message, file=sys.stderr, flush=True)
+
+
+@contextmanager
+def phase(name):
+    started = time.monotonic()
+    feedback(name + ' started')
+    try:
+        yield
+    finally:
+        feedback(name + ' elapsed={:.3f}s'.format(time.monotonic() - started))
+
+
+def acquire_lock(lock, name):
+    started = time.monotonic()
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        feedback('Waiting for ' + name + ' (contended)...')
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    feedback(name + ' acquired elapsed={:.3f}s'.format(time.monotonic() - started))
 
 
 def private(path):
@@ -154,8 +174,7 @@ def prepare_if_absent(state, repo, env):
         mode = os.fstat(lock.fileno())
         if not stat.S_ISREG(mode.st_mode) or mode.st_uid != os.getuid() or mode.st_mode & 0o077 or mode.st_nlink != 1:
             raise ValueError('private owned setup lock required')
-        feedback('Waiting for state preparation lock...')
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        acquire_lock(lock, 'state preparation lock')
         if os.path.lexists(state):
             return
         bootstrap = Path(tempfile.mkdtemp(prefix='.' + state.name + '-bootstrap-', dir=parent))
@@ -264,41 +283,47 @@ def confirmed_upgrade(state, db, authority, repo, env):
     backup = None
     with tempfile.TemporaryDirectory(prefix='cercano-upgrade-') as scratch:
         helper = str(Path(scratch) / 'cercano')
-        feedback('Building database upgrade helper...')
-        result = subprocess.run(['go', 'build', '-o', helper, './cmd/cercano/'],
-                                cwd=repo / 'source/server',
-                                env=dict(env, CERCANO_DISABLE_CREDENTIALS='1'),
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if result.returncode:
-            raise ValueError('upgrade helper build failed; store unchanged')
+        with phase('helper build'):
+            feedback('Building database upgrade helper...')
+            result = subprocess.run(['go', 'build', '-o', helper, './cmd/cercano/'],
+                                    cwd=repo / 'source/server',
+                                    env=dict(env, CERCANO_DISABLE_CREDENTIALS='1'),
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if result.returncode:
+                raise ValueError('upgrade helper build failed; store unchanged')
         command = [helper, 'upgrade-store', '--database', str(db), '--all-legacy-agents-stopped']
         def run(args):
             result = subprocess.run(args, env=env, text=True, capture_output=True)
+            for line in result.stderr.splitlines():
+                if line.startswith('[cercano] discovery elapsed='):
+                    print(line, file=sys.stderr, flush=True)
             if result.returncode:
                 raise ValueError(result.stderr.strip() or 'offline upgrade helper failed')
-        run([*command, '--check-only', '--stop-hosts-config', str(authority)])
+        with phase('discovery and verified shutdown'):
+            run([*command, '--check-only', '--stop-hosts-config', str(authority)])
         fd, name = tempfile.mkstemp(prefix='conversations.before-upgrade-', suffix='.db', dir=state)
         os.close(fd)
         backup = Path(name)
         print('[cercano] retained backup: ' + str(backup), file=sys.stderr)
         try:
-            # SQLite online backup includes committed WAL, unlike copying the main file.
-            with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as source:
-                with closing(sqlite3.connect(backup)) as destination:
-                    deadline = time.monotonic() + 30
-                    def progress(status, remaining, total):
-                        if time.monotonic() > deadline:
-                            raise ValueError('backup timed out; writers must remain stopped')
-                    source.backup(destination, pages=256, progress=progress)
-                    if destination.execute('pragma integrity_check').fetchall() != [('ok',)]:
-                        raise ValueError('backup integrity verification failed')
-            with backup.open('rb') as saved:
-                os.fsync(saved.fileno())
-            directory_fd = os.open(state, os.O_RDONLY | os.O_NOFOLLOW)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            with phase('backup'):
+                # SQLite online backup includes committed WAL, unlike copying the main file.
+                with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as source:
+                    with closing(sqlite3.connect(backup)) as destination:
+                        deadline = time.monotonic() + 30
+                        def progress(status, remaining, total):
+                            if time.monotonic() > deadline:
+                                raise ValueError('backup timed out; writers must remain stopped')
+                        source.backup(destination, pages=256, progress=progress)
+                        if destination.execute('pragma integrity_check').fetchall() != [('ok',)]:
+                            raise ValueError('backup integrity verification failed')
+                with backup.open('rb') as saved:
+                    os.fsync(saved.fileno())
+                directory_fd = os.open(state, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
             # Revalidate before chmod; descriptor-based changes do not follow links.
             paths = [(p, True) for p in dict.fromkeys((state, authority.parent))]
             paths += [(db, False), (authority, False)]
@@ -321,7 +346,8 @@ def confirmed_upgrade(state, db, authority, repo, env):
             finally:
                 for fd, _ in descriptors:
                     os.close(fd)
-            run([*command, '--interrupt-tasks'])
+            with phase('migration'):
+                run([*command, '--interrupt-tasks'])
         except Exception as error:
             raise ValueError('upgrade failed; retained backup (may be incomplete if backup failed): '
                              + str(backup) + '; ' + str(error)) from error
@@ -334,7 +360,7 @@ def main():
     # entry, after migration and host acquisition; reconnect cannot spawn mid-upgrade.
     if parse_args(sys.argv[3:])[2]:
         return launch_main()
-    feedback('Starting Cercano; waiting for launch lock...')
+    feedback('Starting Cercano...')
     path = Path(os.environ.get('TMPDIR') or '/tmp') / 'cercano-agent-launch.lock'
     if not path.is_absolute():
         raise ValueError('SDK launch lock directory must be absolute')
@@ -343,7 +369,7 @@ def main():
         mode = os.fstat(fd)
         if not stat.S_ISREG(mode.st_mode) or mode.st_uid != os.getuid() or mode.st_nlink != 1:
             raise ValueError('unsafe SDK launch lock')
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        acquire_lock(lock, 'launch lock')
         launch_main()
 
 
@@ -386,7 +412,8 @@ def launch_main():
         raise ValueError('prepared database and explicit config.yaml required')
     for p in (db, authority):
         owned(p)
-    compatible = compatible_store(db)
+    with phase('inspection'):
+        compatible = compatible_store(db)
     if not compatible:
         if selected is not None:
             raise ValueError('explicit selection requires compatible store; retry ordinary cercano')

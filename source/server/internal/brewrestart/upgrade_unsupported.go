@@ -13,3 +13,7 @@ func StopUpgradeHost(context.Context, netip.AddrPort) error {
 }
 
 func IsSharedModelHost(pid int) bool { return false }
+
+func PreflightUpgradeHost(endpoint netip.AddrPort) error {
+	return fmt.Errorf("upgrade discovery requires macOS with cgo")
+}

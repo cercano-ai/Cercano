@@ -63,10 +63,14 @@ import (
 // Wildcard bindings are accepted only for IP families supported by the socket.
 // This is a per-candidate check, not a proof of unique socket ownership.
 func HoldsListener(expected Identity, endpoint netip.AddrPort) (bool, error) {
+	return holdsListenerInspected(expected, endpoint, Inspect)
+}
+
+func holdsListenerInspected(expected Identity, endpoint netip.AddrPort, inspect func(int) (Identity, error)) (bool, error) {
 	if !endpoint.IsValid() || !endpoint.Addr().IsLoopback() || endpoint.Port() == 0 || endpoint.Addr().Zone() != "" {
 		return false, fmt.Errorf("restart requires an explicit loopback TCP endpoint")
 	}
-	before, err := Inspect(expected.PID)
+	before, err := inspect(expected.PID)
 	if err != nil {
 		return false, err
 	}
@@ -79,7 +83,7 @@ func HoldsListener(expected Identity, endpoint netip.AddrPort) (bool, error) {
 	if code := C.cercano_listener(C.int(expected.PID), address, C.int(endpoint.Port()), &found); code != 0 {
 		return false, fmt.Errorf("inspect process listener: %w", syscall.Errno(code))
 	}
-	after, err := Inspect(expected.PID)
+	after, err := inspect(expected.PID)
 	if err != nil {
 		return false, err
 	}

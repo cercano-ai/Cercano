@@ -41,59 +41,11 @@ func stopUpgradeHostObserved(ctx context.Context, endpoint netip.AddrPort, pids 
 	if !endpoint.IsValid() || !endpoint.Addr().IsLoopback() || endpoint.Port() == 0 {
 		return fmt.Errorf("upgrade requires explicit loopback listener")
 	}
-	identities := map[int]Identity{}
-	var host *Identity
-	for _, pid := range pids {
-		if pid == os.Getpid() {
-			continue
-		}
-		id, err := Inspect(pid)
-		if errors.Is(err, syscall.ESRCH) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if id.UID != uint32(os.Getuid()) {
-			continue
-		}
-		identities[pid] = id
-		name := filepath.Base(id.Executable)
-		owns, err := HoldsListener(id, endpoint)
-		if err != nil {
-			return fmt.Errorf("upgrade blocker pid=%d: %w", pid, err)
-		}
-		if owns {
-			if name != "cercano" && name != "cercano-agent" {
-				return fmt.Errorf("upgrade blocker pid=%d executable=%s: custom listener identity is unsupported", pid, id.Executable)
-			}
-			if host != nil {
-				return fmt.Errorf("multiple upgrade listener owners")
-			}
-			copy := id
-			host = &copy
-		}
-	}
-	// Preflight known agents before disrupting anything. A shared model host is
-	// never a conversation writer and is never signalled, even if it is a child.
-	for pid, id := range identities {
-		name := filepath.Base(id.Executable)
-		if name != "cercano" && name != "cercano-agent" {
-			continue
-		}
-		if host != nil && pid == host.PID {
-			continue
-		}
-		role, err := processRole(id)
-		if err != nil {
-			return err
-		}
-		if role == "model-host" {
-			continue
-		}
-		if host == nil || id.ParentPID != host.PID || id.Executable != host.Executable || role != "worker" {
-			return fmt.Errorf("upgrade blocker pid=%d: no verified host/worker association", pid)
-		}
+	discoveryStarted := time.Now()
+	host, err := discoverUpgradeHost(endpoint, pids)
+	fmt.Fprintf(os.Stderr, "[cercano] discovery elapsed=%s\n", time.Since(discoveryStarted))
+	if err != nil {
+		return err
 	}
 	if host == nil {
 		return nil
@@ -249,4 +201,76 @@ func stopUpgradeHostObserved(ctx context.Context, endpoint netip.AddrPort, pids 
 	}
 	frozen = false
 	return nil
+}
+
+// PreflightUpgradeHost executes production enumeration and the same read-only
+// discovery used by shutdown. It never opens a database or signals a process.
+func PreflightUpgradeHost(endpoint netip.AddrPort) error {
+	if !endpoint.IsValid() || !endpoint.Addr().IsLoopback() || endpoint.Port() == 0 || endpoint.Addr().Zone() != "" {
+		return fmt.Errorf("upgrade requires explicit loopback listener")
+	}
+	pids, err := ListCandidates()
+	if err != nil {
+		return err
+	}
+	_, err = discoverUpgradeHost(endpoint, pids)
+	return err
+}
+
+func discoverUpgradeHost(endpoint netip.AddrPort, pids []int) (*Identity, error) {
+	identities := map[int]Identity{}
+	var host *Identity
+	for _, pid := range pids {
+		if pid == os.Getpid() {
+			continue
+		}
+		id, err := inspectUpgradeCandidate(pid, endpoint)
+		if errors.Is(err, syscall.ESRCH) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if id.PID == 0 || id.UID != uint32(os.Getuid()) {
+			continue
+		}
+		identities[pid] = id
+		name := filepath.Base(id.Executable)
+		owns, err := HoldsListener(id, endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("upgrade blocker pid=%d: %w", pid, err)
+		}
+		if owns {
+			if name != "cercano" && name != "cercano-agent" {
+				return nil, fmt.Errorf("upgrade blocker pid=%d executable=%s: custom listener identity is unsupported", pid, id.Executable)
+			}
+			if host != nil {
+				return nil, fmt.Errorf("multiple upgrade listener owners")
+			}
+			copy := id
+			host = &copy
+		}
+	}
+	// Preflight known agents before disrupting anything. A shared model host is
+	// never a conversation writer and is never signalled, even if it is a child.
+	for pid, id := range identities {
+		name := filepath.Base(id.Executable)
+		if name != "cercano" && name != "cercano-agent" {
+			continue
+		}
+		if host != nil && pid == host.PID {
+			continue
+		}
+		role, err := processRole(id)
+		if err != nil {
+			return nil, err
+		}
+		if role == "model-host" {
+			continue
+		}
+		if host == nil || id.ParentPID != host.PID || id.Executable != host.Executable || role != "worker" {
+			return nil, fmt.Errorf("upgrade blocker pid=%d: no verified host/worker association", pid)
+		}
+	}
+	return host, nil
 }
