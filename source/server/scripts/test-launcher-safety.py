@@ -21,8 +21,8 @@ class LauncherSafety(unittest.TestCase):
         state.mkdir(mode=0o700)
         (state / 'config.yaml').write_text('{}')
         with closing(sqlite3.connect(state / 'conversations.db')) as db, db:
-            db.execute('create table coexistence_metadata(contract, schema_version)')
-            db.execute("insert into coexistence_metadata values ('cercano-development-owned-v2', 2)")
+            db.execute('create table coexistence_metadata(singleton, contract, schema_version)')
+            db.execute("insert into coexistence_metadata values (1, 'cercano-development-owned-v2', 2)")
             db.execute('pragma user_version=2')
         (state / 'config.yaml').chmod(0o600)
         (state / 'conversations.db').chmod(0o600)
@@ -68,8 +68,8 @@ if sys.argv[1]=='prepare-development':
  time.sleep(0.1)
  (state/'config.yaml').write_bytes(data); (state/'config.yaml').chmod(0o600)
  with sqlite3.connect(state/'conversations.db') as db:
-  db.execute('create table coexistence_metadata(contract, schema_version)')
-  db.execute("insert into coexistence_metadata values ('cercano-development-owned-v2', 2)")
+  db.execute('create table coexistence_metadata(singleton, contract, schema_version)')
+  db.execute("insert into coexistence_metadata values (1, 'cercano-development-owned-v2', 2)")
   db.execute('pragma user_version=2')
  (state/'conversations.db').chmod(0o600)
  with open(os.environ['FAKE_ENV_LOG'], 'a') as log: log.write(json.dumps(['prepare', '1'])+'\\n')
@@ -198,8 +198,8 @@ print(json.dumps(sys.argv[1:]))
                         with sqlite3.connect(state / 'conversations.db') as db:
                             db.execute('create table legacy(value)')
                             if failure == 'incompatible':
-                                db.execute('create table coexistence_metadata(contract, schema_version)')
-                                db.execute("insert into coexistence_metadata values ('wrong-contract', 1)")
+                                db.execute('create table coexistence_metadata(singleton, contract, schema_version)')
+                                db.execute("insert into coexistence_metadata values (1, 'wrong-contract', 1)")
                         (state / 'conversations.db').chmod(0o600)
                 snapshot = {p.name: p.read_bytes() for p in state.iterdir()} if state.exists() else None
                 result = self.source_launch(env)
@@ -252,8 +252,8 @@ print(json.dumps(sys.argv[1:]))
                                         env=env, capture_output=True, text=True)
                 if legacy:
                     self.assertEqual(result.returncode, 78, result.stderr)
-                    self.assertIn('One-time in-place store upgrade', result.stderr)
-                    self.assertIn(str(state / 'conversations.db'), result.stderr)
+                    self.assertIn('unsupported store user_version', result.stderr)
+                    self.assertNotIn('Type STOPPED', result.stderr)
                     self.assertIn('no upgrade performed', result.stderr)
                     # Only the private setup serialization lock lives outside state.
                     self.assertEqual({p.name: p.read_bytes() for p in state.iterdir()}, before)
@@ -478,7 +478,7 @@ print(json.dumps(sys.argv[1:]))
                 db.execute('delete from coexistence_metadata')
             result = self.source_launch(env)
             self.assertEqual(result.returncode, 78)
-            self.assertIn('interactive confirmation required', result.stderr)
+            self.assertIn('unsupported store marker', result.stderr)
             self.assertFalse((Path(env['CERCANO_DEVELOPMENT_STATE']) / 'generations').exists())
 
     def install(self, *args):

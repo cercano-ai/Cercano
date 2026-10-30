@@ -16,6 +16,14 @@ func upgradeAgentCheck(ctx context.Context) error {
 	switch os.Getenv("CERCANO_ACCEPTANCE_UPGRADE_PROCESSES") {
 	case "empty":
 		return refuseKnownUpgradeAgents("", os.Getpid())
+	case "second-active":
+		path := os.Getenv("CERCANO_ACCEPTANCE_DISCOVERY_RECORD")
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err == nil {
+			f.Close()
+			return refuseKnownUpgradeAgents("", os.Getpid())
+		}
+		return refuseKnownUpgradeAgents("999999 cercano", os.Getpid())
 	case "active":
 		return refuseKnownUpgradeAgents("999999 cercano", os.Getpid())
 	default:

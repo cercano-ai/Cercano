@@ -199,13 +199,32 @@ def compatible_store(db):
     def inspect(path):
         try:
             with closing(sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True)) as conn:
-                return (conn.execute('select contract, schema_version from coexistence_metadata').fetchall()
-                        == [('cercano-development-owned-v2', 2)]
-                        and conn.execute('pragma user_version').fetchone() == (2,))
-        except sqlite3.DatabaseError:
-            return False
+                if conn.execute('pragma integrity_check').fetchall() != [('ok',)]:
+                    raise ValueError('unsupported or corrupt store; no upgrade performed')
+                uv = conn.execute('pragma user_version').fetchone()[0]
+                marked = conn.execute("select 1 from sqlite_master where name='coexistence_metadata'").fetchone()
+                if marked:
+                    if (conn.execute('select singleton, contract, schema_version from coexistence_metadata').fetchall()
+                            == [(1, 'cercano-development-owned-v2', 2)] and uv == 2):
+                        return True
+                    raise ValueError('unsupported store marker; no upgrade performed')
+                if uv != 0:
+                    raise ValueError('unsupported store user_version; no upgrade performed')
+                # Require the historical core, not merely an arbitrary SQLite file.
+                for table, required in (
+                        ('conversations', {'id', 'title', 'project_dir', 'model', 'started_at', 'last_turn_at'}),
+                        ('turns', {'id', 'conversation_id', 'role', 'content', 'created_at'})):
+                    columns = {row[1] for row in conn.execute('pragma table_info(' + table + ')')}
+                    if not required <= columns:
+                        raise ValueError('unsupported store schema; no upgrade performed')
+                return False
+        except sqlite3.DatabaseError as error:
+            raise ValueError('unsupported or corrupt store; no upgrade performed') from error
     # Immutable reads cannot create SHM or recover a journal before consent.
     wal = Path(str(db) + '-wal')
+    for sidecar in (wal, Path(str(db) + '-shm'), Path(str(db) + '-journal')):
+        if os.path.lexists(sidecar):
+            owned(sidecar)
     if not os.path.lexists(wal):
         return inspect(db)
     owned(wal)
@@ -221,8 +240,8 @@ def compatible_store(db):
             with closing(sqlite3.connect(copy)) as conn:
                 conn.execute('pragma wal_checkpoint(TRUNCATE)')
             return inspect(copy)
-        except sqlite3.DatabaseError:
-            return False
+        except sqlite3.DatabaseError as error:
+            raise ValueError('unsupported or corrupt WAL store; no upgrade performed') from error
 
 
 def confirmed_upgrade(state, db, authority, repo, env):
@@ -260,7 +279,8 @@ def confirmed_upgrade(state, db, authority, repo, env):
                 raise ValueError(result.stderr.strip() or 'offline upgrade helper failed')
         run([*command, '--check-only'])
         # Revalidate before chmod; descriptor-based changes do not follow links.
-        paths = [(state, True), (db, False), (authority, False)]
+        paths = [(p, True) for p in dict.fromkeys((state, authority.parent))]
+        paths += [(db, False), (authority, False)]
         paths += [(p, False) for p in (Path(str(db)+'-wal'), Path(str(db)+'-shm')) if os.path.lexists(p)]
         descriptors = []
         try:
