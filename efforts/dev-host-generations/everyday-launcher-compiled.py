@@ -194,7 +194,12 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
         for k in list(env):
             if k.startswith(('GO','CGO_')) or k in ('CC','CXX','PKG_CONFIG','SDKROOT','LIBRARY_PATH','CPATH','C_INCLUDE_PATH','CPLUS_INCLUDE_PATH'):env.pop(k)
         env.update(HOME=str(home),XDG_CONFIG_HOME=str(home/'config'),XDG_DATA_HOME=str(home/'data'),XDG_CACHE_HOME=str(home/'cache'),PATH=str(tools)+':'+env['PATH'],GOPATH=goenv('GOPATH'),GOCACHE=goenv('GOCACHE'),GOPROXY='off',GOSUMDB='off',CGO_ENABLED='0',VERSION='compiled-acceptance',TERM='xterm-256color',CERCANO_DISABLE_CREDENTIALS='1',CERCANO_OUTER_ENABLED='1',CERCANO_REPO=str(copy),CERCANO_DEVELOPMENT_STATE=str(state),CERCANO_RUNTIME_ROOT=str(runtime),CERCANO_FIXTURE_BARRIER=str(barrier))
-        script=copy/'source/server/scripts/cercano-launcher.sh'
+        # Exercise the exact installed command shape, not the source shell path.
+        install_dir=root/'bin'; install_dir.mkdir(mode=0o700)
+        script=install_dir/'cercano'
+        subprocess.run(['bash',str(copy/'source/server/scripts/install-launcher.sh'),'--destination',str(script)],env=env,check=True)
+        report['installed_command']=str(script)
+        report['installed_sha256']=hashlib.sha256(script.read_bytes()).hexdigest()
         def call(args,cwd=None,timeout=240):
             p=subprocess.run(list(map(str,args)),cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout)
             assert p.returncode==0,p.stdout.decode(errors='replace')
@@ -284,6 +289,12 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
                     # A connection context manager commits; it does NOT close.
                     legacy.close()
                 historical_tasks=rows("select * from delegated_tasks order by id")
+                before_upgrade=(state/'conversations.db').read_bytes()
+                refused=subprocess.run([str(script)],env=env,capture_output=True,text=True,timeout=30)
+                assert refused.returncode==78 and 'one-time OFFLINE' in refused.stderr and 'upgrade-store --database' in refused.stderr, refused.stderr
+                assert (state/'conversations.db').read_bytes()==before_upgrade
+                assert not (state/'generations').exists()
+                record('installed command refuses legacy schema before build; explicit offline instructions; database byte-identical',output=refused.stderr)
                 assert rows('pragma user_version')==[(0,)]
                 operation=root/'offline-upgrade-fixture'
                 call([wrapper,'build','-o',operation,'./cmd/compiled-offline-upgrade-fixture/'],copy/'source/server')
@@ -336,6 +347,24 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             record('pre-B worker set', workers=pre_b_workers, pids=pre_b_pids, unstarted_conversation=S['Conversation'])
             change=copy/'source/server/cmd/cercano/development_provider_fixture.go'
             change.write_text(change.read_text()+'\n// generation B source byte change\n')
+            # Failed B build and startup must not replace the current A target.
+            target_a=(state/'current-target.json').read_bytes()
+            generation_a={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in P(A['Generation']).iterdir() if p.is_file()}
+            original=change.read_text()
+            change.write_text(original+'\nthis is deliberately invalid Go\n')
+            failed=subprocess.run([str(script)],env=env,capture_output=True,text=True,timeout=240)
+            change.write_text(original)
+            assert failed.returncode!=0 and (state/'current-target.json').read_bytes()==target_a
+            control(sa,'list'); assert a.p.poll() is None
+            bad_config=state/'startup-failure.yaml'; bad_config.write_text('[invalid yaml'); bad_config.chmod(0o600)
+            failed=subprocess.run([str(script)],env=dict(env,CERCANO_DEVELOPMENT_CONFIG_AUTHORITY=str(bad_config)),capture_output=True,text=True,timeout=240)
+            assert failed.returncode!=0 and (state/'current-target.json').read_bytes()==target_a, failed.stdout+failed.stderr
+            assert generation_a=={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in P(A['Generation']).iterdir() if p.is_file()}
+            control(sa,'list'); assert a.p.poll() is None
+            record('installed B build/startup failures preserve reachable A and exact retained binary bytes', startup_failure=failed.stderr)
+            # Failed startup deliberately leaves its start intent fail-closed.
+            # A corrected candidate has new source identity; never remove the intent.
+            change.write_text(original+'\n// corrected B after failed startup candidate\n')
             b,sb,B=launch('B')
             assert A['Identity']['host']!=B['Identity']['host'] and A['Generation']!=B['Generation']
             assert a.p.poll() is None

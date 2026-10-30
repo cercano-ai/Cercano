@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import shutil
+import shlex
 
 
 def private(path):
@@ -212,9 +213,22 @@ def main():
         s = p.lstat()
         if not stat.S_ISREG(s.st_mode) or s.st_uid != os.getuid() or s.st_mode & 0o077:
             raise ValueError('database and config.yaml must be owned private regular files (0600)')
-    with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as conn:
-        if conn.execute('select contract, schema_version from coexistence_metadata').fetchall() != [('cercano-development-owned-v2', 2)] or conn.execute('pragma user_version').fetchone() != (2,):
-            raise ValueError('unprepared or incompatible store; never implicitly migrated')
+    try:
+        with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as conn:
+            compatible = conn.execute('select contract, schema_version from coexistence_metadata').fetchall() == [('cercano-development-owned-v2', 2)] and conn.execute('pragma user_version').fetchone() == (2,)
+    except sqlite3.DatabaseError:
+        compatible = False
+    if not compatible:
+        raise ValueError('unprepared or incompatible store; never implicitly migrated. '
+                         'For an existing-format store, one-time OFFLINE upgrade only: back up the database, '
+                         'stop ALL legacy Cercano agents and other writers yourself and keep them stopped. '
+                         'Build a separate server (never replace running binaries), then run:\n'
+                         'upgrade_dir=$(mktemp -d) && (cd ' + shlex.quote(str(repo / 'source/server')) +
+                         ' && go build -o "$upgrade_dir/cercano" ./cmd/cercano/) && '
+                         '"$upgrade_dir/cercano" upgrade-store --database ' + shlex.quote(str(db)) +
+                         ' --all-legacy-agents-stopped\n'
+                         'Do not restart legacy writers against the upgraded store. Retry ordinary cercano afterward. '
+                         'Unknown/newer schemas remain refused; no upgrade has been performed.')
     # An explicit selection reconnect never builds or creates an attachment here.
     if selected is not None:
         selection_path = selection_file(selected, state)
