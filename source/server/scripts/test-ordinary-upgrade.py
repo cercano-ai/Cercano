@@ -38,8 +38,10 @@ class OrdinaryUpgrade(unittest.TestCase):
             conn.executescript("""CREATE TABLE delegated_tasks (
                 id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, status TEXT NOT NULL,
                 task TEXT NOT NULL, work_dir TEXT NOT NULL, created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL);
-                INSERT INTO delegated_tasks VALUES('task','original','running','preserve','',4,5);""")
+                updated_at INTEGER NOT NULL, child_id TEXT NOT NULL DEFAULT '',
+                result_json TEXT NOT NULL DEFAULT 'null', error TEXT NOT NULL DEFAULT '',
+                notification_pending INTEGER NOT NULL DEFAULT 0, wake_claimed INTEGER NOT NULL DEFAULT 0);
+                INSERT INTO delegated_tasks(id,parent_id,status,task,work_dir,created_at,updated_at) VALUES('task','original','running','preserve','',4,5);""")
         self.db.chmod(0o644)
         (self.state / 'config.yaml').chmod(0o644)
         self.state.chmod(0o755)
@@ -59,7 +61,7 @@ class OrdinaryUpgrade(unittest.TestCase):
         self.state, self.db = original, original / 'conversations.db'
         self.env.pop('CERCANO_DEVELOPMENT_STATE')
 
-    def launch(self, answer='STOPPED', extra=()):
+    def launch(self, answer='y', extra=()):
         master, slave = pty.openpty()
         try:
             proc = subprocess.Popen(['bash', str(SCRIPTS / 'cercano-launcher.sh'), *extra],
@@ -86,7 +88,8 @@ class OrdinaryUpgrade(unittest.TestCase):
         rc, out, err = self.launch(extra=('hello',))
         self.assertEqual(rc, 0, err)
         self.assertIn('hello', out)
-        self.assertEqual(self.counts(self.db), expected)
+        self.assertEqual(self.counts(self.db)[:3], expected[:3])
+        self.assertEqual(self.counts(self.db)[3][0][0], 'interrupted')
         self.assertEqual(len(self.backups()), 1)
         self.assertEqual(self.counts(self.backups()[0]), expected)
         for p in (self.db, self.state / 'config.yaml', self.backups()[0]):
@@ -96,7 +99,7 @@ class OrdinaryUpgrade(unittest.TestCase):
         self.env['CERCANO_ACCEPTANCE_UPGRADE_PROCESSES'] = 'active'
         rc, _, err = self.launch(answer='no')
         self.assertEqual(rc, 0, err)
-        self.assertNotIn('Type STOPPED', err)
+        self.assertNotIn('Stop agents and upgrade now?', err)
         self.assertEqual(len(self.backups()), 1)
 
     def test_decline_unchanged(self):
@@ -109,6 +112,16 @@ class OrdinaryUpgrade(unittest.TestCase):
         self.assertEqual(modes, [p.stat().st_mode for p in (self.db, self.state, self.state / 'config.yaml')])
         self.assertFalse(self.backups())
         self.assertFalse(Path(self.env['FAKE_ENV_LOG']).exists())
+
+    def test_only_single_y_confirmation(self):
+        for answer in ('', 'n', 'N', 'yes', 'STOPPED', ' y', 'y '):
+            before = self.snapshot()
+            rc, _, err = self.launch(answer)
+            self.assertEqual(rc, 78, err)
+            self.assertEqual(before, self.snapshot())
+            self.assertFalse(self.backups())
+        rc, _, err = self.launch('Y')
+        self.assertEqual(rc, 0, err)
 
     def test_active_or_unresolved_refused_before_mutation(self):
         for process in ('active', 'unknown'):
@@ -136,7 +149,7 @@ class OrdinaryUpgrade(unittest.TestCase):
             rc, _, err = self.launch()
             self.assertEqual(rc, 78, err)
             self.assertIn('unsupported', err)
-            self.assertNotIn('Type STOPPED', err)
+            self.assertNotIn('Stop agents and upgrade now?', err)
             self.assertEqual(before, self.snapshot())
             self.assertFalse(self.backups())
 
@@ -179,7 +192,7 @@ class OrdinaryUpgrade(unittest.TestCase):
                 before = self.db.read_bytes()
                 rc, _, err = self.launch()
                 self.assertEqual(rc, 78, err)
-                self.assertNotIn('Type STOPPED', err)
+                self.assertNotIn('Stop agents and upgrade now?', err)
                 self.assertEqual(self.db.read_bytes(), before)
                 self.assertEqual(target.read_bytes(), b'untouched')
                 self.assertFalse(self.backups())
@@ -210,7 +223,8 @@ class OrdinaryUpgrade(unittest.TestCase):
         rc, _, err = self.launch()
         self.assertEqual(rc, 78)
         self.assertIn(str(self.backups()[0]), err)
-        self.assertEqual(self.counts(self.db), self.counts(self.backups()[0]))
+        self.assertEqual(self.counts(self.db)[:3], self.counts(self.backups()[0])[:3])
+        self.assertEqual(self.counts(self.db)[3][0][0], 'interrupted')
 
     def test_shared_lock_serializes_ordinary_launches(self):
         lock = open(self.root / 'tmp/cercano-agent-launch.lock', 'w')
@@ -238,7 +252,8 @@ class OrdinaryUpgrade(unittest.TestCase):
         rc, _, err = self.launch()
         self.assertEqual(rc, 0, err)
         self.assertEqual(self.counts(self.backups()[0]), (1, 2, 1, [('running', 5)]))
-        self.assertEqual(self.counts(self.db), self.counts(self.backups()[0]))
+        self.assertEqual(self.counts(self.db)[:3], self.counts(self.backups()[0])[:3])
+        self.assertEqual(self.counts(self.db)[3][0][0], 'interrupted')
 
 
 if __name__ == '__main__':

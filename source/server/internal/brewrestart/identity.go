@@ -11,6 +11,8 @@ import (
 // Start time distinguishes a process from a later reuse of the same PID.
 type Identity struct {
 	PID               int
+	ParentPID         int
+	ProcessGroup      int
 	UID               uint32
 	Executable        string
 	StartSeconds      uint64

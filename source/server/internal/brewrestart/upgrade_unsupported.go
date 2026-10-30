@@ -1,0 +1,13 @@
+//go:build !darwin || !cgo
+
+package brewrestart
+
+import (
+	"context"
+	"fmt"
+	"net/netip"
+)
+
+func StopUpgradeHost(context.Context, netip.AddrPort) error {
+	return fmt.Errorf("verified upgrade shutdown requires macOS with cgo; no migration attempted")
+}

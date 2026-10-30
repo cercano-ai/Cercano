@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 )
 
@@ -30,3 +31,5 @@ func upgradeAgentCheck(ctx context.Context) error {
 		return fmt.Errorf("explicit disposable process fixture required")
 	}
 }
+
+func upgradeHostStop(ctx context.Context, _ netip.AddrPort) error { return nil }

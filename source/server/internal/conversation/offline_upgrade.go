@@ -9,6 +9,16 @@ import (
 // ALL legacy agents must already be stopped and remain stopped. This API cannot
 // fence historical/custom writers and does not reconcile or replay tasks.
 func UpgradeOffline(ctx context.Context, path string) error {
+	return upgradeOffline(ctx, path, false)
+}
+
+// UpgradeInterruptedOffline recovers accepted/running work only after callers
+// have stopped writers and saved a backup. It never replays tasks.
+func UpgradeInterruptedOffline(ctx context.Context, path string) error {
+	return upgradeOffline(ctx, path, true)
+}
+
+func upgradeOffline(ctx context.Context, path string, interrupted bool) error {
 	db, err := openCoexistenceDB(path, "rw") // never create a missing destination
 	if err != nil {
 		return err
@@ -61,6 +71,11 @@ func UpgradeOffline(ctx context.Context, path string) error {
 	s := &sqliteStore{db: db}
 	if err = s.InitTasks(ctx); err != nil {
 		return err
+	}
+	if interrupted {
+		if err = s.ReconcileTasks(ctx); err != nil {
+			return err
+		}
 	}
 	if _, err = db.ExecContext(ctx, ownershipSchema); err != nil {
 		return err

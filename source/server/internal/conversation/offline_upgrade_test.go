@@ -122,3 +122,44 @@ func TestOfflineUpgradeRollsBack(t *testing.T) {
 		t.Fatal(uv)
 	}
 }
+
+func TestOfflineUpgradeInterruptsWithoutReplay(t *testing.T) {
+	ctx := context.Background()
+	p := offlinePath(t)
+	raw, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := raw.(*sqliteStore)
+	if err := s.InitTasks(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"accepted", "running", "completed", "failed"} {
+		if _, err := s.db.Exec(`INSERT INTO delegated_tasks(id,parent_id,status,task,work_dir,created_at,updated_at,result_json) VALUES(?, 'parent', ?, 'saved task', '', 1, 2, '{"partial":true}')`, status, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	if err := UpgradeInterruptedOffline(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = OpenCoexistence(ctx, p, DevelopmentCoexistenceDeclaration())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	s = raw.(*sqliteStore)
+	for _, original := range []string{"accepted", "running", "completed", "failed"} {
+		var status, task, result string
+		if err := s.db.QueryRow(`SELECT status,task,result_json FROM delegated_tasks WHERE id=?`, original).Scan(&status, &task, &result); err != nil {
+			t.Fatal(err)
+		}
+		want := original
+		if original == "accepted" || original == "running" {
+			want = "interrupted"
+		}
+		if status != want || task != "saved task" || result != `{"partial":true}` {
+			t.Fatalf("lost task %s: %s %s %s", original, status, task, result)
+		}
+	}
+}

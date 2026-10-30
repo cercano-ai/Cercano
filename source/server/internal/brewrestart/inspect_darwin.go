@@ -46,7 +46,7 @@ func Inspect(pid int) (Identity, error) {
 		return Identity{}, fmt.Errorf("inspect PID %d: %w", pid, syscall.Errno(code))
 	}
 	return Identity{
-		PID: pid, UID: uint32(info.pbi_uid), Executable: C.GoString(&path[0]),
+		PID: pid, ParentPID: int(info.pbi_ppid), ProcessGroup: int(info.pbi_pgid), UID: uint32(info.pbi_uid), Executable: C.GoString(&path[0]),
 		StartSeconds: uint64(info.pbi_start_tvsec), StartMicroseconds: uint64(info.pbi_start_tvusec),
 	}, nil
 }

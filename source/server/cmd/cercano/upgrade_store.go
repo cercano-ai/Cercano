@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/pkg/config"
 )
 
 // Detection is deliberately bounded: same-user processes with the known
@@ -58,12 +60,32 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 	fs.SetOutput(out)
 	db := fs.String("database", "", "existing conversation database (absolute path)")
 	checkOnly := fs.Bool("check-only", false, "check known processes without opening the store")
+	stopConfig := fs.String("stop-hosts-config", "", "after consent, stop verified configured host and workers")
+	interrupted := fs.Bool("interrupt-tasks", false, "recover interrupted tasks after verified writers exit")
 	stopped := fs.Bool("all-legacy-agents-stopped", false, "confirm ALL legacy Cercano agents are stopped and will remain stopped")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 || !*stopped || !filepath.IsAbs(*db) {
 		return fmt.Errorf("usage: cercano upgrade-store --database /absolute/path/conversations.db --all-legacy-agents-stopped; prerequisite: stop ALL legacy Cercano agents")
+	}
+	if *stopConfig != "" {
+		if !*checkOnly {
+			return fmt.Errorf("shutdown is a separate pre-backup check-only phase")
+		}
+		cfg, err := config.Load(*stopConfig)
+		if err != nil {
+			return err
+		}
+		endpoint, err := netip.ParseAddrPort("127.0.0.1:" + cfg.Port)
+		if err != nil {
+			return err
+		}
+		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		if err := upgradeHostStop(stopCtx, endpoint); err != nil {
+			return err
+		}
 	}
 	// Do not open, initialize, or change the database before detection succeeds.
 	if err := check(ctx); err != nil {
@@ -72,9 +94,17 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 	if *checkOnly {
 		return nil
 	}
-	if err := conversation.UpgradeOffline(ctx, *db); err != nil {
+	upgrade := conversation.UpgradeOffline
+	if *interrupted {
+		upgrade = conversation.UpgradeInterruptedOffline
+	}
+	if err := upgrade(ctx, *db); err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "Store upgraded (or already compatible). History and task statuses preserved; no reconciliation or replay. Compatible ordinary launches now need no repeated upgrade. Never restart legacy writers against this store.")
+	if *interrupted {
+		fmt.Fprintln(out, "Store upgraded. History and task rows preserved; unfinished tasks interrupted without replay. Never restart legacy writers against this store.")
+	} else {
+		fmt.Fprintln(out, "Store upgraded (or already compatible). History and task statuses preserved; no reconciliation or replay. Compatible ordinary launches now need no repeated upgrade. Never restart legacy writers against this store.")
+	}
 	return nil
 }

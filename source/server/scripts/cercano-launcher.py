@@ -245,24 +245,13 @@ def compatible_store(db):
 
 
 def confirmed_upgrade(state, db, authority, repo, env):
-    print(f'One-time in-place store upgrade for {db}: history and task statuses are preserved; '
-          'no reconciliation or replay. A verified private SQLite backup will be retained. '
-          'State, database, WAL/SHM and config permissions will be made private.', file=sys.stderr)
-    print('Historical agents cannot prove accepted-work drain or stopped writers. '
-          'No shutdown will be requested. Let tasks finish, then quit incompatible clients '
-          'and agents using their existing controls and retry this SAME command. '
-          'Detection covers only same-user known executable names, not custom/renamed '
-          'writers or other users. All legacy writers must remain stopped; quit reconnecting '
-          'legacy clients too. The shared SDK lock covers only this TMPDIR.', file=sys.stderr)
     if not sys.stdin.isatty():
         raise ValueError('interactive confirmation required; no upgrade performed')
-    print('Type STOPPED to confirm accepted work has finished, ALL legacy writers/clients are stopped and will remain '
-          'stopped, and authorize backup, private permissions and in-place upgrade: ',
-          end='', file=sys.stderr, flush=True)
-    if sys.stdin.readline().strip() != 'STOPPED':
+    print('Database upgrade required\n\nThis version of Cercano needs to upgrade your existing conversation database. Your saved history will be preserved, and a backup will be created before migration.\n\nContinuing will shut down incompatible agent hosts, disconnect their sessions, and stop any work in progress. Unsaved progress may be lost.\n\nIf you have work in progress that you want to finish, choose No and run Cercano again when it is complete.\n\nStop agents and upgrade now? [y/N]', end='', file=sys.stderr, flush=True)
+    if sys.stdin.readline().rstrip('\r\n') not in ('y', 'Y'):
         raise ValueError('upgrade declined; database and permissions unchanged')
     # Build away from live binaries, without credential access. The helper retains
-    # the production detector; never invoke shutdown or claim it is a writer fence.
+    # the production detector after verified shutdown.
     backup = None
     with tempfile.TemporaryDirectory(prefix='cercano-upgrade-') as scratch:
         helper = str(Path(scratch) / 'cercano')
@@ -277,29 +266,7 @@ def confirmed_upgrade(state, db, authority, repo, env):
             result = subprocess.run(args, env=env, text=True, capture_output=True)
             if result.returncode:
                 raise ValueError(result.stderr.strip() or 'offline upgrade helper failed')
-        run([*command, '--check-only'])
-        # Revalidate before chmod; descriptor-based changes do not follow links.
-        paths = [(p, True) for p in dict.fromkeys((state, authority.parent))]
-        paths += [(db, False), (authority, False)]
-        paths += [(p, False) for p in (Path(str(db)+'-wal'), Path(str(db)+'-shm')) if os.path.lexists(p)]
-        descriptors = []
-        try:
-            for path, directory in paths:
-                owned(path, directory)
-                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-                descriptors.append((fd, directory))
-                mode = os.fstat(fd)
-                if mode.st_uid != os.getuid() or (not stat.S_ISDIR(mode.st_mode) if directory else
-                        not stat.S_ISREG(mode.st_mode) or mode.st_nlink != 1):
-                    raise ValueError('unsafe store descriptor during upgrade')
-                current = path.lstat()
-                if (mode.st_dev, mode.st_ino) != (current.st_dev, current.st_ino):
-                    raise ValueError('store path changed during upgrade')
-            for fd, directory in descriptors:
-                os.fchmod(fd, 0o700 if directory else 0o600)
-        finally:
-            for fd, _ in descriptors:
-                os.close(fd)
+        run([*command, '--check-only', '--stop-hosts-config', str(authority)])
         fd, name = tempfile.mkstemp(prefix='conversations.before-upgrade-', suffix='.db', dir=state)
         os.close(fd)
         backup = Path(name)
@@ -322,7 +289,29 @@ def confirmed_upgrade(state, db, authority, repo, env):
                 os.fsync(directory_fd)
             finally:
                 os.close(directory_fd)
-            run(command)
+            # Revalidate before chmod; descriptor-based changes do not follow links.
+            paths = [(p, True) for p in dict.fromkeys((state, authority.parent))]
+            paths += [(db, False), (authority, False)]
+            paths += [(p, False) for p in (Path(str(db)+'-wal'), Path(str(db)+'-shm')) if os.path.lexists(p)]
+            descriptors = []
+            try:
+                for path, directory in paths:
+                    owned(path, directory)
+                    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                    descriptors.append((fd, directory))
+                    mode = os.fstat(fd)
+                    if mode.st_uid != os.getuid() or (not stat.S_ISDIR(mode.st_mode) if directory else
+                            not stat.S_ISREG(mode.st_mode) or mode.st_nlink != 1):
+                        raise ValueError('unsafe store descriptor during upgrade')
+                    current = path.lstat()
+                    if (mode.st_dev, mode.st_ino) != (current.st_dev, current.st_ino):
+                        raise ValueError('store path changed during upgrade')
+                for fd, directory in descriptors:
+                    os.fchmod(fd, 0o700 if directory else 0o600)
+            finally:
+                for fd, _ in descriptors:
+                    os.close(fd)
+            run([*command, '--interrupt-tasks'])
         except Exception as error:
             raise ValueError('upgrade failed; retained backup (may be incomplete if backup failed): '
                              + str(backup) + '; ' + str(error)) from error
@@ -449,5 +438,5 @@ if __name__ == '__main__':
         main()
     except (OSError, ValueError, KeyError, IndexError, sqlite3.Error, subprocess.CalledProcessError) as error:
         print('[cercano] launch refused: ' + str(error), file=sys.stderr)
-        print('Absent state is prepared automatically from existing config.yaml. Existing incompatible state requires confirmed offline upgrade; no unsafe agent shutdown is attempted.', file=sys.stderr)
+        print('Absent state is prepared automatically from existing config.yaml. Existing incompatible state requires confirmed upgrade; unverified or surviving writers block migration.', file=sys.stderr)
         sys.exit(78)
