@@ -166,7 +166,7 @@ def assert_new_worker(events, pre_pids, boundary, conversation):
     assert boundary < birth['unix_nano'] < turns[0]['unix_nano'], 'startup must follow B publication and precede first turn'
     return birth, turns
 
-def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordinary_session_close=False):
+def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordinary_session_close=False,same_conversation_close=False):
     assert all(os.environ.get(k)==v for k,v in {"CERCANO_DISABLE_CREDENTIALS":"1","GOPROXY":"off","GOSUMDB":"off"}.items()), "required outer offline/credential guards missing"
     evidence.mkdir(parents=True,exist_ok=True)
     report={'scope':'actual shell -> real publisher -> compiled production host -> compiled CLI PTY','steps':[],'passed':False,'worker_delegation_required':worker_delegation}
@@ -312,10 +312,10 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             record('B published as new-session target without stopping A',A=A,B=B,pidA=pidA)
             fresh,sfresh,F=launch('B-normal-new-session')
             assert F['Identity']==B['Identity'] and F['Conversation']!=B['Conversation']
-            if ordinary_closure_probe or ordinary_session_close:
+            if ordinary_closure_probe or ordinary_session_close or same_conversation_close:
                 intentional_quit(fresh)
             fresh.stop();terminals.remove(fresh)
-            if not (ordinary_closure_probe or ordinary_session_close): control(sfresh,'release')
+            if not (ordinary_closure_probe or ordinary_session_close or same_conversation_close): control(sfresh,'release')
             assert json.loads(current_path.read_bytes())['Identity']==B['Identity']
             target_b=current_path.read_bytes()
             record('normal new session chooses B',selection=F)
@@ -444,7 +444,34 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             record('physical client restart and ordinary resume on B with original history',calls=calls, original_conversation=A['Conversation'], durable_row_columns=['conversation_id','role','content'], durable_rows=rows("select conversation_id,role,content from turns where role='user' and content in ('FIXTURE_REOPENED_ON_B','FIXTURE_ORIGINAL_HISTORY') order by content"))
             export={'columns':['conversation_id','role','content'], 'rows':rows("select conversation_id,role,content from turns where conversation_id='"+A['Conversation']+"' order by rowid")}
             (evidence/'synthetic-reopened-rows.json').write_text(json.dumps(export,indent=2)+'\n')
-            if ordinary_closure_probe:
+            if same_conversation_close:
+                # Preserve the earlier unexpected-disconnect + busy/history reopen
+                # scenario. Now use the remaining A conversation for a separate
+                # independent task, and quit that EXACT task-owning conversation.
+                (barrier/'child.release').unlink()
+                offset=len(events()); screen_offset=len(spare.data)
+                spare.send('FIXTURE_DISPATCH\r')
+                wait(lambda:b'wants to run a delegated agent' in spare.data[screen_offset:], 'same-conversation dispatch permission')
+                spare.send('y\r')
+                wait(lambda:any(e['event']=='child-entered' for e in events()[offset:]), 'same-conversation independent task barrier',40)
+                task_sql="select id,parent_id,status,child_id from delegated_tasks where parent_id='"+S['Conversation']+"'"
+                same_task=rows(task_sql)
+                assert len(same_task)==1 and same_task[0][2]=='running', same_task
+                intentional_quit(spare); terminals.remove(spare)
+                retained=json.loads(control(sa,'list'))['Response'].get('retained',[])
+                assert S['Conversation'] in {r['conversation'] for r in retained}, retained
+                assert rows(task_sql)==same_task
+                ownership_sql="select state from conversation_ownership where conversation_id='"+S['Conversation']+"'"
+                assert rows(ownership_sql)==[('owned',)]
+                os.kill(pidA,0)
+                assert not any(e['event']=='child-released' for e in events()[offset:])
+                record('same task-owning A conversation intentionally quit; ownership and running task retained', conversation=S['Conversation'], tasks=same_task, retained=retained)
+                (barrier/'child.release').touch()
+                wait(lambda:rows(task_sql)[0][2]=='completed', 'same-conversation durable completion',40)
+                wait(lambda:rows("select notification_pending,wake_claimed from delegated_tasks where parent_id='"+S['Conversation']+"'")==[(0,1)], 'same-conversation completion callback drained',40)
+                assert len([e for e in events()[offset:] if e['event']=='completion-notice'])==1
+                record('same-conversation completion drained without ownership management',tasks=rows(task_sql), completion_notices=1)
+            elif ordinary_closure_probe:
                 intentional_quit(spare)
                 terminals.remove(spare)
                 report['ordinary_closure_acceptance']='ordinary quit; automatic retirement checked below'
@@ -455,13 +482,17 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
                 try: os.kill(pidA,0); return False
                 except ProcessLookupError: return True
             wait(a_exited,'automatic drained A retirement process exit',20)
+            if same_conversation_close:
+                assert rows(ownership_sql)==[('released',)]
+                assert json.loads(current_path.read_bytes())['Identity']==B['Identity']
+                record('same-conversation durable ownership released and superseded A exited', ownership=rows(ownership_sql), pidA=pidA, current_target=B['Identity'])
             offset=len(events())
             reopened.send('FIXTURE_B_AFTER_A_RETIREMENT\r')
             wait(lambda:any('FIXTURE_B_AFTER_A_RETIREMENT' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'B fresh model work after A retirement',40)
             wait(lambda:rows("select conversation_id from turns where role='user' and content='FIXTURE_B_AFTER_A_RETIREMENT'")==[(A['Conversation'],)],'post-retirement B durable turn')
             post_reply_sql="select role,content from turns where conversation_id='"+A['Conversation']+"' and role='assistant' and rowid > (select rowid from turns where role='user' and content='FIXTURE_B_AFTER_A_RETIREMENT')"
             wait(lambda:any('FIXTURE_OK' in r[1] for r in rows(post_reply_sql)),'B durable assistant reply after A retirement',40)
-            record('automatic A retirement after transfer and release; B continues',calls=events()[offset:], durable_assistant_reply=rows(post_reply_sql))
+            record('automatic A retirement after same-conversation closure drain; B continues' if same_conversation_close else 'automatic A retirement after transfer and release; B continues',calls=events()[offset:], durable_assistant_reply=rows(post_reply_sql))
             watchdog_opens=[e for e in events() if e['event']=='watchdog-open']
             assert {pidA, calls[0]['pid']}.issubset({e['pid'] for e in watchdog_opens}), watchdog_opens
             record('ordinary watchdog enabled on A and B with offline audit',opens=watchdog_opens)
@@ -490,4 +521,4 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
     assert report['passed']
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');p.add_argument('--ordinary-closure-probe',action='store_true',help='check ordinary PTY quit and automatic retirement without management release');p.add_argument('--ordinary-session-close',action='store_true',help='close A session via /quit while independent work runs; contrast unexpected disconnect');a=p.parse_args();assert not (a.ordinary_closure_probe and a.ordinary_session_close);run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation,a.ordinary_closure_probe,a.ordinary_session_close)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');p.add_argument('--ordinary-closure-probe',action='store_true',help='check ordinary PTY quit and automatic retirement without management release');p.add_argument('--ordinary-session-close',action='store_true',help='close A session via /quit while independent work runs; contrast unexpected disconnect');p.add_argument('--same-conversation-close',action='store_true',help='preserve disconnect/reopen then quit the exact A conversation owning a second independent task');a=p.parse_args();assert not (a.same_conversation_close and (a.worker_delegation or a.ordinary_session_close or a.ordinary_closure_probe));assert not (a.ordinary_closure_probe and a.ordinary_session_close);run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation,a.ordinary_closure_probe,a.ordinary_session_close,a.same_conversation_close)
