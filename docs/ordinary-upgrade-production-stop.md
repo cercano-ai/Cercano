@@ -24,8 +24,8 @@ actual TERM delivery, since frozen workers no longer exit at TERM.
 
 This does not contain detached/reparented tools or prove every kernel fork/exec
 interleaving. The second-worker assertion demonstrates late inventory coverage,
-not a deterministic fork-in-progress race. That race reproduction and qualification
-remain outstanding; no migration authorization is inferred from this snapshot.
+not a deterministic fork-in-progress race. The bounded published-child/pre-exec reproduction below is now covered; kernel-internal
+fork publication qualification remains outstanding. No migration authorization is inferred.
 
 ## Observations
 
@@ -92,3 +92,44 @@ empty discovery shim only after scoped native shutdown assertions; this is **not
 unmodified global discovery acceptance or automatic guarded ordinary-upgrade authorization. A clean
 macOS account/VM and qualified startup path are still required for full-environment
 acceptance. No current ambient-process diagnostic was run.
+
+## Review corrections: exec rollback and different-version model hosts
+
+Rollback now records whether this operation successfully sent STOP, preserving a
+previously observed stopped state. CONT rollback checks PID, UID and kernel start
+time, not the pre-exec executable; TERM/KILL still require strict executable
+identity. Cleanup errors are joined into the refusal instead of discarded.
+A deterministic disposable shell-to-sleep exec at the inspect/STOP seam reproduces
+the stale strict-identity failure. Native state checks assert resumed state after
+rollback and preserved STOP for a previously stopped process.
+
+Attached descendant model-host exclusion now uses the same kernel executable-name
+and revalidated role checks as direct children, regardless of version path. An
+arbitrary non-Cercano executable does not gain exclusion from argv alone. This is
+the existing bounded identity convention, not cryptographic executable attestation.
+Production discovery and the production stop-hosts guard are unchanged.
+
+Negative controls (temporary mutations restored in finally):
+- P1 strict executable rollback: `upgrade-build-k2vs1y16/output.log`, expected
+  failure `rollback lifetime changed` in `TestUpgradeExecSTOPRollback`.
+- P2 old equal-executable exclusion: `upgrade-build-2cdqptaj/output.log`, expected
+  failure `different-version model host frozen`.
+These build roots are under `/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/`.
+An initial test run (`upgrade-build-gderg4v4`) exposed a fixture path canonicalization
+error (/var versus /private/var); fixed by resolving the copied executable path.
+Three repeated affected native test runs passed in `upgrade-build-51n5sgqv`.
+
+`TestUpgradeInFlightForkObservable` compiles a disposable C fixture with a real
+fork and pipe handshake. The child has been published but waits before exec.
+After its parent is natively stopped, releasing the child proves it can still
+write and exec; the subsequent bounded descendant scan finds and freezes it.
+This establishes observable in-flight spawn semantics, **not** a deterministic
+kernel-internal fork/publication interleaving or a STOP publication fence. The
+kernel-internal question above remains unproven; detached/reparented descendants,
+concurrent external STOP/CONT and the inspect-to-signal PID reuse window are not
+universally contained. No production guard relaxation follows.
+
+Final-commit verification uses the reproduction commands above with `-v` on the
+affected tests. The external build roots retain exact allowlisted environments and
+output logs; the combined fixture records source_commit and its disposable store,
+generation, CLI transcript, writer ticks, and cleanup evidence in its result files.

@@ -33,6 +33,10 @@ func (s *restartFixture) ShutdownAgent(context.Context, *proto.ShutdownAgentRequ
 }
 
 func TestMain(m *testing.M) {
+	if os.Getenv("CERCANO_TREE_FIXTURE") == "1" {
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
 	if os.Getenv("CERCANO_UPGRADE_WORKER") == "1" && len(os.Args) == 2 && os.Args[1] == "worker" {
 		os.Exit(runUpgradeWorker())
 	}

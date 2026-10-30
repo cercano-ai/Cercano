@@ -102,16 +102,17 @@ func stopUpgradeHostObserved(ctx context.Context, endpoint netip.AddrPort, pids 
 	// resuming even to deliver TERM would reopen the historical spawn race.
 	// On refusal/cancellation, resume only this same process, never a reused PID.
 	frozen := true
-	frozenChildren := map[int]Identity{}
+	frozenChildren := map[int]stoppedIdentity{}
+	var hostStop stoppedIdentity
 	defer func() {
 		if frozen {
 			for _, id := range frozenChildren {
-				_ = signalIdentity(id, syscall.SIGCONT)
+				retErr = errors.Join(retErr, resumeUpgradeProcess(id))
 			}
-			_ = signalIdentity(*host, syscall.SIGCONT)
+			retErr = errors.Join(retErr, resumeUpgradeProcess(hostStop))
 		}
 	}()
-	if err := freezeUpgradeHost(ctx, *host); err != nil {
+	if err := freezeUpgradeHost(ctx, *host, &hostStop); err != nil {
 		return err
 	}
 	owns, err := HoldsListener(*host, endpoint)
@@ -146,7 +147,11 @@ func stopUpgradeHostObserved(ctx context.Context, endpoint netip.AddrPort, pids 
 				pending = true
 				continue
 			}
-			if role == "model-host" {
+			shared, sharedErr := verifiedModelHost(id)
+			if sharedErr != nil {
+				return sharedErr
+			}
+			if shared {
 				continue
 			}
 			if id.Executable == host.Executable && role == "worker" {
@@ -179,7 +184,7 @@ func stopUpgradeHostObserved(ctx context.Context, endpoint netip.AddrPort, pids 
 		return err
 	}
 	for pid, id := range frozenChildren {
-		targets[pid] = id
+		targets[pid] = id.Identity
 	}
 	if err := ctx.Err(); err != nil {
 		return err // Still reversible: no TERM sent, deferred CONT is safe.
