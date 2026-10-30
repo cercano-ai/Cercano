@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"cercano/source/server/internal/brewrestart"
 	"cercano/source/server/internal/conversation"
 )
 
@@ -26,7 +27,18 @@ func knownUpgradeAgents(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("cannot check known Cercano agents: %w", err)
 	}
-	return refuseKnownUpgradeAgents(string(out), os.Getpid())
+	var filtered strings.Builder
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 {
+			pid, _ := strconv.Atoi(fields[0])
+			if brewrestart.IsSharedModelHost(pid) {
+				continue
+			}
+		}
+		filtered.WriteString(line + "\n")
+	}
+	return refuseKnownUpgradeAgents(filtered.String(), os.Getpid())
 }
 
 func refuseKnownUpgradeAgents(snapshot string, self int) error {
