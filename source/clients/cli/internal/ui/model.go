@@ -200,7 +200,8 @@ type Model struct {
 	cloudModel          string // cloud model name (from config), used for the c: header chip; empty when no cloud configured
 	activeCloudProfile  string // active cloud profile name, used as a fallback when the model is unknown
 	cloudState          string // "" = unknown, "NONE" = absent, "ok" = real cloud configured
-	ctrlCArmed          bool   // first ctrl-c on empty input arms quit; any other key disarms
+	intentionalExit     bool
+	ctrlCArmed          bool // first ctrl-c on empty input arms quit; any other key disarms
 	errMsg              string
 
 	// Live turn telemetry, surfaced by renderStatus while a turn streams. Reset
@@ -1063,6 +1064,13 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case shutdownDecisionMsg:
+		if msg.client != m.agent || msg.conversation != m.convID || msg.generation != m.taskSubscriptionGeneration {
+			return m, nil
+		}
+		m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: msg.text})
+		m.refreshViewport()
+		return m, nil
 	case permissionDecisionMsg:
 		// RPCs can complete before a host/conversation replacement but remain
 		// queued until afterward. Check provenance before rendering either result.
@@ -2422,7 +2430,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 				runtime := m.pendingRuntimeSwitch
 				m.pendingRuntimeSwitch = ""
 				m.openRuntimeModal.state = runtimeModalDone
-				return m, dispatchOpenRuntimeSwitch(m.agent, runtime)
+				return m, dispatchOpenRuntimeSwitch(m.shutdownOrigin(), runtime)
 			}
 			// Normalize the empty default: server treats empty as ollama.
 			active := m.currentOpenRuntime
@@ -2655,7 +2663,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			m.openRuntimeModal.setNeedsModel(needsMsg)
 			return m, nil
 		}
-		m.openRuntimeModal.setPickModel(m.agent, m.pendingRuntimeSwitch, msg.models, msg.sysRAMBytes)
+		m.openRuntimeModal.setPickModel(m.agent, m.pendingRuntimeSwitch, msg.models, msg.sysRAMBytes, m.shutdownOrigin())
 		return m, nil
 
 	case openRuntimeDashboardMsg:
@@ -3303,8 +3311,8 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 		if len(f) > 0 && f[0] == "/host" {
 			return m.runDevHost(line)
 		}
-		if len(f) > 0 && f[0] != "/version" && f[0] != "/quit" && f[0] != "/search" {
-			m.errMsg = "Pinned development mode: /host, /version, /search, /quit only"
+		if len(f) > 0 && f[0] != "/version" && f[0] != "/quit" && f[0] != "/exit" && f[0] != "/search" && f[0] != "/history" && f[0] != "/resume" {
+			m.errMsg = "Pinned development mode: /history, /resume, /host, /version, /search, /quit only"
 			return m, nil
 		}
 	}
@@ -3329,6 +3337,7 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 		m.openConversationSearch(res.Text)
 		return m, nil
 	case slash.ResultQuit:
+		m.intentionalExit = true
 		return m, tea.Quit
 	case slash.ResultClearConversation:
 		m.mainChat().SetEntriesSlice(nil)
@@ -3497,30 +3506,14 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 		}
 		return m.submit(kickoff, nil)
 	case slash.ResultRestartAgent:
-		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "↻ restarting agent — the connection will drop and reconnect momentarily…"})
+		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "Requesting agent shutdown; completion is not yet confirmed…"})
 		m.refreshViewport()
-		return m, dispatchAgentRestart(m.agent, res.Text)
+		return m, dispatchShutdown(m.shutdownOrigin(), res.Text, nil)
 	case slash.ResultText:
 		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: res.Text})
 		m.refreshViewport()
 	}
 	return m, nil
-}
-
-// dispatchAgentRestart asks the agent to bounce itself, then returns so the
-// CLI's reconnect loop can bring up (or re-attach to) a fresh agent. The RPC
-// error is swallowed — a dropped connection mid-shutdown is the expected shape,
-// and reconnect state surfaces the outcome through the normal channels.
-func dispatchAgentRestart(ag *agentclient.Client, reason string) tea.Cmd {
-	return func() tea.Msg {
-		if reason == "" {
-			reason = "user-requested restart"
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = ag.ShutdownAgent(ctx, reason)
-		return nil
-	}
 }
 
 // applyTurnTelemetry folds a done event's telemetry into the host footer
@@ -3739,6 +3732,7 @@ func (m Model) handleCtrlCKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.ctrlCArmed {
+		m.intentionalExit = true
 		return m, tea.Quit
 	}
 	m.ctrlCArmed = true
@@ -4198,8 +4192,7 @@ func (m *Model) restoreSubAgentTabs(ctx context.Context, conversationID string) 
 
 func (m Model) beginProgressiveResume(conversationID string) (Model, tea.Cmd) {
 	if m.devHost != nil && (m.devHost.detached || conversationID != m.devHost.selection.Conversation) {
-		m.errMsg = "Pinned session: changing conversation requires explicit startup selection"
-		return m, nil
+		return m.beginDevHostReopen(conversationID)
 	}
 	if m.agent == nil {
 		m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "resume failed: agent unavailable"})
@@ -4289,6 +4282,9 @@ func (m Model) applyProgressiveResumeEvent(msg resumeViewportStreamMsg) (Model, 
 // resume until the user takes their next turn. The cmd is the only way to
 // drive the meter from this code path; callers MUST plumb it through.
 func (m Model) applyResume(conversationID string) (Model, tea.Cmd) {
+	if m.devHost != nil {
+		return m.beginProgressiveResume(conversationID)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	turns, err := m.agent.ResumeConversation(ctx, conversationID)

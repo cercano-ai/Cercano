@@ -85,6 +85,9 @@ type completionNotice struct {
 // claims prevent duplicate automatic reactions; pending evidence is cleared
 // only after a successful, still-current completion turn.
 func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string) {
+	if s.workFenced.Load() {
+		return
+	}
 	if err := s.refuseUnintegratedCoexistenceWork(); err != nil && parentCtx.Value(ownedCompletionKey{}) == nil {
 		log.Printf("task completion admission %s: %v", parent, err)
 		return
@@ -322,7 +325,7 @@ func (s *Server) notifyOwnedTaskChange(ctx context.Context, owner broker.Owner, 
 	}
 	s.taskRunMu.Lock()
 	defer s.taskRunMu.Unlock()
-	if s.taskManagerClosed || s.taskWakeCtx == nil {
+	if s.workFenced.Load() || s.taskManagerClosed || s.taskWakeCtx == nil {
 		return broker.ErrAdmissionClosed
 	}
 	ticket, err := s.coexistence.admission.AdmitWork(owner, broker.CallbackWork)

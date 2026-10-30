@@ -59,3 +59,24 @@ func TestProducerConcurrentStartAndClose(t *testing.T) {
 	}
 	workers.Wait()
 }
+
+func TestProducerFenceRetainsActiveRejectsPending(t *testing.T) {
+	g := New(nil, nil, time.Hour, 12)
+	ctx, release, ok := g.startWork(t.Context())
+	if !ok {
+		t.Fatal("initial callback rejected")
+	}
+	g.Schedule("pending")
+	g.Fence()
+	if ctx.Err() != nil {
+		t.Fatal("fence revoked running authority")
+	}
+	if _, _, ok := g.startWork(t.Context()); ok {
+		t.Fatal("pending trigger admitted after fence")
+	}
+	g.Schedule("late")
+	release()
+	if err := g.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"cercano/source/server/internal/reasoningexperiment"
 	"cercano/source/server/internal/routingwire"
 	"cercano/source/server/internal/runtimecontrol"
+	"cercano/source/server/internal/workadmission"
 	"cercano/source/server/pkg/approvaldisclosure"
 	"context"
 	"encoding/json"
@@ -17,10 +18,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -47,6 +50,7 @@ import (
 	runtimessvc "cercano/source/server/internal/hostsvc/runtimes"
 	toolssvc "cercano/source/server/internal/hostsvc/tools"
 	"cercano/source/server/internal/inference"
+	"cercano/source/server/internal/inference/profilechain"
 	"cercano/source/server/internal/llamacompat"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/localruntime"
@@ -109,8 +113,15 @@ type McpManager interface {
 
 // Server is the gRPC server for the Agent service.
 type Server struct {
-	coexistence           *coexistenceLifecycle // explicit lifecycle-only opt-in; never enabled by NewServer
+	shutdownOnce          sync.Once
+	shutdownErr           error
+	watchAdmission        workadmission.Gate
+	configWatchers        sync.WaitGroup
+	diagnosticClose       sync.Once
+	coexistence           *coexistenceLifecycle // ownership and ticket authority
+	ordinaryGeneration    bool                  // ordinary service policy; set only by lifecycle attachment
 	pendingPrompts        pendingPromptHub
+	configApplyMu         sync.Mutex // serializes publication and runtime activation on this host
 	mistralMu             sync.Mutex
 	mistralCatalog        *mistralcatalog.Store
 	authenticationWaiters sync.Map
@@ -123,7 +134,7 @@ type Server struct {
 	chatgptCatalogBase string
 	proto.UnimplementedAgentServer
 	agent       *agent.Agent
-	providerSvc providers.Resolver // owns cloud/open providers, router, coordinator, registry, catalogManager
+	providerSvc providers.ComposableResolver // owns cloud/open providers, router, coordinator, registry, catalogManager
 	// catalogRegistry is the pluggable model-catalog registry (HuggingFace /
 	// Ollama backends, one active). Held on Server directly — browse runs
 	// host-side; the worker doesn't discover models.
@@ -160,9 +171,12 @@ type Server struct {
 	// enforces the decline/re-arm hysteresis. nil (or a zero-threshold config)
 	// means the feature is off and no offer is ever emitted. Wired via
 	// SetRolloverConfig from main.go.
-	rollover    *rolloverManager
-	runtimesSvc runtimessvc.Supervisors // owns meridianMgr, runtimeManager, mcpManager
-	watchdog    *watchdog.Watchdog      // protocol-supervision gate; nil = disabled (default)
+	rollover        *rolloverManager
+	runtimesSvc     runtimessvc.Supervisors // owns meridianMgr, runtimeManager, mcpManager
+	watchdogAuditMu sync.Mutex
+	watchdogAudits  []watchdog.AuditLogger
+	watchdogDeps    WatchdogDependencies
+	watchdog        *watchdog.Watchdog // protocol-supervision gate; nil = disabled (default)
 	// Two runners coexist so the front door can pick per turn. inProcessRunner is
 	// always built (NewServer / SetPermissions) and is the embedded runnersvc.Core
 	// the test suite constructs. workerRunner is nil until SelectExecutionMode
@@ -202,10 +216,16 @@ type Server struct {
 	// at NewServer time) and lives for the server's lifetime, independent of
 	// any turn. Closed in Shutdown, before the persistence store goes down;
 	// unfinished executions are then reconciled at the next start.
+	preparedScheduling      *preparedScheduling // immutable after prepared construction
+	workFenced              atomic.Bool
+	taskFenceTarget         atomic.Pointer[taskrun.Manager]
+	shutdownControl         func(bool) *proto.ShutdownAgentResponse
 	taskRunMu               sync.RWMutex
 	taskManager             *taskrun.Manager
 	ownedTaskWakes          map[broker.Owner][]*ownedCompletionWake
 	taskManagerClosed       bool
+	taskCloseOnce           sync.Once
+	taskCloseDone           chan struct{}
 	taskWakeCtx             context.Context
 	taskWakeCancel          context.CancelFunc
 	taskWakeWG              sync.WaitGroup
@@ -510,9 +530,11 @@ func (s *Server) RemoveMcpServer(ctx context.Context, req *proto.RemoveMcpServer
 
 // RestartMcpServer implements proto.AgentServer — tears down and reconnects a hosted MCP server.
 func (s *Server) RestartMcpServer(ctx context.Context, req *proto.RestartMcpServerRequest) (*proto.RestartMcpServerResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	mgr := s.mcpMgr()
 	if mgr == nil {
 		return &proto.RestartMcpServerResponse{Ok: false, Error: "mcp host not enabled"}, nil
@@ -581,21 +603,33 @@ func (s *Server) SetSecrets(st secrets.Store) error { return s.cfgSvc.SetSecrets
 // call once at process exit; cheap when nothing was started. Does NOT stop the
 // gRPC server itself — that's the caller's job (cmd/cercano/main.go uses
 // GracefulStop).
-func (s *Server) Shutdown() {
-	// Cancel background execution before tearing down its runtime dependencies.
-	s.closeTaskManager()
-	// Drain the per-conversation worker pool (kill warm workers + stop the
-	// idle-reaper) when worker mode is armed. The in-process runner has nothing
-	// to drain; the type assertion no-ops for it.
-	if sd, ok := s.workerRunner.(interface{ Shutdown() }); ok {
-		sd.Shutdown()
-	}
-	s.stopRuntimeInstances()
-	if s.visionStore != nil {
-		if err := s.visionStore.Close(); err != nil {
-			log.Printf("[vision] temporary attachment cleanup: %v", err)
+func (s *Server) Shutdown() error {
+	s.shutdownOnce.Do(func() {
+		defer s.diagnosticClose.Do(func() {
+			s.shutdownErr = errors.Join(s.shutdownErr, s.routingLog.Close())
+			s.shutdownErr = errors.Join(s.shutdownErr, s.failureLog.Close())
+			s.watchdogAuditMu.Lock()
+			defer s.watchdogAuditMu.Unlock()
+			for _, audit := range s.watchdogAudits {
+				s.shutdownErr = errors.Join(s.shutdownErr, audit.Close())
+			}
+			s.watchdogAudits = nil
+		})
+		// Cancel background execution before tearing down its runtime dependencies.
+		s.preparedScheduling.close()
+		s.closeTaskManager()
+		// Drain the per-conversation worker pool (kill warm workers + stop the
+		// idle-reaper) when worker mode is armed. The in-process runner has nothing
+		// to drain; the type assertion no-ops for it.
+		if sd, ok := s.workerRunner.(interface{ Shutdown() }); ok {
+			sd.Shutdown()
 		}
-	}
+		s.stopRuntimeInstances()
+		if s.visionStore != nil {
+			s.shutdownErr = errors.Join(s.shutdownErr, s.visionStore.Close())
+		}
+	})
+	return s.shutdownErr
 }
 
 // ensureTaskManager constructs the host-owned task manager exactly once per
@@ -610,7 +644,7 @@ func (s *Server) Shutdown() {
 func (s *Server) ensureTaskManager() bool {
 	s.taskRunMu.Lock()
 	defer s.taskRunMu.Unlock()
-	if s.taskManagerClosed {
+	if s.workFenced.Load() || s.taskManagerClosed {
 		return false
 	}
 	if s.taskManager != nil {
@@ -644,43 +678,49 @@ func (s *Server) ensureTaskManager() bool {
 	// completion must never observe a live manager without a wake context.
 	s.taskWakeCtx, s.taskWakeCancel = context.WithCancel(context.Background())
 	s.taskManager = m
+	s.taskFenceTarget.Store(m)
+	if s.workFenced.Load() {
+		m.Fence()
+		return false
+	}
 	return true
 }
 
 // closeTaskManager stops host-owned task execution before persistence goes
 // down. Interrupted tasks are reconciled at the next start.
 func (s *Server) closeTaskManager() {
-	s.taskRunMu.Lock()
-	m := s.taskManager
-	s.taskManager = nil
-	// Block new callbacks before canceling existing background turns. This
-	// also makes taskWakeWG.Wait safe: no callback can Add after this point.
-	s.taskManagerClosed = true
-	if s.taskWakeCancel != nil {
-		s.taskWakeCancel()
-	}
-	s.taskRunMu.Unlock()
-	// Bounded: running executors observe the host cancel (engine honors ctx)
-	// and outcome persistence carries its own 10 s timeout. Does not wait
-	// unboundedly on a wedged executor — the process is exiting anyway.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if m != nil {
-		if err := m.Close(ctx); err != nil {
-			log.Printf("[taskrun] shutdown close: %v", err)
+	_ = s.closeTaskManagerContext(context.Background())
+}
+
+// The retained join is shared by all callers, including a caller whose wait
+// expired. A deadline never grants permission to dispose task dependencies.
+func (s *Server) closeTaskManagerContext(ctx context.Context) error {
+	s.taskCloseOnce.Do(func() {
+		s.taskRunMu.Lock()
+		m := s.taskManager
+		s.taskManager = nil
+		s.taskManagerClosed = true
+		s.taskCloseDone = make(chan struct{})
+		if s.taskWakeCancel != nil {
+			s.taskWakeCancel()
 		}
-	}
-	// Drain completion handling before its persistence/provider dependencies
-	// close, within the same shutdown budget used for child execution.
-	wakesDone := make(chan struct{})
-	go func() {
-		s.taskWakeWG.Wait()
-		close(wakesDone)
-	}()
+		if m != nil {
+			m.Fence()
+		}
+		s.taskRunMu.Unlock()
+		go func() {
+			if m != nil {
+				_ = m.Close(context.Background())
+			}
+			s.taskWakeWG.Wait()
+			close(s.taskCloseDone)
+		}()
+	})
 	select {
-	case <-wakesDone:
+	case <-s.taskCloseDone:
+		return nil
 	case <-ctx.Done():
-		log.Printf("[taskrun] shutdown completion drain: %v", ctx.Err())
+		return ctx.Err()
 	}
 }
 
@@ -696,7 +736,7 @@ func (s *Server) taskRunManager() *taskrun.Manager {
 // a safe boundary or schedules another attempt when its current turn releases.
 func (s *Server) notifyTaskChange(parent string) {
 	s.taskRunMu.Lock()
-	if parent == "" || s.taskManagerClosed || s.taskManager == nil || s.taskWakeCtx == nil {
+	if s.workFenced.Load() || parent == "" || s.taskManagerClosed || s.taskManager == nil || s.taskWakeCtx == nil {
 		s.taskRunMu.Unlock()
 		return
 	}
@@ -716,7 +756,7 @@ func (s *Server) notifyTaskChange(parent string) {
 		defer s.taskWakeWG.Done()
 		for {
 			s.taskRunMu.Lock()
-			if s.taskManagerClosed || !s.taskWakePending[parent] {
+			if s.workFenced.Load() || s.taskManagerClosed || !s.taskWakePending[parent] {
 				delete(s.taskWakePending, parent)
 				s.taskRunMu.Unlock()
 				return
@@ -921,9 +961,6 @@ func profileByName(profiles []config.CloudProfile, name string) (config.CloudPro
 	return config.CloudProfile{}, false
 }
 
-// persistConfig saves the current config to disk if a path is set.
-func (s *Server) persistConfig() { s.cfgSvc.Persist() }
-
 // installAbsentCloud clears the native cloud provider and points both the
 // router and the coordinator's CloudModel at the absent sentinel, so a failed
 // rebuild never leaves a half-wired cloud.
@@ -979,9 +1016,13 @@ func (s *Server) GetCloudProfiles(ctx context.Context, req *proto.GetCloudProfil
 
 // SetActiveCloudProfile implements proto.AgentServer — switches the active cloud profile.
 func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActiveCloudProfileRequest) (*proto.SetActiveCloudProfileResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	// The client may have given up while this RPC sat in a queue (agent
 	// restart, lock contention). Applying it anyway split-brains client and
 	// server: the CLI reports failure while the switch silently lands. Bail
@@ -993,11 +1034,16 @@ func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActive
 	defer func() {
 		log.Printf("[cloud] SetActiveCloudProfile(%q) took %v", req.GetName(), time.Since(start).Round(time.Millisecond))
 	}()
-	if req.GetName() != "" && s.cfgSvc.Get().BackupCloudProfile == req.GetName() {
+	if slices.Contains(s.cfgSvc.Get().PrimaryBackups(), req.GetName()) {
 		return &proto.SetActiveCloudProfileResponse{Error: "profile is already Primary backup; edit routing assignments to change both"}, nil
 	}
-	if !s.cfgSvc.SetActiveProfile(req.GetName()) {
+	candidate := s.cfgSvc.Get()
+	if _, ok := candidate.Profile(req.GetName()); !ok {
 		return &proto.SetActiveCloudProfileResponse{Ok: false, Error: fmt.Sprintf("no profile %q", req.GetName())}, nil
+	}
+	candidate.ActiveCloudProfile = req.GetName()
+	if err := s.cfgSvc.SaveAndSet(candidate); err != nil {
+		return &proto.SetActiveCloudProfileResponse{Error: err.Error()}, nil
 	}
 	if s.turnBroker != nil {
 		s.turnBroker.CancelAllTurns()
@@ -1012,10 +1058,8 @@ func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActive
 	}
 	if err := s.rebuildCloud(); err != nil {
 		// active is set, but the provider couldn't be built — report it, keep going.
-		s.persistConfig()
-		return &proto.SetActiveCloudProfileResponse{Ok: false, Error: err.Error()}, nil
+		return &proto.SetActiveCloudProfileResponse{Ok: false, Error: "configuration saved but not applied: " + err.Error()}, nil
 	}
-	s.persistConfig()
 	if prof, ok := s.activeProfile(); ok {
 		s.broadcastConfigChanged("active_cloud_profile", prof.Name)
 		s.broadcastConfigChanged("cloud_model", s.activeCloudModel())
@@ -1025,12 +1069,15 @@ func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActive
 
 // SetCloudProfileKey implements proto.AgentServer — stores an API key for a profile.
 func (s *Server) SetCloudProfileKey(ctx context.Context, req *proto.SetCloudProfileKeyRequest) (*proto.SetCloudProfileKeyResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	releaseCatalog := s.lockMistralConfiguration()
 	defer releaseCatalog()
-	s.invalidateMistralLocked(req.GetName())
 	st := s.cfgSvc.Secrets()
 	if st == nil {
 		return &proto.SetCloudProfileKeyResponse{Ok: false, Error: "keychain unavailable"}, nil
@@ -1047,12 +1094,16 @@ func (s *Server) SetCloudProfileKey(ctx context.Context, req *proto.SetCloudProf
 	// Primary when no valid selection exists yet.
 	c := s.cfgSvc.Get()
 	if _, ok := c.Profile(c.ActiveCloudProfile); !ok {
-		s.cfgSvc.SetActiveProfile(req.GetName())
-		s.persistConfig()
+		c.ActiveCloudProfile = req.GetName()
+		if err := s.cfgSvc.SaveAndSet(c); err != nil {
+			return &proto.SetCloudProfileKeyResponse{Error: "credential saved; configuration not applied: " + err.Error()}, nil
+		}
 	}
 	// If the key belongs to the active profile, rebuild so it takes effect now.
 	if s.cfgSvc.Get().ReferencesProfile(req.GetName()) {
-		_ = s.rebuildCloud()
+		if err := s.rebuildCloud(); err != nil {
+			return &proto.SetCloudProfileKeyResponse{Error: "credential saved but not applied: " + err.Error()}, nil
+		}
 	}
 	return &proto.SetCloudProfileKeyResponse{Ok: true}, nil
 }
@@ -1071,9 +1122,10 @@ func knownFlavor(f string) bool {
 // UpsertCloudProfile implements proto.AgentServer — creates or updates a profile's
 // metadata (the API key is managed separately via SetCloudProfileKey).
 func (s *Server) UpsertCloudProfile(ctx context.Context, req *proto.UpsertCloudProfileRequest) (*proto.UpsertCloudProfileResponse, error) {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	releaseCatalog := s.lockMistralConfiguration()
 	defer releaseCatalog()
-	s.invalidateMistralLocked(req.GetName())
 	name := strings.TrimSpace(req.GetName())
 	if name == "" {
 		return &proto.UpsertCloudProfileResponse{Ok: false, Error: "profile name is required"}, nil
@@ -1132,58 +1184,101 @@ func (s *Server) UpsertCloudProfile(ctx context.Context, req *proto.UpsertCloudP
 	if err := s.validateMistralChoiceEdits(ctx, previous, np); err != nil {
 		return &proto.UpsertCloudProfileResponse{Error: err.Error()}, nil
 	}
-	if req.GetCreateOnly() {
-		var collision error
-		err := s.cfgSvc.Mutate(func(current *config.Config) {
-			if _, exists := current.Profile(name); exists {
-				collision = fmt.Errorf("account %q already exists", name)
-				return
-			}
-			current.CloudProfiles = append(current.CloudProfiles, np.Clone())
-		})
-		if err != nil {
-			return &proto.UpsertCloudProfileResponse{Error: err.Error()}, nil
-		}
-		if collision != nil {
-			return &proto.UpsertCloudProfileResponse{Error: collision.Error()}, nil
-		}
-	} else {
-		s.cfgSvc.UpsertProfile(np)
+	if _, exists := c.Profile(name); exists && req.GetCreateOnly() {
+		return &proto.UpsertCloudProfileResponse{Error: fmt.Sprintf("account %q already exists", name)}, nil
 	}
+	replaced := false
+	for i, p := range c.CloudProfiles {
+		if p.Name == name {
+			c.CloudProfiles[i] = np.Clone()
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		c.CloudProfiles = append(c.CloudProfiles, np.Clone())
+	}
+	if err := s.cfgSvc.SaveAndSet(c); err != nil {
+		return &proto.UpsertCloudProfileResponse{Error: err.Error()}, nil
+	}
+
+	s.invalidateMistralLocked(name)
 	releaseCatalog()
 	if c.ReferencesProfile(name) {
 		if err := s.rebuildCloud(); err != nil {
 			// active is set, but the provider couldn't be built — report it, keep going.
-			s.persistConfig()
-			return &proto.UpsertCloudProfileResponse{Ok: true, Warning: err.Error()}, nil
+			return &proto.UpsertCloudProfileResponse{Ok: true, Warning: "configuration saved but not applied: " + err.Error()}, nil
 		}
 		s.broadcastConfigChanged("cloud_model", s.activeCloudModel())
 	}
-	s.persistConfig()
 	return &proto.UpsertCloudProfileResponse{Ok: true}, nil
 }
 
 // RemoveCloudProfile implements proto.AgentServer — deletes a profile and its
 // keychain key. Clears the active profile (→ absent cloud) if it was active.
 func (s *Server) RemoveCloudProfile(ctx context.Context, req *proto.RemoveCloudProfileRequest) (*proto.RemoveCloudProfileResponse, error) {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	releaseCatalog := s.lockMistralConfiguration()
 	defer releaseCatalog()
-	s.invalidateMistralLocked(req.GetName())
 	name := req.GetName()
 	referenced := s.cfgSvc.Get().ReferencesProfile(name)
-	existed, _ := s.cfgSvc.RemoveProfile(name)
+	candidate := s.cfgSvc.Get()
+	_, existed := candidate.Profile(name)
 	if !existed {
 		return &proto.RemoveCloudProfileResponse{Ok: false, Error: fmt.Sprintf("no profile %q", name)}, nil
 	}
 
-	if st := s.cfgSvc.Secrets(); st != nil {
-		_ = st.Delete(name) // best-effort; missing key is not an error
+	kept := candidate.CloudProfiles[:0]
+	for _, p := range candidate.CloudProfiles {
+		if p.Name != name {
+			kept = append(kept, p)
+		}
 	}
+	candidate.CloudProfiles = kept
+	if candidate.ActiveCloudProfile == name {
+		candidate.ActiveCloudProfile = ""
+	}
+	backups := candidate.PrimaryBackups()
+	keptBackups := backups[:0]
+	for _, backup := range backups {
+		if backup != name {
+			keptBackups = append(keptBackups, backup)
+		}
+	}
+	candidate.SetPrimaryBackups(keptBackups)
+	if candidate.SecondaryCloudProfile == name {
+		candidate.SecondaryCloudProfile = ""
+	}
+	if candidate.SecondaryBackupCloudProfile == name {
+		candidate.SecondaryBackupCloudProfile = ""
+	}
+	if err := candidate.ValidateRouting(); err != nil {
+		return &proto.RemoveCloudProfileResponse{Error: err.Error()}, nil
+	}
+	if err := s.cfgSvc.SaveAndSet(candidate); err != nil {
+		return &proto.RemoveCloudProfileResponse{Error: err.Error()}, nil
+	}
+
+	credentialFailed := false
+	if st := s.cfgSvc.Secrets(); st != nil {
+		credentialFailed = st.Delete(name) != nil
+	}
+	s.invalidateMistralLocked(name)
 	releaseCatalog()
 	if referenced {
-		_ = s.rebuildCloud()
+		if err := s.rebuildCloud(); err != nil {
+			// An unbound Primary is valid routing configuration. Rebuild has
+			// published the new graph and installed the documented absent-cloud
+			// fallback; only this typed outcome is expected after removal.
+			if candidate.ActiveCloudProfile != "" || !errors.Is(err, profilechain.ErrPrimaryAbsent) {
+				return &proto.RemoveCloudProfileResponse{Error: "configuration saved but not applied: " + err.Error()}, nil
+			}
+		}
 	}
-	s.persistConfig()
+	if credentialFailed {
+		return &proto.RemoveCloudProfileResponse{Error: "configuration saved; credential removal failed"}, nil
+	}
 	return &proto.RemoveCloudProfileResponse{Ok: true}, nil
 }
 
@@ -1264,6 +1359,11 @@ func (s *Server) SetCompactionGenerator(g *compactiongen.Generator) {
 // NewServer creates a new Agent gRPC server.
 func NewServer(a *agent.Agent, router RouterCloudUpdater, coordinator *loop.ADKCoordinator, cloudFactory agent.CloudFactory, registry *engine.EngineRegistry) *Server {
 	return newServerWithLogs(a, router, coordinator, cloudFactory, registry, "", "")
+}
+
+// NewServerWithLogs uses invocation-owned diagnostic paths; empty paths retain legacy defaults.
+func NewServerWithLogs(a *agent.Agent, router RouterCloudUpdater, coordinator *loop.ADKCoordinator, cloudFactory agent.CloudFactory, registry *engine.EngineRegistry, routingPath, failurePath string) *Server {
+	return newServerWithLogs(a, router, coordinator, cloudFactory, registry, routingPath, failurePath)
 }
 
 // Explicit paths let embedded hosts and integration tests isolate diagnostic
@@ -1633,8 +1733,21 @@ func (s *Server) LocusMode() string {
 // (previously atomic under one cfgMu span) — a concurrent reader can momentarily
 // observe new config with old provider wiring (documented trade-off).
 func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigRequest) (*proto.UpdateConfigResponse, error) {
+	ctx, work, err := s.beginSettingsWork(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer work.finish()
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
+	return s.updateConfigLocked(ctx, req, nil)
+}
+
+func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfigRequest, authoritative *config.Config) (*proto.UpdateConfigResponse, error) {
 	if s.coexistence != nil {
-		return nil, cfgsvc.ErrFrozen
+		if err := s.validateSharedSettings(req, authoritative); err != nil {
+			return nil, err
+		}
 	}
 	if req.CloudApiKey != "" {
 		if err := secrets.CheckAllowed(); err != nil {
@@ -1648,8 +1761,19 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	// then cfgSvc.Set(c) commits everything atomically at the end. This keeps
 	// each individual step free of cfgMu (cfgSvc's internal lock is fine-grained).
 	c := s.cfgSvc.Get()
+	// File adoption has semantic presence independent of protobuf's nonempty
+	// patch fields. In particular, removing an override must rebuild the open
+	// runner using the newly resolved model, not retain the old explicit pick.
+	fileModelChanged := false
+	if authoritative != nil {
+		before, _ := c.Models.OverrideFor(c.OpenRuntime, config.TierEveryday)
+		after, _ := authoritative.Models.OverrideFor(authoritative.OpenRuntime, config.TierEveryday)
+		fileModelChanged = before != after
+	}
 
 	var changes []string
+	var effects []func()
+	var cloudEffect func() error
 
 	if req.OllamaUrl != "" {
 		u, err := url.ParseRequestURI(req.OllamaUrl)
@@ -1732,8 +1856,8 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		// background. Then emit the fresh open-runtime status through the
 		// runtime-agnostic readiness path so the CLI's chip reflects the
 		// runtime being switched to — ready / downloading / missing.
-		s.ensureRuntimeModelsPresent(ctx, c, req.OpenRuntime)
-		s.broadcastOpenRuntimeStatus(s.openRuntimeStatus(ctx, c, req.OpenRuntime))
+		effects = append(effects, func() { s.ensureRuntimeModelsPresent(ctx, c, req.OpenRuntime) })
+		effects = append(effects, func() { s.broadcastOpenRuntimeStatus(s.openRuntimeStatus(ctx, c, req.OpenRuntime)) })
 	}
 
 	if req.LocusMode != "" {
@@ -1754,7 +1878,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.ElideToolResults = v == "true"
 		changes = append(changes, fmt.Sprintf("elide_tool_results=%s", v))
-		s.broadcastConfigChanged("elide_tool_results", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("elide_tool_results", v) })
 		fmt.Printf("UpdateConfig: elide_tool_results set to %s\n", v)
 	}
 
@@ -1768,7 +1892,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.LossyToolElision = v == "true"
 		changes = append(changes, fmt.Sprintf("lossy_tool_elision=%s", v))
-		s.broadcastConfigChanged("lossy_tool_elision", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("lossy_tool_elision", v) })
 		fmt.Printf("UpdateConfig: lossy_tool_elision set to %s\n", v)
 	}
 
@@ -1782,7 +1906,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.ToolLoop.MaxIterations = n
 		changes = append(changes, fmt.Sprintf("tool_loop.max_iterations=%d", n))
-		s.broadcastConfigChanged("tool_loop.max_iterations", strconv.Itoa(n))
+		effects = append(effects, func() { s.broadcastConfigChanged("tool_loop.max_iterations", strconv.Itoa(n)) })
 		fmt.Printf("UpdateConfig: tool_loop.max_iterations set to %d\n", n)
 	}
 
@@ -1796,7 +1920,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Agent.ShutdownOnLastClient = v == "true"
 		changes = append(changes, fmt.Sprintf("agent.shutdown_on_last_client=%s", v))
-		s.broadcastConfigChanged("agent.shutdown_on_last_client", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("agent.shutdown_on_last_client", v) })
 		fmt.Printf("UpdateConfig: agent.shutdown_on_last_client set to %s\n", v)
 	}
 
@@ -1869,9 +1993,9 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		// Flip the runtime kill switch. In-flight passes finish; new Schedule
 		// calls noop when disabled. Nil-guarded because the server may run
 		// without a persistent store (no compGen wired).
-		s.persistSvc.SetCompactionEnabled(enabled)
+		effects = append(effects, func() { s.persistSvc.SetCompactionEnabled(enabled) })
 		changes = append(changes, fmt.Sprintf("compaction_enabled=%s", v))
-		s.broadcastConfigChanged("compaction_enabled", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("compaction_enabled", v) })
 		fmt.Printf("UpdateConfig: compaction_enabled set to %s\n", v)
 	}
 
@@ -1887,9 +2011,9 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		c.Compaction.ToolElisionOnly = on
 		// Hot-swap the pass mode on the running generator; nil-guarded like
 		// SetCompactionEnabled.
-		s.persistSvc.SetToolElisionOnly(on)
+		effects = append(effects, func() { s.persistSvc.SetToolElisionOnly(on) })
 		changes = append(changes, fmt.Sprintf("tool_elision_only=%s", v))
-		s.broadcastConfigChanged("tool_elision_only", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("tool_elision_only", v) })
 		fmt.Printf("UpdateConfig: tool_elision_only set to %s\n", v)
 	}
 
@@ -1904,7 +2028,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.Retention.RawRetentionDays = n
 		changes = append(changes, fmt.Sprintf("raw_retention_days=%d", n))
-		s.broadcastConfigChanged("raw_retention_days", strconv.Itoa(n))
+		effects = append(effects, func() { s.broadcastConfigChanged("raw_retention_days", strconv.Itoa(n)) })
 		fmt.Printf("UpdateConfig: raw_retention_days set to %d\n", n)
 		retentionChanged = true
 	}
@@ -1918,7 +2042,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.Retention.CompactedRetentionDays = n
 		changes = append(changes, fmt.Sprintf("compacted_retention_days=%d", n))
-		s.broadcastConfigChanged("compacted_retention_days", strconv.Itoa(n))
+		effects = append(effects, func() { s.broadcastConfigChanged("compacted_retention_days", strconv.Itoa(n)) })
 		fmt.Printf("UpdateConfig: compacted_retention_days set to %d\n", n)
 		retentionChanged = true
 	}
@@ -1932,7 +2056,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		c.Compaction.Retention.KeepForever = v == "true"
 		changes = append(changes, fmt.Sprintf("keep_forever=%s", v))
-		s.broadcastConfigChanged("keep_forever", v)
+		effects = append(effects, func() { s.broadcastConfigChanged("keep_forever", v) })
 		fmt.Printf("UpdateConfig: keep_forever set to %s\n", v)
 		retentionChanged = true
 	}
@@ -1940,10 +2064,12 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	// next sweep uses the new horizons without waiting for a restart.
 	if retentionChanged {
 		r := c.Compaction.Retention
-		s.persistSvc.UpdateRetentionConfig(retention.Config{
-			RawRetentionDays:       r.RawRetentionDays,
-			CompactedRetentionDays: r.CompactedRetentionDays,
-			KeepForever:            r.KeepForever,
+		effects = append(effects, func() {
+			s.persistSvc.UpdateRetentionConfig(retention.Config{
+				RawRetentionDays:       r.RawRetentionDays,
+				CompactedRetentionDays: r.CompactedRetentionDays,
+				KeepForever:            r.KeepForever,
+			})
 		})
 	}
 
@@ -1981,31 +2107,16 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		}
 		profileName := c.CloudProfiles[idx].Name
 
-		// API key goes to the keychain (keyed by profile name), never to
-		// the profile struct or the legacy CloudAPIKey field.
-		if req.CloudApiKey != "" {
-			if st := s.cfgSvc.Secrets(); st != nil {
-				if err := st.Set(profileName, req.CloudApiKey); err != nil {
-					return &proto.UpdateConfigResponse{
-						Success: false,
-						Message: fmt.Sprintf("failed to store API key: %v", err),
-					}, nil
+		// Credential and provider effects are admitted only after publication.
+		cloudEffect = func() error {
+			if req.CloudApiKey != "" {
+				if st := s.cfgSvc.Secrets(); st != nil {
+					if err := st.Set(profileName, req.CloudApiKey); err != nil {
+						return err
+					}
 				}
 			}
-		}
-
-		// Commit the profile mutations before rebuilding so rebuildCloudLocked
-		// reads the updated profile from cfgSvc.
-		if err := s.cfgSvc.Set(c); err != nil {
-			return nil, grpcstatus.Error(codes.InvalidArgument, err.Error())
-		}
-		c = s.cfgSvc.Get() // re-snapshot so subsequent reads are consistent
-
-		if err := s.rebuildCloudLocked(); err != nil {
-			return &proto.UpdateConfigResponse{
-				Success: false,
-				Message: fmt.Sprintf("failed to rebuild cloud provider: %v", err),
-			}, nil
+			return s.rebuildCloudLocked()
 		}
 		summary := profileName
 		if req.CloudModel != "" {
@@ -2069,24 +2180,24 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 			desc = "embedding_model unset"
 		}
 		changes = append(changes, desc+" (takes effect on restart)")
-		s.broadcastConfigChanged("embedding_model", val)
+		effects = append(effects, func() { s.broadcastConfigChanged("embedding_model", val) })
 	} else if req.ModelTierKey != "" {
 		desc, err := config.ApplyModelTierPatch(&c.Models, req.ModelTierKey, req.ModelTierValue)
 		if err != nil {
 			return &proto.UpdateConfigResponse{Success: false, Message: err.Error()}, nil
 		}
 		changes = append(changes, desc)
-		s.broadcastConfigChanged("models."+req.ModelTierKey, req.ModelTierValue)
+		effects = append(effects, func() { s.broadcastConfigChanged("models."+req.ModelTierKey, req.ModelTierValue) })
 		// The watchdog resolves its one-shot model from the taxonomy at build
 		// time, so a tier change must rebuild it to take effect.
 		watchdogChanged = true
 	}
 	if watchdogChanged {
 		// Rebuild the supervisor from the just-mutated local config snapshot.
-		s.watchdog = s.buildWatchdogFrom(c.Watchdog, c.Models)
+		effects = append(effects, func() { s.watchdog = s.buildWatchdogFrom(c.Watchdog, c.Models) })
 	}
 
-	if len(changes) == 0 {
+	if len(changes) == 0 && authoritative == nil {
 		return &proto.UpdateConfigResponse{
 			Success: true,
 			Message: "no changes requested",
@@ -2095,7 +2206,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 
 	if req.OllamaUrl != "" {
 		c.OllamaURL = req.OllamaUrl
-		s.broadcastConfigChanged("ollama_url", req.OllamaUrl)
+		effects = append(effects, func() { s.broadcastConfigChanged("ollama_url", req.OllamaUrl) })
 	}
 	// Runtime first, so an accompanying OpenModel override keys onto the new
 	// active runtime. Switching runtime writes NOTHING to the tiers — the
@@ -2103,54 +2214,77 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	// the new runtime, so there is never a stale cross-runtime model id.
 	if req.OpenRuntime != "" {
 		c.OpenRuntime = req.OpenRuntime
-		s.broadcastConfigChanged("local_runtime", req.OpenRuntime)
+		effects = append(effects, func() { s.broadcastConfigChanged("local_runtime", req.OpenRuntime) })
 		if req.OpenModel == "" {
 			// Reflect the newly-resolved everyday model for the UI. Resolve
 			// against the in-flight c (its OpenRuntime is already updated), not
 			// the live resolver, which still sees the pre-switch committed config.
 			if m := effectiveOpenModelFor(c, config.TierEveryday); m != "" {
-				s.broadcastConfigChanged("local_model", m)
+				effects = append(effects, func() { s.broadcastConfigChanged("local_model", m) })
 			}
 		}
 	}
 	if req.OpenModel != "" {
 		// Explicit user pick → an override for the (now-)active runtime.
 		c.Models.SetOverride(c.OpenRuntime, config.TierEveryday, req.OpenModel)
-		s.broadcastConfigChanged("local_model", req.OpenModel)
+		effects = append(effects, func() { s.broadcastConfigChanged("local_model", req.OpenModel) })
 	}
 	if req.OpenDefaultModel != "" {
 		// c.LlamaServer.DefaultModel was already set up top (before the runtime
 		// switch) — only the broadcast belongs here.
-		s.broadcastConfigChanged("open_default_model", req.OpenDefaultModel)
+		effects = append(effects, func() { s.broadcastConfigChanged("open_default_model", req.OpenDefaultModel) })
 	}
 	if req.CloudProvider != "" {
 		c.CloudProvider = req.CloudProvider
-		s.broadcastConfigChanged("cloud_provider", req.CloudProvider)
+		effects = append(effects, func() { s.broadcastConfigChanged("cloud_provider", req.CloudProvider) })
 	}
 	if req.CloudModel != "" {
 		c.CloudModel = req.CloudModel
-		s.broadcastConfigChanged("cloud_model", req.CloudModel)
+		effects = append(effects, func() { s.broadcastConfigChanged("cloud_model", req.CloudModel) })
 	}
 	if req.CloudApiKey != "" {
 		c.CloudAPIKey = req.CloudApiKey
 		// Presence marker only — never broadcast a raw secret.
-		s.broadcastConfigChanged("cloud_api_key", "set")
+		effects = append(effects, func() { s.broadcastConfigChanged("cloud_api_key", "set") })
 	}
 	if req.CloudBaseUrl != "" {
 		c.CloudBaseURL = req.CloudBaseUrl
-		s.broadcastConfigChanged("cloud_base_url", req.CloudBaseUrl)
+		effects = append(effects, func() { s.broadcastConfigChanged("cloud_base_url", req.CloudBaseUrl) })
 	}
 	if req.LocusMode != "" {
 		c.LocusMode = req.LocusMode
-		s.broadcastConfigChanged("locus_mode", req.LocusMode)
+		effects = append(effects, func() { s.broadcastConfigChanged("locus_mode", req.LocusMode) })
 	}
 
 	// Commit all config mutations to the service and persist.
-	if err := s.cfgSvc.Set(c); err != nil {
-		return nil, grpcstatus.Error(codes.InvalidArgument, err.Error())
+	if authoritative != nil {
+		coordinator, err := config.NewConfigCoordinator(s.cfgSvc.Path())
+		if err != nil {
+			return nil, err
+		}
+		latest, err := coordinator.Read(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if latest.Revision != authoritative.Snapshot().Revision {
+			return nil, fmt.Errorf("configuration changed during reload; not applied")
+		}
+		c = authoritative.Clone()
+		if err := s.cfgSvc.Set(c); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.cfgSvc.SaveAndSet(c); err != nil {
+			return nil, grpcstatus.Error(codes.InvalidArgument, err.Error())
+		}
+		c = s.cfgSvc.Get()
 	}
 	s.applyRuntimeEndpoints(c)
-	s.cfgSvc.Persist()
+	if cloudEffect != nil {
+		if err := cloudEffect(); err != nil {
+			return &proto.UpdateConfigResponse{Success: false, Message: fmt.Sprintf("configuration saved; live cloud application failed: %v", err)}, nil
+		}
+	}
 
 	// Apply provider/runtime mutations. This runs after cfgSvc.Set so
 	// Reconfigure reads the fully-committed config when rebuilding providers.
@@ -2158,8 +2292,17 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	// fully-mutated snapshot so the factory can rebuild with the new runtime.
 	mistralLaunchFlagsChanged := req.MistralrsIsq != "" ||
 		req.MistralrsPagedAttn != "" || req.MistralrsPaMemoryFraction != ""
-	if req.OllamaUrl != "" || req.OpenModel != "" || req.OpenRuntime != "" {
+	if req.OllamaUrl != "" || req.OpenModel != "" || req.OpenRuntime != "" || fileModelChanged {
 		resolvedModel := req.OpenModel
+		applyRuntime := req.OpenRuntime
+		if fileModelChanged {
+			// Use the existing full-runtime rebuild signal even when the new
+			// override is empty. Do not mutate RPC fields or run runtime-switch
+			// detection/download side effects for an override-only file edit.
+			applyRuntime = c.OpenRuntime
+			resolvedModel = effectiveOpenModelFor(c, config.TierEveryday)
+			effects = append(effects, func() { s.broadcastConfigChanged("local_model", resolvedModel) })
+		}
 		if resolvedModel == "" && req.OpenRuntime == "llama_server" {
 			resolvedModel = c.LlamaServer.DefaultModel
 		}
@@ -2172,7 +2315,7 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 		s.providerSvc.Reconfigure(providers.ReconfigureArgs{
 			OllamaURL:         req.OllamaUrl,
 			OpenModel:         req.OpenModel,
-			OpenRuntime:       req.OpenRuntime,
+			OpenRuntime:       applyRuntime,
 			ResolvedOpenModel: resolvedModel,
 			MutatedConfig:     c,
 		})
@@ -2214,10 +2357,20 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 	// reapplying the same mode), rather than mixing new policy with old bindings.
 	// Rebuild also publishes the new policy when cloud is unavailable, so
 	// cloud-only fails closed instead of retaining a stale local-only route.
-	if req.LocusMode != "" {
+	if req.LocusMode != "" || authoritative != nil {
 		if err := s.rebuildCloud(); err != nil {
+			var unavailable *providers.CloudUnavailableError
+			if !errors.As(err, &unavailable) {
+				return &proto.UpdateConfigResponse{Success: false, Message: "configuration saved but not applied: " + err.Error()}, nil
+			}
 			changes = append(changes, "routing refreshed; cloud unavailable: "+err.Error())
 		}
+	}
+
+	// Publish application notifications only after fallible provider application.
+	// The config snapshot above records durability, not admission freshness.
+	for _, effect := range effects {
+		effect()
 	}
 
 	return &proto.UpdateConfigResponse{
@@ -2236,7 +2389,14 @@ func (s *Server) UpdateConfig(ctx context.Context, req *proto.UpdateConfigReques
 // every llama-server child before the process exits. Calling BeginShutdown()
 // alone would only close the event streams — kicking clients off while the
 // process (and its runtime children) kept running.
+
 func (s *Server) ShutdownAgent(ctx context.Context, req *proto.ShutdownAgentRequest) (*proto.ShutdownAgentResponse, error) {
+	if s.shutdownControl != nil {
+		return s.shutdownControl(req.GetStatusOnly()), nil
+	}
+	if req.GetStatusOnly() {
+		return &proto.ShutdownAgentResponse{Phase: "unsupported", IncompleteReason: "lifecycle status unavailable"}, nil
+	}
 	reason := strings.TrimSpace(req.GetReason())
 	if reason == "" {
 		reason = "client-requested restart"
@@ -2399,10 +2559,14 @@ func classifyResumeRPCError(err error) string {
 
 // DeleteConversation implements proto.AgentServer — delegates to persistSvc.
 func (s *Server) DeleteConversation(ctx context.Context, req *proto.DeleteConversationRequest) (*proto.DeleteConversationResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
-	return s.persistSvc.DeleteConversation(ctx, req)
+	defer work.finish()
+	resp, err := s.persistSvc.DeleteConversation(ctx, req)
+	persistsvc.ReportWriteFailure(ctx, err)
+	return resp, err
 }
 
 // RenameConversation implements proto.AgentServer — delegates to persistSvc.
@@ -2994,9 +3158,11 @@ func catalogModelToProto(m catalog.Model, servable bool) *proto.RuntimeModel {
 // fetch of the online catalog, bypassing the 24h TTL. Used by the
 // CLI dashboard's "R" refresh key.
 func (s *Server) RefreshOnlineCatalog(ctx context.Context, req *proto.RefreshOnlineCatalogRequest) (*proto.RefreshOnlineCatalogResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	cm := s.providerSvc.CatalogManager()
 	if cm == nil {
 		return &proto.RefreshOnlineCatalogResponse{Error: "online catalog not configured"}, nil
@@ -3033,9 +3199,11 @@ func (s *Server) ListRuntimeEndpoints(ctx context.Context, req *proto.ListRuntim
 
 // StartRuntimeModel implements proto.AgentServer.
 func (s *Server) StartRuntimeModel(ctx context.Context, req *proto.StartRuntimeModelRequest) (*proto.StartRuntimeModelResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.StartRuntimeModelResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3052,9 +3220,11 @@ func (s *Server) StartRuntimeModel(ctx context.Context, req *proto.StartRuntimeM
 
 // StopRuntimeModel implements proto.AgentServer.
 func (s *Server) StopRuntimeModel(ctx context.Context, req *proto.StopRuntimeModelRequest) (*proto.StopRuntimeModelResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.StopRuntimeModelResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3067,9 +3237,11 @@ func (s *Server) StopRuntimeModel(ctx context.Context, req *proto.StopRuntimeMod
 
 // RestartRuntime implements proto.AgentServer.
 func (s *Server) RestartRuntime(ctx context.Context, req *proto.RestartRuntimeRequest) (*proto.RestartRuntimeResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.RestartRuntimeResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3087,9 +3259,11 @@ func (s *Server) RestartRuntime(ctx context.Context, req *proto.RestartRuntimeRe
 
 // DownloadRuntimeModel implements proto.AgentServer.
 func (s *Server) DownloadRuntimeModel(ctx context.Context, req *proto.DownloadRuntimeModelRequest) (*proto.DownloadRuntimeModelResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.DownloadRuntimeModelResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3283,9 +3457,11 @@ func defaultModelDir(cfg config.Config) string {
 
 // CancelRuntimeModelDownload implements proto.AgentServer.
 func (s *Server) CancelRuntimeModelDownload(ctx context.Context, req *proto.CancelRuntimeModelDownloadRequest) (*proto.CancelRuntimeModelDownloadResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.CancelRuntimeModelDownloadResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3302,9 +3478,11 @@ func (s *Server) CancelRuntimeModelDownload(ctx context.Context, req *proto.Canc
 
 // DeleteRuntimeModel implements proto.AgentServer.
 func (s *Server) DeleteRuntimeModel(ctx context.Context, req *proto.DeleteRuntimeModelRequest) (*proto.DeleteRuntimeModelResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.DeleteRuntimeModelResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -4110,7 +4288,9 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 		// so the host compensates here. Runs for worker turns only (tr.worker) —
 		// in-process already did it, so no double-counting.
 		if tr.worker {
-			s.workerPostTurn(convID, tr.result)
+			if err := s.workerPostTurn(ctx, convID, tr.result); err != nil {
+				return err
+			}
 		}
 
 		if reserved == nil && ctx.Err() == nil && s.turnIsCurrent(convID, turnGen) {
@@ -4255,9 +4435,9 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 // telemetry. In-process, runner.Core does all of this inside RunTurn. Uses the
 // model + aggregate token counts the worker returned. No-op when there is no
 // conversation or no host Agent.
-func (s *Server) workerPostTurn(convID string, res runnersvc.Result) {
+func (s *Server) workerPostTurn(ctx context.Context, convID string, res runnersvc.Result) error {
 	if convID == "" || s.agent == nil {
-		return
+		return nil
 	}
 	model := ""
 	if s.providerSvc != nil {
@@ -4267,8 +4447,14 @@ func (s *Server) workerPostTurn(convID string, res runnersvc.Result) {
 		model = res.Route.Model
 	}
 	s.agent.RecordContextUsageForRoute(convID, model, res.InputTokens, res.OutputTokens, res.Route)
-	s.agent.ScheduleRecap(convID)
-	s.agent.ScheduleCompaction(convID)
+	// Preserve the admitted foreground capability for owned background work.
+	// Context-aware scheduling retains the legacy behavior on unowned agents.
+	if err := s.agent.ScheduleRecapContext(ctx, convID); err != nil {
+		return err
+	}
+	if err := s.agent.ScheduleCompactionContext(ctx, convID); err != nil {
+		return err
+	}
 	// Usage telemetry: one aggregate event for the whole worker turn — the host
 	// only has turn totals (the child provider is unwrapped), whereas in-process
 	// emits per model call via usage.Wrap. Approximate, but keeps cost/usage
@@ -4286,6 +4472,7 @@ func (s *Server) workerPostTurn(convID string, res runnersvc.Result) {
 			OutputTokens: res.OutputTokens,
 		})
 	}
+	return nil
 }
 
 // brokerSink implements runner.EventSink by publishing each event to the turn
@@ -4571,9 +4758,11 @@ func (s *Server) mapRequest(req *proto.ProcessRequestRequest) *agent.Request {
 
 // SetPermissionMode implements proto.AgentServer.
 func (s *Server) SetPermissionMode(ctx context.Context, req *proto.SetPermissionModeRequest) (*proto.SetPermissionModeResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	_, work, err := s.beginSettingsWork(ctx)
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if s.permBroker == nil {
 		return &proto.SetPermissionModeResponse{Ok: false, Error: "permission store not configured"}, nil
 	}
@@ -4633,9 +4822,11 @@ func (s *Server) ExportImage(ctx context.Context, req *proto.ExportImageRequest)
 // permission mode; takes effect on the next turn (the runner reads the active
 // profile live at turn time).
 func (s *Server) SetSessionProfile(ctx context.Context, req *proto.SetSessionProfileRequest) (*proto.SetSessionProfileResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if s.profileBroker == nil {
 		return &proto.SetSessionProfileResponse{Ok: false, Error: "profile broker not configured"}, nil
 	}
@@ -4693,9 +4884,11 @@ func (s *Server) DenyToolCall(ctx context.Context, req *proto.DenyToolCallReques
 // links it to the current one via precursor_id, and returns the new id to
 // resume into. offer_id must match the outstanding offer (else stale).
 func (s *Server) AcceptRollover(ctx context.Context, req *proto.AcceptRolloverRequest) (*proto.AcceptRolloverResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if s.rollover == nil {
 		return &proto.AcceptRolloverResponse{Ok: false, Error: "rollover not enabled"}, nil
 	}
@@ -4713,8 +4906,30 @@ func (s *Server) AcceptRollover(ctx context.Context, req *proto.AcceptRolloverRe
 	}
 	handoff := s.buildHandoffFor(ctx, convID)
 	newID := conversation.NewID()
-	if err := store.CreateRolledOver(ctx, newID, info.ProjectDir, info.Model, convID,
-		conversation.Turn{Role: "user", Content: handoff}); err != nil {
+	create := func(writeCtx context.Context) error {
+		err := store.CreateRolledOver(writeCtx, newID, info.ProjectDir, info.Model, convID,
+			conversation.Turn{Role: "user", Content: handoff})
+		persistsvc.ReportWriteFailure(ctx, err)
+		return err
+	}
+	if s.ordinaryGeneration {
+		// Both endpoints require exact capabilities. Keep the source foreground
+		// ticket and the destination acquisition ticket live through the atomic
+		// insert, then reload only the fully seeded destination.
+		var source *conversation.Ownership
+		source, err = s.resolvePreparedTaskOwner(ctx, convID)
+		if err == nil {
+			l := s.coexistence
+			l.mu.Lock()
+			_, err = l.acquireInitialized(ctx, newID, nil, func(writeCtx context.Context, destination *conversation.Ownership) error {
+				return create(conversation.WithOwnership(writeCtx, source, destination))
+			})
+			l.mu.Unlock()
+		}
+	} else {
+		err = create(ctx)
+	}
+	if err != nil {
 		return &proto.AcceptRolloverResponse{Ok: false, Error: fmt.Sprintf("create rolled-over conversation: %v", err)}, nil
 	}
 	return &proto.AcceptRolloverResponse{Ok: true, NewConversationId: newID}, nil
@@ -4724,9 +4939,11 @@ func (s *Server) AcceptRollover(ctx context.Context, req *proto.AcceptRolloverRe
 // offer until the session grows past the re-arm line (hysteresis). offer_id must
 // match the outstanding offer.
 func (s *Server) DeclineRollover(ctx context.Context, req *proto.DeclineRolloverRequest) (*proto.DeclineRolloverResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if s.rollover == nil {
 		return &proto.DeclineRolloverResponse{Ok: false}, nil
 	}
@@ -4899,9 +5116,11 @@ func (s *Server) profileModelEvidence(p config.CloudProfile, model string) model
 }
 
 func (s *Server) restartRuntimeTool(ctx context.Context, id string) (json.RawMessage, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	return runtimecontrol.Restart(ctx, s, id)
 }
 
@@ -4924,4 +5143,10 @@ func sendAttachedEvent(stream streamResponseSender, ev runnersvc.Event) error {
 		return sendRunnerEvent(stream, ev)
 	}
 	return (identifiedStreamSender{streamResponseSender: stream, event: ev}).Send(&proto.StreamProcessResponse{Payload: &proto.StreamProcessResponse_FinalResponse{FinalResponse: &proto.ProcessRequestResponse{Output: ev.Result.FinalText, InputTokens: int32(ev.Result.InputTokens), OutputTokens: int32(ev.Result.OutputTokens), Notice: ev.Result.Notice, RoutingMetadata: &proto.RoutingMetadata{ModelName: ev.Result.Model, IsCloud: ev.Result.IsCloud}}}})
+}
+
+// SetCloudProviderBuilder installs an invocation-local transport constructor.
+// Call only during composition, before RebuildCloud or request admission.
+func (s *Server) SetCloudProviderBuilder(build providers.CloudBuilder) {
+	s.providerSvc.SetCloudBuilder(build)
 }

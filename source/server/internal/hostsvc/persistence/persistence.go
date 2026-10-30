@@ -549,6 +549,14 @@ func (x *svc) PersistTurn(ctx context.Context, convID string, m llm.Message) {
 	}); err != nil {
 		ReportWriteFailure(ctx, err)
 		fmt.Fprintf(os.Stderr, "[tool-loop] Append(%s, %s) failed: %v\n", role, convID, err)
+		return
+	}
+	if m.Role == llm.RoleAssistant {
+		if owned, ok := x.convAgent.(ownedSchedulingAgent); ok {
+			if err := owned.SchedulePersistedAssistant(ctx, convID); err != nil {
+				ReportWriteFailure(ctx, err)
+			}
+		}
 	}
 }
 
@@ -581,11 +589,19 @@ func (x *svc) assembleHistoryForTarget(ctx context.Context, convID string, targe
 	state, _ := store.GetCompaction(ctx, convID)
 	assembled := requestassembly.Assemble(turns, state, x.cfgSvc.Get().Compaction, x.elisionFloor(convID), target, contextmeter.Default())
 	acct := assembled.Accounting
-	if schedule && acct.Scheduled && !x.sharedWritesFrozen() {
+	owned, hasOwned := x.convAgent.(ownedSchedulingAgent)
+	ownedEnabled := hasOwned && owned.HasOwnedScheduling()
+	if schedule && acct.Scheduled && (ownedEnabled || !x.sharedWritesFrozen()) {
 		// Never compact inline — kick the background generator (debounced,
 		// deduped, timeout-bounded) and bring THIS turn under the limit with
 		// LLM-free steps only.
-		x.convAgent.ScheduleCompaction(convID)
+		if ownedEnabled {
+			if err := owned.ScheduleCompactionContext(ctx, convID); err != nil {
+				ReportWriteFailure(ctx, err)
+			}
+		} else {
+			x.convAgent.ScheduleCompaction(convID)
+		}
 		if acct.Truncated {
 			fmt.Fprintf(os.Stderr, "[compaction] hard-override %s: %d tokens > limit %d — truncated %d oldest messages (background pass scheduled)\n",
 				convID, acct.InitialTokens, acct.HardLimit, acct.DroppedMessages)
@@ -1303,7 +1319,16 @@ func (x *svc) RegenerateContext(req *proto.RegenerateContextRequest, stream prot
 		// pass claims the conversation immediately (so the status bar can show
 		// real Compacting=true), persists bounded progress, and reschedules
 		// itself while backlog remains.
-		go func() { _ = x.compactionGen.CompactNow(context.Background(), convID) }()
+		if owned, ok := x.convAgent.(ownedSchedulingAgent); ok && owned.HasOwnedScheduling() {
+			// The RPC only acknowledges admission. The owned producer retains the
+			// exact capability and ticket across debounce, every retry and write.
+			// Its host root, not the completed transport, controls cancellation.
+			if err := owned.ScheduleCompactionContext(context.WithoutCancel(stream.Context()), convID); err != nil {
+				return stream.Send(&proto.RegenerateContextProgress{Done: true, Ok: false, Error: err.Error()})
+			}
+		} else {
+			go func() { _ = x.compactionGen.CompactNow(context.Background(), convID) }()
+		}
 		return stream.Send(&proto.RegenerateContextProgress{
 			Done: true,
 			Ok:   true,
@@ -1317,7 +1342,13 @@ func (x *svc) RegenerateContext(req *proto.RegenerateContextRequest, stream prot
 	} else {
 		pre, post, err = x.compactionGen.Regenerate(stream.Context(), convID, false, progress)
 	}
+	if err == nil {
+		err = WriteFailure(stream.Context())
+	}
 	if err != nil {
+		// A failed pass can follow a durable partial write. Preserve the owner
+		// blocker even if the transport has already disconnected.
+		ReportWriteFailure(stream.Context(), err)
 		return stream.Send(&proto.RegenerateContextProgress{Done: true, Ok: false, Error: err.Error(), PreTokens: int32(pre)})
 	}
 	verb := "rebuilt"
@@ -1577,4 +1608,12 @@ func (x *svc) SetLocalRuntimeContext(fn func(string) (llm.RuntimeContext, error)
 // of credential admission: disabling credentials must not disable ordinary history work.
 func (x *svc) sharedWritesFrozen() bool {
 	return x.cfgSvc != nil && x.cfgSvc.Frozen()
+}
+
+// Optional prepared-only bridge. Frozen shared configuration remains frozen;
+// only conversation producer admission is enabled by this explicit injection.
+type ownedSchedulingAgent interface {
+	HasOwnedScheduling() bool
+	SchedulePersistedAssistant(context.Context, string) error
+	ScheduleCompactionContext(context.Context, string) error
 }

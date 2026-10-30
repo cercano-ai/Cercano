@@ -5,7 +5,7 @@
 // config.yaml by hand, bypassing the RPC. This watcher catches those edits,
 // diffs against the agent's current in-memory config, and replays only the
 // changed fields through UpdateConfig — so file edits and RPC edits share one
-// apply path (validation, provider rebuild, persistence, broadcast).
+// apply path (validation, provider rebuild, broadcast), without writing back.
 //
 // It watches the containing DIRECTORY, not the file inode, for the same
 // reason the permissions watcher does: editors and `os.WriteFile` commonly
@@ -13,10 +13,7 @@
 // the first swap. A directory watch keeps catching create/rename/write on the
 // target name.
 //
-// Echo loop note: UpdateConfig re-saves the file after applying changes,
-// which fires another fsnotify event. On the next pass the diff against
-// currentConfig is empty, so UpdateConfig short-circuits at the
-// "no changes requested" branch before re-saving — no infinite loop.
+// Reload adopts the authoritative baseline without saving, so it cannot echo writes.
 package server
 
 import (
@@ -41,7 +38,7 @@ import (
 // Non-hot-reloadable diffs (port, embedding_model, llama_server.*,
 // compaction.*) are logged as warnings telling the user a restart is needed.
 func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) error {
-	if s.coexistence != nil {
+	if s.cfgSvc.Frozen() {
 		return cfgsvc.ErrFrozen
 	}
 	if configPath == "" {
@@ -57,7 +54,9 @@ func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) erro
 		return err
 	}
 	target := filepath.Clean(configPath)
+	s.configWatchers.Add(1)
 	go func() {
+		defer s.configWatchers.Done()
 		defer w.Close()
 		for {
 			select {
@@ -87,7 +86,23 @@ func (s *Server) StartConfigWatcher(ctx context.Context, configPath string) erro
 // private-helper split keeps the watcher loop tiny and makes the apply path
 // testable.
 func (s *Server) reloadConfigFromDisk(ctx context.Context) {
-	if s.coexistence != nil {
+	s.runWatchCallback(func() { s.applyConfigFromDisk(ctx) })
+}
+
+// runWatchCallback is the entry boundary, not a cancellation pre-check: an
+// admitted callback retains its authority and is joined before disposal.
+func (s *Server) runWatchCallback(callback func()) {
+	if !s.watchAdmission.Enter() {
+		return
+	}
+	defer s.watchAdmission.Leave()
+	callback()
+}
+
+func (s *Server) applyConfigFromDisk(ctx context.Context) {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
+	if s.cfgSvc.Frozen() {
 		return
 	}
 	cfgPath := s.cfgSvc.Path()
@@ -100,6 +115,9 @@ func (s *Server) reloadConfigFromDisk(ctx context.Context) {
 	// Snapshot the current in-memory config, then diff. UpdateConfig applies
 	// changes through cfgSvc which handles its own locking.
 	snap := s.cfgSvc.Get()
+	if snap.Snapshot().Revision == newCfg.Snapshot().Revision {
+		return
+	}
 
 	req := &proto.UpdateConfigRequest{}
 	if newCfg.OllamaURL != snap.OllamaURL {
@@ -115,18 +133,6 @@ func (s *Server) reloadConfigFromDisk(ctx context.Context) {
 	}
 	if newCfg.OpenRuntime != snap.OpenRuntime {
 		req.OpenRuntime = newCfg.OpenRuntime
-	}
-	if newCfg.CloudProvider != snap.CloudProvider {
-		req.CloudProvider = newCfg.CloudProvider
-	}
-	if newCfg.CloudModel != snap.CloudModel {
-		req.CloudModel = newCfg.CloudModel
-	}
-	if newCfg.CloudAPIKey != snap.CloudAPIKey {
-		req.CloudApiKey = newCfg.CloudAPIKey
-	}
-	if newCfg.CloudBaseURL != snap.CloudBaseURL {
-		req.CloudBaseUrl = newCfg.CloudBaseURL
 	}
 	if newCfg.LocusMode != snap.LocusMode {
 		req.LocusMode = newCfg.LocusMode
@@ -187,7 +193,22 @@ func (s *Server) reloadConfigFromDisk(ctx context.Context) {
 		fmt.Printf("ConfigWatcher: embedding model change requires a restart\n")
 	}
 
-	if _, err := s.UpdateConfig(ctx, req); err != nil {
+	if reply, err := s.updateConfigLocked(ctx, req, &newCfg); err != nil {
 		fmt.Printf("ConfigWatcher: UpdateConfig rejected file change: %v\n", err)
+	} else if !reply.Success {
+		fmt.Printf("ConfigWatcher: configuration not fully applied: %s\n", reply.Message)
+	}
+}
+
+// WaitForWatchers drains startup watchers after their contexts have been canceled.
+// Call only after all Start*Watcher calls have returned.
+func (s *Server) WaitForWatchers() {
+	s.configWatchers.Wait()
+	s.watchAdmission.Wait()
+	if p, ok := s.providerSvc.(interface{ WaitForRebuild() }); ok {
+		p.WaitForRebuild()
+	}
+	if w, ok := s.permBroker.(interface{ WaitForWatchers() }); ok {
+		w.WaitForWatchers()
 	}
 }

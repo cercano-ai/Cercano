@@ -9,6 +9,21 @@ import (
 	"testing"
 )
 
+func TestPrivateWriterRequiresPreparedDestination(t *testing.T) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, path := range []string{"", filepath.Join(home, "missing", "failures.jsonl")} {
+		if w, err := NewPrivateWriter(path); err == nil {
+			w.Close()
+			t.Errorf("accepted unprepared path %q", path)
+		}
+	}
+	if entries, err := os.ReadDir(home); err != nil || len(entries) != 0 {
+		t.Fatalf("private writer touched HOME: %v %v", entries, err)
+	}
+}
+
 func TestDefaultPath(t *testing.T) {
 	path := DefaultPath()
 	if !strings.HasSuffix(path, filepath.Join(".config", "cercano", "failures.jsonl")) && path != "failures.jsonl" {

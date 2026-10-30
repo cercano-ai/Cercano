@@ -43,13 +43,13 @@ func migrateAutonomyRunsToAppendOnly(db *sql.DB) error {
 		return err
 	}
 
-	tx, err := db.Begin()
+	_, err = db.Exec("SAVEPOINT autonomy_migration")
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer db.Exec("ROLLBACK TO autonomy_migration; RELEASE autonomy_migration")
 
-	if _, err := tx.Exec(`
+	if _, err := db.Exec(`
 		CREATE TABLE autonomy_runs_new (
 			run_id            TEXT PRIMARY KEY,
 			conversation_id   TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -67,7 +67,7 @@ func migrateAutonomyRunsToAppendOnly(db *sql.DB) error {
 		)`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`
+	if _, err := db.Exec(`
 		INSERT INTO autonomy_runs_new (
 			run_id, conversation_id, state, source_kind, source_plan_path, source_spec_path,
 			brief_json, revisions_json, decisions_json, review_json, blocker_json, created_at, updated_at
@@ -78,19 +78,20 @@ func migrateAutonomyRunsToAppendOnly(db *sql.DB) error {
 	`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DROP TABLE autonomy_runs`); err != nil {
+	if _, err := db.Exec(`DROP TABLE autonomy_runs`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`ALTER TABLE autonomy_runs_new RENAME TO autonomy_runs`); err != nil {
+	if _, err := db.Exec(`ALTER TABLE autonomy_runs_new RENAME TO autonomy_runs`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`CREATE INDEX idx_autonomy_runs_conversation_updated ON autonomy_runs(conversation_id, updated_at DESC, created_at DESC, run_id DESC)`); err != nil {
+	if _, err := db.Exec(`CREATE INDEX idx_autonomy_runs_conversation_updated ON autonomy_runs(conversation_id, updated_at DESC, created_at DESC, run_id DESC)`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`CREATE UNIQUE INDEX idx_autonomy_runs_one_active ON autonomy_runs(conversation_id) WHERE state IN ('running', 'review_pending')`); err != nil {
+	if _, err := db.Exec(`CREATE UNIQUE INDEX idx_autonomy_runs_one_active ON autonomy_runs(conversation_id) WHERE state IN ('running', 'review_pending')`); err != nil {
 		return err
 	}
-	return tx.Commit()
+	_, err = db.Exec("RELEASE autonomy_migration")
+	return err
 }
 
 func tableExists(db *sql.DB, name string) (bool, error) {

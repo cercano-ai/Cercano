@@ -33,6 +33,13 @@ func (s *restartFixture) ShutdownAgent(context.Context, *proto.ShutdownAgentRequ
 }
 
 func TestMain(m *testing.M) {
+	if os.Getenv("CERCANO_TREE_FIXTURE") == "1" {
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
+	if os.Getenv("CERCANO_UPGRADE_WORKER") == "1" && len(os.Args) == 2 && os.Args[1] == "worker" {
+		os.Exit(runUpgradeWorker())
+	}
 	if os.Getenv("CERCANO_COORD_FIXTURE") == "1" && len(os.Args) == 2 && os.Args[1] == "agent" {
 		os.Exit(runRestartFixture())
 	}
@@ -54,6 +61,16 @@ func runRestartFixture() int {
 	if err != nil {
 		return 2
 	}
+	var worker *exec.Cmd
+	if os.Getenv("CERCANO_UPGRADE_WORKER") == "1" {
+		worker = exec.Command(exe, "worker")
+		worker.Env = os.Environ()
+		if err := worker.Start(); err != nil {
+			return 4
+		}
+		defer func() { _ = worker.Process.Kill(); _ = worker.Wait() }()
+		_ = os.WriteFile(filepath.Join(root, "worker-pid"), []byte(strconv.Itoa(worker.Process.Pid)), 0600)
+	}
 	service := &restartFixture{stop: make(chan struct{})}
 	gs := grpc.NewServer()
 	proto.RegisterAgentServer(gs, service)
@@ -64,6 +81,10 @@ func runRestartFixture() int {
 	case <-service.stop:
 	case <-time.After(20 * time.Second):
 		return 3
+	}
+	if worker != nil {
+		_ = os.WriteFile(filepath.Join(root, "cancel-worker"), []byte("cancel"), 0600)
+		_ = worker.Wait()
 	}
 	time.Sleep(50 * time.Millisecond) // allow accepting RPC response to flush
 	gs.GracefulStop()

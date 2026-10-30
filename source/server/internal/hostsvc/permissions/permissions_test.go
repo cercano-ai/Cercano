@@ -2,6 +2,7 @@ package permissions_test
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -76,5 +77,44 @@ func TestBroker_BroadcastDedup(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("expected still 1 broadcast after duplicate SetMode; got %d", calls)
+	}
+}
+
+func TestBrokerInvalidAuthorityDoesNotBroadcast(t *testing.T) {
+	p := t.TempDir() + "/permissions.yaml"
+	store, err := agent.LoadPermissionStore(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetMode(agent.ModeStrict); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	b := permissions.New(store, nil, func(string) { calls++ })
+	for _, data := range []string{"mode: invalid\nmcp_allow: ['*']\n", "mode: bypass\n---\nmode: strict\n", ""} {
+		if err := os.WriteFile(p, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.SetMode(agent.ModeBypass); err == nil {
+			t.Error("expected SetMode error")
+		}
+		if err := b.AddMCPAllow("*"); err == nil {
+			t.Error("expected AddMCPAllow error")
+		}
+		if calls != 0 || b.Mode() != agent.ModeStrict || store.IsMCPAllowed("evil") {
+			t.Fatal("failed mutation advertised or installed")
+		}
+	}
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.AddMCPAllow("*"); err == nil {
+		t.Error("expected missing authority error")
+	}
+	if err := b.SetMode(agent.ModeBypass); err == nil {
+		t.Error("expected missing authority error")
+	}
+	if calls != 0 {
+		t.Fatal("failed mutation broadcast")
 	}
 }

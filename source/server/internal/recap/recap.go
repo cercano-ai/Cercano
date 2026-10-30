@@ -6,10 +6,12 @@ package recap
 import (
 	"cercano/source/server/internal/usage"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"cercano/source/server/internal/conversation"
@@ -35,6 +37,7 @@ const (
 
 // Generator debounces recap regeneration per conversation.
 type Generator struct {
+	fenced      atomic.Bool
 	rootContext context.Context
 	cancelRoot  context.CancelFunc
 	closed      bool // guarded by mu
@@ -71,7 +74,7 @@ func New(store Store, complete CompleteFunc, debounce time.Duration, maxTurns in
 func (g *Generator) Schedule(conversationID string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.closed {
+	if g.fenced.Load() || g.closed {
 		return
 	}
 	if t, ok := g.timers[conversationID]; ok {
@@ -92,16 +95,22 @@ func (g *Generator) regenerate(conversationID string) {
 		return
 	}
 	defer release()
+	_ = g.runRecap(parent, conversationID, false)
+}
+
+// runRecap shares the legacy pipeline; owned calls surface failures before any
+// dependent title publication. No SQL transaction spans either completion.
+func (g *Generator) runRecap(parent context.Context, conversationID string, strict bool) error {
 	ctx, cancel := context.WithTimeout(g.accountingContext(parent, conversationID), genTimeout)
 	defer cancel()
 
 	info, err := g.store.Get(ctx, conversationID)
 	if err != nil {
-		return // conversation gone; nothing to do
+		return err // conversation gone; nothing to do
 	}
 	turns, err := g.store.GetTurns(ctx, conversationID)
 	if err != nil || len(turns) == 0 {
-		return
+		return err
 	}
 	prompt := buildPrompt(info.Recap, turns, g.maxTurns)
 
@@ -111,26 +120,45 @@ func (g *Generator) regenerate(conversationID string) {
 		// failure (e.g. Ollama unreachable, model refusing the prompt)
 		// can be diagnosed. Debounced retry on next turn.
 		fmt.Fprintf(os.Stderr, "[recap] complete failed for %s: %v\n", conversationID, err)
-		return
+		return err
+	}
+	if strict {
+		if err := ownedPersistenceOutcome(ctx); err != nil {
+			return err
+		}
 	}
 	line := firstLine(out, maxRecapChars)
 	if line == "" {
 		fmt.Fprintf(os.Stderr, "[recap] complete returned no usable line for %s (raw %d bytes)\n", conversationID, len(out))
-		return
+		return err
 	}
-	_ = g.store.UpdateRecap(ctx, conversationID, line)
+	err = g.store.UpdateRecap(ctx, conversationID, line)
+	if strict {
+		if err := errors.Join(err, ownedPersistenceOutcome(ctx)); err != nil {
+			return err
+		}
+	}
 
 	// Derive a short session title from the fresh recap (next-tightest rung).
 	// Best-effort: failures leave the existing title untouched.
 	titleOut, err := g.complete(ctx, buildTitlePrompt(line))
 	if err != nil {
-		return
+		return err
+	}
+	if strict {
+		if err := ownedPersistenceOutcome(ctx); err != nil {
+			return err
+		}
 	}
 	title := firstLine(titleOut, maxTitleChars)
 	if title == "" {
-		return
+		return err
 	}
-	_ = g.store.SetGeneratedTitle(ctx, conversationID, title)
+	err = g.store.SetGeneratedTitle(ctx, conversationID, title)
+	if strict {
+		return errors.Join(err, ownedPersistenceOutcome(ctx))
+	}
+	return nil
 }
 
 // buildPrompt produces an incremental summarization prompt from the prior

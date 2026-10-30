@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"cercano/source/server/internal/credentialtest"
 	"cercano/source/server/internal/llm"
 )
 
@@ -22,6 +23,7 @@ func (s stubTokens) Token(ctx context.Context) (string, error) { return s.tok, s
 
 func msgReplyServer(t *testing.T, capture func(r *http.Request)) *httptest.Server {
 	t.Helper()
+	credentialtest.Enable(t) // Permit fixture loopback only; never dial external subscription endpoints.
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if capture != nil {
 			capture(r)

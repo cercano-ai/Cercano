@@ -82,6 +82,7 @@ type Agent struct {
 	contextWindow     func(model string) (int, bool)
 	meterModel        string // active local model name, used as Max() baseline
 	contextLoader     ContextLoader
+	ownedScheduling   *OwnedScheduling
 	recap             RecapScheduler
 	compaction        CompactionScheduler
 	locusMode         func() string // live getter for the configured Locus Mode
@@ -255,6 +256,9 @@ func (a *Agent) storeConversationTurn(ctx context.Context, conversationID, origi
 		// project. The next refactor can thread workDir through.
 		if err := a.persistent.EnsureConversation(ctx, conversationID, "", ""); err != nil {
 			fmt.Fprintf(os.Stderr, "[persistent-store] EnsureConversation(%s) failed: %v\n", conversationID, err)
+			if a.reportOwnedFailure(ctx, err) {
+				return
+			}
 		}
 		if err := a.persistent.Append(ctx, conversation.Turn{
 			ConversationID: conversationID,
@@ -263,6 +267,9 @@ func (a *Agent) storeConversationTurn(ctx context.Context, conversationID, origi
 			TokensIn:       resp.InputTokens,
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "[persistent-store] Append(user, %s) failed: %v\n", conversationID, err)
+			if a.reportOwnedFailure(ctx, err) {
+				return
+			}
 		}
 		if err := a.persistent.Append(ctx, conversation.Turn{
 			ConversationID: conversationID,
@@ -271,9 +278,17 @@ func (a *Agent) storeConversationTurn(ctx context.Context, conversationID, origi
 			TokensOut:      resp.OutputTokens,
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "[persistent-store] Append(assistant, %s) failed: %v\n", conversationID, err)
+			if a.reportOwnedFailure(ctx, err) {
+				return
+			}
 		}
-		a.ScheduleRecap(conversationID)
-		a.ScheduleCompaction(conversationID)
+		if err := a.ScheduleRecapContext(ctx, conversationID); err != nil {
+			a.reportOwnedFailure(ctx, err)
+			return
+		}
+		if err := a.ScheduleCompactionContext(ctx, conversationID); err != nil {
+			a.reportOwnedFailure(ctx, err)
+		}
 	}
 }
 

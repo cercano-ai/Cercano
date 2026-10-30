@@ -15,6 +15,7 @@ var ErrLoginSuperseded = errors.New("login canceled or superseded")
 // from client-supplied IDs; later transport correlation cannot confer ownership.
 type LoginAttempt struct {
 	state             *profileState
+	revision          string
 	profile, provider string
 	ctx               context.Context
 	cancel            context.CancelFunc
@@ -39,9 +40,17 @@ func (s *Service) BeginLogin(ctx context.Context, profile, provider string) (*Lo
 	if p.store == nil {
 		return nil, errNoStore
 	}
+	var revision string
+	if secrets.IsCoordinated(p.store) {
+		r, err := p.store.(secrets.Coordinated).CredentialRevision(ctx, profile)
+		if err != nil {
+			return nil, err
+		}
+		revision = r
+	}
 	p.cancelLogin()
 	loginCtx, cancel := context.WithCancel(ctx)
-	a := &LoginAttempt{state: p, profile: profile, provider: provider, ctx: loginCtx, cancel: cancel}
+	a := &LoginAttempt{state: p, revision: revision, profile: profile, provider: provider, ctx: loginCtx, cancel: cancel}
 	p.login = a
 	return a, nil
 }
@@ -71,7 +80,16 @@ func (a *LoginAttempt) Commit(encoded string) error {
 	if p.store == nil {
 		return errNoStore
 	}
-	if err := p.store.Set(a.profile, encoded); err != nil {
+	var err error
+	if secrets.IsCoordinated(p.store) {
+		err = p.store.(secrets.Coordinated).SetAtRevision(a.ctx, a.profile, a.revision, encoded)
+	} else {
+		err = p.store.Set(a.profile, encoded)
+	}
+	if err != nil {
+		if errors.Is(err, ErrBusy) {
+			return llm.NormalizeCredentialFailure(err, a.provider, a.profile)
+		}
 		return &llm.CredentialError{Class: llm.ErrCredential, Provider: a.provider, Profile: a.profile, Method: llm.AuthSubscription, Reason: llm.CredentialStore, Cause: err}
 	}
 	p.invalidate()

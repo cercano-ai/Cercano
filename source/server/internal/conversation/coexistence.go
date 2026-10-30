@@ -127,7 +127,10 @@ func PreflightCoexistence(ctx context.Context, path string, expected Coexistence
 		err = validateCoexistence(ctx, db, expected)
 		var coded interface{ Code() int }
 		if !errors.As(err, &coded) || coded.Code()&0xff != 5 { // SQLITE_BUSY and its extended codes
-			return err
+			if err != nil {
+				return fmt.Errorf("generation store admission refused: %w; for an unupgraded existing-format store, stop ALL legacy Cercano agents, then run: cercano upgrade-store --database %q --all-legacy-agents-stopped (offline prerequisite; no protection from arbitrary historical/custom writers)", err, path)
+			}
+			return nil
 		}
 		timer := time.NewTimer(10 * time.Millisecond)
 		select {

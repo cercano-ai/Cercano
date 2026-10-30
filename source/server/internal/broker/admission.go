@@ -31,6 +31,7 @@ func validWork(k WorkKind) bool { return k >= ForegroundWork && k <= Persistence
 type admissionSession struct {
 	owner       Owner
 	closed      bool
+	draining    bool
 	closure     *Closure
 	attachments map[*Attachment]bool
 	terminals   map[string]int
@@ -40,7 +41,8 @@ type admissionSession struct {
 // Admission is local accounting adjacent to Broker, not an ownership authority.
 // Existing Broker methods do not implicitly participate: callers must hold tickets
 // across all work, including accepted tasks and continuations. No method cancels
-// work, invokes callbacks, or acquires/releases an OS lock.
+// work or acquires/releases an OS lock. Drain notifications run asynchronously
+// outside accounting and caller locks.
 //
 // Lock ordering: mu is a leaf lock. No store, Broker, transport, or caller code is
 // invoked while held. Perform durable transitions and OS-lock operations outside
@@ -173,7 +175,7 @@ func (a *Admission) AdmitWork(o Owner, k WorkKind) (*WorkTicket, error) {
 	if s == nil {
 		return nil, ErrAdmissionStale
 	}
-	if a.retired || s.closed {
+	if a.retired || (s.closed && (!s.draining || k == ForegroundWork || len(s.work) == 0)) {
 		return nil, ErrAdmissionClosed
 	}
 	return a.ticketLocked(s, k)
@@ -241,7 +243,13 @@ func (t *WorkTicket) ResolvePersistence() error {
 }
 func (t *WorkTicket) Complete() error {
 	t.a.mu.Lock()
-	defer t.a.mu.Unlock()
+	var notify func()
+	defer func() {
+		t.a.mu.Unlock()
+		if notify != nil {
+			go notify()
+		}
+	}()
 	if t.done {
 		return ErrAdmissionStale
 	}
@@ -253,6 +261,10 @@ func (t *WorkTicket) Complete() error {
 		delete(t.a.hostWork, t)
 	} else {
 		delete(t.s.work, t)
+		if len(t.s.work) == 0 && t.s.closure != nil {
+			notify = t.s.closure.onDrained
+			t.s.closure.onDrained = nil
+		}
 	}
 	return nil
 }
@@ -261,9 +273,11 @@ func (t *WorkTicket) Complete() error {
 // evidence of durable relinquishment. An uncertain commit must leave it closed.
 // Only the exact active handle may finish the closure; copies are stale.
 type Closure struct {
-	a    *Admission
-	s    *admissionSession
-	done bool
+	a               *Admission
+	s               *admissionSession
+	done            bool
+	onDrained       func()
+	notificationSet bool
 }
 
 // CloseOwner atomically closes admission, checks requester eligibility and all
@@ -297,6 +311,66 @@ func (a *Admission) CloseTerminal(o Owner, id string) (*Closure, error) {
 		}
 	}
 	return a.closeOwnerLocked(o, requester)
+}
+
+// DrainTerminal accepts an explicit terminal close without cancelling existing
+// work. Exact-owner non-foreground continuations may extend live accounting;
+// once it reaches zero no new work may race the durable release.
+func (a *Admission) DrainTerminal(o Owner, id string) (*Closure, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := a.sessionLocked(o)
+	if s == nil {
+		return nil, ErrAdmissionStale
+	}
+	if s.closed || a.retired {
+		return nil, ErrAdmissionClosed
+	}
+	if id == "" || s.terminals[id] == 0 {
+		return nil, ErrAttachmentEligibility
+	}
+	for t := range s.attachments {
+		if t.terminal != id {
+			return nil, ErrAttachmentEligibility
+		}
+	}
+	s.closed, s.draining = true, true
+	// Explicit close releases this terminal's attachment, unlike disconnect.
+	clear(s.attachments)
+	clear(s.terminals)
+	c := &Closure{a: a, s: s}
+	s.closure = c
+	return c, nil
+}
+
+// Drained is stable once a draining session reaches zero: admission cannot restart.
+func (c *Closure) Drained() bool {
+	c.a.mu.Lock()
+	defer c.a.mu.Unlock()
+	return !c.done && c.s.draining && len(c.s.work) == 0
+}
+
+// WhenDrained installs the one-shot completion notification. It never calls
+// caller code inline: completion may itself run under a lifecycle lock.
+func (c *Closure) WhenDrained(notify func()) error {
+	c.a.mu.Lock()
+	ready := false
+	defer func() {
+		c.a.mu.Unlock()
+		if ready {
+			go notify()
+		}
+	}()
+	if c.done || !c.s.draining || c.s.closure != c || c.notificationSet || notify == nil {
+		return ErrAdmissionStale
+	}
+	c.notificationSet = true
+	if len(c.s.work) == 0 {
+		ready = true
+	} else {
+		c.onDrained = notify
+	}
+	return nil
 }
 
 // ValidateTerminal checks pane identity without enrolling a stream.
@@ -360,12 +434,16 @@ func (c *Closure) finish(relinquished bool) error {
 	if c.done || c.a.sessionLocked(c.s.owner) != c.s || c.s.closure != c {
 		return ErrAdmissionStale
 	}
+	if relinquished && len(c.s.work) != 0 {
+		return ErrAdmissionBusy
+	}
 	c.done = true
 	c.s.closure = nil
 	if relinquished {
 		delete(c.a.sessions, c.s.owner.Conversation)
 	} else {
 		c.s.closed = false
+		c.s.draining = false
 	}
 	return nil
 }

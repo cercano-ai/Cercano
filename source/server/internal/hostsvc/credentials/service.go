@@ -72,12 +72,19 @@ func (s *Service) profile(name string) *profileState {
 
 // ReplaceStore keeps the service identity stable during host reconfiguration.
 // Old adapters remain views of this service rather than of a retired backend.
-func (s *Service) ReplaceStore(store secrets.Store) {
+func (s *Service) ReplaceStore(store secrets.Store) error {
 	if store == s {
-		return
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A coordinated authority cannot be downgraded or rebound through hot reload.
+	// A new owner requires explicit preflight; in-flight capabilities stay bound.
+	oldCoordinated := secrets.IsCoordinated(s.store)
+	newCoordinated := secrets.IsCoordinated(store)
+	if (oldCoordinated || newCoordinated) && store != s.store {
+		return ErrCoordination
+	}
 	s.store = store
 	for _, p := range s.profiles {
 		p.mu.Lock()
@@ -85,6 +92,7 @@ func (s *Service) ReplaceStore(store secrets.Store) {
 		p.invalidate()
 		p.mu.Unlock()
 	}
+	return nil
 }
 
 // invalidate is called with the profile mutation lock held. Wake waiters so
@@ -207,6 +215,12 @@ func (s *Service) acquire(ctx context.Context, profile, provider string, resolve
 			return token{}, err
 		}
 		p.mu.Lock()
+		// Do not let legacy auth sources publish or reuse coordinated tokens
+		// through the legacy raw Token API; use snapshot/admission instead.
+		if secrets.IsCoordinated(p.store) {
+			p.mu.Unlock()
+			return token{}, ErrProviderIntegration
+		}
 		f := p.flight
 		if f != nil && f.provider != provider {
 			p.mu.Unlock()
@@ -308,6 +322,78 @@ func (s *Service) ChatGPT(profile string, flow chatgptauth.Flow) *ChatGPTSource 
 	return &ChatGPTSource{s, profile, flow}
 }
 func (s *ChatGPTSource) CredentialProfile() string { return s.profile }
+
+// SubscriptionSnapshot is intentionally separate from the legacy raw Token
+// interface. Every attempt resolves atomic material and must admit its revision.
+func (s *AnthropicSource) SubscriptionSnapshot(ctx context.Context) (secrets.CredentialSnapshot, error) {
+	snapshot, err := s.service.CredentialSnapshot(ctx, s.profile)
+	if err != nil {
+		return secrets.CredentialSnapshot{}, err
+	}
+	ts, err := anthropicauth.DecodeTokenSet(snapshot.Payload)
+	if err != nil || ts.Access == "" {
+		return secrets.CredentialSnapshot{}, &llm.CredentialError{Class: llm.ErrCredential, Provider: "anthropic", Profile: s.profile, Method: llm.AuthSubscription, Reason: llm.CredentialMalformed}
+	}
+	if !ts.Expired(time.Now()) {
+		return snapshot, nil
+	}
+	if ts.Refresh == "" {
+		return secrets.CredentialSnapshot{}, &llm.CredentialError{Class: llm.ErrLoginRequired, Provider: "anthropic", Profile: s.profile, Method: llm.AuthSubscription, Reason: llm.CredentialExpired}
+	}
+	if err := s.flow.Options.CheckMutation(); err != nil {
+		return secrets.CredentialSnapshot{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, refreshTimeout)
+	defer cancel()
+	return s.service.RefreshSnapshot(ctx, s.profile, snapshot.Revision, func(ctx context.Context, payload string) (string, error) {
+		// The existing provider parser/issuer preserves identity fields.
+		// Its Save is staged only; the identity exclusion is held through publication.
+		t := &transaction{profile: s.profile, raw: payload}
+		if _, err := anthropicauth.NewSource(t, s.profile, s.flow).Token(ctx); err != nil {
+			return "", err
+		}
+		if t.staged == nil {
+			return "", ErrCoordination
+		}
+		return *t.staged, nil
+	})
+}
+
+// SubscriptionSnapshot is intentionally separate from the legacy raw Token
+// interface. Every attempt resolves atomic material and must admit its revision.
+func (s *ChatGPTSource) SubscriptionSnapshot(ctx context.Context) (secrets.CredentialSnapshot, error) {
+	snapshot, err := s.service.CredentialSnapshot(ctx, s.profile)
+	if err != nil {
+		return secrets.CredentialSnapshot{}, err
+	}
+	ts, err := chatgptauth.DecodeTokenSet(snapshot.Payload)
+	if err != nil || ts.Access == "" {
+		return secrets.CredentialSnapshot{}, &llm.CredentialError{Class: llm.ErrCredential, Provider: "openai-responses", Profile: s.profile, Method: llm.AuthSubscription, Reason: llm.CredentialMalformed}
+	}
+	if !ts.Expired(time.Now()) {
+		return snapshot, nil
+	}
+	if ts.Refresh == "" {
+		return secrets.CredentialSnapshot{}, &llm.CredentialError{Class: llm.ErrLoginRequired, Provider: "openai-responses", Profile: s.profile, Method: llm.AuthSubscription, Reason: llm.CredentialExpired}
+	}
+	if err := s.flow.Options.CheckMutation(); err != nil {
+		return secrets.CredentialSnapshot{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, refreshTimeout)
+	defer cancel()
+	return s.service.RefreshSnapshot(ctx, s.profile, snapshot.Revision, func(ctx context.Context, payload string) (string, error) {
+		// The existing provider parser/issuer preserves account and identity fields.
+		// Its Save is staged only; the identity exclusion is held through publication.
+		t := &transaction{profile: s.profile, raw: payload}
+		if _, _, err := chatgptauth.NewSource(t, s.profile, s.flow).Token(ctx); err != nil {
+			return "", err
+		}
+		if t.staged == nil {
+			return "", ErrCoordination
+		}
+		return *t.staged, nil
+	})
+}
 func (s *ChatGPTSource) Token(ctx context.Context) (string, string, error) {
 	value, err := s.service.acquire(ctx, s.profile, "openai-responses", func(ctx context.Context, t *transaction) (token, error) {
 		access, account, err := chatgptauth.NewSource(t, s.profile, s.flow).Token(ctx)

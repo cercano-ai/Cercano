@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -57,6 +58,9 @@ func devLoopback(addr string) bool {
 }
 
 func runDevHost(ctx context.Context, args []string, out io.Writer) error {
+	return retainPreparedShutdown(runDevHostBounded(ctx, args, out))
+}
+func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (result error) {
 	// Validate before even reading fixture configuration, let alone a backend.
 	if err := secrets.ValidateEnvironment(); err != nil {
 		return err
@@ -205,7 +209,12 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(pinned)
+	pinnedOwned := true
+	defer func() {
+		if pinnedOwned {
+			result = errors.Join(result, os.RemoveAll(pinned))
+		}
+	}()
 	if err := modelhost.WriteRecord(pinned, record); err != nil {
 		return err
 	}
@@ -213,11 +222,46 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer remote.Close()
+	var constructorRollback func() error
+	resources := newPreparedShutdown(nil, remote.Close)
+	var srvOwned *server.Server
+	var transport *grpc.Server
+	ctx, cancel := context.WithCancel(ctx)
+	gate := newProductionAdmissionGate()
+	cleanup := newPreparedShutdown(func() {
+		gate.close()
+		if srvOwned != nil {
+			srvOwned.FenceBackgroundWork()
+		}
+	}, func() error {
+		cancel()
+		var shutdownErr error
+		if srvOwned != nil {
+			srvOwned.BeginShutdown()
+			srvOwned.WaitForWatchers()
+		}
+		gate.drain()
+		if srvOwned != nil {
+			shutdownErr = srvOwned.Shutdown()
+		}
+		err := errors.Join(shutdownErr, resources.Wait(context.Background()))
+		if constructorRollback != nil {
+			err = errors.Join(err, constructorRollback())
+		}
+		if srvOwned != nil {
+			err = errors.Join(err, srvOwned.CloseCoexistenceStore())
+		}
+		if transport != nil {
+			transport.GracefulStop()
+		}
+		return errors.Join(err, os.RemoveAll(pinned))
+	})
+	pinnedOwned = false
+	defer func() { result = finishPreparedShutdown(cleanup, result) }()
 	// An in-memory rejecting boundary: no native credential opener is invoked.
 	secretStore := secrets.Guard(secrets.NewMemory(), secrets.Options{ReadOnly: true})
-	var preparedStore conversation.Store
 	srv, err := server.NewPreparedDurableServer(ctx, server.PreparedServerOptions{
+		RetainFailure: func(dispose func() error) { constructorRollback = dispose },
 		Coexistence: server.CoexistenceOptions{StorePath: database, Build: manifest.Build, Host: *host, Contract: contract,
 			ControlAuthorize: auth.Authorize,
 			ControlDial: func(ctx context.Context, endpoint string) (*grpc.ClientConn, error) {
@@ -227,7 +271,7 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 				}
 				return grpc.NewClient(endpoint, append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, a.DialOptions()...)...)
 			},
-			CloseParticipation: func(context.Context) error { return remote.Close() },
+			CloseParticipation: func(ctx context.Context) error { return resources.Wait(ctx) },
 		},
 		WorkerRunner: func(history runnersvc.TurnHistory, frozen cfgsvc.Service, perms permissions.Broker) runnersvc.TurnRunner {
 			// Execution remains gated; no provider or child-launch callbacks are installed.
@@ -238,23 +282,22 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 		Config: cfg, ConfigPath: filepath.Join(*root, "config.json"), Secrets: secretStore,
 		RoutingPath: filepath.Join(*root, "routing.jsonl"), FailurePath: filepath.Join(*root, "failures.jsonl"),
 		Agent: func(st conversation.Store) (*agent.Agent, error) {
-			preparedStore = st
 			return agent.NewAgent(nil, nil, agent.WithPersistentStore(st)), nil
 		},
 	}, nil, nil, nil, nil)
 	if err != nil {
 		return err
 	}
+	srvOwned = srv
+	srv.SetShutdownControl(cleanup.Control)
 	configureDevHostExecution(srv)
 	srv.SetBuildVersion(manifest.Build)
-	defer preparedStore.Close()
-	defer srv.Shutdown()
 	// Worker/provider execution remains disabled; lifecycle reload is now durable.
 	// Never call legacy SelectExecutionMode or install background generators.
-	opts := auth.ServerOptions()
+	opts := append(auth.ServerOptions(), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream))
 	opts = append(opts, grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
 		switch filepath.Base(info.FullMethod) {
-		case "GetCredentialPolicy", "GetDevelopmentHostIdentity", "LifecycleList", "LifecycleRetire", "LifecycleAcquire", "LifecyclePrepare", "LifecycleValidateReceipt", "LifecycleRelinquish", "LifecycleClaim", "LifecycleRelease", "ResumeConversation", "CheckRetainedSession",
+		case "ShutdownAgent", "GetCredentialPolicy", "GetDevelopmentHostIdentity", "LifecycleList", "LifecycleRetire", "LifecycleAcquire", "LifecyclePrepare", "LifecycleValidateReceipt", "LifecycleRelinquish", "LifecycleClaim", "LifecycleRelease", "ResumeConversation", "CheckRetainedSession",
 			"GetConfig", "ListConversations", "GetConversation", "GetConversationTurns", "ListSubAgents", "GetSessionProfile", "GetContextUsage", "GetTokenMetrics", "GetCompactionState", "GetToolCall":
 			return next(ctx, req)
 		default:
@@ -266,14 +309,12 @@ func runDevHost(ctx context.Context, args []string, out io.Writer) error {
 		}
 		return status.Error(codes.FailedPrecondition, "dev-host startup fixture: execution disabled")
 	}))
-	transport := grpc.NewServer(opts...)
+	transport = grpc.NewServer(opts...)
 	proto.RegisterAgentServer(transport, srv)
 	listener, err := net.Listen("tcp", *addr)
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
-	defer transport.Stop()
 	fmt.Fprintf(out, "dev-host ready %s build=%s host=%s\n", listener.Addr(), manifest.Build, *host)
 	done := make(chan error, 1)
 	go func() { done <- transport.Serve(listener) }()

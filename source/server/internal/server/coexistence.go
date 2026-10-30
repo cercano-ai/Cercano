@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"google.golang.org/grpc"
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
@@ -37,14 +39,20 @@ type CoexistenceOptions struct {
 }
 
 type coexistenceLifecycle struct {
-	mu        sync.Mutex
-	options   CoexistenceOptions
-	store     conversation.Store
-	admission *broker.Admission
-	owners    map[string]*conversation.Ownership
-	incoming  map[broker.IncomingHandover]*IncomingAcceptance
-	ready     map[broker.Owner]bool
-	closures  map[broker.Owner]*relinquishReservation
+	mu             sync.Mutex
+	retireMu       sync.Mutex
+	retireDone     chan struct{}
+	retired        chan struct{}
+	retireErr      error
+	storeCloseOnce sync.Once
+	storeCloseErr  error
+	options        CoexistenceOptions
+	store          conversation.Store
+	admission      *broker.Admission
+	owners         map[string]*conversation.Ownership
+	incoming       map[broker.IncomingHandover]*IncomingAcceptance
+	ready          map[broker.Owner]bool
+	closures       map[broker.Owner]*relinquishReservation
 }
 
 // NewCoexistenceServer constructs a lifecycle-only server. Do not serve ordinary
@@ -62,7 +70,7 @@ func NewCoexistenceServer(ctx context.Context, o CoexistenceOptions) (*Server, e
 	if err != nil {
 		return nil, err
 	}
-	return &Server{coexistence: &coexistenceLifecycle{options: o, store: store, admission: broker.NewAdmission(o.Host), owners: make(map[string]*conversation.Ownership), ready: make(map[broker.Owner]bool), incoming: make(map[broker.IncomingHandover]*IncomingAcceptance)}}, nil
+	return &Server{coexistence: &coexistenceLifecycle{options: o, store: store, retired: make(chan struct{}), admission: broker.NewAdmission(o.Host), owners: make(map[string]*conversation.Ownership), ready: make(map[broker.Owner]bool), incoming: make(map[broker.IncomingHandover]*IncomingAcceptance)}}, nil
 }
 func (s *Server) lifecycle() (*coexistenceLifecycle, error) {
 	if s.coexistence == nil {
@@ -85,6 +93,12 @@ func (s *Server) Retain(ctx context.Context, id string) (broker.Owner, error) {
 	return l.acquire(ctx, id, nil)
 }
 func (l *coexistenceLifecycle) acquire(ctx context.Context, id string, accepted *IncomingAcceptance) (broker.Owner, error) {
+	return l.acquireInitialized(ctx, id, accepted, nil)
+}
+
+// initialize creates a fresh owned row before reload; rollover needs its linked
+// row and handoff in one transaction rather than the default empty row.
+func (l *coexistenceLifecycle) acquireInitialized(ctx context.Context, id string, accepted *IncomingAcceptance, initialize func(context.Context, *conversation.Ownership) error) (broker.Owner, error) {
 	if l.owners[id] != nil {
 		return broker.Owner{}, broker.ErrAdmissionBusy
 	}
@@ -115,7 +129,12 @@ func (l *coexistenceLifecycle) acquire(ctx context.Context, id string, accepted 
 	// its exact capability, before reload or dependent writes. Fixture and
 	// handover paths retain their existing semantics. A failed write remains
 	// unresolved and must not be reported as a completed acquisition.
-	if accepted == nil && l.options.Contract == conversation.DevelopmentCoexistenceDeclaration() {
+	if initialize != nil {
+		if e = initialize(ctx, o); e != nil {
+			_ = t.PersistenceFailed()
+			return broker.Owner{}, fmt.Errorf("acquired but conversation creation unresolved: %w", e)
+		}
+	} else if accepted == nil && l.options.Contract == conversation.DevelopmentCoexistenceDeclaration() {
 		if e = l.store.EnsureConversation(ctx, id, "", ""); e != nil {
 			_ = t.PersistenceFailed()
 			return broker.Owner{}, fmt.Errorf("acquired but conversation creation unresolved: %w", e)
@@ -302,6 +321,42 @@ func (l *coexistenceLifecycle) reserveRelinquishLocked(o broker.Owner, requester
 	return r, nil
 }
 func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Owner, requester *broker.Attachment, terminal *string, h *broker.IncomingHandover) error {
+	// Terminal release is session closure, not a quiescent handover or an
+	// administrative release. Retain the exact owner and host ticket until all
+	// accepted work (including descendants and persistence) has drained.
+	if terminal != nil && *terminal != "" && h == nil {
+		if !l.ready[o] {
+			return broker.ErrAdmissionBusy
+		}
+		cap := l.owners[o.Conversation]
+		if cap == nil || ownerOf(cap) != o {
+			return broker.ErrAdmissionStale
+		}
+		ticket, err := l.admission.AdmitHostWork(broker.PersistenceWork)
+		if err != nil {
+			return err
+		}
+		closure, err := l.admission.DrainTerminal(o, *terminal)
+		if err != nil {
+			_ = ticket.Complete()
+			return err
+		}
+		r := &relinquishReservation{closure: closure, ticket: ticket}
+		if l.closures == nil {
+			l.closures = make(map[broker.Owner]*relinquishReservation)
+		}
+		l.closures[o] = r
+		if closure.Drained() {
+			return l.commitRelinquishLocked(ctx, o, r, nil)
+		}
+		return closure.WhenDrained(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			// The request/transport lifetime must not cancel retained writeback.
+			// commitRelinquishLocked retains unresolved blockers on every failure.
+			_ = l.commitRelinquishLocked(context.Background(), o, r, nil)
+		})
+	}
 	r, e := l.reserveRelinquishLocked(o, requester, terminal)
 	if e != nil {
 		return e
@@ -369,18 +424,63 @@ func (s *Server) ClaimIncoming(ctx context.Context, a *IncomingAcceptance) (brok
 // RetireCoexistence is a readiness reservation, NOT a shutdown probe. Hook errors
 // leave admission retired/closed and are surfaced; normal Shutdown is never used.
 func (s *Server) RetireCoexistence(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
 	l, e := s.lifecycle()
 	if e != nil {
 		return e
 	}
-	if e = l.admission.Retire(); e != nil {
-		return e
+	l.retireMu.Lock()
+	if l.retireDone == nil {
+		if e = l.admission.Retire(); e != nil {
+			l.retireMu.Unlock()
+			return e
+		}
+		l.retireDone = make(chan struct{})
+		go func() {
+			// Caller cancellation bounds observation, never the retained cleanup.
+			err := s.closeTaskManagerContext(context.Background())
+			err = errors.Join(err, l.options.CloseParticipation(context.Background()))
+			l.retireErr = errors.Join(err, s.CloseCoexistenceStore())
+			close(l.retireDone)
+			if l.retireErr == nil {
+				close(l.retired)
+			}
+		}()
 	}
-	// Admission is retired and has no outstanding task tickets. Close the
-	// prepared manager before closing the shared agent/persistence store.
-	s.closeTaskManager()
-	if e = l.options.CloseParticipation(ctx); e != nil {
-		return e
+	done := l.retireDone
+	l.retireMu.Unlock()
+	select {
+	case <-done:
+		return l.retireErr
+	default:
 	}
-	return l.store.Close()
+	select {
+	case <-done:
+		return l.retireErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// CoexistenceRetired notifies the transport owner only after successful retained
+// retirement, never on a busy reservation, observer timeout, or disposal error.
+// The owner must drain active RPC responses before closing its transport.
+// A server without coexistence returns nil (no retirement notification).
+func (s *Server) CoexistenceRetired() <-chan struct{} {
+	if s.coexistence == nil {
+		return nil
+	}
+	return s.coexistence.retired
+}
+
+// CloseCoexistenceStore is the single disposal owner for the borrowed prepared
+// store. Call only after callbacks and RPCs drain; retirement shares this owner.
+func (s *Server) CloseCoexistenceStore() error {
+	l, err := s.lifecycle()
+	if err != nil {
+		return err
+	}
+	l.storeCloseOnce.Do(func() { l.storeCloseErr = l.store.Close() })
+	return l.storeCloseErr
 }

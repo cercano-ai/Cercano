@@ -27,12 +27,13 @@ import (
 )
 
 type launchSelection struct {
-	Endpoint     string
-	TokenFile    string
-	Identity     *pb.LifecycleIdentity
-	Conversation string
-	Epoch        string
-	Generation   string
+	ConfigAuthority string
+	Endpoint        string
+	TokenFile       string
+	Identity        *pb.LifecycleIdentity
+	Conversation    string
+	Epoch           string
+	Generation      string
 }
 
 func launchPrivateDir(path string) error {
@@ -110,6 +111,7 @@ func launchRead(path string, value interface{}) error {
 func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("development-launch", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	authority := fs.String("config-authority", "", "absolute isolated config authority shared across generations")
 	state := fs.String("state", "", "prepared private state")
 	generation := fs.String("generation", "", "exact published generation")
 	runtime := fs.String("runtime-root", "", "short private runtime root")
@@ -136,7 +138,11 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 	}
 	contract := conversation.DevelopmentCoexistenceDeclaration()
 	store := filepath.Join(*state, "conversations.db")
-	for _, p := range []string{store, filepath.Join(*state, "config.yaml")} {
+	configAuthority, e := developmentConfigAuthority(*state, *authority)
+	if e != nil {
+		return e
+	}
+	for _, p := range []string{store, configAuthority} {
 		if e = launchPrivateFile(p); e != nil {
 			return fmt.Errorf("prepared private database and explicit config.yaml required; provision once with prepare-development --new-state /absolute/NEW/state (no legacy import): %w", e)
 		}
@@ -189,6 +195,16 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 			return e
 		}
 	}
+	// Serialize target publication across generations, not only per-host starts.
+	targetLock, e := os.OpenFile(filepath.Join(*state, "current-target.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	if e != nil {
+		return e
+	}
+	defer targetLock.Close()
+	if e = syscall.Flock(int(targetLock.Fd()), syscall.LOCK_EX); e != nil {
+		return e
+	}
+	defer syscall.Flock(int(targetLock.Fd()), syscall.LOCK_UN)
 	key := sha256.Sum256([]byte(*generation))
 	base := filepath.Join(hosts, hex.EncodeToString(key[:]))
 	lock, e := os.OpenFile(base+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
@@ -209,7 +225,7 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 			return err
 		}
 		// Never delete this intent automatically, even if spawning or readiness fails.
-		if e = launchExclusive(base+".starting", map[string]string{"host": host, "generation": *generation}); e != nil {
+		if e = launchExclusive(base+".starting", map[string]string{"host": host, "generation": *generation, "config_authority": configAuthority}); e != nil {
 			return fmt.Errorf("prior start intent exists; explicit verified retirement required: %w", e)
 		}
 		token := base + ".token"
@@ -220,7 +236,7 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 		if e != nil {
 			return e
 		}
-		cmd := developmentHostCommand(binary, *state, *generation, host, token, record, *runtime, log)
+		cmd := developmentHostCommand(binary, *state, *generation, host, token, record, *runtime, log, configAuthority)
 		e = cmd.Start()
 		log.Close()
 		if e != nil {
@@ -249,6 +265,9 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 		return e
 	}
 	expected := &pb.LifecycleIdentity{Host: s.Identity.GetHost(), Build: manifest.Build, Contract: contract.Contract, Schema: int32(contract.SchemaVersion), Store: store}
+	if e := s.validateConfigAuthority(configAuthority); e != nil {
+		return e
+	}
 	if expected.Host == "" || !proto.Equal(s.Identity, expected) || s.Conversation != "" || s.Epoch != "" || s.TokenFile != base+".token" {
 		return fmt.Errorf("host record identity mismatch")
 	}
@@ -284,13 +303,19 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 	if e = launchExclusive(selection, s); e != nil {
 		return e
 	}
+	if e = publishCurrentTarget(*state, s); e != nil {
+		return e
+	}
 	_, e = fmt.Fprintln(out, selection)
 	return e
 }
 
 // developmentHostCommand is the runtime spawn boundary, after launch validation.
-func developmentHostCommand(binary, state, generation, host, token, record, runtime string, log io.Writer) *exec.Cmd {
+func developmentHostCommand(binary, state, generation, host, token, record, runtime string, log io.Writer, configAuthority ...string) *exec.Cmd {
 	cmd := exec.Command(binary, "development-host", "--state", state, "--generation", generation, "--host", host, "--token-file", token, "--record", record, "--runtime-root", runtime, "--listen", "127.0.0.1:0")
+	if len(configAuthority) != 0 {
+		cmd.Args = append(cmd.Args, "--config-authority", configAuthority[0])
+	}
 	// Runtime inherits caller policy, including absence and malformed values.
 	// Only build subprocesses force credentials off; validation remains in the host.
 	cmd.Env = os.Environ()
@@ -298,4 +323,12 @@ func developmentHostCommand(binary, state, generation, host, token, record, runt
 	cmd.Stderr = log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd
+}
+
+// Refuse old/unbound records too; never silently repurpose a running host.
+func (s launchSelection) validateConfigAuthority(want string) error {
+	if want == "" || s.ConfigAuthority != want {
+		return fmt.Errorf("host config authority mismatch; refusing reuse or replacement")
+	}
+	return nil
 }

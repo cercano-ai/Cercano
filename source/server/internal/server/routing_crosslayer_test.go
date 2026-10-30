@@ -90,8 +90,15 @@ func TestRoutingSettingsClientPersistenceSnapshotExecution(t *testing.T) {
 		t.Fatalf("client round-trip %+v %v", view, err)
 	}
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err = config.Save(s.cfgSvc.Get(), path); err != nil {
+	base, err := config.Load(path)
+	if err != nil {
 		t.Fatal(err)
+	}
+	draft := s.cfgSvc.Get().WithSnapshot(base.Snapshot())
+	if next, err := config.SaveSnapshot(draft, path, draft.Snapshot()); err != nil {
+		t.Fatal(err)
+	} else {
+		draft = draft.WithSnapshot(next)
 	}
 	saved, err := config.Load(path)
 	if err != nil {

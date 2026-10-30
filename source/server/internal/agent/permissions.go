@@ -1,13 +1,18 @@
 package agent
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"sync"
 
 	"gopkg.in/yaml.v3"
 
+	"cercano/source/server/internal/filelock"
 	"cercano/source/server/internal/llm"
 )
 
@@ -96,11 +101,15 @@ type PermissionStore struct {
 	path     string
 	mode     PermissionMode
 	mcpAllow []string
+	// authority records an observed or successfully committed backing policy.
+	authority bool
 }
 
 type permsFile struct {
 	Mode     string   `yaml:"mode"`
 	MCPAllow []string `yaml:"mcp_allow"`
+	// Retain fields introduced by other compatible writers.
+	Extra map[string]any `yaml:",inline"`
 }
 
 // NewStaticPermissionStore returns an in-memory store pinned to mode, with no
@@ -135,17 +144,11 @@ func LoadPermissionStore(filePath string) (*PermissionStore, error) {
 		}
 		return nil, err
 	}
-	var f permsFile
-	if err := yaml.Unmarshal(data, &f); err != nil {
+	f, err := decodePermissions(data)
+	if err != nil {
 		return nil, err
 	}
-	if f.Mode != "" {
-		m, err := ParseMode(f.Mode)
-		if err == nil {
-			s.mode = m
-		}
-	}
-	s.mcpAllow = f.MCPAllow
+	s.install(f)
 	return s, nil
 }
 
@@ -159,46 +162,155 @@ func LoadPermissionStore(filePath string) (*PermissionStore, error) {
 func (s *PermissionStore) Mode() PermissionMode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if data, err := os.ReadFile(s.path); err == nil {
-		var f permsFile
-		if yaml.Unmarshal(data, &f) == nil && f.Mode != "" {
-			if m, perr := ParseMode(f.Mode); perr == nil {
-				s.mode = m
-			}
-		}
-	}
+	s.refresh()
 	return s.mode
 }
 
-// persistLocked writes the current in-memory mode and mcpAllow to disk.
-// Caller must hold s.mu.
-func (s *PermissionStore) persistLocked() error {
-	data, err := yaml.Marshal(permsFile{Mode: string(s.mode), MCPAllow: s.mcpAllow})
+// decodePermissions is shared by every reader and writer. An existing file
+// must explicitly identify its mode; only a never-created file defaults to
+// permissive. Unknown compatible fields are retained on mutation.
+func decodePermissions(data []byte) (permsFile, error) {
+	var f permsFile
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&f); err != nil {
+		return f, fmt.Errorf("read permissions: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return f, fmt.Errorf("permissions must contain a single YAML document")
+	}
+	if _, err := ParseMode(f.Mode); err != nil {
+		return f, err
+	}
+	return f, nil
+}
+
+// install and refresh require mu. Always replace the whole validated policy,
+// never combine a stale mode with an unvalidated allowlist (or vice versa).
+func (s *PermissionStore) install(f permsFile) {
+	s.mode = PermissionMode(f.Mode)
+	s.mcpAllow = append([]string(nil), f.MCPAllow...)
+	s.authority = true
+}
+
+func (s *PermissionStore) refresh() {
+	if s.path == "" {
+		return
+	}
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return
+	}
+	// Even malformed existing authority is not an invitation to recreate it.
+	s.authority = true
+	if f, err := decodePermissions(data); err == nil {
+		s.install(f)
+	}
+}
+
+// mutate serializes cooperating processes on a stable sidecar (never the
+// replaced data inode). Read/apply/publish all happen while holding the lock.
+// Success means file publication, not acknowledgement by remote workers.
+func (s *PermissionStore) mutate(apply func(*permsFile) bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.path == "" {
+		return fmt.Errorf("cannot persist a file-less permission store; use ApplyRuntimeUpdate")
+	}
+	// Follow an existing symlink authority rather than replacing the link.
+	// Alias paths must coordinate on the same target-side lock as direct users.
+	dst := s.path
+	if resolved, err := filepath.EvalSymlinks(dst); err == nil {
+		dst = resolved
+	} else if !os.IsNotExist(err) {
+		return err
+	} else if info, statErr := os.Lstat(dst); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("cannot mutate dangling permission symlink")
+	}
+	release, err := filelock.Lock(context.Background(), dst+".lock")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0o644)
+	defer release()
+	f := permsFile{Mode: string(ModePermissive)}
+	perm := os.FileMode(0o644)
+	data, err := os.ReadFile(dst)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if os.IsNotExist(err) && s.authority {
+		return fmt.Errorf("established permissions file is missing")
+	}
+	if err == nil {
+		s.authority = true
+		f, err = decodePermissions(data)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(dst)
+		if err != nil {
+			return err
+		}
+		perm = info.Mode().Perm()
+	}
+	if apply(&f) {
+		data, err = yaml.Marshal(f)
+		if err != nil {
+			return err
+		}
+		if err := publishPermissions(dst, data, perm); err != nil {
+			return err
+		}
+	}
+	// Failed writes must never install an uncommitted local policy.
+	s.install(f)
+	return nil
+}
+
+// publishPermissions uses a same-directory temporary file so readers observe
+// either complete version. Preserve existing access bits, and clean up on any
+// failure. The sidecar lock remains stable across rename.
+func publishPermissions(dst string, data []byte, perm os.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(dst), ".permissions-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), dst)
 }
 
 func (s *PermissionStore) SetMode(m PermissionMode) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.mode = m
-	return s.persistLocked()
+	if _, err := ParseMode(string(m)); err != nil {
+		return err
+	}
+	return s.mutate(func(f *permsFile) bool { f.Mode = string(m); return true })
 }
 
-// AddMCPAllow appends a glob pattern to the MCP allowlist and persists it.
-// If the pattern is already present the call is a no-op.
+// AddMCPAllow appends a glob pattern to the current on-disk allowlist.
+// An existing pattern is a no-op, but still refreshes the local snapshot.
 func (s *PermissionStore) AddMCPAllow(pattern string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, p := range s.mcpAllow {
-		if p == pattern {
-			return nil
+	return s.mutate(func(f *permsFile) bool {
+		for _, p := range f.MCPAllow {
+			if p == pattern {
+				return false
+			}
 		}
-	}
-	s.mcpAllow = append(s.mcpAllow, pattern)
-	return s.persistLocked()
+		f.MCPAllow = append(f.MCPAllow, pattern)
+		return true
+	})
 }
 
 // IsMCPAllowed reports whether an mcp__server__tool name matches any allowlist
@@ -233,33 +345,14 @@ func (s *PermissionStore) ApplyRuntimeUpdate(m PermissionMode, mcpAllow []string
 func (s *PermissionStore) MCPAllowPatterns() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.path != "" {
-		if data, err := os.ReadFile(s.path); err == nil {
-			var f permsFile
-			if yaml.Unmarshal(data, &f) == nil {
-				s.mcpAllow = f.MCPAllow
-			}
-		}
-	}
+	s.refresh()
 	return append([]string(nil), s.mcpAllow...)
 }
 
 func (s *PermissionStore) IsMCPAllowed(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// File-backed stores re-read so a live permissions.yaml edit takes effect
-	// without a restart. File-less stores (the worker's) keep the allowlist they
-	// were constructed with: reading the empty path always fails, which would
-	// otherwise clobber nothing but also never populate, making every
-	// allowlisted tool re-prompt.
-	if s.path != "" {
-		if data, err := os.ReadFile(s.path); err == nil {
-			var f permsFile
-			if yaml.Unmarshal(data, &f) == nil {
-				s.mcpAllow = f.MCPAllow
-			}
-		}
-	}
+	s.refresh()
 	for _, pat := range s.mcpAllow {
 		if ok, _ := path.Match(pat, name); ok {
 			return true

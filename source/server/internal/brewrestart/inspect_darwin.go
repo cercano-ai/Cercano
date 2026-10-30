@@ -7,8 +7,16 @@ package brewrestart
 #include <libproc.h>
 #include <string.h>
 
-// Read the identity twice around the executable-path query. A disappearing
-// process, credential change or PID reuse must never produce a mixed snapshot.
+// A failed path lookup alone does not establish that the PID disappeared.
+static int cercano_identity_exists(int pid) {
+ struct proc_bsdinfo info;
+ errno = 0;
+ if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) != sizeof(info))
+  return errno ? errno : EAGAIN;
+ return 0;
+}
+
+// Read identity twice around the path query to reject mixed snapshots.
 static int cercano_identity(int pid, struct proc_bsdinfo *info, char *path) {
  struct proc_bsdinfo before;
  memset(&before, 0, sizeof(before));
@@ -16,8 +24,10 @@ static int cercano_identity(int pid, struct proc_bsdinfo *info, char *path) {
  errno = 0;
  if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &before, sizeof(before)) != sizeof(before))
   return errno ? errno : ESRCH;
+ errno = 0;
  if (proc_pidpath(pid, path, PROC_PIDPATHINFO_MAXSIZE) <= 0)
   return errno ? errno : ESRCH;
+ errno = 0;
  if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, info, sizeof(*info)) != sizeof(*info))
   return errno ? errno : ESRCH;
  if (before.pbi_start_tvsec != info->pbi_start_tvsec ||
@@ -43,10 +53,23 @@ func Inspect(pid int) (Identity, error) {
 	var info C.struct_proc_bsdinfo
 	var path [C.PROC_PIDPATHINFO_MAXSIZE]C.char
 	if code := C.cercano_identity(C.int(pid), &info, &path[0]); code != 0 {
-		return Identity{}, fmt.Errorf("inspect PID %d: %w", pid, syscall.Errno(code))
+		err := confirmedInspectionError(syscall.Errno(code), func() syscall.Errno {
+			return syscall.Errno(C.cercano_identity_exists(C.int(pid)))
+		})
+		return Identity{}, fmt.Errorf("inspect PID %d: %w", pid, err)
 	}
 	return Identity{
-		PID: pid, UID: uint32(info.pbi_uid), Executable: C.GoString(&path[0]),
+		PID: pid, ParentPID: int(info.pbi_ppid), ProcessGroup: int(info.pbi_pgid), UID: uint32(info.pbi_uid), Executable: C.GoString(&path[0]),
 		StartSeconds: uint64(info.pbi_start_tvsec), StartMicroseconds: uint64(info.pbi_start_tvusec),
 	}, nil
+}
+
+// ENOENT can describe a live process whose executable was unlinked, not a
+// missing PID. Only a fresh kernel ESRCH establishes disappearance. Permission
+// failures, short snapshots and PID reuse remain failures, never absence.
+func confirmedInspectionError(code syscall.Errno, probe func() syscall.Errno) error {
+	if code == syscall.ENOENT && probe() == syscall.ESRCH {
+		return syscall.ESRCH
+	}
+	return code
 }

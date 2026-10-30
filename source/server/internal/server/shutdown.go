@@ -15,6 +15,7 @@
 package server
 
 import (
+	"cercano/source/server/pkg/proto"
 	"time"
 
 	"google.golang.org/grpc"
@@ -98,4 +99,36 @@ func DrainThenStop(gs *grpc.Server, grace time.Duration) bool {
 	case <-time.After(stopBackstop):
 	}
 	return false
+}
+
+// FenceBackgroundWork is nonblocking and retains existing callback authority.
+func (s *Server) FenceBackgroundWork() {
+	s.workFenced.Store(true)
+	s.preparedScheduling.fence()
+	s.watchAdmission.Fence()
+	if p, ok := s.providerSvc.(interface{ FenceRebuild() }); ok {
+		p.FenceRebuild()
+	}
+	if p, ok := s.permBroker.(interface{ FenceWatchers() }); ok {
+		p.FenceWatchers()
+	}
+	if s.providerSvc != nil {
+		if m := s.providerSvc.CatalogManager(); m != nil {
+			m.Fence()
+		}
+	}
+	if m := s.taskFenceTarget.Load(); m != nil {
+		m.Fence()
+	}
+}
+
+// SetShutdownControl is configured before serving; authentication remains in interceptors.
+func (s *Server) SetShutdownControl(control func(bool) *proto.ShutdownAgentResponse) {
+	s.shutdownControl = control
+}
+
+// JoinBackgroundWork retains the join independently of any requesting RPC.
+func (s *Server) JoinBackgroundWork() {
+	s.preparedScheduling.close()
+	s.closeTaskManager()
 }

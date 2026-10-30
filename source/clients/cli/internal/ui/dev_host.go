@@ -18,11 +18,13 @@ import (
 )
 
 type DevHostSelection struct {
-	Endpoint     string
-	TokenFile    string
-	Identity     *proto.LifecycleIdentity
-	Conversation string
-	Epoch        string
+	// Retain the launcher's explicit authority when emitting updated selections.
+	ConfigAuthority string
+	Endpoint        string
+	TokenFile       string
+	Identity        *proto.LifecycleIdentity
+	Conversation    string
+	Epoch           string
 }
 
 func ReadDevHostSelection(path string) (DevHostSelection, error) {
@@ -128,7 +130,7 @@ func (m Model) WithDevHost(s DevHostSelection, version string) Model {
 func (m Model) runDevHost(line string) (tea.Model, tea.Cmd) {
 	f := strings.Fields(line)
 	if len(f) < 2 {
-		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "/host detach (retain), reconnect, list, acquire, release, retire, transfer <destination.json> <handover>, claim <destination.json> <handover> <receipt>. Transfer/release require detach first. Exit also retains ownership."})
+		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "/host detach (retain), reconnect, list, acquire, release, retire, transfer <destination.json> <handover>, claim <destination.json> <handover> <receipt>. Transfer/release require detach first. Normal attached exit releases ownership; exit after explicit detach retains ownership, as does unexpected disconnect."})
 		m.refreshViewport()
 		return m, nil
 	}
@@ -182,6 +184,15 @@ func (m Model) runDevHost(line string) (tea.Model, tea.Cmd) {
 func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 	m.devHost.busy = false
 	if r.client != nil {
+		if r.selection != nil {
+			m.devHost.selection = *r.selection
+		}
+		if m.taskSubscriptionCancel != nil {
+			m.taskSubscriptionCancel()
+		}
+		if r.action == "reopen" && m.agent != nil {
+			m.agent.Close()
+		}
 		// New client-bound slash handlers, same running executable and TUI identity.
 		n := New(r.client, false).WithVersion(m.devHost.version).WithDevHost(m.devHost.selection, m.devHost.version)
 		// New rebuilds client-bound handlers, but queued subscription messages
@@ -191,6 +202,11 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 		n.taskSubscriptionGeneration = m.taskSubscriptionGeneration + 1
 		n.width, n.height = m.width, m.height
 		return n, tea.Batch(n.Init(), func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} })
+	}
+	if r.action == "reopen" {
+		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "Could not reopen conversation: " + fmt.Sprint(r.err)})
+		m.refreshViewport()
+		return m, nil
 	}
 	if r.selection != nil {
 		m.devHost.selection = *r.selection

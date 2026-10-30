@@ -2,7 +2,6 @@ package server
 
 import (
 	"cercano/source/server/internal/routingwire"
-	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 	"context"
 )
@@ -10,31 +9,25 @@ import (
 // UpdateRoutingAssignments atomically saves a complete routing draft. Absence
 // preserves existing assignments; a present empty draft explicitly clears them.
 func (s *Server) UpdateRoutingAssignments(ctx context.Context, req *proto.UpdateRoutingAssignmentsRequest) (*proto.UpdateRoutingAssignmentsResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if req.GetAssignments() == nil {
 		return &proto.UpdateRoutingAssignmentsResponse{Ok: true}, nil
 	}
-	var validation error
-	err := s.cfgSvc.Mutate(func(c *config.Config) {
-		next := c.Clone()
-		routingwire.ApplyAssignments(&next, req.Assignments)
-		validation = next.ValidateRouting()
-		if validation == nil {
-			*c = next
-		}
-	})
-	if err != nil {
+	candidate := s.cfgSvc.Get()
+	routingwire.ApplyAssignments(&candidate, req.Assignments)
+	if err := candidate.ValidateRouting(); err != nil {
 		return &proto.UpdateRoutingAssignmentsResponse{Error: err.Error()}, nil
 	}
-	if validation != nil {
-		return &proto.UpdateRoutingAssignmentsResponse{Error: validation.Error()}, nil
-	}
-	if err := s.cfgSvc.Persist(); err != nil {
+	if err := s.cfgSvc.SaveAndSet(candidate); err != nil {
 		return &proto.UpdateRoutingAssignmentsResponse{Error: err.Error()}, nil
 	}
 	response := &proto.UpdateRoutingAssignmentsResponse{Ok: true}

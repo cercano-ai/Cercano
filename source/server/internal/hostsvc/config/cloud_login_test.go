@@ -3,7 +3,9 @@ package config_test
 import (
 	"cercano/source/server/internal/credentialtest"
 	"context"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"cercano/source/server/internal/cloudfactory"
@@ -206,5 +208,41 @@ func TestAddedAccountCreationCannotReplaceExistingCredentials(t *testing.T) {
 	}
 	if service.Get().ActiveCloudProfile != "work" {
 		t.Fatal("adding account changed primary")
+	}
+}
+
+func TestLoginSnapshotConflictKeepsConfiguration(t *testing.T) {
+	credentialtest.Enable(t)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	c, err := cfg.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := cfg.CloudProfile{Name: "work", Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription}
+	c.CloudProfiles = []cfg.CloudProfile{p}
+	next, err := cfg.SaveSnapshot(c, path, c.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c = c.WithSnapshot(next)
+	service := cfgsvc.New(path, c, secrets.NewMemory())
+	login, err := service.BeginCloudLogin(t.Context(), p, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer login.Close()
+	other := c.Clone()
+	other.Port = "12456"
+	if _, err := cfg.SaveSnapshot(other, path, other.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := login.Commit("test-token"); err == nil || !strings.Contains(err.Error(), "credential saved; configuration not applied") {
+		t.Fatalf("missing partial outcome: %v", err)
+	}
+	if !reflect.DeepEqual(c, service.Get()) {
+		t.Fatal("rejected login config applied")
+	}
+	if raw, _ := service.Secrets().Get("work"); raw != "test-token" {
+		t.Fatal("credential-first policy lost")
 	}
 }

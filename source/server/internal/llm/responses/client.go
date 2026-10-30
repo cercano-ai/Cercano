@@ -3,6 +3,7 @@ package responses
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,10 +12,12 @@ import (
 	"strings"
 	"sync"
 
+	"cercano/source/server/internal/chatgptauth"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/llm/httpx"
 	"cercano/source/server/internal/modelpolicy"
+	"cercano/source/server/internal/secrets"
 	accounting "cercano/source/server/internal/usage"
 )
 
@@ -38,11 +41,23 @@ type TokenSource interface {
 	Token(ctx context.Context) (access, accountID string, err error)
 }
 
+// SubscriptionCredentials supplies atomic subscription material, never a raw
+// token paired with a later revision. Admission is still required per attempt.
+type SubscriptionCredentials interface {
+	SubscriptionSnapshot(context.Context) (secrets.CredentialSnapshot, error)
+	CredentialProfile() string
+}
+
 // Config holds the Responses client configuration.
 type Config struct {
-	BaseURL string
-	APIKey  string
-	Model   string
+	// Credentials opts into coordinated per-attempt request admission.
+	// ChatGPT additionally requires an atomic SubscriptionCredentials source.
+	Credentials       secrets.RequestCredentials
+	CredentialProfile string
+	BaseTransport     http.RoundTripper
+	BaseURL           string
+	APIKey            string
+	Model             string
 	// Route selects the auth path. Empty (default) uses APIKey against
 	// BaseURL; RouteChatGPT uses TokenSource against the codex backend.
 	Route string
@@ -63,6 +78,8 @@ type Config struct {
 
 // Client implements inference.Provider using the OpenAI Responses API.
 type Client struct {
+	credentials       secrets.RequestCredentials
+	credentialProfile string
 	http              httpx.Doer
 	baseURL           string
 	accountingProfile string
@@ -114,7 +131,20 @@ func NewClient(cfg Config) *Client {
 	if base == "" {
 		base = defaultBaseURL
 	}
-	return &Client{http: modelpolicy.Client(&http.Client{}, "openai", "external", modelpolicy.Responses), baseURL: base, accountingProfile: cfg.AccountingProfile, apiKey: cfg.APIKey, model: cfg.Model, route: cfg.Route, tokens: cfg.TokenSource, supportsVision: cfg.SupportsVision}
+	transport := &http.Client{Transport: cfg.BaseTransport}
+	if cfg.Credentials != nil {
+		// Restrict coordinated requests to HTTP/1; HTTP/2 retry behavior has
+		// not been qualified for this bounded path.
+		next := cfg.BaseTransport
+		if next == nil {
+			next = &http.Transport{DisableKeepAlives: true, Proxy: http.ProxyFromEnvironment, TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{}}
+		}
+		transport.Transport = nonReplayTransport{next: next}
+		// Redirects are separate attempts, not covered by the original admission.
+		transport.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	transport = acceptanceHTTPClient(cfg, transport)
+	return &Client{credentials: cfg.Credentials, credentialProfile: cfg.CredentialProfile, http: modelpolicy.Client(transport, "openai", "external", modelpolicy.Responses), baseURL: base, accountingProfile: cfg.AccountingProfile, apiKey: cfg.APIKey, model: cfg.Model, route: cfg.Route, tokens: cfg.TokenSource, supportsVision: cfg.SupportsVision}
 }
 
 func (c *Client) Name() string { return "openai-responses" }
@@ -172,7 +202,51 @@ func (c *Client) do(ctx context.Context, body request) (*http.Response, error) {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	if err := c.authorize(ctx, httpReq); err != nil {
+	if c.credentials != nil {
+		if c.credentialProfile == "" {
+			return nil, errors.New("coordinated responses profile required")
+		}
+		var snapshot secrets.CredentialSnapshot
+		switch {
+		case c.route == "" && c.tokens == nil:
+			snapshot, err = c.credentials.CredentialSnapshot(ctx, c.credentialProfile)
+			if err == nil {
+				httpReq.Header.Set("Authorization", "Bearer "+snapshot.Payload)
+			}
+		case c.route == RouteChatGPT:
+			source, ok := c.tokens.(SubscriptionCredentials)
+			if !ok || source.CredentialProfile() != c.credentialProfile {
+				return nil, errors.New("coordinated subscription source required")
+			}
+			snapshot, err = source.SubscriptionSnapshot(ctx)
+			if err == nil {
+				var ts chatgptauth.TokenSet
+				ts, err = chatgptauth.DecodeTokenSet(snapshot.Payload)
+				if err == nil && ts.Access == "" {
+					err = errors.New("empty subscription access token")
+				}
+				if err == nil {
+					httpReq.Header.Set("Authorization", "Bearer "+ts.Access)
+					if ts.AccountID != "" {
+						httpReq.Header.Set("ChatGPT-Account-Id", ts.AccountID)
+					}
+					httpReq.Header.Set("originator", "cercano")
+					httpReq.Header.Set("User-Agent", "cercano")
+				}
+			}
+		default:
+			return nil, errors.New("coordinated responses route unsupported")
+		}
+		if err != nil {
+			return nil, err
+		}
+		// net/http may retry replayable requests on reused connections. This POST
+		// has a nonempty body, no idempotency header, and no GetBody replay hook.
+		// Replay is removed by nonReplayTransport AFTER model-policy inspection.
+		if err := c.credentials.AdmitAttempt(ctx, c.credentialProfile, snapshot.Revision); err != nil {
+			return nil, err
+		}
+	} else if err := c.authorize(ctx, httpReq); err != nil {
 		return nil, err
 	}
 	resp, err := c.http.Do(httpReq)
@@ -418,4 +492,14 @@ func (c *Client) accountingProviderName() string {
 		return c.Name()
 	}
 	return c.accountingProfile // profile name when configured; else unknown
+}
+
+// nonReplayTransport is inside modelpolicy.Client so model verification retains
+// its private body reader, while the wire transport cannot replay the POST.
+type nonReplayTransport struct{ next http.RoundTripper }
+
+func (t nonReplayTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	wire := req.Clone(req.Context())
+	wire.GetBody = nil
+	return t.next.RoundTrip(wire)
 }

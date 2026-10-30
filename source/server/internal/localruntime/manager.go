@@ -47,6 +47,14 @@ func WithConfigLoader(loader func() (config.Config, error)) Option {
 // InMemoryManager is the first runtime manager implementation. It keeps
 // dashboard state in memory and delegates real runtime behavior to providers.
 type InMemoryManager struct {
+	lifeMu     sync.Mutex
+	closing    bool
+	lifeCtx    context.Context
+	lifeCancel context.CancelFunc
+	lifeWork   sync.WaitGroup
+	closeOnce  sync.Once
+	closeErr   error
+
 	mu           sync.RWMutex
 	providers    map[string]Provider
 	instances    map[string]InstanceRecord
@@ -230,6 +238,11 @@ func (m *InMemoryManager) UpdateInstance(instance InstanceRecord) {
 }
 
 func (m *InMemoryManager) Start(ctx context.Context, req StartRequest) (*InstanceRecord, error) {
+	ctx, finish, err := m.admitWork(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
 	provider, err := m.provider(req.Runtime)
 	if err != nil {
 		return nil, err
@@ -364,6 +377,11 @@ func (m *InMemoryManager) refreshProviderConfig(runtimeName string) {
 }
 
 func (m *InMemoryManager) DownloadModel(ctx context.Context, req DownloadRequest) (*ModelRecord, error) {
+	ctx, finish, err := m.admitWork(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
 	if strings.TrimSpace(req.Runtime) == "" {
 		return nil, errors.New("runtime is required")
 	}
@@ -392,7 +410,7 @@ func (m *InMemoryManager) DownloadModel(ctx context.Context, req DownloadRequest
 	}
 	model.DownloadedBytes = 0
 	model.DownloadTotalBytes = total
-	downloadCtx, cancel := context.WithCancel(context.Background())
+	downloadCtx, cancel := context.WithCancel(m.lifeCtx)
 	job := &downloadJob{cancel: cancel}
 	// Claim the job and publish Downloading in the same critical section. A
 	// separate state setter leaves a window where a second caller sees the
@@ -420,7 +438,8 @@ func (m *InMemoryManager) DownloadModel(ctx context.Context, req DownloadRequest
 		ModelID: model.ID,
 		Message: "starting download for " + model.DisplayName,
 	})
-	go m.runDownload(downloadCtx, model, job)
+	m.lifeWork.Add(1) // admission holds a work reference until this child is registered
+	go func() { defer m.lifeWork.Done(); defer cancel(); m.runDownload(downloadCtx, model, job) }()
 	return &model, nil
 }
 

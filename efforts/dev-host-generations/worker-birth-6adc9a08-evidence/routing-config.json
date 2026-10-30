@@ -1,0 +1,1 @@
+{"chat":{"destination":"primary","quality":"premium"},"dispatch":{"destination":"local","quality":"standard"},"llama_enabled":true,"models":{"Open":{"Overrides":{"llama_server":{"embedding":"offline-fixture","everyday":"offline-fixture","fast_light":"offline-fixture","fast_light_text":"offline-fixture","most_capable":"offline-fixture"}}}}}

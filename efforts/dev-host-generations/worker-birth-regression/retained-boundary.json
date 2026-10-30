@@ -1,0 +1,20 @@
+{
+  "source": "/tmp/ca-x3_9e_r5/barrier/worker.jsonl",
+  "sha256": "ecc45bcdce3cd70e1a0c7298a7f3752ef7feca0d766861610e92e78e97aa793c",
+  "B_selection": {
+    "Endpoint": "127.0.0.1:60086",
+    "TokenFile": "/private/tmp/ca-x3_9e_r5/state/hosts/0de46db974da5faba0fea85ef28b0e3ecc84a95647da1503d937c8fe5c86851a.token",
+    "Identity": {
+      "host": "c994a19422bc64da5e12d51f4f031ad5",
+      "build": "c1b3a745-5a08-4a03-abec-2df50dfce1f2",
+      "contract": "cercano-development-owned-v2",
+      "schema": 2,
+      "store": "/private/tmp/ca-x3_9e_r5/state/conversations.db"
+    },
+    "Conversation": "3495f7cec0e9c5ef5a8b137d166a6077",
+    "Epoch": "19e644589db5ae97d6483686",
+    "Generation": "/private/tmp/ca-x3_9e_r5/state/generations/7d1667981d766c51daeeccfc075059381b84e442ca1fe7324770be0a010d569f"
+  },
+  "B_selection_mtime_ns": 1793244810902881359,
+  "limitation": "Retained selection filesystem timestamp is an observation boundary, not a child startup event. Old harness emitted no startup events."
+}

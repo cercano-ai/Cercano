@@ -102,10 +102,14 @@ Follow [development generations](development-generations.md) for automatic first
 build-only bootstrap and early `prepare-development`. Preparation carries forward
 `~/.config/cercano/config.yaml` privately without modifying the original or
 copying databases/native credentials; later builds reuse the development copy.
-The source launcher's default state is `~/.config/cercano-development`;
-`CERCANO_DEVELOPMENT_STATE` optionally selects a custom state. Absent state is
-prepared automatically; existing partial/incompatible stores are refused, never
-adopted or migrated. No provisioning commands are needed for the default. Template changes
+The source shell/Python and installed launcher's default state is now
+`~/.config/cercano`, using ordinary config and history in place, not a copy.
+`CERCANO_DEVELOPMENT_STATE` optionally selects a separate custom state; the
+preparation/copy behavior above applies to absent custom state.
+`CERCANO_CONVERSATIONS_DB`, if nonempty, must exactly match the selected state's
+`conversations.db` or launch is explicitly refused. Existing partial/incompatible
+stores are refused, never adopted or migrated; an offline upgrade requires
+separate approval. This default correction does not perform that transition. Template changes
 require an explicitly reviewed installed-launcher replacement; the no-clobber
 installer only creates a new destination (`make launcher LAUNCHER_DEST=...`).
 

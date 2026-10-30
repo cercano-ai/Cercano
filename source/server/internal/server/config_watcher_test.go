@@ -29,16 +29,22 @@ func TestReloadConfigFromDisk_AppliesAndBroadcasts(t *testing.T) {
 
 	// Seed currentConfig from Defaults() so config.Load()'s default-fill
 	// doesn't show up as spurious diffs against zero-valued fields.
-	initial := config.Defaults()
+	base, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := config.Defaults().WithSnapshot(base.Snapshot())
 	initial.LocusMode = "cloud_primary"
-	if err := config.Save(initial, path); err != nil {
+	if next, err := config.SaveSnapshot(initial, path, initial.Snapshot()); err != nil {
 		t.Fatalf("seed config: %v", err)
+	} else {
+		initial = initial.WithSnapshot(next)
 	}
 	// Normalize through Load so currentConfig carries the same finalized
 	// tier slots a real boot would — otherwise the reload diff sees a
 	// spurious everyday.open change (Defaults() leaves tiers empty) and
 	// routes into the openProvider path this test deliberately avoids.
-	initial, err := config.Load(path)
+	initial, err = config.Load(path)
 	if err != nil {
 		t.Fatalf("normalize seed: %v", err)
 	}
@@ -52,8 +58,10 @@ func TestReloadConfigFromDisk_AppliesAndBroadcasts(t *testing.T) {
 	// Out-of-band edit: change locus_mode and rewrite the file.
 	edited := initial
 	edited.LocusMode = "open_primary"
-	if err := config.Save(edited, path); err != nil {
+	if next, err := config.SaveSnapshot(edited, path, edited.Snapshot()); err != nil {
 		t.Fatalf("edit config: %v", err)
+	} else {
+		edited = edited.WithSnapshot(next)
 	}
 
 	srv.reloadConfigFromDisk(context.Background())
@@ -86,14 +94,20 @@ func TestReloadConfigFromDisk_AppliesAndBroadcasts(t *testing.T) {
 func TestReloadConfigFromDisk_NoChangeNoBroadcast(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	cfg := config.Defaults()
+	base, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults().WithSnapshot(base.Snapshot())
 	cfg.LocusMode = "cloud_primary"
-	if err := config.Save(cfg, path); err != nil {
+	if next, err := config.SaveSnapshot(cfg, path, cfg.Snapshot()); err != nil {
 		t.Fatalf("seed config: %v", err)
+	} else {
+		cfg = cfg.WithSnapshot(next)
 	}
 	// Normalize through Load (see AppliesAndBroadcasts) so the reload diff
 	// doesn't see a spurious everyday.open change against empty tier slots.
-	cfg, err := config.Load(path)
+	cfg, err = config.Load(path)
 	if err != nil {
 		t.Fatalf("normalize seed: %v", err)
 	}
@@ -130,14 +144,20 @@ func TestStartConfigWatcher_EmptyPathIsNoop(t *testing.T) {
 func TestStartConfigWatcher_EndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	cfg := config.Defaults()
+	base, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults().WithSnapshot(base.Snapshot())
 	cfg.LocusMode = "cloud_primary"
-	if err := config.Save(cfg, path); err != nil {
+	if next, err := config.SaveSnapshot(cfg, path, cfg.Snapshot()); err != nil {
 		t.Fatalf("seed config: %v", err)
+	} else {
+		cfg = cfg.WithSnapshot(next)
 	}
 	// Normalize through Load (see AppliesAndBroadcasts) so the reload diff
 	// doesn't see a spurious everyday.open change against empty tier slots.
-	cfg, err := config.Load(path)
+	cfg, err = config.Load(path)
 	if err != nil {
 		t.Fatalf("normalize seed: %v", err)
 	}
@@ -167,8 +187,10 @@ func TestStartConfigWatcher_EndToEnd(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	edited := cfg
 	edited.LocusMode = "open_only"
-	if err := config.Save(edited, path); err != nil {
+	if next, err := config.SaveSnapshot(edited, path, edited.Snapshot()); err != nil {
 		t.Fatalf("edit config: %v", err)
+	} else {
+		edited = edited.WithSnapshot(next)
 	}
 
 	deadline := time.After(2 * time.Second)

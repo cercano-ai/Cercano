@@ -17,6 +17,7 @@ var ErrLoginProfileChanged = errors.New("cloud profile changed during login; sta
 // The config lock is held only at begin/commit, never while awaiting login.
 type CloudLogin struct {
 	owner                             *svc
+	baseline                          cfg.Config
 	attempt                           *credentials.LoginAttempt
 	proposed, before                  cfg.CloudProfile
 	existed, activate, reauthenticate bool
@@ -54,7 +55,7 @@ func (s *svc) BeginCloudLogin(ctx context.Context, profile cfg.CloudProfile, act
 	if err != nil {
 		return nil, err
 	}
-	return &CloudLogin{owner: s, attempt: attempt, proposed: profile.Clone(), before: before.Clone(), existed: exists, activate: activate, reauthenticate: reauthenticate}, nil
+	return &CloudLogin{owner: s, baseline: s.current.Clone(), attempt: attempt, proposed: profile.Clone(), before: before.Clone(), existed: exists, activate: activate, reauthenticate: reauthenticate}, nil
 }
 func (l *CloudLogin) Context() context.Context { return l.attempt.Context() }
 func (l *CloudLogin) Close()                   { l.attempt.Close() }
@@ -75,20 +76,30 @@ func (l *CloudLogin) Commit(encoded string, identity ...accountidentity.Identity
 	if len(identity) > 0 {
 		l.proposed.AccountIdentity = identity[0].Normalized()
 	}
+	candidate := l.baseline.Clone()
 	replaced := false
-	for i, p := range s.current.CloudProfiles {
+	for i, p := range candidate.CloudProfiles {
 		if p.Name == l.proposed.Name {
-			s.current.CloudProfiles[i] = l.proposed.Clone()
+			candidate.CloudProfiles[i] = l.proposed.Clone()
 			replaced = true
 			break
 		}
 	}
 	if !replaced {
-		s.current.CloudProfiles = append(s.current.CloudProfiles, l.proposed.Clone())
+		candidate.CloudProfiles = append(candidate.CloudProfiles, l.proposed.Clone())
 	}
-	_, hasPrimary := profileByName(s.current.CloudProfiles, s.current.ActiveCloudProfile)
+	_, hasPrimary := profileByName(candidate.CloudProfiles, candidate.ActiveCloudProfile)
 	if (l.activate || !hasPrimary) && !l.reauthenticate {
-		s.setActiveProfileLocked(l.proposed.Name)
+		candidate.ActiveCloudProfile = l.proposed.Name
+		for _, backup := range candidate.PrimaryBackups() {
+			if backup == l.proposed.Name {
+				candidate.ActiveCloudProfile = l.baseline.ActiveCloudProfile
+				break
+			}
+		}
+	}
+	if err := s.saveAndSetLocked(candidate); err != nil {
+		return CloudLoginResult{}, fmt.Errorf("credential saved; configuration not applied: %w", err)
 	}
 	return CloudLoginResult{Reauthenticated: l.reauthenticate, Profile: l.proposed.Clone(), Active: s.current.ActiveCloudProfile == l.proposed.Name}, nil
 }

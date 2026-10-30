@@ -2,6 +2,7 @@ package failurelog
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,19 @@ func NewWriter(path string) (*Writer, error) {
 		return nil, err
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	return &Writer{f: f}, nil
+}
+
+// NewPrivateWriter opens an explicit destination in an already prepared parent.
+// Unlike NewWriter it never resolves a HOME default or creates directories.
+func NewPrivateWriter(path string) (*Writer, error) {
+	if path == "" {
+		return nil, fmt.Errorf("private failure log requires a path")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}

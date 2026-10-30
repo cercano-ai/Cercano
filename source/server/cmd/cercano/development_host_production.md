@@ -82,6 +82,17 @@ No acceptance implementation or production fake default is included here. The
 normal binary has no environment-enabled dependency override; tagged builds
 without a helper intentionally fail to compile.
 
+## Shared conversation construction (2026-10-28)
+
+Ordinary startup and this host now call `composeProductionAgent` for the same
+concrete session adapter, exact persistence binding, project loader and context
+meter. Prepared ownership still supplies the store through the server callback;
+ordinary ID-only schedulers are not passed into prepared construction. This is a
+bounded convergence slice, not full startup parity. See
+[verification and exact retained gates](../../../../efforts/production-generation-integration/conversation-composition-convergence.md).
+The new focused tests keep `CERCANO_DISABLE_CREDENTIALS=1`; historical fixture
+commands below are not evidence of a rerun or permission to enable credentials.
+
 ## Focused verification
 
 From `source/server`:

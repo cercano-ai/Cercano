@@ -1,0 +1,83 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestProductionIncompleteShutdownControl(t *testing.T) {
+	gate, sibling := newProductionAdmissionGate(), newProductionAdmissionGate()
+	release := make(chan struct{})
+	var disposed atomic.Int32
+	shutdown := newProductionShutdown(gate.close, func() error { <-release; disposed.Add(1); return nil })
+	var wg sync.WaitGroup
+	started := time.Now()
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if shutdown.Shutdown().Complete {
+				t.Error("reported retirement before callback completion")
+			}
+		}()
+	}
+	wg.Wait()
+	if time.Since(started) > time.Second {
+		t.Fatal("shutdown requests were not bounded")
+	}
+	if shutdown.Status().Complete || disposed.Load() != 0 {
+		t.Fatal("premature disposal")
+	}
+	next := func(context.Context, any) (any, error) { return nil, nil }
+	if _, err := gate.unary(context.Background(), nil, nil, next); status.Code(err) != codes.Unavailable {
+		t.Fatal("ordinary admission remained open", err)
+	}
+	if _, err := sibling.unary(context.Background(), nil, nil, next); err != nil {
+		t.Fatal("safe sibling fenced", err)
+	}
+	close(release)
+	select {
+	case <-shutdown.done:
+	case <-time.After(time.Second):
+		t.Fatal("callback did not dispose automatically")
+	}
+	for i := 0; i < 8; i++ {
+		if !shutdown.Shutdown().Complete {
+			t.Fatal("completion lost")
+		}
+	}
+	if disposed.Load() != 1 {
+		t.Fatal("disposal not exactly once")
+	}
+}
+
+func TestProductionDeferredFailureRetainsStartupCause(t *testing.T) {
+	cause, sentinel := errors.New("startup sentinel"), errors.New("secret close sentinel")
+	release := make(chan struct{})
+	var calls atomic.Int32
+	s := newProductionShutdown(func() {}, func() error { <-release; calls.Add(1); return sentinel })
+	e := &productionStartupFailure{cause: cause, cleanup: s}
+	if !s.Shutdown().Pending || !errors.Is(e, cause) {
+		t.Fatal("lost pending cause")
+	}
+	close(release)
+	<-s.done
+	for i := 0; i < 3; i++ {
+		if st := s.Shutdown(); !st.Failed || st.Complete || !errors.Is(st.Err, sentinel) {
+			t.Fatal(st)
+		}
+	}
+	if !errors.Is(e, cause) || !errors.Is(e, sentinel) || calls.Load() != 1 {
+		t.Fatal("lost eventual error or retried cleanup")
+	}
+	r := s.Control(true)
+	if r.Phase != "failed" || r.Complete || r.IncompleteReason == sentinel.Error() {
+		t.Fatal("unsafe status", r)
+	}
+}

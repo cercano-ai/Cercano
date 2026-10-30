@@ -30,19 +30,25 @@ type Prepared struct {
 	Config config.Config
 }
 
-// Prepare reads only the requested configuration; it has no write/keychain or
-// runtime side effects. Its returned document no longer contains legacy keys.
+// Prepare reads only the requested configuration under the coordinator lock
+// (which can create the lock file and parent directory). It does not publish
+// configuration, access credentials or apply runtime state. Its returned
+// document no longer contains legacy keys.
 func Prepare(path string) (Prepared, error) {
 	if err := regularOrMissing(path); err != nil {
-		return Prepared{}, err
+		return Prepared{}, fmt.Errorf("configuration %q: check target path and permissions before retrying: %w", path, err)
 	}
-	data, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return Prepared{}, fmt.Errorf("read setup configuration: %w", err)
-	}
-	output, err := config.ResetSetupYAML(data)
+	coordinator, err := config.NewConfigCoordinator(path)
 	if err != nil {
-		return Prepared{}, err
+		return Prepared{}, fmt.Errorf("configuration %q: cannot resolve authority; check path and permissions", path)
+	}
+	base, err := coordinator.Read(context.Background())
+	if err != nil {
+		return Prepared{}, fmt.Errorf("configuration %q: cannot read valid configuration; check permissions and provide one valid YAML mapping, then retry", path)
+	}
+	output, err := base.SetupResetYAML()
+	if err != nil {
+		return Prepared{}, fmt.Errorf("configuration %q: cannot prepare reset; correct YAML syntax and schema then retry", path)
 	}
 	c := config.Defaults()
 	if err := yaml.Unmarshal(output, &c); err != nil {
@@ -51,10 +57,16 @@ func Prepare(path string) (Prepared, error) {
 	if err := c.LlamaServer.Validate(); err != nil {
 		return Prepared{}, fmt.Errorf("reset runtime defaults are invalid")
 	}
-	return Prepared{YAML: output, Config: c}, nil
+	return Prepared{YAML: output, Config: c.WithSnapshot(base)}, nil
 }
 
 func Reset(ctx context.Context, path string, store secrets.Store, applyLive func(config.Config) error) (Result, error) {
+	return reset(ctx, path, store, applyLive, nil)
+}
+
+// publish is invocation-local fault injection for fake-store tests, never a
+// process-wide replacement of the production coordinator.
+func reset(ctx context.Context, path string, store secrets.Store, applyLive func(config.Config) error, publish func(context.Context, config.ConfigSnapshot) (config.ConfigSnapshot, error)) (Result, error) {
 	var result Result
 	if err := ctx.Err(); err != nil {
 		return result, err
@@ -70,6 +82,25 @@ func Reset(ctx context.Context, path string, store secrets.Store, applyLive func
 	if err != nil {
 		return result, fmt.Errorf("list Cercano credentials: %w", err)
 	}
+	// Publication is the admission boundary: rejected saves have no live or
+	// credential effects. The following stores are deliberately not atomic.
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	coordinator, err := prepared.Config.PrepareConfigCoordination(path)
+	if err != nil {
+		return result, err
+	}
+	if publish == nil {
+		publish = coordinator.ResetSetup
+	}
+	next, err := publish(ctx, prepared.Config.Snapshot())
+	if err != nil {
+		return result, fmt.Errorf("publish reset configuration %q; reload and reconcile before retrying: %w", path, err)
+	}
+	prepared.Config = prepared.Config.WithSnapshot(next)
+	result.Config = prepared.Config
+	result.ConfigWritten = true
 	sort.Strings(names)
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
@@ -91,13 +122,6 @@ func Reset(ctx context.Context, path string, store secrets.Store, applyLive func
 		}
 		result.LiveApplied = true
 	}
-	// Publish after the ordinary live state update so a file watcher does not
-	// intentionally replay its old snapshot. Other sessions may still race us;
-	// this debug operation makes no stronger guarantee.
-	if err := writeAtomic(path, prepared.YAML); err != nil {
-		return result, fmt.Errorf("write reset configuration: %w", err)
-	}
-	result.ConfigWritten = true
 	return result, nil
 }
 

@@ -28,6 +28,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"syscall"
 	"time"
@@ -57,6 +58,7 @@ type pooledEntry struct {
 type workerPool struct {
 	beforeIdleKill func(*workerHandle) // guarded by mu; called outside it
 	mu             sync.Mutex
+	closed         bool // guarded by mu; shutdown permanently closes admission
 	byConv         map[string]*pooledEntry
 	spawn          spawnFunc
 
@@ -91,6 +93,10 @@ func newWorkerPool(spawn spawnFunc) *workerPool {
 func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*workerHandle, error) {
 	managed := modelpolicy.Managed(ctx)
 	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil, errors.New("worker pool is shut down")
+	}
 	if e, ok := p.byConv[convID]; ok {
 		// A cached entry exists. Reuse it only if it's healthy and not already
 		// held by a concurrent turn (shouldn't happen under turn-exclusivity,
@@ -118,6 +124,11 @@ func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*w
 			p.mu.Lock()
 		}
 	}
+	// Evicting a stale entry temporarily released mu; shutdown may have won.
+	if p.closed {
+		p.mu.Unlock()
+		return nil, errors.New("worker pool is shut down")
+	}
 	p.mu.Unlock()
 
 	// No reusable entry — spawn a fresh worker (outside the lock; spawn polls
@@ -128,6 +139,14 @@ func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*w
 	}
 
 	p.mu.Lock()
+	// A spawn already in flight must not repopulate a shutdown pool. This
+	// does not make Shutdown a process-exit barrier: the caller must still
+	// verify process exits before treating the host as quiescent.
+	if p.closed {
+		p.mu.Unlock()
+		h.Kill()
+		return nil, errors.New("worker pool is shut down")
+	}
 	// Re-check: a racing entry may have appeared while we spawned outside the
 	// lock. Under Phase-4 turn-exclusivity a single conversation is used by at
 	// most one live turn, but during a SUPERSESSION window a new turn's Acquire
@@ -203,6 +222,7 @@ func (p *workerPool) Shutdown() {
 	p.closeOnce.Do(func() { close(p.done) })
 
 	p.mu.Lock()
+	p.closed = true
 	entries := make([]*pooledEntry, 0, len(p.byConv))
 	for _, e := range p.byConv {
 		entries = append(entries, e)

@@ -4,6 +4,7 @@
 package retention
 
 import (
+	"cercano/source/server/internal/workadmission"
 	"context"
 	"fmt"
 	"os"
@@ -32,10 +33,11 @@ type Store interface {
 // SetConfig can hot-reload it from an UpdateConfig call without racing an
 // in-flight Sweep.
 type Sweeper struct {
-	store    Store
-	mu       sync.Mutex
-	cfg      Config
-	interval time.Duration
+	admission workadmission.Gate
+	store     Store
+	mu        sync.Mutex
+	cfg       Config
+	interval  time.Duration
 }
 
 func New(store Store, cfg Config, interval time.Duration) *Sweeper {
@@ -54,6 +56,10 @@ func (s *Sweeper) SetConfig(cfg Config) {
 // Sweep applies the policy once, as of now. Pure w.r.t. time (now injected).
 // Per-conversation errors are swallowed so one bad row never aborts the sweep.
 func (s *Sweeper) Sweep(ctx context.Context, now time.Time) {
+	if !s.admission.Enter() {
+		return
+	}
+	defer s.admission.Leave()
 	s.mu.Lock()
 	cfg := s.cfg
 	s.mu.Unlock()
@@ -94,10 +100,14 @@ func (s *Sweeper) Sweep(ctx context.Context, now time.Time) {
 
 // Start runs an initial sweep shortly after startup, then every interval, until
 // ctx is cancelled. Non-blocking.
-func (s *Sweeper) Start(ctx context.Context) {
+func (s *Sweeper) Start(ctx context.Context) <-chan struct{} {
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
+		initial := time.NewTimer(30 * time.Second)
+		defer initial.Stop()
 		select {
-		case <-time.After(30 * time.Second):
+		case <-initial.C:
 		case <-ctx.Done():
 			return
 		}
@@ -113,4 +123,9 @@ func (s *Sweeper) Start(ctx context.Context) {
 			}
 		}
 	}()
+	return done
 }
+
+// Fence rejects new sweeps without interrupting an entered sweep.
+func (s *Sweeper) Fence() { s.admission.Fence() }
+func (s *Sweeper) Wait()  { s.admission.Wait() }

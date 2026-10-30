@@ -6,6 +6,7 @@ package cloudfactory
 import (
 	"cercano/source/server/internal/secrets"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -36,6 +37,12 @@ const RouteSubscription = anthropic.RouteSubscription
 // static API key — the subscription auth flows, which authenticate with a
 // refreshing token source over the keychain instead of a key.
 type Options struct {
+	// AnthropicBaseTransport is an optional invocation-local Messages wire dependency.
+	AnthropicBaseTransport http.RoundTripper
+	OpenAIBaseTransport    http.RoundTripper
+	// Credentials enables bounded coordinated Responses attempt admission.
+	// ChatGPT subscription additionally requires an atomic snapshot token source.
+	Credentials secrets.RequestCredentials
 	// TokenSource supplies refreshing ChatGPT subscription bearers for the
 	// responses flavor's chatgpt route.
 	TokenSource responses.TokenSource
@@ -77,14 +84,52 @@ func ValidateFlavor(flavor string) error {
 
 // BuildCloudProvider maps a profile (+ its key) to an inference.Provider.
 func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (inference.Provider, error) {
+	if err := acceptanceProfile(p); err != nil {
+		return nil, err
+	}
 	if err := ValidateFlavor(p.Flavor); err != nil {
 		return nil, err
 	}
 	if err := secrets.CheckAllowed(); err != nil {
 		return nil, err
 	}
+	if p.Flavor == FlavorChatCompletions && p.Backend == "" {
+		endpoint, _ := url.Parse(p.BaseURL)
+		if p.Provider == "mistral" || (endpoint != nil && endpoint.User == nil && strings.EqualFold(endpoint.Hostname(), "api.mistral.ai")) {
+			p.Backend = "mistral"
+		}
+	}
+	if len(opts) > 0 && opts[0].Credentials != nil {
+		if p.Flavor == FlavorChatCompletions && p.Name != "" && p.Route == "" && opts[0].TokenSource == nil && opts[0].AnthropicTokenSource == nil {
+			return openai.NewClient(openai.Config{BaseURL: p.BaseURL, Model: p.Model, Backend: p.Backend, AccountingProfile: p.Name, Credentials: opts[0].Credentials, CredentialProfile: p.Name, BaseTransport: opts[0].OpenAIBaseTransport, SupportsVision: visionConfirmed(opts, p.Model)}), nil
+		}
+
+		if p.Flavor == FlavorMessages && p.Name != "" && (p.Route == "" || p.Route == "direct") && opts[0].TokenSource == nil && opts[0].AnthropicTokenSource == nil {
+			return anthropic.NewClient(anthropic.Config{BaseURL: p.BaseURL, Model: p.Model, Route: p.Route, Credentials: opts[0].Credentials, CredentialProfile: p.Name, BaseTransport: opts[0].AnthropicBaseTransport}), nil
+		}
+		if p.Flavor == FlavorMessages && p.Name != "" && p.Route == RouteSubscription && opts[0].TokenSource == nil {
+			source, ok := opts[0].AnthropicTokenSource.(anthropic.SubscriptionCredentials)
+			if !ok || source.CredentialProfile() != p.Name {
+				return nil, fmt.Errorf("coordinated subscription source required")
+			}
+			// Keep subscription endpoint pinned to the SDK default, never profile BaseURL.
+			return anthropic.NewClient(anthropic.Config{Model: p.Model, Route: p.Route, TokenSource: opts[0].AnthropicTokenSource, Credentials: opts[0].Credentials, CredentialProfile: p.Name, BaseTransport: opts[0].AnthropicBaseTransport}), nil
+		}
+		subscription := false
+		if source, ok := opts[0].TokenSource.(responses.SubscriptionCredentials); ok {
+			subscription = p.Route == responses.RouteChatGPT && source.CredentialProfile() == p.Name
+		}
+		if p.Flavor != FlavorResponses || p.Name == "" || opts[0].AnthropicTokenSource != nil || (!subscription && (p.Route != "" || opts[0].TokenSource != nil)) {
+			return nil, fmt.Errorf("coordinated credential route unsupported")
+		}
+		return responses.NewClient(responses.Config{BaseURL: p.BaseURL, Model: p.Model, Route: p.Route, TokenSource: opts[0].TokenSource, AccountingProfile: p.Name, Credentials: opts[0].Credentials, CredentialProfile: p.Name, SupportsVision: visionConfirmed(opts, p.Model)}), nil
+	}
 	switch p.Flavor {
 	case FlavorMessages:
+		var base http.RoundTripper
+		if len(opts) > 0 {
+			base = opts[0].AnthropicBaseTransport
+		}
 		if p.Route == RouteSubscription {
 			var ts anthropic.TokenSource
 			if len(opts) > 0 {
@@ -95,13 +140,14 @@ func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (
 			}
 			// Subscription pins api.anthropic.com; ignore any profile BaseURL
 			// (a migrated Meridian profile may still carry the old proxy URL).
-			return anthropic.NewClient(anthropic.Config{Model: p.Model, Route: p.Route, TokenSource: ts}), nil
+			return anthropic.NewClient(anthropic.Config{Model: p.Model, Route: p.Route, TokenSource: ts, BaseTransport: base}), nil
 		}
 		return anthropic.NewClient(anthropic.Config{
-			BaseURL: p.BaseURL,
-			APIKey:  apiKey,
-			Model:   p.Model,
-			Route:   p.Route,
+			BaseTransport: base,
+			BaseURL:       p.BaseURL,
+			APIKey:        apiKey,
+			Model:         p.Model,
+			Route:         p.Route,
 		}), nil
 	case FlavorChatCompletions:
 		if p.Backend == "" {
@@ -120,7 +166,7 @@ func BuildCloudProvider(p config.CloudProfile, apiKey string, opts ...Options) (
 			if ts == nil {
 				return nil, fmt.Errorf("responses route %q requires a token source", p.Route)
 			}
-			return responses.NewClient(responses.Config{Model: p.Model, Route: p.Route, TokenSource: ts, SupportsVision: visionConfirmed(opts, p.Model)}), nil
+			return responses.NewClient(responses.Config{Model: p.Model, Route: p.Route, TokenSource: ts, AccountingProfile: p.Name, SupportsVision: visionConfirmed(opts, p.Model)}), nil
 		}
 		return responses.NewClient(responses.Config{BaseURL: p.BaseURL, APIKey: apiKey, Model: p.Model, AccountingProfile: p.Name, SupportsVision: visionConfirmed(opts, p.Model)}), nil
 	case FlavorBedrock:

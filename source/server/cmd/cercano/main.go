@@ -20,23 +20,19 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"cercano/source/server/internal/agent"
-	"cercano/source/server/internal/catalog"
 	"cercano/source/server/internal/cloudfactory"
 	"cercano/source/server/internal/compactiongen"
-	projectctx "cercano/source/server/internal/context"
-	"cercano/source/server/internal/contextmeter"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/crashlog"
-	"cercano/source/server/internal/deepinfracatalog"
 	"cercano/source/server/internal/engine"
 	llamaengine "cercano/source/server/internal/engine/llamaserver"
 	mistralengine "cercano/source/server/internal/engine/mistralrs"
 	"cercano/source/server/internal/engine/ollama"
-	"cercano/source/server/internal/enterprise"
 	"cercano/source/server/internal/inference"
 	ollamallm "cercano/source/server/internal/llm/ollama"
 	"cercano/source/server/internal/localruntime"
@@ -44,14 +40,10 @@ import (
 	runtimellama "cercano/source/server/internal/localruntime/llamaserver"
 	runtimemistralrs "cercano/source/server/internal/localruntime/mistralrs"
 	"cercano/source/server/internal/locus"
-	"cercano/source/server/internal/loop"
 	"cercano/source/server/internal/loopcompact"
 	mcpserver "cercano/source/server/internal/mcp"
-	mcphost "cercano/source/server/internal/mcp_host"
-	"cercano/source/server/internal/modelcatalog"
 	"cercano/source/server/internal/modelhost"
 	"cercano/source/server/internal/modelpolicy"
-	"cercano/source/server/internal/ollamacatalog"
 	"cercano/source/server/internal/openmodels"
 	"cercano/source/server/internal/protocols"
 	"cercano/source/server/internal/recap"
@@ -61,14 +53,12 @@ import (
 	"cercano/source/server/internal/skills"
 	"cercano/source/server/internal/sysram"
 	"cercano/source/server/internal/telemetry"
-	"cercano/source/server/internal/tools"
 	"cercano/source/server/internal/toolstack"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 	"cercano/source/server/pkg/update"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/adk/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -186,38 +176,94 @@ func ollamaStartupWarning(check func(string) error, baseURL string) string {
 	return ""
 }
 
-// drainGrace bounds how long a shutting-down agent waits for in-flight turns
-// to finish before hard-stopping. It is a zombie-guard, not a tuning knob: an
-// agentic turn legitimately runs for minutes (model calls + tool executions),
-// and the drained process holds no resources a replacement needs — the
-// listener port frees the moment the drain starts. Only a truly wedged
-// handler should ever hit this. A second signal forces immediate exit.
-const drainGrace = 10 * time.Minute
-
 // startGRPCServer initializes all providers and starts the gRPC server.
-// Returns the listener address and a cleanup function.
+// Returns the listener address and an explicit shutdown/status handle.
+// A startup error may also return a handle: retain it until disposal completes.
 // events may be nil (MCP embedded mode opens no log); a nil writer makes
 // durable runtime-event recording a no-op rather than a crash.
-func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer) (string, func(), error) {
-	enterpriseHost, err := newEnterpriseHost()
+func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer) (string, *productionShutdown, error) {
+	return startGRPCServerWithCredentials(cfg, bindAddr, events, productionCredentialDefaults())
+}
+
+func startGRPCServerWithCredentials(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies) (string, *productionShutdown, error) {
+	admission, err := legacyProductionStartup().admitActivation(context.Background())
+	if err != nil {
+		return "", nil, err
+	}
+	return startGRPCServerWithStartup(cfg, bindAddr, events, credentials, admission)
+}
+
+// Internal staged entry only: canonical generation startup remains blocked until
+// the ordinary producers and integrations carry lifecycle authority. No CLI or
+// installed launcher selects this policy.
+func startGRPCServerWithStartup(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission) (string, *productionShutdown, error) {
+	return startGRPCServerWithRuntime(cfg, bindAddr, events, credentials, admission, productionRuntimeDefaults())
+}
+
+func startGRPCServerWithRuntime(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies) (string, *productionShutdown, error) {
+	return startGRPCServerWithServices(cfg, bindAddr, events, credentials, admission, runtimes, productionCatalogDefaults(), productionAccountingDefaults())
+}
+
+func startGRPCServerWithServices(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies, catalogs productionCatalogDependencies, accounting productionAccountingDependencies) (string, *productionShutdown, error) {
+	return startGRPCServerWithLifecycle(cfg, bindAddr, events, credentials, admission, runtimes, catalogs, accounting, productionLifecycleDefaults())
+}
+
+func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *crashlog.Writer, credentials productionCredentialDependencies, admission productionStartupAdmission, runtimes productionRuntimeDependencies, catalogs productionCatalogDependencies, accounting productionAccountingDependencies, lifecycle productionLifecycleDependencies) (address string, shutdown *productionShutdown, startupErr error) {
+	if err := admission.validateActivation(); err != nil {
+		return "", nil, err
+	}
+	if err := runtimes.validate(); err != nil {
+		return "", nil, err
+	}
+	if err := catalogs.validate(); err != nil {
+		return "", nil, err
+	}
+	if accounting.open == nil {
+		return "", nil, fmt.Errorf("accounting store opener required")
+	}
+	var rollback []func() error
+	var stopAdmission = func() {}
+	var joinCallbacks = func() {}
+	started := false
+	defer func() {
+		if !started {
+			cause := startupErr
+			pending := newProductionShutdown(stopAdmission, func() error {
+				var cleanupErr error
+				joinCallbacks()
+				for i := len(rollback) - 1; i >= 0; i-- {
+					cleanupErr = errors.Join(cleanupErr, rollback[i]())
+				}
+				return cleanupErr
+			})
+			if !pending.Shutdown().Complete {
+				shutdown = pending
+				startupErr = &productionStartupFailure{cause: cause, cleanup: pending}
+			}
+		}
+	}()
+	enterpriseHost, err := composeProductionEnterprise(lifecycle.enterprise, enterpriseLegacy)
 	if err != nil {
 		return "", nil, err
 	}
 	restorePolicy := modelpolicy.Install(enterpriseHost)
-	started := false
-	defer func() {
-		if !started {
-			enterpriseHost.Close()
-			restorePolicy()
-		}
-	}()
+	rollback = append(rollback, func() error {
+		enterpriseHost.Close()
+		restorePolicy()
 
-	if warn := ollamaStartupWarning(checkOllama, cfg.OllamaURL); warn != "" {
+		return nil
+	})
+
+	if warn := ollamaStartupWarning(runtimes.probe, cfg.OllamaURL); warn != "" {
 		fmt.Fprintln(os.Stderr, warn)
 	}
 
 	registry := engine.NewEngineRegistry()
-	ollamaEng := ollama.NewOllamaEngine(cfg.OllamaURL)
+	newOllama := lifecycle.newOllama
+	if newOllama == nil {
+		newOllama = func(url string) productionOllamaEngine { return ollama.NewOllamaEngine(url) }
+	}
+	ollamaEng := newOllama(cfg.OllamaURL)
 	registry.RegisterEngine(ollamaEng)
 	registry.RegisterEmbedder(ollamaEng)
 	// llamaEng registers below once constructed — see RegisterEmbedder there.
@@ -225,35 +271,51 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// Local models live in the shared model host (or in-process as a
 	// fallback). The close function runs at shutdown after Server.Shutdown,
 	// or here if startup fails.
-	runtimeManager, closeRuntime, err := connectRuntimeManager(context.Background(), cfg, events)
+	connectRuntime := func() (localruntime.Manager, func() error, error) {
+		return runtimes.connect(context.Background(), cfg, events)
+	}
+	if admission.generation != nil && runtimes.generation != nil {
+		connectRuntime = func() (localruntime.Manager, func() error, error) {
+			return runtimes.generation(context.Background(), cfg, admission.bounded.state, admission.bounded.host)
+		}
+	}
+	runtimeManager, closeRuntime, err := connectRuntime()
 	if err != nil {
 		return "", nil, fmt.Errorf("connect runtime manager: %w", err)
 	}
-	defer func() {
-		if !started {
-			closeRuntime()
-		}
-	}()
+	closeRuntime = sync.OnceValue(closeRuntime)
+	rollback = append(rollback, func() error {
+		return closeRuntime()
+	})
 	llamaEng := llamaengine.NewEngine(runtimeManager)
+	if lifecycle.runtimeHTTPClient != nil {
+		llamaEng.Client = lifecycle.runtimeHTTPClient
+	}
 	registry.RegisterEngine(llamaEng)
 	registry.RegisterEmbedder(llamaEng)
 
 	// mistral.rs shares the same runtime manager; it registers as an inference
 	// engine only (no embedder — mistral.rs isn't wired for embeddings yet).
 	mistralEng := mistralengine.NewEngine(runtimeManager)
+	if lifecycle.runtimeHTTPClient != nil {
+		mistralEng.Client = lifecycle.runtimeHTTPClient
+	}
 	registry.RegisterEngine(mistralEng)
 
-	openProviderFor := func(c config.Config) inference.Provider {
-		if strings.EqualFold(c.OpenRuntime, "llama_server") {
-			return llamaengine.NewLLMProvider(llamaEng)
+	openProviderFor := lifecycle.openProvider
+	if openProviderFor == nil {
+		openProviderFor = func(c config.Config) inference.Provider {
+			if strings.EqualFold(c.OpenRuntime, "llama_server") {
+				return llamaengine.NewLLMProvider(llamaEng)
+			}
+			if strings.EqualFold(c.OpenRuntime, "mistralrs") {
+				return mistralengine.NewLLMProvider(mistralEng)
+			}
+			return ollamallm.NewClient(ollamallm.Config{
+				BaseURL: c.OllamaURL,
+				Model:   openChatModel(c),
+			})
 		}
-		if strings.EqualFold(c.OpenRuntime, "mistralrs") {
-			return mistralengine.NewLLMProvider(mistralEng)
-		}
-		return ollamallm.NewClient(ollamallm.Config{
-			BaseURL: c.OllamaURL,
-			Model:   openChatModel(c),
-		})
 	}
 	openProvider := agent.InferenceTurnRunner(openProviderFor(cfg), openTurnModel(cfg))
 
@@ -262,104 +324,104 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// the OS keychain and installs the real provider.
 	cloudProvider := agent.AbsentCloud("pending profile resolution")
 
-	validator := tools.NewAutoValidator(tools.DefaultLoader(), tools.DefaultKindToValidator())
-	sessionSvc := session.InMemoryService()
-	coordinator := loop.NewADKCoordinator(openProvider, cloudProvider, validator, sessionSvc)
-
+	cloudBuilder := lifecycle.cloudBuilder
+	if cloudBuilder == nil {
+		cloudBuilder = cloudfactory.BuildCloudProvider
+	}
 	cloudFactory := func(ctx context.Context, provider, model, apiKey, baseURL string) (agent.TurnRunner, error) {
 		prof := cloudfactory.LegacyProfile(provider, model, baseURL)
-		p, err := cloudfactory.BuildCloudProvider(prof, apiKey)
+		if err := cloudfactory.ValidateFlavor(prof.Flavor); err != nil {
+			return nil, err
+		}
+		if err := secrets.CheckAllowed(); err != nil {
+			return nil, err
+		}
+		p, err := cloudBuilder(prof, apiKey)
 		if err != nil {
 			return nil, err
 		}
 		return agent.InferenceTurnRunner(p, model), nil
 	}
 
-	// SmartRouter is built lazily on first use. This keeps MCP-only deployments
-	// working even when the embedding model (nomic-embed-text) is not installed,
-	// since MCP tools never classify intent. Prototypes are embedded in the
-	// binary (see //go:embed in internal/agent/router.go). See GitHub issue #5.
-	routerFactory := func() (*agent.SmartRouter, error) {
-		return agent.NewSmartRouterFromBytes(openProvider, cloudProvider, openEmbeddingModel(cfg), selectEmbedEngine(cfg, ollamaEng, llamaEng), agent.DefaultPrototypes(), cloudFactory)
-	}
-	lazyRouter := agent.NewLazyRouter(routerFactory, openProvider, cloudProvider)
-
-	convStore := agent.NewConversationStore(sessionSvc, 3)
+	routing := composeProductionRouting(productionRoutingDependencies{
+		open: openProvider, cloud: cloudProvider, cloudFactory: cloudFactory,
+		embeddingModel: openEmbeddingModel(cfg), embedder: selectEmbedEngine(cfg, ollamaEng, llamaEng),
+	})
+	coordinator, lazyRouter := routing.coordinator, routing.router
 
 	// Persistent SQLite-backed conversation store for /history and /resume.
 	// The public agent must not bind without it: otherwise /resume renders an
 	// empty picker while a degraded singleton owns the port.
-	persistentStorePath, err := conversation.DefaultPath()
-	if err != nil {
-		return "", nil, fmt.Errorf("resolve conversation store path: %w", err)
+	persistentStorePath := admission.paths.conversations
+	var generationLifecycle *server.Server
+	var generationPolicy *worker.SpawnPolicy
+	var generationStoreOwner *server.Server
+	if admission.generation != nil {
+		g := admission.generation
+		policy, policyErr := worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: g.options.Generation, ManifestPath: filepath.Join(g.options.Generation, "manifest.json"), HostInstance: g.options.Host, ResourceRoot: g.options.RuntimeRoot})
+		if policyErr != nil {
+			return "", nil, policyErr
+		}
+		generationPolicy = &policy
+		generationLifecycle, err = server.NewCoexistenceServer(context.Background(), server.CoexistenceOptions{
+			StorePath: admission.paths.conversations, Build: admission.bounded.build, Host: admission.bounded.host,
+			Contract: conversation.DevelopmentCoexistenceDeclaration(), ControlAuthorize: g.auth.Authorize,
+			ControlDial:        developmentPeerDial(g.options.State, g.options.Identity),
+			Reload:             func(context.Context, conversation.Store, *conversation.Ownership) error { return nil },
+			CloseParticipation: func(context.Context) error { return closeRuntime() },
+		})
+		if err != nil {
+			return "", nil, err
+		}
+		generationStoreOwner = generationLifecycle
+		rollback = append(rollback, func() error { return generationStoreOwner.CloseCoexistenceStore() })
 	}
-	persistentStore, err := openAgentConversationStore(persistentStorePath)
+	var borrowed conversation.Store
+	if generationLifecycle != nil {
+		borrowed = generationLifecycle.GenerationStore()
+	}
+	persistentStore, err := admission.conversationStore(borrowed, lifecycle.openStore)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w; refusing to start agent without /history and /resume persistence", err)
 	}
 	fmt.Fprintf(os.Stderr, "Conversation store: %s\n", persistentStorePath)
-
-	// Context-window meter: per-conversation running token counters keyed
-	// by conversation id. The CLI polls GetContextUsage after each turn.
-	meterRegistry := contextmeter.NewRegistry()
-
-	// Project context loader: reads .cercano/context.md from the request's
-	// WorkDir and prepends it to the prompt so the model has project
-	// awareness on every turn.
-	ctxLoader := projectctx.NewLoader()
-
-	agentOpts := []agent.AgentOption{
-		agent.WithConversationStore(convStore),
-		agent.WithPersistentStore(persistentStore),
-		agent.WithContextMeter(meterRegistry, openChatModel(cfg)),
-		agent.WithContextLoader(ctxLoader),
+	var sweeper *retention.Sweeper
+	var cancelSweeper context.CancelFunc
+	var sweeperDone <-chan struct{}
+	var dataOnce sync.Once
+	var dataErr error
+	closeData := func() error {
+		dataOnce.Do(func() {
+			if sweeper != nil {
+				sweeper.Fence()
+			}
+			if cancelSweeper != nil {
+				cancelSweeper()
+				<-sweeperDone
+			}
+			if sweeper != nil {
+				sweeper.Wait()
+			}
+			if persistentStore != nil && generationPolicy == nil {
+				dataErr = persistentStore.Close()
+			}
+		})
+		return dataErr
 	}
-	var recapGen *recap.Generator
-	// Living recap: after each turn, a debounced local-model pass updates a
-	// one-line conversation summary. Only when a persistent store exists.
-	if persistentStore != nil {
-		// Recap rides the fast_light_text tier's open slot — the taxonomy's
-		// prose-judgment lane (watchdog verdicts, summaries, recaps) — so it
-		// never depends on the interactive open model, which may be heavy or
-		// even unloadable. Unset tier keeps the provider default.
-		recapModel := ""
-		if id, ok := openTierModelOK(cfg, config.TierFastLightText); ok {
-			recapModel = id
-		}
-		recapComplete := func(ctx context.Context, prompt string) (string, error) {
-			scoped, finish, err := enterpriseHost.Begin(ctx)
-			if err != nil {
-				return "", err
-			}
-			defer finish()
-			ctx = scoped
-			req := &agent.Request{Input: prompt}
-			if recapModel != "" {
-				req.ModelOverride = recapModel
-			}
-			resp, err := openProvider.Process(ctx, req)
-			if err != nil {
-				return "", err
-			}
-			return resp.Output, nil
-		}
-		recapGen = recap.New(persistentStore, recapComplete, 8*time.Second, 12)
-		agentOpts = append(agentOpts, agent.WithRecapScheduler(recapGen))
-	}
-	// The same live task-routing graph serves main and dispatch compaction.
+	rollback = append(rollback, func() error {
+		return closeData()
+	})
+
+	// Routing is resolved live after server construction, exactly as for dispatch.
 	var compactionCandidates func() inference.Tiers
-
-	var compGen *compactiongen.Generator
-	// Set when compaction is enabled; installed on the server after construction.
-	var newLoopCompactor func() agent.LoopCompactor
-	if persistentStore != nil {
-		// The compaction summarizer, the compactor config and the per-dispatch
-		// loop-compaction factory are assembled by the ONE shared construction in
-		// internal/loopcompact (wiring.go) — the same construction the worker
-		// front door uses — so host and worker compaction can never drift. The
-		// store-backed generator for main turns and the inline compactor for
-		// sub-agent dispatches below share the resulting seams.
-		loopDeps := loopcompact.WiringDeps{
+	recapModel := ""
+	if id, ok := openTierModelOK(cfg, config.TierFastLightText); ok {
+		recapModel = id
+	}
+	producers := composeProductionScheduling(persistentStore, productionSchedulingDependencies{
+		recapModel:  recapModel,
+		recapRunner: openProvider,
+		loop: loopcompact.WiringDeps{
 			BeginWork: enterpriseHost.Begin,
 			Cfg:       cfg,
 			ChatModel: openChatModel(cfg),
@@ -370,69 +432,131 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 				return compactionCandidates()
 			},
 			OpenRuntimeContext: llamaEng.RuntimeContext,
-			Log: func(format string, args ...any) {
-				fmt.Fprintf(os.Stderr, format+"\n", args...)
-			},
-		}
-		compactSummarize := loopcompact.BuildSummarizer(loopDeps)
-		compCfg := loopcompact.BuildConfig(loopDeps)
-		compGen = compactiongen.New(persistentStore, compactSummarize, compCfg, contextmeter.Default(), 10*time.Second)
-		// Runtime kill switch — Schedule noops until enabled. Wiring the
-		// scheduler unconditionally lets /config compaction-enabled true flip
-		// the switch at runtime; the OLD gate required a restart.
-		compGen.SetEnabled(cfg.Compaction.Enabled)
-		// Tool-elision-only mode: passes keep their triggers but advance the
-		// elision floor instead of summarizing. The pass implementation is
-		// wired by the persistence service (SetCompactionGenerator).
-		compGen.SetToolElisionOnly(cfg.Compaction.ToolElisionOnly)
-		agentOpts = append(agentOpts, agent.WithCompactionScheduler(compGen))
-		// Sub-agent dispatches compact INLINE with the same algorithm, config and
-		// summarizer: their history is in-memory only and never read back, so the
-		// store-backed generator above cannot serve them. A fresh compactor per
-		// dispatch keeps frozen summary state from leaking between concurrent
-		// sub-agents. Installed on the server once it exists (below); nil when
-		// compaction is disabled in config.
-		newLoopCompactor = loopcompact.NewFactory(loopDeps)
+			Log:                func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
+		},
+	}, ordinarySchedulingOptions())
+	recapGen, compGen := producers.recap, producers.compaction
+	newLoopCompactor := producers.newLoopCompactor
+	var markIncomplete func()
+	var producersOnce sync.Once
+	var producerErr error
+	closeProducers := func() error {
+		producersOnce.Do(func() {
+			// Independently scheduled producers must stop before accounting drains.
+			// This runs in the retained disposer, not the bounded caller. A
+			// timeout is not a join and must never release producer dependencies.
+			producerCtx := context.Background()
+			for name, closeProducer := range map[string]func(context.Context) error{
+				"recap": func(ctx context.Context) error {
+					if recapGen != nil {
+						return recapGen.Close(ctx)
+					}
+					return nil
+				},
+				"compaction": func(ctx context.Context) error {
+					if compGen != nil {
+						return compGen.Close(ctx)
+					}
+					return nil
+				},
+			} {
+				if err := closeProducer(producerCtx); err != nil {
+					producerErr = errors.Join(producerErr, err)
+					fmt.Fprintf(os.Stderr, "accounting: %s producer shutdown incomplete: %v\n", name, err)
+					if markIncomplete != nil {
+						markIncomplete()
+					}
+				}
+			}
+		})
+		return producerErr
 	}
-	var sweeper *retention.Sweeper
+	rollback = append(rollback, func() error {
+		return closeProducers()
+	})
 	if persistentStore != nil {
 		sweeper = retention.New(persistentStore, retention.Config{
 			RawRetentionDays:       cfg.Compaction.Retention.RawRetentionDays,
 			CompactedRetentionDays: cfg.Compaction.Retention.CompactedRetentionDays,
 			KeepForever:            cfg.Compaction.Retention.KeepForever,
 		}, 12*time.Hour)
-		sweeper.Start(context.Background())
+		sweepCtx, cancel := context.WithCancel(context.Background())
+		cancelSweeper = cancel
+		sweeperDone = sweeper.Start(sweepCtx)
 	}
-	orchestrator := agent.NewAgent(lazyRouter, coordinator, agentOpts...)
+	agentProducers := producers
+	if generationPolicy != nil {
+		agentProducers.recap = nil
+		agentProducers.compaction = nil
+	}
+	orchestrator, ctxLoader, err := composeProductionAgent(routing, persistentStore, cfg, agentProducers)
+	if err != nil {
+		return "", nil, err
+	}
 
 	// Startup orphan-sweep: a hard-killed previous host leaves worker process
 	// groups + pidfiles/sockets behind. Reap the ones still alive that identify
 	// as cercano workers before we start serving (and before this host spawns
 	// any worker of its own). Best-effort — never blocks startup.
-	if n := worker.ReapOrphanWorkers(); n > 0 {
-		fmt.Fprintf(os.Stderr, "reaped %d orphaned worker(s) from a previous run\n", n)
+	// Generation workers have invocation-local lifecycle ownership. The legacy
+	// process-wide orphan scan cannot distinguish a coexisting host's workers.
+	if generationPolicy == nil {
+		if n := lifecycle.reap(); n > 0 {
+			fmt.Fprintf(os.Stderr, "reaped %d orphaned worker(s) from a previous run\n", n)
+		}
 	}
 
-	lis, err := net.Listen("tcp", bindAddr)
+	lis, err := lifecycle.listen("tcp", bindAddr)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to listen on %s: %v", bindAddr, err)
+		return "", nil, fmt.Errorf("failed to listen on %s: %w", bindAddr, err)
 	}
 
 	// 64 MiB comfortably fits multiple 20 MiB images (the per-image client cap).
 	const maxGRPCMessageBytes = 64 << 20
-	s := grpc.NewServer(
-		grpc.MaxRecvMsgSize(maxGRPCMessageBytes),
-		// Recover handler panics so one bad RPC returns codes.Internal instead of
-		// crashing the singleton agent and dropping every client's stream.
-		grpc.ChainUnaryInterceptor(server.RecoveryUnaryInterceptor(), enterpriseHost.UnaryInterceptor()),
-		grpc.ChainStreamInterceptor(server.RecoveryStreamInterceptor(), enterpriseHost.StreamInterceptor()),
-	)
-	srv := server.NewServer(orchestrator, lazyRouter, coordinator, cloudFactory, registry)
-	srv.SetBackgroundWorkAdmission(enterpriseHost.Begin)
+	gate := newProductionAdmissionGate()
+	var generationServerOptions []grpc.ServerOption
+	if admission.generation != nil {
+		generationServerOptions = admission.generation.auth.ServerOptions()
+	}
+	s := grpc.NewServer(append(generationServerOptions, append([]grpc.ServerOption{grpc.MaxRecvMsgSize(maxGRPCMessageBytes), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream)}, enterpriseHost.serverOptions()...)...)...)
+	srv := server.NewServerWithLogs(orchestrator, lazyRouter, coordinator, cloudFactory, registry, lifecycle.routingLogPath, lifecycle.failureLogPath)
+	stopAdmission = func() {
+		gate.close()
+		if sweeper != nil {
+			sweeper.Fence()
+		}
+		if cancelSweeper != nil {
+			cancelSweeper()
+		}
+		srv.FenceBackgroundWork()
+		if recapGen != nil {
+			recapGen.Fence()
+		}
+		if compGen != nil {
+			compGen.Fence()
+		}
+	}
+	srv.SetCloudProviderBuilder(lifecycle.cloudBuilder)
+	srv.SetWatchdogDependencies(lifecycle.watchdog)
+	rollback = append(rollback, func() error {
+		s.Stop()
+		return errors.Join(lis.Close(), srv.Shutdown())
+	})
+	if generationLifecycle != nil {
+		if err := srv.AttachGenerationLifecycle(generationLifecycle, func(conversation.Store) (*recap.Generator, *compactiongen.Generator) { return recapGen, compGen }); err != nil {
+			return "", nil, err
+		}
+		generationStoreOwner = srv
+		admission.generation.retired = srv.CoexistenceRetired()
+		admission.generation.retire = srv.RetireCoexistence
+	}
+	enterpriseHost.bindAdmission(srv)
 	srv.SetBuildVersion(version)
 	compactionCandidates = srv.DispatchCandidates
 	srv.SetRuntimeManager(runtimeManager)
-	if os.Getenv("CERCANO_AUTOLAUNCHED") == "1" && cfg.Agent.ShutdownOnLastClient {
+	// Generation retirement is governed by retained sessions and work drain,
+	// not by the lifetime of SubscribeEvents transports.
+	if admission.generation == nil && os.Getenv("CERCANO_AUTOLAUNCHED") == "1" && cfg.Agent.ShutdownOnLastClient {
 		srv.EnableIdleShutdown(2*time.Second, func() {
 			if p, err := os.FindProcess(os.Getpid()); err == nil {
 				_ = p.Signal(syscall.SIGTERM)
@@ -440,45 +564,25 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 		})
 	}
 
-	// Attach the online-catalog manager so the runtime dashboard has
-	// Ollama's public library available (in addition to the hardcoded
-	// catalog + files on disk). LoadCache is best-effort — a missing
-	// cache on first run just means the background refresher will
-	// populate it shortly. Start() is what kicks the periodic refresh.
-	catalogCachePath := filepath.Join(filepath.Dir(config.DefaultPath()), "catalog-cache.json")
-	catalogManager := ollamacatalog.NewManager(&ollamacatalog.Fetcher{}, catalogCachePath)
-	if err := catalogManager.LoadCache(); err != nil {
-		fmt.Fprintf(os.Stderr, "[WARN] Could not load online-catalog cache at %s: %v (starting fresh)\n", catalogCachePath, err)
+	// Preserve catalog startup before producer/configuration and accounting wiring.
+	closeCatalog, err := composeProductionCatalog(srv, admission, catalogs)
+	if err != nil {
+		return "", nil, err
 	}
-	catalogManager.Start(context.Background())
-	srv.SetCatalogManager(catalogManager)
+	rollback = append(rollback, func() error {
+		closeCatalog()
 
-	// Build the catalog registry: HuggingFace and Ollama (wrapping the manager
-	// above), plus DeepInfra. All registered sources are browsed together — a
-	// source is a category of origin, not an alternative to the others — and a
-	// model is addressed by the (source, id) ref that browse returned, so
-	// there is nothing here to select between.
-	//
-	// DeepInfra is the first servable source: its models run on its hardware
-	// and are never downloaded, so it does not implement catalog.Downloadable
-	// and the download path rejects it by type rather than by check. It needs
-	// no credentials to browse — the index is public — so it lists before the
-	// user has configured a key.
-	catalogRegistry := catalog.NewRegistry()
-	catalogRegistry.Register(modelcatalog.NewBackend(&modelcatalog.Client{}))
-	catalogRegistry.Register(ollamacatalog.NewBackend(catalogManager))
-	catalogRegistry.Register(deepinfracatalog.New())
-	srv.SetCatalogRegistry(catalogRegistry)
+		return nil
+	})
 	if sweeper != nil {
 		srv.SetRetentionSweeper(sweeper)
 	}
-	if compGen != nil {
+	if compGen != nil && generationPolicy == nil {
 		srv.SetCompactionGenerator(compGen)
 	}
 	if newLoopCompactor != nil {
 		srv.SetLoopCompactorFactory(newLoopCompactor)
 	}
-	srv.SetContextLoader(ctxLoader)
 	// Wire agent-offered session rollover (D). Zero thresholds leave it fully
 	// off, so this is safe to call unconditionally.
 	srv.SetRolloverConfig(
@@ -487,28 +591,37 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 		cfg.Compaction.RolloverRearmMultiple,
 		cfg.Compaction.RolloverVerbatimTurns,
 	)
-	srv.SetConfigPersistence(config.DefaultPath(), cfg)
-	orchestrator.SetLocusModeGetter(srv.LocusMode)
+	srv.SetConfigPersistence(admission.paths.config, cfg)
 
 	// Permission store + pending-decisions barrier for the native tool-calling
 	// loop. Path mirrors config.yaml: ~/.config/cercano/permissions.yaml.
-	permsPath := filepath.Join(filepath.Dir(config.DefaultPath()), "permissions.yaml")
+	permsPath := filepath.Join(filepath.Dir(admission.paths.config), "permissions.yaml")
 	permStore, err := agent.LoadPermissionStore(permsPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to load permission store at %s: %v — defaulting to permissive in-memory store.\n", permsPath, err)
 		permStore, _ = agent.LoadPermissionStore(permsPath)
 	}
 	pending := agent.NewPendingDecisions()
-	srv.SetPermissions(permStore, pending)
+	bindProductionAgent(srv, orchestrator, ctxLoader, permStore, pending)
 	// Watch permissions.yaml for out-of-band edits (hand-edits, tools) and push
 	// the change to connected clients. Non-fatal: the SetPermissionMode RPC path
 	// still broadcasts, and the gate re-reads the file on every decision.
-	if err := srv.StartPermissionWatcher(context.Background(), permsPath); err != nil {
+	watchCtx, cancelWatchers := context.WithCancel(context.Background())
+	previousStopAdmission := stopAdmission
+	stopAdmission = func() { previousStopAdmission(); cancelWatchers() }
+	joinCallbacks = func() { cancelWatchers(); srv.BeginShutdown(); srv.WaitForWatchers() }
+	rollback = append(rollback, func() error {
+		cancelWatchers()
+		srv.WaitForWatchers()
+
+		return nil
+	})
+	if err := srv.StartPermissionWatcher(watchCtx, permsPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] permission file watcher not started (%v) — /strict etc. still push; hand-edits won't.\n", err)
 	}
 	// Watch config.yaml for out-of-band edits and replay hot-reloadable fields
 	// through UpdateConfig. Non-fatal: the /config RPC path still works.
-	if err := srv.StartConfigWatcher(context.Background(), config.DefaultPath()); err != nil {
+	if err := srv.StartConfigWatcher(watchCtx, admission.paths.config); err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] config file watcher not started (%v) — /config still applies live; hand-edits won't.\n", err)
 	}
 
@@ -518,8 +631,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// keeping the server's stored providers raw so the dispatch engine can wrap
 	// them per-dispatch without double-counting.
 	// agentCollector is hoisted so the coproc engine sink can reference it below.
-	agentTelemetryPath := filepath.Join(filepath.Dir(config.DefaultPath()), "telemetry.db")
-	agentCollector, closeAgentTelemetry, err := startAgentTelemetry(agentTelemetryPath, generateSessionID())
+	agentCollector, closeAgentTelemetry, err := composeProductionAccounting(admission, generateSessionID(), accounting)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to initialize agent telemetry: %v\n", err)
 	} else {
@@ -533,9 +645,21 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 		}
 	}
 
+	if agentCollector != nil {
+		markIncomplete = func() { agentCollector.MarkAccountingIncomplete("background producer shutdown incomplete") }
+	}
+	rollback = append(rollback, func() error {
+		var cleanupErr error
+		cleanupErr = errors.Join(cleanupErr, closeProducers())
+		if closeAgentTelemetry != nil {
+			cleanupErr = errors.Join(cleanupErr, closeAgentTelemetry())
+		}
+
+		return cleanupErr
+	})
 	// Open OS keychain and attach it so profile RPCs and rebuildCloud can
 	// read API keys. Failure is non-fatal: cloud stays absent.
-	if store, err := secrets.OpenKeychain(); err == nil {
+	if store, err := credentials.open(secrets.Options{}); err == nil {
 		srv.SetSecrets(store)
 	} else {
 		fmt.Fprintf(os.Stderr, "[WARN] keychain unavailable (%v) — cloud profiles can't load keys; fallback deferred.\n", err)
@@ -549,7 +673,7 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	//      keychain entry but failed to blank the yaml) → blank+save only.
 	// We NEVER blank the yaml unless the key is confirmed present in the keychain.
 	if secrets.CheckAllowed() == nil && cfg.CloudAPIKey != "" && cfg.ActiveCloudProfile != "" {
-		if store, err := secrets.OpenKeychain(); err == nil {
+		if store, err := credentials.open(secrets.Options{}); err == nil {
 			keySafe := false
 			if _, gerr := store.Get(cfg.ActiveCloudProfile); gerr == nil {
 				// Already in keychain.
@@ -564,8 +688,10 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 			}
 			if keySafe {
 				cfg.CloudAPIKey = ""
-				if sverr := config.Save(cfg, config.DefaultPath()); sverr != nil {
+				if next, sverr := config.SaveSnapshot(cfg, admission.paths.config, cfg.Snapshot()); sverr != nil {
 					fmt.Fprintf(os.Stderr, "[WARN] config save failed after key relocation (%v) — plaintext key may persist\n", sverr)
+				} else {
+					cfg = cfg.WithSnapshot(next)
 				}
 			}
 		}
@@ -582,7 +708,18 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// called concurrently with live turns (runtime profile changes), so
 	// backgrounding it here is safe. Errors are logged, not fatal.
 	cloudWarnCfg := cfg.Clone()
+	cloudRebuildDone := make(chan struct{})
+	joinCallbacks = func() { cancelWatchers(); srv.BeginShutdown(); srv.WaitForWatchers(); <-cloudRebuildDone }
+	rollback = append(rollback, func() error {
+		<-cloudRebuildDone
+
+		return nil
+	})
 	go func() {
+		defer close(cloudRebuildDone)
+		if lifecycle.beforeInitialRebuild != nil {
+			lifecycle.beforeInitialRebuild()
+		}
 		if err := srv.RebuildCloud(); err != nil && shouldWarnCloudRebuildFailure(cloudWarnCfg) {
 			fmt.Fprintf(os.Stderr, "[WARN] cloud profile resolution failed: %v — cloud routing will degrade to local.\n", err)
 		}
@@ -604,112 +741,100 @@ func startGRPCServer(cfg config.Config, bindAddr string, events *crashlog.Writer
 	// dispatch from the server's RAW (unwrapped) providers, so a runtime cloud
 	// swap (cloud-profile change → RebuildCloud) is honored and the engine's
 	// own per-dispatch usage.Wrap doesn't double-count.
-	engineDeps := toolstack.EngineDeps{
-		Providers: func() inference.Tiers {
-			return srv.DispatchCandidates()
-		},
-		LocusMode: func() locus.Mode { m, _ := locus.ParseMode(srv.LocusMode()); return m },
-		CtxLoader: ctxLoader,
-		// Model resolution is tier-aware and live: DispatchModelFor reads the
-		// taxonomy under the config lock per dispatch, so runtime tier/profile
-		// changes are honored and no startup-captured cfg value can go stale.
-		ModelFor:            srv.DispatchModelFor,
-		TaskAssignment:      srv.TaskAssignment,
-		DestinationModelFor: srv.DestinationModelFor,
-	}
-	// Activate the usage sink so capabilities that set RecordUsage=true (the coproc
-	// caps) emit one event per dispatch. processCoproc/research/document leave
-	// RecordUsage false, so they stay MCP-side — no double-counting.
+	engineDeps := toolstack.EngineDeps{}
 	if agentCollector != nil {
 		engineDeps.UsageSink = server.UsageEventSink(agentCollector.Emit)
 		engineDeps.AttemptSink = agentCollector.EmitAttempt
 	}
-	coprocEngine := toolstack.NewEngine(engineDeps)
-	orchestrator.SetDispatchEngine(coprocEngine)
-	srv.SetDispatchEngine(coprocEngine)
-
-	// Build the protocol-supervision watchdog from config (default-OFF). Must run
-	// after SetDispatchEngine — the watchdog's fast-model OneShot lane routes
-	// through the dispatch engine.
-	srv.InitWatchdog()
-
-	// Build the capability registry with live Services (providers, config, and
-	// context loader all set above) and wire it as the server's tool registry.
-	// Must run after the provider setters so Services carries real values.
-	srv.InstallCapabilities()
+	executionPolicy := productionExecutionPolicy{legacy: true}
+	if err := composeProductionServices(srv, orchestrator, ctxLoader, engineDeps, executionPolicy); err != nil {
+		return "", nil, err
+	}
 
 	// MCP host: load global servers and connect them in the background. Tools
 	// register into the same agenttools.Registry as each server lists; a
 	// slow/dead server never blocks boot (a call to a not-ready server blocks
 	// only that call — see mcphost).
-	cfgDir := filepath.Dir(config.DefaultPath())
-	mcpMgr := mcphost.New(srv.ToolRegistry(), cfgDir, 10*time.Second)
-	srv.SetMcpManager(mcpMgr)
-	mcpCtx, mcpCancel := context.WithCancel(context.Background())
-	mcpMgr.Start(mcpCtx)
+	cfgDir := filepath.Dir(admission.paths.config)
+	closeMCP, err := composeProductionMCP(srv, cfgDir, lifecycle.mcp, executionPolicy)
+	if err != nil {
+		return "", nil, err
+	}
+	rollback = append(rollback, func() error {
+		closeMCP()
+
+		return nil
+	})
 
 	// Select worker vs in-process turn execution from the loaded config
 	// (default: worker → crash isolation). Runs AFTER config, permissions,
 	// and secrets are wired so the worker runner has everything it needs to
 	// pre-assemble history, build the ConfigSnapshot, and resolve credentials.
-	// Tests never reach this path (they build Server directly), so they stay
-	// in-process and never spawn worker processes.
-	srv.SelectExecutionMode()
+	// The startup-only fixture reaches this path with explicit in_process mode;
+	// worker execution requires a separately owned backend fixture.
+	installExecution := func() error { return executionPolicy.install(srv) }
+	if generationPolicy != nil {
+		installExecution = func() error { return srv.ConfigureGenerationWorker(*generationPolicy) }
+	}
+	if err := installExecution(); err != nil {
+		return "", nil, err
+	}
 
+	if lifecycle.afterWiring != nil {
+		lifecycle.afterWiring(srv)
+	}
 	proto.RegisterAgentServer(s, srv)
-	proto.RegisterEnterpriseServer(s, enterprise.NewRPCServer(enterpriseHost, openEnterpriseBrowser))
+	enterpriseHost.register(s)
 
-	go func() {
-		if err := s.Serve(lis); err != nil {
-			log.Printf("gRPC server error: %v", err)
-		}
-	}()
+	serveDone := make(chan struct{})
 
-	cleanup := func() {
+	cleanup := newProductionShutdown(stopAdmission, func() error {
+		var cleanupErr error
+		srv.BeginShutdown()
+		cancelWatchers()
+		srv.WaitForWatchers()
+		<-cloudRebuildDone
 		defer restorePolicy()
 		defer enterpriseHost.Close()
-		// Runs after the body: srv.Shutdown has stopped in-process runtime
-		// instances and the producers that use them. For the shared model
-		// host, closing releases this agent's holds.
-		defer closeRuntime()
+		// Runtime holds are released below, after srv.Shutdown stops the
+		// instances and producers that use them.
+		// Keep the control transport open through runtime/resource disposal.
+		// Ordinary work has already been fenced and is joined below.
 		// Drain before teardown: in-flight turns still need the MCP manager
 		// and providers, so those stop only after the streams finish. The
 		// standing SubscribeEvents streams must end first or GracefulStop
 		// waits on attached clients forever.
 		srv.BeginShutdown()
-		server.DrainThenStop(s, drainGrace)
-		mcpCancel()
-		mcpMgr.Stop()
-		srv.Shutdown()
-		// Independently scheduled producers must stop before accounting drains.
-		producerCtx, cancelProducers := context.WithTimeout(context.Background(), 2*time.Second)
-		for name, closeProducer := range map[string]func(context.Context) error{
-			"recap": func(ctx context.Context) error {
-				if recapGen != nil {
-					return recapGen.Close(ctx)
-				}
-				return nil
-			},
-			"compaction": func(ctx context.Context) error {
-				if compGen != nil {
-					return compGen.Close(ctx)
-				}
-				return nil
-			},
-		} {
-			if err := closeProducer(producerCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "accounting: %s producer shutdown incomplete: %v\n", name, err)
-				if agentCollector != nil {
-					agentCollector.MarkAccountingIncomplete("background producer shutdown incomplete")
-				}
-			}
+		gate.drain()
+		srv.JoinBackgroundWork()
+		cleanupErr = errors.Join(cleanupErr, closeProducers())
+		closeCatalog()
+		closeMCP()
+		cleanupErr = errors.Join(cleanupErr, srv.Shutdown())
+		cleanupErr = errors.Join(cleanupErr, closeData())
+		if generationStoreOwner != nil {
+			cleanupErr = errors.Join(cleanupErr, generationStoreOwner.CloseCoexistenceStore())
 		}
-		cancelProducers()
 		// Usage producers have stopped; drain before closing the database.
 		if closeAgentTelemetry != nil {
-			closeAgentTelemetry()
+			cleanupErr = errors.Join(cleanupErr, closeAgentTelemetry())
 		}
-	}
+		cleanupErr = errors.Join(cleanupErr, closeRuntime())
+		// No ordinary callback can use the disposed graph. Status remains
+		// policy-checked until transport drainage; loss of transport is unknown,
+		// never remote proof that the final authority cleanup completed.
+		s.GracefulStop()
+		<-serveDone
+		return cleanupErr
+	})
+
+	srv.SetShutdownControl(cleanup.Control)
+	go func() {
+		defer close(serveDone)
+		if err := s.Serve(lis); err != nil {
+			log.Printf("gRPC server error: %v", err)
+		}
+	}()
 
 	started = true
 	return lis.Addr().String(), cleanup, nil
@@ -811,33 +936,15 @@ var (
 // agent uses local models any more: closing ends this client's attachment,
 // which releases this agent's holds. Server.Shutdown stops no shared
 // instances itself, since other agents may be using them.
-func connectRuntimeManager(ctx context.Context, cfg config.Config, events *crashlog.Writer) (localruntime.Manager, func(), error) {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv(modelHostEnv)), "inprocess") {
-		return buildRuntimeManager(cfg, events), func() {}, nil
-	}
-	remote, err := newModelHostRemote(ctx)
-	if err != nil {
-		// Only the caller giving up is fatal. The connect budget expiring,
-		// like any other failure, falls back to in-process models.
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, nil, fmt.Errorf("connecting to model host: %w", ctxErr)
-		}
-		log.Printf("[WARN] shared model host unavailable (%v); hosting local models in this process", err)
-		events.LogRuntimeEvent(crashlog.EventModelHostUnavailable, err.Error(), crashlog.RuntimeInfo{}, map[string]any{"fallback": "inprocess"})
-		return buildRuntimeManager(cfg, events), func() {}, nil
-	}
-	remote.SetEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg)))
-	warmActiveRuntime(remote, cfg)
-	return remote, func() {
-		if err := remote.Close(); err != nil {
-			log.Printf("[WARN] closing model host connection: %v", err)
-		}
-	}, nil
+func connectRuntimeManager(ctx context.Context, cfg config.Config, events *crashlog.Writer) (localruntime.Manager, func() error, error) {
+	return productionRuntimeDefaults().connect(ctx, cfg, events)
 }
 
 // newModelHostRemote connects to the shared model host in the default run
-// directory, launching this binary as the host when none is running. The
-// whole connect is bounded by modelHostConnectBudget. A failed NewRemote has
+// directory, launching this binary as the host when none is running. An older
+// live host is left untouched: ordinary startup falls back locally rather than
+// disrupting its clients. Explicit restart-after-upgrade owns replacement.
+// The whole connect is bounded by modelHostConnectBudget. A failed NewRemote has
 // already closed its client, so nothing keeps retrying in the background.
 func newModelHostRemote(ctx context.Context) (*modelhost.Remote, error) {
 	runDir, err := modelhost.RunDir()
@@ -848,10 +955,11 @@ func newModelHostRemote(ctx context.Context) (*modelhost.Remote, error) {
 	defer cancel()
 	remote, err := modelhost.NewRemote(bctx, modelhost.RemoteOptions{
 		Ensure: modelhost.EnsureOptions{
-			RunDir:        runDir,
-			ClientVersion: version,
-			Launch:        launchModelHost(runDir),
-			Timeout:       modelHostEnsureTimeout,
+			RefuseOlderHost: true,
+			RunDir:          runDir,
+			ClientVersion:   version,
+			Launch:          launchModelHost(runDir),
+			Timeout:         modelHostEnsureTimeout,
 		},
 		// The active profile is reported once profiles reach the agent host.
 		Profile: "",
@@ -991,11 +1099,16 @@ Flags:
 `
 
 func main() {
+	if dispatchCredentialAcceptance(os.Args[1:], os.Stdout, queryAcceptanceCredential) {
+		return
+	}
 	// Handle subcommands before flag parsing.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "development-host":
-			if err := runDevelopmentHost(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+			if err := runDevelopmentHost(ctx, os.Args[2:], os.Stdout); err != nil {
 				fmt.Fprintln(os.Stderr, "development-host:", err)
 				os.Exit(1)
 			}
@@ -1003,6 +1116,12 @@ func main() {
 		case "development-launch":
 			if err := runDevelopmentLaunch(context.Background(), os.Args[2:], os.Stdout); err != nil {
 				fmt.Fprintln(os.Stderr, "development-launch:", err)
+				os.Exit(1)
+			}
+			return
+		case "upgrade-store":
+			if err := runUpgradeStore(context.Background(), os.Args[2:], os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 			return
@@ -1068,12 +1187,10 @@ func main() {
 			// Explicit server mode: starts the gRPC agent in the foreground.
 			// Used by `cercano-cli` auto-launch and by IDE extensions that want
 			// to manage the server lifecycle themselves.
-			cfg, err := config.Load(config.DefaultPath())
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
-				cfg = config.Defaults()
+			if err := runAgentWithStartup(context.Background(), legacyProductionStartup(), config.Load, runServerMode); err != nil {
+				fmt.Fprintln(os.Stderr, "agent:", err)
+				os.Exit(1)
 			}
-			runServerMode(cfg)
 			return
 		case "model-host":
 			// Shared local model host: one process per user owns the local
@@ -1179,25 +1296,21 @@ func main() {
 		return
 	}
 
-	// Load config for server/MCP mode.
-	cfg, err := config.Load(config.DefaultPath())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
-		cfg = config.Defaults()
-	}
-
-	// This binary IS the cercano agent server. The terminal UI lives in the
-	// separate `cercano-cli` binary (source/clients/cli), which dials this
-	// server over gRPC and auto-launches `cercano agent` if none is running.
-	// The agent server is a singleton; bare `cercano`, `cercano agent`, and
-	// `cercano --server` all run it in the foreground.
-	switch {
-	case *mcpMode:
-		runMCPMode(cfg, *grpcAddr)
-	case *forceServer:
-		runServerMode(cfg)
-	default:
-		runServerMode(cfg)
+	// The terminal UI lives in cercano-cli; bare cercano, cercano agent,
+	// and cercano --server run this singleton server in the foreground.
+	// All ordinary server/MCP entries share the pre-config startup boundary.
+	if err := runAgentWithStartup(context.Background(), legacyProductionStartup(), config.Load, func(cfg config.Config, admission productionStartupAdmission) {
+		switch {
+		case *mcpMode:
+			runMCPMode(cfg, *grpcAddr, admission)
+		case *forceServer:
+			runServerMode(cfg, admission)
+		default:
+			runServerMode(cfg, admission)
+		}
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "agent:", err)
+		os.Exit(1)
 	}
 }
 
@@ -1229,9 +1342,10 @@ func runSetup(installEngine bool) {
 
 	fmt.Println("\nChecking prerequisites...")
 
-	cfg, err := config.Load(config.DefaultPath())
+	cfg, err := loadSetupConfig(config.DefaultPath())
 	if err != nil {
-		cfg = config.Defaults()
+		fmt.Fprintln(os.Stderr, err)
+		return
 	}
 
 	// Step 1: Detect AI engine backend
@@ -1369,9 +1483,11 @@ func runSetup(installEngine bool) {
 	configPath := config.DefaultPath()
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		fmt.Printf("  Creating default config at %s\n", configPath)
-		if err := config.Save(cfg, configPath); err != nil {
+		if next, err := config.SaveSnapshot(cfg, configPath, cfg.Snapshot()); err != nil {
 			fmt.Fprintf(os.Stderr, "  WARN: Could not create config file: %v\n", err)
+			return
 		} else {
+			cfg = cfg.WithSnapshot(next)
 			fmt.Println("  OK: Config file created.")
 		}
 	} else {
@@ -1419,8 +1535,11 @@ func runSetup(installEngine bool) {
 	}
 
 	// Persist any chat-model choice made in step 2.
-	if err := config.Save(cfg, configPath); err != nil {
+	if next, err := config.SaveSnapshot(cfg, configPath, cfg.Snapshot()); err != nil {
 		fmt.Fprintf(os.Stderr, "  WARN: Could not save config: %v\n", err)
+		return
+	} else {
+		cfg = cfg.WithSnapshot(next)
 	}
 
 	// Summary
@@ -1954,7 +2073,7 @@ func generateSessionID() string {
 }
 
 // runServerMode starts the gRPC server in standalone mode (for IDE clients).
-func runServerMode(cfg config.Config) {
+func runServerMode(cfg config.Config, admission productionStartupAdmission) {
 	// Tee log.Printf diagnostics to ~/.cercano-dispatch.log so they survive
 	// when the CLI auto-launches this agent and swallows its stderr. Without
 	// this, subsystem logs (e.g. [mcphost] connection failures) are lost.
@@ -1963,7 +2082,7 @@ func runServerMode(cfg config.Config) {
 	// Persistent crash log. Sits alongside config.yaml so operators can
 	// find it after the fact. Failure to open the log is non-fatal —
 	// crash recording is nice-to-have; the server should still start.
-	crashLogPath := filepath.Join(filepath.Dir(config.DefaultPath()), "crash.log")
+	crashLogPath := filepath.Join(filepath.Dir(admission.paths.config), "crash.log")
 	crashWriter, cwErr := crashlog.NewWriter(crashLogPath, version)
 	if cwErr != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to open crash log at %s: %v (server continues without crash capture)\n", crashLogPath, cwErr)
@@ -1992,8 +2111,9 @@ func runServerMode(cfg config.Config) {
 		fmt.Printf("Crash log: %s\n", crashLogPath)
 	}
 
-	addr, cleanup, err := startGRPCServer(cfg, ":"+cfg.Port, crashWriter)
+	addr, cleanup, err := startGRPCServerWithStartup(cfg, ":"+cfg.Port, crashWriter, productionCredentialDefaults(), admission)
 	if err != nil {
+		retainUntilDisposed(cleanup)
 		fmt.Fprintf(os.Stderr, "\n[ERROR] %v\n", err)
 		if crashWriter != nil {
 			crashWriter.LogPanic("server startup failed: "+err.Error(), nil, map[string]any{"stage": "startGRPCServer"})
@@ -2012,21 +2132,16 @@ func runServerMode(cfg config.Config) {
 	// can distinguish a graceful stop from a mysterious disappearance.
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	sig := <-sigCh
-	fmt.Printf("Received %v — draining in-flight requests (signal again to force quit)...\n", sig)
-	if crashWriter != nil {
-		crashWriter.LogSignal(sig.String(), map[string]any{"stage": "runServerMode", "graceful": true})
-	}
-	go func() {
-		<-sigCh
+	select {
+	case sig := <-sigCh:
+		fmt.Printf("Received %v — draining in-flight requests...\n", sig)
 		if crashWriter != nil {
-			crashWriter.LogSignal("second-signal-force-quit", nil)
-			_ = crashWriter.Close()
+			crashWriter.LogSignal(sig.String(), map[string]any{"stage": "runServerMode", "graceful": true})
 		}
-		fmt.Fprintln(os.Stderr, "Second signal — exiting immediately")
-		os.Exit(1)
-	}()
-	cleanup()
+	case <-cleanup.done:
+	}
+
+	retainUntilDisposed(cleanup)
 	if crashWriter != nil {
 		_ = crashWriter.Close()
 	}
@@ -2044,7 +2159,7 @@ func runtimeStack(all bool) string {
 
 // runMCPMode starts the MCP server. If no external gRPC address is provided,
 // it starts an embedded gRPC server on a random port.
-func runMCPMode(cfg config.Config, externalGRPC string) {
+func runMCPMode(cfg config.Config, externalGRPC string, admission productionStartupAdmission) {
 	// Tee diagnostic logging to a file so it survives Claude Code's stdio
 	// stderr capture window (which closes after the initial connect handshake).
 	setupDispatchLogFile()
@@ -2062,7 +2177,8 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 
 		// MCP embedded mode opens no crash log; runtime events are a
 		// no-op here rather than a second writer on the same file.
-		addr, _, err := startGRPCServer(cfg, "localhost:0", nil)
+		addr, cleanup, err := startGRPCServerWithStartup(cfg, "localhost:0", nil, productionCredentialDefaults(), admission)
+		defer retainUntilDisposed(cleanup)
 		if err != nil {
 			// Start in degraded mode so the MCP pipe stays alive and
 			// the client gets a clear error instead of "Failed to reconnect".
@@ -2070,7 +2186,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 			s := mcpserver.NewDegradedServer(err)
 			if runErr := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); runErr != nil {
 				fmt.Fprintf(os.Stderr, "MCP server error: %v\n", runErr)
-				os.Exit(1)
+				return
 			}
 			return
 		}
@@ -2082,7 +2198,7 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 	conn, err := grpc.NewClient(grpcTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to gRPC server at %s: %v\n", grpcTarget, err)
-		os.Exit(1)
+		return
 	}
 	defer conn.Close()
 
@@ -2117,37 +2233,53 @@ func runMCPMode(cfg config.Config, externalGRPC string) {
 
 	if err := s.MCPServer().Run(context.Background(), &gomcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
-		os.Exit(1)
+		return
 	}
 }
 
 // parseWorkerArgs consumes every argument; unknown, duplicate, and positional
 // arguments fail rather than silently dropping the prepared launch contract.
-func parseWorkerArgs(args []string) (socket string, prepared bool, err error) {
+func parseWorkerArgs(args []string) (socket string, prepared bool, failureLog string, routingLog string, err error) {
 	seen := map[string]bool{}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if seen[arg] {
-			return "", false, fmt.Errorf("duplicate worker flag %q", arg)
+			return "", false, "", "", fmt.Errorf("duplicate worker flag %q", arg)
 		}
 		seen[arg] = true
 		switch arg {
-		case "--socket":
+		case "--socket", "--failure-log", "--routing-log":
 			i++
 			if i >= len(args) || strings.HasPrefix(args[i], "--") {
-				return "", false, fmt.Errorf("--socket requires a path")
+				return "", false, "", "", fmt.Errorf("%s requires a path", arg)
 			}
-			socket = args[i]
+			if arg == "--socket" {
+				socket = args[i]
+			} else if arg == "--failure-log" {
+				failureLog = args[i]
+			} else {
+				routingLog = args[i]
+			}
 		case "--prepared":
 			prepared = true
 		default:
-			return "", false, fmt.Errorf("unknown worker argument %q", arg)
+			return "", false, "", "", fmt.Errorf("unknown worker argument %q", arg)
 		}
 	}
 	if socket == "" {
-		return "", false, fmt.Errorf("--socket <path> required")
+		return "", false, "", "", fmt.Errorf("--socket <path> required")
 	}
-	return socket, prepared, nil
+	if prepared {
+		if err := worker.ValidatePreparedFailureLog(failureLog); err != nil {
+			return "", false, "", "", err
+		}
+		if err := worker.ValidatePreparedRoutingLog(routingLog); err != nil {
+			return "", false, "", "", err
+		}
+	} else if seen["--failure-log"] || seen["--routing-log"] {
+		return "", false, "", "", fmt.Errorf("log paths require --prepared")
+	}
+	return socket, prepared, failureLog, routingLog, nil
 }
 
 // runWorkerMode serves the Worker gRPC service over a Unix-domain socket until
@@ -2155,7 +2287,8 @@ func parseWorkerArgs(args []string) (socket string, prepared bool, err error) {
 // it; with per-conversation worker reuse the host drives many sequential
 // RunTurn streams over one connection to a warm worker.
 func runWorkerMode(args []string) {
-	socketPath, prepared, err := parseWorkerArgs(args)
+	worker.ObserveAcceptanceStartup()
+	socketPath, prepared, failureLog, routingLog, err := parseWorkerArgs(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "worker: %v\n", err)
 		os.Exit(1)
@@ -2177,7 +2310,7 @@ func runWorkerMode(args []string) {
 	)
 	ws := worker.New()
 	if prepared {
-		ws = worker.NewPrepared()
+		ws = worker.NewPrepared(worker.WithFailureLogPath(failureLog), worker.WithRoutingLogPath(routingLog))
 	}
 	proto.RegisterWorkerServer(srv, ws)
 
@@ -2250,4 +2383,14 @@ func resumeInterruptedDownloads(cfg config.Config, manager localruntime.Manager,
 			Message: fmt.Sprintf("resuming %d interrupted download(s) on startup", len(triggered)),
 		})
 	}
+}
+
+// loadSetupConfig fails closed before setup can install runtimes or write defaults.
+// Parser errors can contain YAML values; expose only this actionable diagnostic.
+func loadSetupConfig(path string) (config.Config, error) {
+	c, err := config.Load(path)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("setup refused configuration %q: cannot read or validate existing configuration; check file permissions and YAML syntax, then reload. No defaults were written", path)
+	}
+	return c, nil
 }

@@ -47,6 +47,9 @@ type grpcConnAlias = grpc.ClientConn
 // SDK methods read c.conn / c.agent through readConn — never touch the
 // fields directly outside that helper.
 type Client struct {
+	shutdownMu         sync.Mutex // serializes shutdown requests with replacement launch
+	shutdownIncomplete bool
+
 	observationMu sync.Mutex
 	observedTurns map[string]turnVersion
 	connMu        sync.Mutex
@@ -1919,7 +1922,9 @@ func (c *Client) InstallOpenRuntime(ctx context.Context, runtime string) (<-chan
 // UpdateConfig sends a runtime config patch. Returns the agent's confirmation
 // summary line (e.g. "updated: [local_model=qwen3-coder, cloud=anthropic/...]").
 func (c *Client) UpdateConfig(ctx context.Context, u ConfigUpdate) (string, error) {
+	c.connMu.Lock()
 	ag := c.agent
+	c.connMu.Unlock()
 	if ag == nil {
 		return "", errors.New("agent client is not connected")
 	}
@@ -1964,16 +1969,16 @@ func (c *Client) UpdateConfig(ctx context.Context, u ConfigUpdate) (string, erro
 }
 
 func (c *Client) ShutdownAgent(ctx context.Context, reason string) error {
-	ag := c.agent
-	if ag == nil {
-		return errors.New("agent client is not connected")
-	}
-	resp, err := ag.ShutdownAgent(ctx, &proto.ShutdownAgentRequest{Reason: reason})
+	resp, err := c.RequestShutdown(ctx, reason)
 	if err != nil {
-		return err
+		// Transport errors can contain credentials or provider output.
+		return errors.New("agent shutdown request failed; replacement not authorized")
 	}
 	if !resp.GetAccepted() {
-		return fmt.Errorf("agent shutdown rejected: %s", resp.GetMessage())
+		return errors.New("agent shutdown rejected; replacement not authorized")
+	}
+	if !ShutdownSucceeded(resp) {
+		return ErrShutdownIncomplete
 	}
 	return nil
 }
@@ -2982,3 +2987,44 @@ func decodeStreamResponse(msg *proto.StreamProcessResponse) *StreamMsg {
 	}
 	return nil
 }
+
+// ShutdownStatus observes without requesting shutdown. Accepted is not retirement.
+// A transport failure is unknown, never evidence of completion or safe replacement.
+func (c *Client) ShutdownStatus(ctx context.Context) (*proto.ShutdownAgentResponse, error) {
+	c.connMu.Lock()
+	ag := c.agent
+	c.connMu.Unlock()
+	if ag == nil {
+		return nil, errors.New("agent client is not connected")
+	}
+	return ag.ShutdownAgent(ctx, &proto.ShutdownAgentRequest{StatusOnly: true})
+}
+
+// ShutdownSucceeded requires the explicit successful lifecycle phase used by
+// productionShutdown.Control. Complete alone can also describe failed disposal.
+// Missing (legacy) and unknown phases cannot authorize replacement.
+func ShutdownSucceeded(resp *proto.ShutdownAgentResponse) bool {
+	return resp.GetAccepted() && resp.GetComplete() && resp.GetPhase() == "complete"
+}
+
+// RequestShutdown exposes the lifecycle outcome instead of treating acceptance as completion.
+func (c *Client) RequestShutdown(ctx context.Context, reason string) (*proto.ShutdownAgentResponse, error) {
+	c.shutdownMu.Lock()
+	defer c.shutdownMu.Unlock()
+	// Block before sending: timeout/disconnect cannot prove retirement.
+	c.shutdownIncomplete = true
+	c.connMu.Lock()
+	ag := c.agent
+	c.connMu.Unlock()
+	if ag == nil {
+		return nil, errors.New("agent client is not connected")
+	}
+	resp, err := ag.ShutdownAgent(ctx, &proto.ShutdownAgentRequest{Reason: reason})
+	if err == nil && ShutdownSucceeded(resp) {
+		c.shutdownIncomplete = false
+	}
+	return resp, err
+}
+
+// ErrShutdownIncomplete means successful retirement is unproven; do not replace the host.
+var ErrShutdownIncomplete = errors.New("agent shutdown accepted but incomplete; replacement not authorized")

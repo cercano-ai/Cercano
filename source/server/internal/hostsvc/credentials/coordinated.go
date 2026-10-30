@@ -1,0 +1,266 @@
+package credentials
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"path/filepath"
+	"time"
+
+	"cercano/source/server/internal/filelock"
+	"cercano/source/server/internal/llm"
+	"cercano/source/server/internal/secrets"
+)
+
+var ErrCoordination = errors.New("credential coordination unavailable or invalid")
+
+// ErrBusy is temporary local contention, not an authentication failure. Use
+// the existing credential error seam so SDK URL wrappers cannot turn it into
+// a network/unknown failure. Its identity remains available to errors.Is.
+var ErrBusy error = &llm.CredentialError{Class: llm.ErrBusy, Reason: "identity_busy"}
+var ErrStale = errors.New("credential revision invalidated")
+var ErrProviderIntegration = errors.New("coordinated token source integration not yet available")
+
+// RecordBackend supplies fresh reads and whole-record replacement at the existing
+// identity. All participants must use the same exclusion root and exclude legacy
+// readers/writers. Replace errors are reported, never acknowledged as success;
+// no quarantine, recovery, backend CAS or native durability guarantee is implied.
+// No native adapter or adoption path is supplied.
+type RecordBackend interface {
+	Read(string) (string, error)
+	Replace(string, string) error
+	Keys() ([]string, error)
+}
+
+type credentialRecord struct {
+	Version  int    `json:"version"`
+	Revision string `json:"revision"`
+	State    string `json:"state"`
+	Payload  string `json:"payload,omitempty"`
+}
+
+func revision() (string, error) {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+// Only canonical records emitted here are accepted. This also rejects duplicate
+// keys, unknown fields, omitted required fields, trailing data and raw legacy
+// secrets; there is deliberately no fallback or adoption path.
+func decodeRecord(raw string) (credentialRecord, error) {
+	var r credentialRecord
+	if json.Unmarshal([]byte(raw), &r) != nil {
+		return r, ErrCoordination
+	}
+	canonical, _ := json.Marshal(r)
+	rev, err := hex.DecodeString(r.Revision)
+	if !bytes.Equal(canonical, []byte(raw)) || r.Version != 1 || err != nil || len(rev) != 32 {
+		return credentialRecord{}, ErrCoordination
+	}
+	switch r.State {
+	case "active":
+		if r.Payload == "" {
+			return credentialRecord{}, ErrCoordination
+		}
+	case "logged-out":
+		if r.Payload != "" {
+			return credentialRecord{}, ErrCoordination
+		}
+	default:
+		return credentialRecord{}, ErrCoordination
+	}
+	return r, nil
+}
+
+// CoordinatedStore is opt-in only. It does not open native credentials, create
+// initial records, adopt raw credentials, or select a production lock location.
+// root must be an absolute, private, stable directory shared by all participants
+// for this backend authority, never a per-generation config override. Lock files
+// are non-secret exclusion only, not a journal. Production preflight is pending.
+type CoordinatedStore struct {
+	backend RecordBackend
+	root    string
+}
+
+func NewCoordinatedStore(backend RecordBackend, root string) (*CoordinatedStore, error) {
+	if backend == nil || !filepath.IsAbs(root) {
+		return nil, ErrCoordination
+	}
+	return &CoordinatedStore{backend: backend, root: filepath.Clean(root)}, nil
+}
+func (s *CoordinatedStore) lock(ctx context.Context, name string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256([]byte("cercano\x00" + name))
+	release, ok, err := filelock.TryLock(filepath.Join(s.root, hex.EncodeToString(sum[:])+".commit.lock"))
+	if err != nil {
+		return nil, ErrCoordination
+	}
+	if !ok {
+		return nil, ErrBusy
+	}
+	return release, nil
+}
+func (s *CoordinatedStore) read(name string) (credentialRecord, error) {
+	raw, err := s.backend.Read(name)
+	if err != nil {
+		return credentialRecord{}, ErrCoordination
+	}
+	return decodeRecord(raw)
+}
+func (s *CoordinatedStore) write(name, state, payload string) (credentialRecord, error) {
+	rev, err := revision()
+	if err != nil {
+		return credentialRecord{}, err
+	}
+	r := credentialRecord{1, rev, state, payload}
+	raw, err := json.Marshal(r)
+	if err != nil {
+		return credentialRecord{}, err
+	}
+	if _, err = decodeRecord(string(raw)); err != nil {
+		return credentialRecord{}, err
+	}
+	if err = s.backend.Replace(name, string(raw)); err != nil {
+		return credentialRecord{}, ErrCoordination
+	}
+	return r, nil
+}
+func (s *CoordinatedStore) snapshot(ctx context.Context, name string) (credentialRecord, error) {
+	unlock, err := s.lock(ctx, name)
+	if err != nil {
+		return credentialRecord{}, err
+	}
+	defer unlock()
+	return s.read(name)
+}
+func (s *CoordinatedStore) Get(name string) (string, error) {
+	r, err := s.snapshot(context.Background(), name)
+	if err != nil {
+		return "", err
+	}
+	if r.State != "active" {
+		return "", fs.ErrNotExist
+	}
+	return r.Payload, nil
+}
+func (s *CoordinatedStore) Set(name, value string) error {
+	return s.replace(context.Background(), name, "", "active", value)
+}
+
+// Delete's successful replacement is the logout boundary. No secret is
+// retained in the marker. Missing state is an error, not a reusable generation.
+func (s *CoordinatedStore) Delete(name string) error {
+	return s.replace(context.Background(), name, "", "logged-out", "")
+}
+func (s *CoordinatedStore) replace(ctx context.Context, name, expected, state, payload string) error {
+	unlock, err := s.lock(ctx, name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	r, err := s.read(name)
+	if err != nil {
+		return err
+	}
+	if expected != "" && r.Revision != expected {
+		return ErrStale
+	}
+	_, err = s.write(name, state, payload)
+	return err
+}
+
+// List is usable-credential presence, not native item existence. Unlike native
+// Keys, it must read records; a backend error fails the entire presence result.
+func (s *CoordinatedStore) List() ([]string, error) {
+	keys, err := s.backend.Keys()
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, key := range keys {
+		r, err := s.snapshot(context.Background(), key)
+		if err != nil {
+			return nil, err
+		}
+		if r.State == "active" {
+			out = append(out, key)
+		}
+	}
+	return out, nil
+}
+
+// Admit is the low-level bounded admission critical section. start must perform
+// local bookkeeping only: no network, blocking work, or reusable authorization.
+// Admission, not physical send, is the logout boundary. Prefer AdmitAttempt.
+func (s *CoordinatedStore) Admit(ctx context.Context, name, expected string, start func() error) error {
+	unlock, err := s.lock(ctx, name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	r, err := s.read(name)
+	if err != nil {
+		return err
+	}
+	if r.State != "active" || r.Revision != expected {
+		return ErrStale
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	return start()
+}
+
+// refresh is called only when rotation is necessary. One per-identity exclusion
+// spans fresh read, bounded issuer work and publication. Contenders return busy.
+// No pending state, automatic retry, rollback or recovery is performed.
+func (s *CoordinatedStore) refresh(ctx context.Context, name, expected string, issuer func(context.Context, string) (string, error)) error {
+	_, err := s.RefreshSnapshot(ctx, name, expected, issuer)
+	return err
+}
+
+// RefreshSnapshot returns the exact snapshot published by this rotation. Issuers
+// must honor context cancellation; no goroutine is abandoned with issuer access.
+// An ambiguous issuer/write failure is returned, not durably journaled or replayed.
+func (s *CoordinatedStore) RefreshSnapshot(ctx context.Context, name, expected string, issuer func(context.Context, string) (string, error)) (secrets.CredentialSnapshot, error) {
+	var zero secrets.CredentialSnapshot
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	unlock, err := s.lock(ctx, name)
+	if err != nil {
+		return zero, err
+	}
+	defer unlock()
+	r, err := s.read(name)
+	if err != nil {
+		return zero, err
+	}
+	if r.State != "active" || r.Revision != expected {
+		return zero, ErrStale
+	}
+	if err = ctx.Err(); err != nil {
+		return zero, err
+	}
+	value, err := issuer(ctx, r.Payload)
+	if err != nil {
+		return zero, err
+	}
+	if err = ctx.Err(); err != nil {
+		return zero, err
+	}
+	committed, err := s.write(name, "active", value)
+	if err != nil {
+		return zero, err
+	}
+	return secrets.CredentialSnapshot{Payload: committed.Payload, Revision: committed.Revision}, nil
+}

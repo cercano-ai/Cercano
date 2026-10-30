@@ -1,0 +1,185 @@
+{
+  "source_artifact": ".same-conversation-closure-final-evidence/compiled.json",
+  "source_sha256": "3eed85779c45ff5e7d97c8df3aff03cd571fb76341b441d12eea4afde4f8036b",
+  "passed": true,
+  "steps": [
+    {
+      "step": "fresh source provenance",
+      "checkout": "a075f0333c52c055352e10624512e86f20991707",
+      "snapshot": "1b1f7e7c55de02a349a51395867c10aeb178f0f7",
+      "source_tree": "edf534c314d9dbe1c5fd69dc9f812b16eba810f0",
+      "fixture_sha256": "2c3d86ee877012318241ccc47747e86eb3c5abaae070d14ec1fe7178cae23de4"
+    },
+    {
+      "step": "B published as new-session target without stopping A",
+      "A": {
+        "ConfigAuthority": "/private/tmp/ca-0syxhe3s/state/config.yaml",
+        "Endpoint": "127.0.0.1:54227",
+        "TokenFile": "/private/tmp/ca-0syxhe3s/state/hosts/d63185777cfdb5b697a711ed5faf3baa46efa90b6a38603c46a74d272b241cde.token",
+        "Identity": {
+          "host": "7678176183d6fc5cd90a06b1b11a585c",
+          "build": "cc1282c1-6058-40a6-addb-967e9c51df9e",
+          "contract": "cercano-development-owned-v2",
+          "schema": 2,
+          "store": "/private/tmp/ca-0syxhe3s/state/conversations.db"
+        },
+        "Conversation": "7c451e5d05db599acce4665d1fbf9929",
+        "Epoch": "80fa7302123a81c621abacb9",
+        "Generation": "/private/tmp/ca-0syxhe3s/state/generations/2bdd0c3af7294c48251416bf854faa1364463a083d1ec29f7392367d63ddf3d4"
+      },
+      "B": {
+        "ConfigAuthority": "/private/tmp/ca-0syxhe3s/state/config.yaml",
+        "Endpoint": "127.0.0.1:54241",
+        "TokenFile": "/private/tmp/ca-0syxhe3s/state/hosts/e04ca0612a286ab968a1dd80fc8b5dfc82b742e0833013e7f12f9798c7757b1b.token",
+        "Identity": {
+          "host": "29372c42e347974b4b75a6f9c0454e01",
+          "build": "5c31456c-0ca1-42df-8671-052e9b5f4f2b",
+          "contract": "cercano-development-owned-v2",
+          "schema": 2,
+          "store": "/private/tmp/ca-0syxhe3s/state/conversations.db"
+        },
+        "Conversation": "37699cea4fee0fa5c87cf78cd0686262",
+        "Epoch": "0bf1e0cc2a1fe4716e1cf04e",
+        "Generation": "/private/tmp/ca-0syxhe3s/state/generations/f5e75447026f29e159281213d6d5c9f1e508c177b62395fd0d4b84aa6c65fb4c"
+      },
+      "pidA": 14798
+    },
+    {
+      "step": "ordinary busy reopen preserves A task and schedules no transfer"
+    },
+    {
+      "step": "A independent task completed; no deferred transfer",
+      "tasks": [
+        [
+          "task_a571ce21930474cbcee0267df439c765",
+          "completed",
+          0,
+          1
+        ]
+      ],
+      "completion_notices": 1
+    },
+    {
+      "step": "same task-owning A conversation intentionally quit; ownership and running task retained",
+      "conversation": "85d09e0a2f3a0aca56c1b1989005d527",
+      "tasks": [
+        [
+          "task_2ceea09b01f606a9c6115751c40b25af",
+          "85d09e0a2f3a0aca56c1b1989005d527",
+          "running",
+          "d0fbabd0725b773cb7588c91"
+        ]
+      ],
+      "retained": [
+        {
+          "conversation": "d0fbabd0725b773cb7588c91",
+          "host": "7678176183d6fc5cd90a06b1b11a585c",
+          "epoch": "47ac3a14486247892454afd4"
+        },
+        {
+          "conversation": "85d09e0a2f3a0aca56c1b1989005d527",
+          "host": "7678176183d6fc5cd90a06b1b11a585c",
+          "epoch": "6f9528503938641257684509"
+        }
+      ]
+    },
+    {
+      "step": "same-conversation completion drained without ownership management",
+      "tasks": [
+        [
+          "task_2ceea09b01f606a9c6115751c40b25af",
+          "85d09e0a2f3a0aca56c1b1989005d527",
+          "completed",
+          "d0fbabd0725b773cb7588c91"
+        ]
+      ],
+      "completion_notices": 1
+    },
+    {
+      "step": "same-conversation durable ownership released and superseded A exited",
+      "ownership": [
+        [
+          "released"
+        ]
+      ],
+      "pidA": 14798,
+      "current_target": {
+        "host": "29372c42e347974b4b75a6f9c0454e01",
+        "build": "5c31456c-0ca1-42df-8671-052e9b5f4f2b",
+        "contract": "cercano-development-owned-v2",
+        "schema": 2,
+        "store": "/private/tmp/ca-0syxhe3s/state/conversations.db"
+      }
+    }
+  ],
+  "post_retirement_reply": [
+    [
+      "assistant",
+      "FIXTURE_OK "
+    ]
+  ],
+  "cleanup": {
+    "identities": [
+      {
+        "pid": 14798,
+        "start": "Thu Oct 29 21:00:06 2026",
+        "command": "/private/tmp/ca-0syxhe3s/state/generations/2bdd0c3af7294c48251416bf854faa1364463a083d1ec29f7392367d63ddf3d4/cercano development-host --state /private/tmp/ca-0syxhe3s/state --generation /private/tmp/ca-0syxhe3s/state/generations/2bdd0c3af7294c48251416bf854faa1364463a083d1ec29f7392367d63ddf3d4 --host 7678176183d6fc5cd90a06b1b11a585c --token-file /private/tmp/ca-0syxhe3s/state/hosts/d63185777cfdb5b697a711ed5faf3baa46efa90b6a38603c46a74d272b241cde.token --record /private/tmp/ca-0syxhe3s/state/hosts/d63185777cfdb5b697a711ed5faf3baa46efa90b6a38603c46a74d272b241cde.json --runtime-root /private/tmp/ca-0syxhe3s/r --listen 127.0.0.1:0 --config-authority /private/tmp/ca-0syxhe3s/state/config.yaml"
+      },
+      {
+        "pid": 14803,
+        "start": "Thu Oct 29 21:00:07 2026",
+        "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3 /private/tmp/ca-0syxhe3s/barrier/mcp-fixture"
+      },
+      {
+        "pid": 14818,
+        "start": "Thu Oct 29 21:00:09 2026",
+        "command": "/private/tmp/ca-0syxhe3s/state/generations/2bdd0c3af7294c48251416bf854faa1364463a083d1ec29f7392367d63ddf3d4/cercano worker --socket /private/tmp/ca-0syxhe3s/r/w-e35d194c958e48245ea2b2ca/c23949072f259eb1722fb3320c5adece.sock --prepared --failure-log /private/tmp/ca-0syxhe3s/r/w-e35d194c958e48245ea2b2ca/failures.jsonl --routing-log /private/tmp/ca-0syxhe3s/r/w-e35d194c958e48245ea2b2ca/turn-routing.jsonl"
+      },
+      {
+        "pid": 15222,
+        "start": "Thu Oct 29 21:00:23 2026",
+        "command": "/private/tmp/ca-0syxhe3s/state/generations/f5e75447026f29e159281213d6d5c9f1e508c177b62395fd0d4b84aa6c65fb4c/cercano development-host --state /private/tmp/ca-0syxhe3s/state --generation /private/tmp/ca-0syxhe3s/state/generations/f5e75447026f29e159281213d6d5c9f1e508c177b62395fd0d4b84aa6c65fb4c --host 29372c42e347974b4b75a6f9c0454e01 --token-file /private/tmp/ca-0syxhe3s/state/hosts/e04ca0612a286ab968a1dd80fc8b5dfc82b742e0833013e7f12f9798c7757b1b.token --record /private/tmp/ca-0syxhe3s/state/hosts/e04ca0612a286ab968a1dd80fc8b5dfc82b742e0833013e7f12f9798c7757b1b.json --runtime-root /private/tmp/ca-0syxhe3s/r --listen 127.0.0.1:0 --config-authority /private/tmp/ca-0syxhe3s/state/config.yaml"
+      },
+      {
+        "pid": 15227,
+        "start": "Thu Oct 29 21:00:23 2026",
+        "command": "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python /private/tmp/ca-0syxhe3s/barrier/mcp-fixture"
+      },
+      {
+        "pid": 15309,
+        "start": "Thu Oct 29 21:00:30 2026",
+        "command": "/private/tmp/ca-0syxhe3s/state/generations/f5e75447026f29e159281213d6d5c9f1e508c177b62395fd0d4b84aa6c65fb4c/cercano worker --socket /private/tmp/ca-0syxhe3s/r/w-c4814a22768abd06ed7f83b0/306d54bede0a6f32127a062cec47e492.sock --prepared --failure-log /private/tmp/ca-0syxhe3s/r/w-c4814a22768abd06ed7f83b0/failures.jsonl --routing-log /private/tmp/ca-0syxhe3s/r/w-c4814a22768abd06ed7f83b0/turn-routing.jsonl"
+      },
+      {
+        "pid": 15354,
+        "start": "Thu Oct 29 21:00:33 2026",
+        "command": "/private/tmp/ca-0syxhe3s/state/generations/2bdd0c3af7294c48251416bf854faa1364463a083d1ec29f7392367d63ddf3d4/cercano worker --socket /private/tmp/ca-0syxhe3s/r/w-e35d194c958e48245ea2b2ca/2ecd89eea51d78869ed10d10257d1dd7.sock --prepared --failure-log /private/tmp/ca-0syxhe3s/r/w-e35d194c958e48245ea2b2ca/failures.jsonl --routing-log /private/tmp/ca-0syxhe3s/r/w-e35d194c958e48245ea2b2ca/turn-routing.jsonl"
+      },
+      {
+        "pid": 15845,
+        "start": "Thu Oct 29 21:00:53 2026",
+        "command": "/private/tmp/ca-0syxhe3s/state/generations/f5e75447026f29e159281213d6d5c9f1e508c177b62395fd0d4b84aa6c65fb4c/cercano worker --socket /private/tmp/ca-0syxhe3s/r/w-c4814a22768abd06ed7f83b0/9c60dd986ae9aa4000ca106c6d801931.sock --prepared --failure-log /private/tmp/ca-0syxhe3s/r/w-c4814a22768abd06ed7f83b0/failures.jsonl --routing-log /private/tmp/ca-0syxhe3s/r/w-c4814a22768abd06ed7f83b0/turn-routing.jsonl"
+      }
+    ],
+    "actions": [
+      {
+        "pid": 15222,
+        "signal": "SIGTERM"
+      },
+      {
+        "pid": 15227,
+        "signal": "SIGTERM"
+      },
+      {
+        "pid": 15309,
+        "signal": "SIGTERM"
+      },
+      {
+        "pid": 15845,
+        "signal": "SIGTERM"
+      }
+    ],
+    "remaining": []
+  },
+  "private_roots_removed": true
+}

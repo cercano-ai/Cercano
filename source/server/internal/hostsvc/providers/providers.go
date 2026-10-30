@@ -13,7 +13,10 @@ import (
 	"cercano/source/server/internal/managedrouting"
 	"cercano/source/server/internal/modelmetadata"
 	"cercano/source/server/internal/reasoningexperiment"
+	"cercano/source/server/internal/secrets"
+	"cercano/source/server/internal/workadmission"
 	"context"
+	"fmt"
 	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
 	"log"
 	"sync"
@@ -136,7 +139,22 @@ type cloudRoutingState struct {
 }
 type providerSlot struct{ provider inference.Provider }
 
+// CloudBuilder is invoked after credential validation and token-source selection.
+// Injection changes transport construction, not credential admission.
+type CloudBuilder func(cfg.CloudProfile, string, ...cloudfactory.Options) (inference.Provider, error)
+
+// ComposableResolver adds startup-only wiring without granting worker resolvers
+// transport-construction authority.
+type ComposableResolver interface {
+	Resolver
+	SetCloudBuilder(CloudBuilder)
+}
+
 type service struct {
+	// Invocation-local issuer override; nil retains production defaults.
+	anthropicFlow        *anthropicauth.Flow
+	cloudBuilder         CloudBuilder
+	rebuildAdmission     workadmission.Gate
 	rebuildMu            sync.Mutex
 	cloudState           atomic.Pointer[cloudRoutingState]
 	openState            atomic.Pointer[providerSlot]
@@ -178,7 +196,7 @@ func New(
 	cloudFactory agent.CloudFactory,
 	registry *engine.EngineRegistry,
 	usageSink func(usage.Usage),
-) Resolver {
+) ComposableResolver {
 	return &service{
 		cfgSvc:       cfgSvc,
 		openModels:   openModels,
@@ -332,6 +350,13 @@ func (p *service) PrimaryModel() string {
 	return p.MainModel(cloud)
 }
 
+// CloudUnavailableError means the new routing policy was published with an
+// absent cloud provider. It is not a failure to install the routing policy.
+type CloudUnavailableError struct{ Err error }
+
+func (e *CloudUnavailableError) Error() string { return e.Err.Error() }
+func (e *CloudUnavailableError) Unwrap() error { return e.Err }
+
 // Rebuild re-derives providers from current config.
 // Was rebuildCloud on Server.
 func (p *service) Rebuild() error {
@@ -369,6 +394,10 @@ func (p *service) installAbsentCloud(reason string) {
 func (p *service) rebuildCloud() error {
 	p.rebuildMu.Lock()
 	defer p.rebuildMu.Unlock()
+	if !p.rebuildAdmission.Enter() {
+		return context.Canceled
+	}
+	defer p.rebuildAdmission.Leave()
 	c := p.cfgSvc.Get()
 	secondary, _ := profilechain.Build(c, cfg.DestinationSecondary, p.buildProfile, p.chainEvents(c, cfg.DestinationSecondary))
 	var cycleState *profilechain.CycleState
@@ -379,7 +408,7 @@ func (p *service) rebuildCloud() error {
 	p.cloudState.Store(&cloudRoutingState{primary: provider, secondary: secondary, config: c})
 	if err != nil {
 		p.installAbsentCloud(err.Error())
-		return err
+		return &CloudUnavailableError{Err: err}
 	}
 	// The legacy CloudModel remains bound to Primary; never pair it with a
 	// model from the independently selected Secondary profile.
@@ -397,7 +426,22 @@ func (p *service) rebuildCloud() error {
 }
 
 func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error) {
+	if err := cloudfactory.ValidateFlavor(prof.Flavor); err != nil {
+		return nil, err
+	}
+	if err := secrets.CheckAllowed(); err != nil {
+		return nil, err
+	}
 	st := p.cfgSvc.Secrets()
+	coordinated := secrets.IsCoordinated(st)
+	// Static Responses/Messages and matching revision-bearing subscription
+	// sources support coordinated admission. Other routes remain fail closed.
+	staticMessages := prof.Flavor == cloudfactory.FlavorMessages && (prof.Route == "" || prof.Route == "direct")
+	subscriptionMessages := prof.Flavor == cloudfactory.FlavorMessages && prof.Route == cloudfactory.RouteSubscription
+	staticChat := prof.Flavor == cloudfactory.FlavorChatCompletions && prof.Route == ""
+	if coordinated && !staticChat && !staticMessages && !subscriptionMessages && (prof.Flavor != cloudfactory.FlavorResponses || (prof.Route != "" && prof.Route != cloudfactory.RouteChatGPT)) {
+		return nil, fmt.Errorf("coordinated credential route unsupported")
+	}
 	key := ""
 	var keyErr error
 	if st != nil && !cloudfactory.IsSubscription(prof) && prof.Flavor != cloudfactory.FlavorBedrock {
@@ -413,13 +457,28 @@ func (p *service) buildProfile(prof cfg.CloudProfile) (inference.Provider, error
 		}
 	}
 	opts := cloudfactory.Options{ModelSupportsVision: confirmed}
+	if coordinated {
+		admission, ok := st.(secrets.RequestCredentials)
+		if !ok {
+			return nil, fmt.Errorf("coordinated request admission unavailable")
+		}
+		opts.Credentials = admission
+	}
 	if prof.Flavor == cloudfactory.FlavorResponses && prof.Route == cloudfactory.RouteChatGPT {
 		opts.TokenSource = p.cfgSvc.Credentials().ChatGPT(prof.Name, chatgptauth.Flow{})
 	}
 	if prof.Flavor == cloudfactory.FlavorMessages && prof.Route == cloudfactory.RouteSubscription {
-		opts.AnthropicTokenSource = p.cfgSvc.Credentials().Anthropic(prof.Name, anthropicauth.Flow{})
+		flow := anthropicauth.Flow{}
+		if p.anthropicFlow != nil {
+			flow = *p.anthropicFlow
+		}
+		opts.AnthropicTokenSource = p.cfgSvc.Credentials().Anthropic(prof.Name, flow)
 	}
-	provider, err := cloudfactory.BuildCloudProvider(prof, key, opts)
+	build := p.cloudBuilder
+	if build == nil {
+		build = cloudfactory.BuildCloudProvider
+	}
+	provider, err := build(prof, key, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -585,6 +644,9 @@ func (p *service) chainEvents(c cfg.Config, d cfg.Destination) func(resilience.E
 
 // RunReasoningDiagnostic deliberately bypasses destination retry/fallback chains.
 func (p *service) RunReasoningDiagnostic(ctx context.Context, spec reasoningexperiment.Spec) (reasoningexperiment.Report, error) {
+	if secrets.IsCoordinated(p.cfgSvc.Secrets()) {
+		return reasoningexperiment.Report{}, fmt.Errorf("coordinated reasoning diagnostic unsupported")
+	}
 	return reasoningexperiment.Run(ctx, p.cfgSvc.Get(), spec, p.buildProfile)
 }
 
@@ -592,3 +654,10 @@ func (p *service) RunReasoningDiagnostic(ctx context.Context, spec reasoningexpe
 func (p *service) ResolveChatRoute(ctx context.Context, route chatroute.Route) (inference.Provider, error) {
 	return chatroute.Build(p.cfgSvc.Get(), route, p.buildProfile)
 }
+
+// SetCloudBuilder must be called during composition, before serving or rebuilding.
+func (p *service) SetCloudBuilder(build CloudBuilder) { p.cloudBuilder = build }
+
+// FenceRebuild rejects queued rebuilds after they acquire rebuildMu.
+func (p *service) FenceRebuild()   { p.rebuildAdmission.Fence() }
+func (p *service) WaitForRebuild() { p.rebuildAdmission.Wait() }

@@ -181,7 +181,7 @@ func TestPreparedDispatchFailureRetainsScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := s.beginPreparedDispatch(scoped, owner.Conversation, "nested"); err == nil {
-		t.Fatal("nested dispatch authorized")
+		t.Fatal("dispatch authorized with ancestor instead of exact parent")
 	}
 	if _, _, err := s.beginPreparedDispatch(ctx, owner.Conversation, "failed-child"); err == nil {
 		t.Fatal("adopted active child")

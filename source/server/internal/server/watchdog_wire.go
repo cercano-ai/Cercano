@@ -11,6 +11,16 @@ import (
 	"cercano/source/server/pkg/config"
 )
 
+// WatchdogDependencies are invocation-local startup collaborators. Nil fields
+// preserve real dispatch and SQLite defaults, including warning-only audit failure.
+type WatchdogDependencies struct {
+	OpenAudit func(string) (watchdog.AuditLogger, error)
+	OneShot   func(context.Context, string) (string, error)
+}
+
+// SetWatchdogDependencies must precede InitWatchdog and config updates.
+func (s *Server) SetWatchdogDependencies(d WatchdogDependencies) { s.watchdogDeps = d }
+
 // buildWatchdog constructs the protocol-supervision watchdog from the current
 // config. Returns nil when disabled (the default), in which case the server
 // behaves exactly as if the watchdog did not exist. dispatchEngine must already
@@ -77,17 +87,30 @@ func (s *Server) buildWatchdogFrom(wc config.WatchdogConfig, mc config.ModelsCon
 		return res.Text, nil
 	}
 
+	if s.watchdogDeps.OneShot != nil {
+		oneShot = s.watchdogDeps.OneShot
+	}
+
 	var audit watchdog.AuditLogger
 	if wc.Audit.Enabled {
 		path := wc.Audit.Path
 		if path == "" {
 			path = defaultWatchdogAuditPath()
 		}
-		auditLog, err := watchdog.OpenSQLiteAuditLog(path)
+		open := s.watchdogDeps.OpenAudit
+		if open == nil {
+			open = func(path string) (watchdog.AuditLogger, error) { return watchdog.OpenSQLiteAuditLog(path) }
+		}
+		auditLog, err := open(path)
 		if err != nil {
 			log.Printf("watchdog: audit disabled; failed to open %q: %v", path, err)
 		} else {
 			audit = auditLog
+			// Retain retired audit handles until shutdown: in-flight turns may
+			// still hold the previous watchdog after a configuration rebuild.
+			s.watchdogAuditMu.Lock()
+			s.watchdogAudits = append(s.watchdogAudits, auditLog)
+			s.watchdogAuditMu.Unlock()
 		}
 	}
 

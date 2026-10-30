@@ -74,14 +74,19 @@ func runContextIntegration(t *testing.T, override int) {
 		t.Fatal(err)
 	}
 	t.Setenv("CERCANO_CONTEXT_TEST_CHILD", "1")
-	cfg := config.Defaults()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg.LlamaServer = config.LlamaServerConfig{Enabled: true, Binary: binary, ModelDirs: []string{dir}, Host: "127.0.0.1", ReadinessTimeout: "20s"}
 	if override > 0 {
 		cfg.LlamaServer.ContextSize = &override
 	}
-	cfgPath := filepath.Join(dir, "config.yaml")
-	if err := config.Save(cfg, cfgPath); err != nil {
+	if next, err := config.SaveSnapshot(cfg, cfgPath, cfg.Snapshot()); err != nil {
 		t.Fatal(err)
+	} else {
+		cfg = cfg.WithSnapshot(next)
 	}
 	cfg, err = config.Load(cfgPath)
 	if err != nil {

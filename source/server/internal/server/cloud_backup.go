@@ -15,34 +15,35 @@ import (
 
 // SetBackupCloudProfile implements proto.AgentServer — names the fallback
 // profile (empty clears it) and rewires the provider chain. Mirrors
-// SetActiveCloudProfile's shape: validate, mutate, rebuild, persist.
+// SetActiveCloudProfile's shape: validate, publish, apply, rebuild.
 func (s *Server) SetBackupCloudProfile(ctx context.Context, req *proto.SetBackupCloudProfileRequest) (*proto.SetBackupCloudProfileResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	name := req.GetName()
+	candidate := s.cfgSvc.Get()
 	if name != "" {
-		exists, isActive := s.cfgSvc.ProfileInfo(name)
-		if !exists {
+		if _, exists := profileByName(candidate.CloudProfiles, name); !exists {
 			return &proto.SetBackupCloudProfileResponse{Ok: false, Error: fmt.Sprintf("no profile %q", name)}, nil
 		}
-		if isActive {
+		if candidate.ActiveCloudProfile == name {
 			return &proto.SetBackupCloudProfileResponse{Ok: false, Error: "backup profile cannot be the active profile"}, nil
 		}
 	}
-	if !s.cfgSvc.SetBackupProfile(name) {
-		return &proto.SetBackupCloudProfileResponse{Ok: false, Error: "backup profile update rejected (configuration frozen or profile unavailable)"}, nil
+	if name == "" {
+		candidate.SetPrimaryBackups(nil)
+	} else {
+		candidate.SetPrimaryBackups([]string{name})
 	}
-	if err := s.rebuildCloud(); err != nil {
-		// The backup name is set but the provider chain couldn't be rebuilt —
-		// report it, keep the config (mirrors SetActiveCloudProfile).
-		if persistErr := s.cfgSvc.Persist(); persistErr != nil {
-			return &proto.SetBackupCloudProfileResponse{Ok: false, Error: persistErr.Error()}, nil
-		}
+	if err := s.cfgSvc.SaveAndSet(candidate); err != nil {
 		return &proto.SetBackupCloudProfileResponse{Ok: false, Error: err.Error()}, nil
 	}
-	if persistErr := s.cfgSvc.Persist(); persistErr != nil {
-		return &proto.SetBackupCloudProfileResponse{Ok: false, Error: persistErr.Error()}, nil
+	if err := s.rebuildCloud(); err != nil {
+		return &proto.SetBackupCloudProfileResponse{Ok: false, Error: fmt.Sprintf("configuration saved but provider rebuild failed: %v", err)}, nil
 	}
 	return &proto.SetBackupCloudProfileResponse{Ok: true}, nil
 }

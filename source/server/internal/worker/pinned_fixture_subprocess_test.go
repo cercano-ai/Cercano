@@ -26,7 +26,7 @@ import (
 )
 
 func init() {
-	if os.Getenv("CERCANO_PINNED_TEST_WORKER") != "1" || len(os.Args) != 5 || os.Args[1] != "worker" || os.Args[2] != "--socket" || os.Args[4] != "--prepared" {
+	if os.Getenv("CERCANO_PINNED_TEST_WORKER") != "1" || len(os.Args) != 9 || os.Args[1] != "worker" || os.Args[2] != "--socket" || os.Args[4] != "--prepared" || os.Args[5] != "--failure-log" || os.Args[7] != "--routing-log" {
 		return
 	}
 	if os.Getenv("CERCANO_DISABLE_CREDENTIALS") != "1" {
@@ -52,7 +52,7 @@ func init() {
 			reg.Register(readFixtureTool{})
 			return &fakeToolSvc{reg: reg}, nil
 		},
-		worker.WithPrepared(),
+		worker.WithPrepared(), worker.WithFailureLogPath(os.Args[6]), worker.WithRoutingLogPath(os.Args[8]),
 	))
 	if err := srv.Serve(listener); err != nil {
 		os.Exit(93)

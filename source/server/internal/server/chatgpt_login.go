@@ -11,6 +11,7 @@
 package server
 
 import (
+	"context"
 	"strings"
 
 	"cercano/source/server/internal/chatgptauth"
@@ -25,10 +26,17 @@ func (s *Server) StartChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream p
 }
 
 func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream proto.Agent_StartChatGPTLoginServer, reauthenticate bool, flow chatgptauth.Flow) error {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	// Prepared hosts refuse before touching the request or stream.
+	if !s.ordinaryGeneration {
+		if _, _, err := s.beginOrdinaryServiceWork(context.Background(), ""); err != nil {
+			return err
+		}
+	}
+	ctx, work, err := s.beginOrdinaryServiceWork(stream.Context(), "")
+	if err != nil {
 		return err
 	}
-	ctx := stream.Context()
+	defer work.finish()
 	st := s.cfgSvc.Secrets()
 	if st == nil {
 		return sendChatGPTLoginResult(stream, false, "", "", "keychain unavailable")
@@ -75,6 +83,8 @@ func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream pro
 	if err != nil {
 		return sendChatGPTLoginResult(stream, false, profile, "", loginStageFailure("ChatGPT", "credential encoding", err))
 	}
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
 	result, err := login.Commit(encoded, ts.Identity)
 	if err != nil {
 		return sendChatGPTLoginResult(stream, false, profile, "", loginStageFailure("ChatGPT", "credential saving", err))
@@ -84,11 +94,9 @@ func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream pro
 		// Rebind referenced accounts without changing their routing settings.
 		if result.Active && s.providerSvc != nil && s.providerSvc.Cloud() == nil {
 			if err := s.rebuildCloud(); err != nil {
-				s.persistConfig()
-				return sendChatGPTLoginResult(stream, false, profile, ts.AccountID, loginStageFailure("ChatGPT", "provider activation", err))
+				return sendChatGPTLoginResult(stream, false, profile, ts.AccountID, loginStageFailure("ChatGPT", "configuration saved but provider not activated", err))
 			}
 		}
-		s.persistConfig()
 		return sendChatGPTLoginResult(stream, true, profile, ts.AccountID, "")
 	}
 	isActive := result.Active
@@ -98,12 +106,10 @@ func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream pro
 
 	if isActive {
 		if err := s.rebuildCloud(); err != nil {
-			s.persistConfig()
-			return sendChatGPTLoginResult(stream, false, profile, ts.AccountID, loginStageFailure("ChatGPT", "provider activation", err))
+			return sendChatGPTLoginResult(stream, false, profile, ts.AccountID, loginStageFailure("ChatGPT", "configuration saved but provider not activated", err))
 		}
 		s.broadcastConfigChanged("cloud_model", np.Model)
 	}
-	s.persistConfig()
 	return sendChatGPTLoginResult(stream, true, profile, ts.AccountID, "")
 }
 

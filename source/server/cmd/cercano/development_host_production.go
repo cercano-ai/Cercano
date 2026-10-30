@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"cercano/source/server/internal/agent"
 	projectctx "cercano/source/server/internal/context"
@@ -15,35 +17,33 @@ import (
 	"cercano/source/server/internal/engine"
 	llamaengine "cercano/source/server/internal/engine/llamaserver"
 	mistralengine "cercano/source/server/internal/engine/mistralrs"
+	"cercano/source/server/internal/hostsvc/providers"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/localruntime"
 	"cercano/source/server/internal/locus"
-	"cercano/source/server/internal/loop"
+	"cercano/source/server/internal/loopcompact"
 	"cercano/source/server/internal/modelhost"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/server"
-	"cercano/source/server/internal/tools"
 	"cercano/source/server/internal/toolstack"
 	"cercano/source/server/internal/worker"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/devhostauth"
-	"google.golang.org/adk/session"
-	"gopkg.in/yaml.v3"
 )
 
 // Invocation-local seams: tests never open a native credential backend or attach
 // to a real runtime. There are deliberately no environment-selected fixtures.
 type developmentProductionDependencies struct {
+	accounting      productionAccountingDependencies
+	watchdog        server.WatchdogDependencies
+	cloudBuilder    providers.CloudBuilder
+	mcp             productionMCPDependencies
 	openSecrets     func() (secrets.Store, error)
-	connectRuntime  func(context.Context, config.Config, string, string) (localruntime.Manager, func(), error)
+	connectRuntime  func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error)
 	newOpenProvider func(localruntime.Manager, config.Config) (inference.Provider, error)
 }
 
-func newProductionDevelopmentHost(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth) (*server.Server, func(), error) {
-	return newProductionDevelopmentHostWithDependencies(ctx, o, auth, developmentProductionDefaults())
-}
-
-func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, state, host string) (localruntime.Manager, func(), error) {
+func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, state, host string) (localruntime.Manager, func() error, error) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv(modelHostEnv)), "inprocess") {
 		return nil, nil, fmt.Errorf("development host requires protected shared modelhost; inprocess is forbidden")
 	}
@@ -75,34 +75,32 @@ func connectDevelopmentRuntime(ctx context.Context, cfg config.Config, state, ho
 		return nil, nil, fmt.Errorf("attach protected modelhost (no launch/replacement/fallback): %w", err)
 	}
 	remote.SetEndpoints(localruntime.EndpointsFromConfig(cfg, openChatModel(cfg), openEmbeddingModel(cfg)))
-	return remote, func() { _ = remote.Close() }, nil
+	return remote, remote.Close, nil
 }
 
-func newProductionDevelopmentHostWithDependencies(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth, deps developmentProductionDependencies) (_ *server.Server, _ func(), err error) {
-	// Repeat the read-only contract check so even direct internal callers cannot
-	// enter the credential/runtime dependencies before preflight.
-	database := filepath.Join(o.State, "conversations.db")
-	if err := conversation.PreflightCoexistence(ctx, database, conversation.DevelopmentCoexistenceDeclaration()); err != nil {
+func newProductionDevelopmentHostWithDependencies(ctx context.Context, o developmentHostOptions, auth *devhostauth.Auth, deps developmentProductionDependencies) (_ *server.Server, pending *preparedShutdown, err error) {
+	// Consume the launcher's validated admission before config loading or any
+	// dependencies. Direct callers cannot manufacture admission from paths.
+	admission := o.startupAdmission
+	if err := admission.validateDevelopmentBinding(o); err != nil {
 		return nil, nil, err
 	}
+	database := admission.paths.conversations
 	if o.Identity == nil || auth == nil || deps.openSecrets == nil {
 		return nil, nil, fmt.Errorf("prepared identity, auth and dependencies required")
 	}
-	configPath := filepath.Join(o.State, "config.yaml")
-	data, err := os.ReadFile(configPath)
+	configPath, err := developmentConfigAuthority(o.State, admission.paths.config)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Intentionally not config.Load: that merges machine environment overrides
-	// and migrates legacy profiles. This host consumes only the prepared snapshot.
-	cfg := config.Defaults()
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, nil, fmt.Errorf("prepared config: %w", err)
+	// Ordinary loading retains the coordinator baseline and supported overrides.
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return nil, nil, err
 	}
 	if err := validateDevelopmentCloudProfiles(cfg); err != nil {
 		return nil, nil, err
 	}
-	cfg = cfg.WithSharedReadOnly()
 	if _, err := locus.ParseMode(cfg.LocusMode); err != nil {
 		return nil, nil, fmt.Errorf("prepared locus_mode: %w", err)
 	}
@@ -120,7 +118,32 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	if !config.ValidateToolLoopMaxIterations(cfg.ToolLoop.MaxIterations) {
 		return nil, nil, fmt.Errorf("invalid tool loop iteration limit")
 	}
-	st, err := deps.openSecrets()
+	policy, err := worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: o.Generation, ManifestPath: filepath.Join(o.Generation, "manifest.json"), HostInstance: o.Host, ResourceRoot: o.RuntimeRoot})
+	if err != nil {
+		return nil, nil, err
+	}
+	executionPolicy := productionExecutionPolicy{prepared: &policy}
+
+	// Use the admitted configuration authority, never the ambient user's policy.
+	// The ordinary store coordinates fresh-read mutations and rereads at each
+	// gate; malformed existing policy must fail before opening dependencies.
+	permissionsPath := filepath.Join(filepath.Dir(configPath), "permissions.yaml")
+	permissions, err := agent.LoadPermissionStore(permissionsPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("prepared permissions: %w", err)
+	}
+	if _, err := os.Stat(permissionsPath); os.IsNotExist(err) {
+		// A prepared snapshot without an explicitly supplied policy retains
+		// its strict default; do not silently adopt ordinary permissive mode.
+		permissions = agent.NewStaticPermissionStore(agent.ModeStrict)
+	} else if err != nil {
+		return nil, nil, fmt.Errorf("prepared permissions: %w", err)
+	}
+
+	if err := executionPolicy.validate(); err != nil {
+		return nil, nil, err
+	}
+	st, err := (productionCredentialDependencies{openSecrets: deps.openSecrets}).open(secrets.Options{ReadOnly: true})
 	if err != nil {
 		return nil, nil, fmt.Errorf("open read-only credentials: %w", err)
 	}
@@ -129,7 +152,53 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	}
 	st = secrets.Guard(st, secrets.Options{ReadOnly: true})
 	var manager localruntime.Manager
-	closeRuntime := func() {}
+	closeRuntime := func() error { return nil }
+	closeMCP := func() {}
+	closeAccounting := func() error { return nil }
+	stopPermissionWatcher := func() {}
+	var store conversation.Store
+	var constructorRollback func() error
+	resources := newPreparedShutdown(nil, func() error {
+		stopPermissionWatcher()
+		closeMCP()
+		var err error
+		if closeRuntime != nil {
+			err = closeRuntime()
+		}
+		return errors.Join(err, closeAccounting())
+	})
+	ctx, cancel := context.WithCancel(ctx)
+	var ownedServer *server.Server
+	cleanup := newPreparedShutdown(func() {
+		if ownedServer != nil {
+			ownedServer.FenceBackgroundWork()
+		}
+	}, func() error {
+		cancel()
+		var shutdownErr error
+		if ownedServer != nil {
+			ownedServer.BeginShutdown()
+			ownedServer.WaitForWatchers()
+			shutdownErr = ownedServer.Shutdown()
+		}
+		err := shutdownErr
+		if constructorRollback != nil {
+			// A partially constructed server may already own producers. Join
+			// those before closing their accounting/runtime dependencies too.
+			err = errors.Join(err, constructorRollback())
+		}
+		err = errors.Join(err, resources.Wait(context.Background()))
+		if ownedServer != nil {
+			err = errors.Join(err, ownedServer.CloseCoexistenceStore())
+		}
+		return err
+	})
+	defer func() {
+		if err != nil {
+			pending = cleanup
+			err = finishPreparedShutdown(cleanup, err)
+		}
+	}()
 	if local {
 		if deps.connectRuntime == nil {
 			return nil, nil, fmt.Errorf("local runtime connector required")
@@ -139,27 +208,9 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 			return nil, nil, err
 		}
 		if manager == nil || closeRuntime == nil {
-			if closeRuntime != nil {
-				closeRuntime()
-			}
 			return nil, nil, fmt.Errorf("runtime connector returned incomplete dependencies")
 		}
 	}
-	var store conversation.Store
-	var once sync.Once
-	cleanup := func() {
-		once.Do(func() {
-			closeRuntime()
-			if store != nil {
-				_ = store.Close()
-			}
-		})
-	}
-	defer func() {
-		if err != nil {
-			cleanup()
-		}
-	}()
 	registry := engine.NewEngineRegistry()
 	var open inference.Provider
 	var embedder engine.EmbeddingService
@@ -193,44 +244,71 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	}
 	cloud := agent.AbsentCloud("prepared cloud profile not configured")
 	cloudFactory := developmentCloudFactory(cfg, st)
-	sessions := session.InMemoryService()
-	coordinator := loop.NewADKCoordinator(openRunner, cloud, tools.NewAutoValidator(tools.DefaultLoader(), tools.DefaultKindToValidator()), sessions)
-	router := agent.NewLazyRouter(func() (*agent.SmartRouter, error) {
-		if !local {
-			return nil, fmt.Errorf("cloud_only requires configured managed routing; local embedding classification is disabled")
-		}
-		return agent.NewSmartRouterFromBytes(openRunner, cloud, openEmbeddingModel(cfg), embedder, agent.DefaultPrototypes(), cloudFactory)
-	}, openRunner, cloud)
-	loader := projectctx.NewLoader()
+	routing := composeProductionRouting(productionRoutingDependencies{
+		open: openRunner, cloud: cloud, cloudFactory: cloudFactory,
+		embeddingModel: openEmbeddingModel(cfg), embedder: embedder, classificationDisabled: !local,
+	})
+
+	var loader *projectctx.Loader
 	var orchestrator *agent.Agent
 	diagnostics := filepath.Join(o.State, "hosts", o.Host)
 	if err := os.MkdirAll(diagnostics, 0700); err != nil {
 		return nil, nil, err
 	}
-	srv, err := server.NewPreparedDurableServer(ctx, server.PreparedServerOptions{
-		Coexistence: server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(context.Context) error { cleanup(); return nil }},
-		Config:      cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
+	schedulingDeps := productionSchedulingDependencies{
+		recapRunner: openRunner,
+		loop:        loopcompact.WiringDeps{Cfg: cfg, ChatModel: openChatModel(cfg), Candidates: func() inference.Tiers { return ownedServer.DispatchCandidates() }},
+	}
+	if id, ok := openTierModelOK(cfg, config.TierFastLightText); ok {
+		schedulingDeps.recapModel = id
+	}
+	if local {
+		schedulingDeps.loop.OpenRuntimeContext = llamaengine.NewEngine(manager).RuntimeContext
+	}
+	accounting := deps.accounting
+	if accounting.open == nil {
+		accounting = productionAccountingDefaults()
+	}
+	collector, drainAccounting, err := composeProductionAccounting(admission, o.Host, accounting)
+	if err != nil {
+		return nil, nil, fmt.Errorf("prepared accounting: %w", err)
+	}
+	closeAccounting = drainAccounting
+	accountingSinks := toolstack.EngineDeps{UsageSink: server.UsageEventSink(collector.Emit), AttemptSink: collector.EmitAttempt}
+	schedulingOptions := ordinarySchedulingOptions()
+	schedulingOptions.attempts = accountingSinks.AttemptSink
+	srv, err := newProductionPreparedServer(ctx, server.PreparedServerOptions{
+		RetainFailure:    func(dispose func() error) { constructorRollback = dispose },
+		WritableSettings: true,
+		Watchdog:         deps.watchdog,
+		CloudBuilder:     deps.cloudBuilder,
+		Coexistence:      server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(ctx context.Context) error { return resources.Wait(ctx) }},
+		Config:           cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
 		Agent: func(prepared conversation.Store) (*agent.Agent, error) {
-			store = prepared
-			orchestrator = agent.NewAgent(router, coordinator, agent.WithPersistentStore(prepared), agent.WithConversationStore(agent.NewConversationStore(sessions, 3)), agent.WithContextLoader(loader))
-			return orchestrator, nil
+			store, err = admission.conversationStore(prepared, nil)
+			if err != nil {
+				return nil, err
+			}
+			orchestrator, loader, err = composeProductionAgent(routing, store, cfg, productionScheduling{})
+			return orchestrator, err
 		},
-	}, router, coordinator, cloudFactory, registry)
+	}, routing, cloudFactory, registry, schedulingDeps, schedulingOptions)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() {
-		if err != nil {
-			srv.Shutdown()
-		}
-	}()
+	ownedServer = srv
+	srv.SetUsageSink(accountingSinks.UsageSink)
+	srv.SetAccountingCollector(collector)
 	srv.SetBuildVersion(version)
 	srv.SetRuntimeManager(manager)
-	srv.SetContextLoader(loader)
-	orchestrator.SetLocusModeGetter(srv.LocusMode)
-	// Prepared hosts must not load/watch the legacy permissions file. Start
-	// conservatively with session-local decisions and no persisted allowlist.
-	srv.SetPermissions(agent.NewStaticPermissionStore(agent.ModeStrict), agent.NewPendingDecisions())
+	bindProductionAgent(srv, orchestrator, loader, permissions, agent.NewPendingDecisions())
+	stopPermissionWatcher = func() {
+		cancel()
+		srv.WaitForWatchers()
+	}
+	if err := srv.StartPermissionWatcher(ctx, permissionsPath); err != nil {
+		return nil, nil, fmt.Errorf("prepared permission watcher: %w", err)
+	}
 	srv.SetOpenLLMProvider(open)
 	if setFailureLog != nil {
 		setFailureLog(srv)
@@ -243,19 +321,19 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 	} else if cfg.LocusMode != "open_only" {
 		return nil, nil, fmt.Errorf("cloud routing selected without an active prepared cloud profile")
 	}
-	dispatch := toolstack.NewEngine(toolstack.EngineDeps{
-		Providers: srv.DispatchCandidates, LocusMode: func() locus.Mode { m, _ := locus.ParseMode(srv.LocusMode()); return m }, CtxLoader: loader,
-		ModelFor: srv.DispatchModelFor, TaskAssignment: srv.TaskAssignment, DestinationModelFor: srv.DestinationModelFor,
-	})
-	orchestrator.SetDispatchEngine(dispatch)
-	srv.SetDispatchEngine(dispatch)
-	srv.InstallCapabilities()
-	policy, err := worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: o.Generation, ManifestPath: filepath.Join(o.Generation, "manifest.json"), HostInstance: o.Host, ResourceRoot: o.RuntimeRoot})
+	if err = composeProductionServices(srv, orchestrator, loader, accountingSinks, executionPolicy); err != nil {
+		return nil, nil, err
+	}
+	mcpCleanup, err := composeProductionMCP(srv, filepath.Dir(configPath), deps.mcp, executionPolicy)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err = srv.ConfigurePreparedWorker(policy); err != nil {
+	closeMCP = mcpCleanup
+	if err = executionPolicy.install(srv); err != nil {
 		return nil, nil, err
+	}
+	if err := srv.StartConfigWatcher(ctx, configPath); err != nil {
+		return nil, nil, fmt.Errorf("prepared config watcher: %w", err)
 	}
 	return srv, cleanup, nil
 }

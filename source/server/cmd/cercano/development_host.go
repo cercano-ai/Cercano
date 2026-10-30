@@ -22,23 +22,26 @@ import (
 )
 
 type developmentHostSelection struct {
-	Endpoint     string
-	TokenFile    string
-	Identity     *proto.LifecycleIdentity
-	Conversation string
-	Epoch        string
+	ConfigAuthority string
+	Endpoint        string
+	TokenFile       string
+	Identity        *proto.LifecycleIdentity
+	Conversation    string
+	Epoch           string
 }
 type developmentHostOptions struct {
 	State, Generation, Host, TokenFile, Record, RuntimeRoot, Listen string
+	ConfigAuthority                                                 string
 	Identity                                                        *proto.LifecycleIdentity
+	startupAdmission                                                productionStartupAdmission
 }
 
 // Factory injection is invocation-local, never an environment switch. Preflight
 // and executable verification run before any dependency factory is entered.
-type developmentHostFactory func(context.Context, developmentHostOptions, *devhostauth.Auth) (*server.Server, func(), error)
+type developmentHostFactory func(context.Context, developmentHostOptions, *devhostauth.Auth) (*server.Server, *preparedShutdown, error)
 
 func runDevelopmentHost(ctx context.Context, args []string, out io.Writer) error {
-	return runDevelopmentHostWithFactory(ctx, args, out, newProductionDevelopmentHost)
+	return retainPreparedShutdown(runDevelopmentHostWithFactory(ctx, args, out, nil))
 }
 func developmentPrivatePath(p string, directory bool) error {
 	if !filepath.IsAbs(p) || filepath.Clean(p) != p {
@@ -60,10 +63,11 @@ func developmentPrivatePath(p string, directory bool) error {
 	}
 	return nil
 }
-func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Writer, factory developmentHostFactory) error {
+func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Writer, factory developmentHostFactory) (result error) {
 	var o developmentHostOptions
 	fs := flag.NewFlagSet("development-host", flag.ContinueOnError)
 	fs.SetOutput(out)
+	fs.StringVar(&o.ConfigAuthority, "config-authority", "", "absolute isolated config authority (adjacent MCP and permissions)")
 	fs.StringVar(&o.State, "state", "", "absolute prepared private state")
 	fs.StringVar(&o.Generation, "generation", "", "absolute immutable published generation")
 	fs.StringVar(&o.Host, "host", "", "exact host instance")
@@ -131,7 +135,11 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		return fmt.Errorf("published executable digest mismatch")
 	}
 	database := filepath.Join(o.State, "conversations.db")
-	for _, p := range []string{database, filepath.Join(o.State, "config.yaml")} {
+	o.ConfigAuthority, err = developmentConfigAuthority(o.State, o.ConfigAuthority)
+	if err != nil {
+		return err
+	}
+	for _, p := range []string{database, o.ConfigAuthority} {
 		if err := developmentPrivatePath(p, false); err != nil {
 			return err
 		}
@@ -150,29 +158,36 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		return err
 	}
 	o.Identity = &proto.LifecycleIdentity{Build: manifest.Build, Host: o.Host, Store: database, Contract: contract.Contract, Schema: int32(contract.SchemaVersion)}
+	// Hand off exactly this invocation's completed validation; canonical startup
+	// remains disabled and the constructor must match these options before load.
+	binding := developmentBinding(o)
+	o.startupAdmission = productionStartupAdmission{
+		paths:               productionAuthorityPaths{config: o.ConfigAuthority, conversations: database},
+		generationPreflight: true, bounded: &binding,
+	}
+	if err := o.startupAdmission.validateDevelopmentBinding(o); err != nil {
+		return err
+	}
 	auth, err := devhostauth.Load(o.Host, o.TokenFile)
 	if err != nil {
 		return err
 	}
-	srv, closeDependencies, err := factory(ctx, o, auth)
-	if err != nil {
-		return err
+	if factory == nil {
+		return runOrdinaryGenerationHost(ctx, o, auth, out)
 	}
-	if closeDependencies != nil {
-		defer closeDependencies()
+	srv, dependencies, err := factory(ctx, o, auth)
+	if err != nil {
+		return finishPreparedShutdown(dependencies, err)
 	}
 	if srv == nil {
-		return fmt.Errorf("dependency factory returned no server")
+		return finishPreparedShutdown(dependencies, fmt.Errorf("dependency factory returned no server"))
 	}
-	defer srv.Shutdown()
-	transport := grpc.NewServer(auth.ServerOptions()...)
-	proto.RegisterAgentServer(transport, srv)
-	defer transport.Stop()
+	transport, shutdown := newDevelopmentHostTransport(srv, dependencies, auth)
+	defer func() { result = finishPreparedShutdown(shutdown, result) }()
 	listener, err := net.Listen("tcp", o.Listen)
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
 	done := make(chan error, 1)
 	go func() { done <- transport.Serve(listener) }()
 	endpoint := listener.Addr().String()
@@ -183,18 +198,50 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		return fmt.Errorf("authenticated readiness: %w", err)
 	}
 	conn.Close()
-	record := developmentHostSelection{Endpoint: endpoint, TokenFile: o.TokenFile, Identity: o.Identity}
+	stopWatch := watchCurrentTarget(ctx, filepath.Dir(o.Identity.Store), o.Identity, srv.RetireCoexistence)
+	defer stopWatch()
+	record := developmentHostSelection{ConfigAuthority: o.ConfigAuthority, Endpoint: endpoint, TokenFile: o.TokenFile, Identity: o.Identity}
 	if err := publishDevelopmentRecord(o.Record, record); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "development-host ready %s build=%s host=%s\n", endpoint, manifest.Build, o.Host)
+	return waitDevelopmentHost(ctx, done, srv.CoexistenceRetired())
+}
+
+// Retirement wakes the same owner that handles cancellation and Serve failure.
+// Its prepared shutdown drains admission and GracefulStop drains the final RPC
+// response; the retirement worker itself must not stop the transport.
+func waitDevelopmentHost(ctx context.Context, served <-chan error, retired <-chan struct{}) error {
 	select {
 	case <-ctx.Done():
 		return nil
-	case err := <-done:
+	case err := <-served:
 		return err
+	case <-retired:
+		return nil
 	}
 }
+
+func newDevelopmentHostTransport(srv *server.Server, dependencies *preparedShutdown, auth *devhostauth.Auth) (*grpc.Server, *preparedShutdown) {
+	gate := newProductionAdmissionGate()
+	transport := grpc.NewServer(append(auth.ServerOptions(), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream))...)
+	proto.RegisterAgentServer(transport, srv)
+	shutdown := newPreparedShutdown(func() { gate.close(); srv.FenceBackgroundWork() }, func() error {
+		srv.BeginShutdown()
+		gate.drain()
+		var err error
+		if dependencies != nil {
+			err = dependencies.Wait(context.Background())
+		} else {
+			err = srv.Shutdown()
+		}
+		transport.GracefulStop()
+		return err
+	})
+	srv.SetShutdownControl(shutdown.Control)
+	return transport, shutdown
+}
+
 func developmentDialIdentity(ctx context.Context, endpoint string, auth *devhostauth.Auth, want *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
 	if !devLoopback(endpoint) || want == nil {
 		return nil, fmt.Errorf("invalid peer identity or endpoint")

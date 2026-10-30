@@ -65,6 +65,9 @@ type Service interface {
 	// Persist current config to disk; rejects frozen services even if path is empty.
 	// Otherwise a missing path is a no-op, and file errors are returned.
 	Persist() error
+
+	// SaveAndSet publishes a draft before applying live state or canceling logins.
+	SaveAndSet(cfg.Config) error
 }
 
 type svc struct {
@@ -159,7 +162,10 @@ func (s *svc) SetSecrets(st secrets.Store) error {
 	}
 	s.mu.Lock()
 	if st != s.credentials {
-		s.credentials.ReplaceStore(st)
+		if err := s.credentials.ReplaceStore(st); err != nil {
+			s.mu.Unlock()
+			return err
+		}
 		s.store = st
 	}
 	s.mu.Unlock()
@@ -304,13 +310,33 @@ func (s *svc) Persist() error {
 	if s.frozen {
 		return ErrFrozen
 	}
-	s.mu.RLock()
-	c := s.current.Clone()
-	p := s.path
-	s.mu.RUnlock()
-	if p != "" {
-		return cfg.Save(c, p)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveAndSetLocked(s.current)
+}
+
+func (s *svc) SaveAndSet(c cfg.Config) error {
+	if s.frozen {
+		return ErrFrozen
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveAndSetLocked(c)
+}
+
+func (s *svc) saveAndSetLocked(c cfg.Config) error {
+	if err := c.LlamaServer.Validate(); err != nil {
+		return err
+	}
+	if s.path != "" {
+		next, err := cfg.SaveSnapshot(c, s.path, c.Snapshot())
+		if err != nil {
+			return err
+		}
+		c = c.WithSnapshot(next)
+	}
+	s.cancelChangedLogins(c.CloudProfiles)
+	s.current = c.Clone()
 	return nil
 }
 

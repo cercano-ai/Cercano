@@ -27,10 +27,17 @@ import (
 // terminal frame rather than an RPC error so the client's log pane stays the
 // single source of truth for user-visible outcomes.
 func (s *Server) InstallOpenRuntime(req *proto.InstallOpenRuntimeRequest, stream proto.Agent_InstallOpenRuntimeServer) error {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	// Prepared hosts refuse before touching the request or stream.
+	if !s.ordinaryGeneration {
+		if _, _, err := s.beginOrdinaryServiceWork(context.Background(), ""); err != nil {
+			return err
+		}
+	}
+	ctx, work, err := s.beginOrdinaryServiceWork(stream.Context(), "")
+	if err != nil {
 		return err
 	}
-	ctx := stream.Context()
+	defer work.finish()
 
 	if req.GetRuntime() != "llama_server" {
 		return sendTerminalFrame(stream, false, fmt.Sprintf("install not supported for runtime %q (only llama_server)", req.GetRuntime()))
@@ -56,17 +63,14 @@ func (s *Server) InstallOpenRuntime(req *proto.InstallOpenRuntimeRequest, stream
 	cfgCopy := s.cfgSvc.Get()
 	if err := llamaserver.Detect(ctx, &cfgCopy.LlamaServer); err != nil {
 		// Write back the partial detect result so the status shows it.
-		if setErr := s.cfgSvc.Set(cfgCopy); setErr != nil {
+		if setErr := s.publishDetectedRuntime(cfgCopy); setErr != nil {
 			return sendTerminalFrame(stream, false, setErr.Error())
 		}
 		s.broadcastOpenRuntimeStatus(buildOpenRuntimeStatusFromDetectError(cfgCopy, err))
 		return sendTerminalFrame(stream, false, fmt.Sprintf("install completed but detection still fails: %v", err))
 	}
-	if setErr := s.cfgSvc.Set(cfgCopy); setErr != nil {
+	if setErr := s.publishDetectedRuntime(cfgCopy); setErr != nil {
 		return sendTerminalFrame(stream, false, setErr.Error())
-	}
-	if err := s.cfgSvc.Persist(); err != nil {
-		return sendTerminalFrame(stream, false, err.Error())
 	}
 	s.broadcastOpenRuntimeStatus(s.openRuntimeStatus(ctx, cfgCopy, "llama_server"))
 	return sendTerminalFrame(stream, true, "")
@@ -118,4 +122,12 @@ func (s *Server) GetOpenRuntimeStatus(ctx context.Context, req *proto.GetOpenRun
 	return &proto.GetOpenRuntimeStatusResponse{
 		Status: s.openRuntimeStatus(ctx, cfg, req.GetRuntime()),
 	}, nil
+}
+
+// publishDetectedRuntime separates config publication from installation, which
+// has already completed and is not rolled back on a publication conflict.
+func (s *Server) publishDetectedRuntime(candidate config.Config) error {
+	s.configApplyMu.Lock()
+	defer s.configApplyMu.Unlock()
+	return s.cfgSvc.SaveAndSet(candidate)
 }

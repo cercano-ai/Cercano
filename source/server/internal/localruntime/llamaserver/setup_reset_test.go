@@ -44,12 +44,17 @@ func TestSetupResetRediscoversPreservedDefaultDownloads(t *testing.T) {
 	custom := filepath.Join(home, "custom-models")
 	os.MkdirAll(custom, 0700)
 	os.WriteFile(filepath.Join(custom, "keep.gguf"), []byte("custom-bytes"), 0600)
-	c := config.Defaults()
+	path := filepath.Join(home, "config.yaml")
+	c, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	c.LlamaServer.ModelDirs = []string{custom}
 	c.OpenModel = "old-choice"
-	path := filepath.Join(home, "config.yaml")
-	if err := config.Save(c, path); err != nil {
+	if next, err := config.SaveSnapshot(c, path, c.Snapshot()); err != nil {
 		t.Fatal(err)
+	} else {
+		c = c.WithSnapshot(next)
 	}
 	result, err := setupreset.Reset(context.Background(), path, secrets.NewMemory(), nil)
 	if err != nil {

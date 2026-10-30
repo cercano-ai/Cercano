@@ -116,7 +116,13 @@ func connect(t *testing.T, cfg config.Config, events *crashlog.Writer) (localrun
 		t.Fatal("connectRuntimeManager returned a nil close function")
 	}
 	var once sync.Once
-	closeOnce := func() { once.Do(closeFn) }
+	closeOnce := func() {
+		once.Do(func() {
+			if err := closeFn(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
 	t.Cleanup(closeOnce)
 	return m, closeOnce
 }

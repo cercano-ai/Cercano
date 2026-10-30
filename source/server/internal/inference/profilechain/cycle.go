@@ -2,6 +2,7 @@ package profilechain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -44,9 +45,14 @@ func StateOf(p inference.Provider) *CycleState {
 	return nil
 }
 
+// ErrPrimaryAbsent distinguishes an intentionally unbound Primary from a failed
+// provider construction. Rebuilders still install the absent-cloud sentinel;
+// callers explicitly clearing a binding can recognize that expected outcome.
+var ErrPrimaryAbsent = errors.New("primary has no preferred profile")
+
 func BuildPrimary(c config.Config, build Builder, state *CycleState, events ...func(resilience.Event)) (inference.Provider, error) {
 	if c.ActiveCloudProfile == "" {
-		return nil, fmt.Errorf("primary has no preferred profile")
+		return nil, ErrPrimaryAbsent
 	}
 	if state == nil {
 		state = &CycleState{}

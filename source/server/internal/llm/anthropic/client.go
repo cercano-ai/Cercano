@@ -11,15 +11,22 @@ import (
 
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/llm"
-	"cercano/source/server/internal/modelpolicy"
+	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/usage"
 )
 
 type Config struct {
-	BaseURL   string
-	APIKey    string
-	Model     string
-	UserAgent string
+	// BaseTransport is an invocation-local wire dependency, installed beneath all
+	// authentication, policy and replay wrappers before SDK service construction.
+	// Nil retains the production transport defaults.
+	BaseTransport http.RoundTripper
+	// Credentials is a per-HTTP-attempt authority, never reusable auth material.
+	Credentials       secrets.RequestCredentials
+	CredentialProfile string
+	BaseURL           string
+	APIKey            string
+	Model             string
+	UserAgent         string
 	// Route names the access path and selects the request authenticator
 	// (see auth.go):
 	//   "" / "direct"  → vanilla Anthropic API; the SDK's x-api-key stands.
@@ -73,8 +80,17 @@ func (s *modelSet) Store(k string) {
 }
 
 func NewClient(cfg Config) *Client {
+	return newClientWithFallback(cfg, nil)
+}
+
+// fallback is invocation-local and used only when no wire was supplied.
+// Tests substitute a non-dialing trap for the explicit production fallback.
+func newClientWithFallback(cfg Config, fallback http.RoundTripper) *Client {
+	if cfg.BaseTransport == nil && fallback != nil {
+		cfg.BaseTransport = fallback
+	}
 	apiKey := cfg.APIKey
-	if apiKey == "" {
+	if apiKey == "" || cfg.Credentials != nil {
 		apiKey = "dummy"
 	}
 	// Retries are OWNED by the resilience engine above this adapter, where
@@ -83,12 +99,14 @@ func NewClient(cfg Config) *Client {
 	// sleeps inside the request — a silent multi-minute hang that no layer
 	// above can observe (the 2026-07-16 quota incident).
 	opts := []option.RequestOption{option.WithAPIKey(apiKey), option.WithMaxRetries(0)}
-	if cfg.BaseURL != "" {
+	if cfg.Route == RouteSubscription && cfg.Credentials != nil {
+		// Coordinated subscription bearers must never follow cfg or SDK env overrides.
+		cfg.BaseURL = "https://api.anthropic.com"
+		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+	} else if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 	}
-	httpClient := modelpolicy.Client(&http.Client{}, "anthropic", "external", modelpolicy.Anthropic)
-	// Authorize after credential refresh, immediately before the physical send.
-	httpClient.Transport = &authRoundTripper{base: httpClient.Transport, ua: cfg.UserAgent, auth: authenticatorForRoute(cfg)}
+	httpClient := messagesHTTPClient(cfg)
 	opts = append(opts, option.WithHTTPClient(httpClient))
 	c := sdk.NewClient(opts...)
 	return &Client{cfg: cfg, sdk: &c, systemPrefix: systemPrefixForRoute(cfg.Route)}

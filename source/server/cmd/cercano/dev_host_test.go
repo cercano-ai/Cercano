@@ -63,18 +63,13 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempRoot)
-	if execution {
-		defer func() {
-			if t.Failed() {
-				paths, _ := filepath.Glob(filepath.Join(tempRoot, "w-*", "*.log"))
-				for _, p := range paths {
-					b, _ := os.ReadFile(p)
-					t.Logf("worker log: %s", b)
-				}
-			}
-		}()
-	}
+	defer func() {
+		if t.Failed() {
+			t.Logf("private failure artifacts retained: %s", tempRoot)
+		} else {
+			os.RemoveAll(tempRoot)
+		}
+	}()
 	root, err := filepath.EvalSymlinks(tempRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +78,7 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 		t.Fatal(err)
 	}
 	generation := filepath.Join(root, "generation")
-	for _, d := range []string{generation, filepath.Join(root, "home"), filepath.Join(root, "tmp"), filepath.Join(root, "config")} {
+	for _, d := range []string{generation, filepath.Join(root, "home"), filepath.Join(root, "tmp"), filepath.Join(root, "config"), filepath.Join(root, "cache"), filepath.Join(root, "data")} {
 		if err := os.Mkdir(d, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -93,7 +88,7 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 	if execution {
 		build.Args = append(build.Args[:2], append([]string{"-tags=devhostfixture"}, build.Args[2:]...)...)
 	}
-	if b, e := build.CombinedOutput(); e != nil {
+	if b, e := devHostBuild(t, build, root); e != nil {
 		t.Fatalf("compile: %v\n%s", e, b)
 	}
 	b, err := os.ReadFile(binary)
@@ -190,9 +185,20 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 	if err := modelhost.WriteRecord(modelDir, modelhost.Record{PID: os.Getpid(), Addr: listener.Addr().String(), Token: "fixture-modelhost-token", APIVersion: modelhost.APIVersion, Version: "fixture"}); err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		// Tagged workers have their own process groups; a host kill alone is
+		// insufficient. Only this invocation's private lease is revoked.
+		if err := os.WriteFile(filepath.Join(root, "stop"), nil, 0600); err != nil {
+			t.Error(err)
+		}
+		devHostWorkersGone(t, root)
+	}()
 	command := exec.CommandContext(ctx, binary, "dev-host", "--fixture", root, "--generation", generation, "--modelhost", modelDir, "--host", "fixture-host-exact", "--listen", "127.0.0.1:0")
 	// Deliberately do not inherit any provider, credential, config, or launch env.
-	command.Env = []string{"CERCANO_DISABLE_CREDENTIALS=1", "CERCANO_DEV_FIXTURE_BARRIER=" + root, "HOME=" + filepath.Join(root, "home"), "XDG_CONFIG_HOME=" + filepath.Join(root, "config"), "TMPDIR=" + filepath.Join(root, "tmp"), "PATH=/usr/bin:/bin"}
+	command.Env = []string{"CERCANO_DISABLE_CREDENTIALS=1", "CERCANO_DEV_FIXTURE_BARRIER=" + root, "HOME=" + filepath.Join(root, "home"), "XDG_CONFIG_HOME=" + filepath.Join(root, "config"), "TMPDIR=" + filepath.Join(root, "tmp"), "XDG_CACHE_HOME=" + filepath.Join(root, "cache"), "XDG_DATA_HOME=" + filepath.Join(root, "data"), "CERCANO_DEV_FIXTURE_STOP=" + filepath.Join(root, "stop"), "PATH=/usr/bin:/bin"}
+	if execution {
+		devHostCheckWorkerLease(t, binary, root, command.Env)
+	}
 	// The actual binary must refuse malformed/absent/enabled credentials before
 	// any modelhost entry, even with otherwise complete explicit fixture args.
 	for _, value := range []string{"", "0", "true"} {
@@ -216,8 +222,8 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 			}
 		}
 	}
-	var stderr bytes.Buffer
-	command.Stderr = &stderr
+	command.Stderr = devHostLog(t, root, "A.stderr")
+	command.WaitDelay = 2 * time.Second
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -225,15 +231,7 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		_ = command.Process.Signal(os.Interrupt)
-		if e := command.Wait(); e != nil {
-			t.Errorf("child exit: %v\n%s", e, stderr.String())
-		}
-		if t.Failed() {
-			t.Logf("host stderr: %s", stderr.String())
-		}
-	}()
+	defer devHostReap(t, command, "A")
 	lines := make(chan string, 1)
 	go func() {
 		s := bufio.NewScanner(stdout)
@@ -380,7 +378,7 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 	if execution {
 		buildB.Args = append(buildB.Args[:2], append([]string{"-tags=devhostfixture"}, buildB.Args[2:]...)...)
 	}
-	if output, err := buildB.CombinedOutput(); err != nil {
+	if output, err := devHostBuild(t, buildB, root); err != nil {
 		t.Fatalf("build B: %v %s", err, output)
 	}
 	bBytes, err := os.ReadFile(bBinary)
@@ -394,8 +392,8 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 	writeJSON(filepath.Join(bGeneration, "manifest.json"), newDevHostManifest("fixture-build-B", hex.EncodeToString(bSum[:])))
 	bCommand := exec.CommandContext(ctx, bBinary, "dev-host", "--fixture", root, "--generation", bGeneration, "--modelhost", modelDir, "--host", "fixture-host-B", "--listen", bEndpoint, "--token-file", "token-B", "--peers-file", "peers-B.json")
 	bCommand.Env = append([]string(nil), command.Env...)
-	var bStderr bytes.Buffer
-	bCommand.Stderr = &bStderr
+	bCommand.Stderr = devHostLog(t, root, "B.stderr")
+	bCommand.WaitDelay = 2 * time.Second
 	bStdout, err := bCommand.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -403,12 +401,7 @@ func testDevHostCompiled(t *testing.T, execution bool) {
 	if err := bCommand.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		_ = bCommand.Process.Signal(os.Interrupt)
-		if err := bCommand.Wait(); err != nil {
-			t.Errorf("B exit: %v %s", err, bStderr.String())
-		}
-	}()
+	defer devHostReap(t, bCommand, "B")
 	bReady := make(chan bool, 1)
 	go func() {
 		scanner := bufio.NewScanner(bStdout)

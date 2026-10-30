@@ -147,6 +147,7 @@ func TestProviderCandidatesRetainBuiltProfileIdentity(t *testing.T) {
 	c.CloudProfiles = []config.CloudProfile{{Name: "p", Flavor: "messages"}, {Name: "b", Flavor: "messages"}}
 	c.ActiveCloudProfile = "p"
 	s.cfgSvc.Set(c)
+	allowMemoryGraphFixture(t, s)
 	s.cfgSvc.Secrets().Set("p", "fixture-p")
 	s.cfgSvc.Secrets().Set("b", "fixture-b")
 	if err := s.rebuildCloud(); err != nil {
@@ -182,6 +183,7 @@ func TestProviderGraphRetainsTaskAssignmentsUntilRebuild(t *testing.T) {
 		config.TaskDispatch: {Quality: config.CostStandard},
 	}
 	s.cfgSvc.Set(c)
+	allowMemoryGraphFixture(t, s)
 	s.cfgSvc.Secrets().Set("p", "fixture-p")
 	s.cfgSvc.Secrets().Set("b", "fixture-b")
 	if err := s.rebuildCloud(); err != nil {
@@ -224,6 +226,7 @@ func TestProviderGraphConcurrentReadAndRebuild(t *testing.T) {
 	c.ActiveCloudProfile = "p"
 	c.CloudProfiles = []config.CloudProfile{{Name: "p", Flavor: "messages"}}
 	s.cfgSvc.Set(c)
+	allowMemoryGraphFixture(t, s)
 	s.cfgSvc.Secrets().Set("p", "fixture")
 	if err := s.rebuildCloud(); err != nil {
 		t.Fatal(err)

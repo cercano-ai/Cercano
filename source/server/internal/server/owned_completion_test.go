@@ -25,16 +25,26 @@ func (f ownedWakeRunner) RunTurn(ctx context.Context, _ runner.Request, _ runner
 	return f(ctx, persist)
 }
 
-func preparedWakeFixture(t *testing.T) (*Server, context.Context, broker.Owner, conversation.TaskStore) {
+func preparedWakeFixture(t *testing.T, scheduling ...PreparedSchedulingFactory) (*Server, context.Context, broker.Owner, conversation.TaskStore) {
 	t.Helper()
+	return preparedWakeFixtureWithConfig(t, config.Config{OpenRuntime: "synthetic"}, scheduling...)
+}
+
+func preparedWakeFixtureWithConfig(t *testing.T, cfg config.Config, scheduling ...PreparedSchedulingFactory) (*Server, context.Context, broker.Owner, conversation.TaskStore) {
+	t.Helper()
+	var producers PreparedSchedulingFactory
+	if len(scheduling) != 0 {
+		producers = scheduling[0]
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fixture.db")
 	if err := conversation.PrepareCoexistence(t.Context(), path); err != nil {
 		t.Fatal(err)
 	}
 	s, err := NewPreparedServer(t.Context(), PreparedServerOptions{
+		Scheduling:  producers,
 		Coexistence: CoexistenceOptions{StorePath: path, Host: "A", Build: "A", Contract: conversation.CurrentCoexistenceDeclaration(), Reload: func(context.Context, conversation.Store, *conversation.Ownership) error { return nil }, CloseParticipation: func(context.Context) error { return nil }},
-		Config:      config.Config{OpenRuntime: "synthetic"}, ConfigPath: filepath.Join(dir, "never-read"), RoutingPath: filepath.Join(dir, "routing"), FailurePath: filepath.Join(dir, "failures"),
+		Config:      cfg, ConfigPath: filepath.Join(dir, "never-read"), RoutingPath: filepath.Join(dir, "routing"), FailurePath: filepath.Join(dir, "failures"),
 		Agent: func(st conversation.Store) (*agent.Agent, error) {
 			return agent.NewAgent(nil, nil, agent.WithPersistentStore(st)), nil
 		},

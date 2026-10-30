@@ -14,11 +14,16 @@ import (
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/modelpolicy"
+	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/usage"
 )
 
 // Config holds the OpenAI client configuration.
 type Config struct {
+	Credentials       secrets.RequestCredentials
+	CredentialProfile string
+	Route             string
+	BaseTransport     http.RoundTripper
 	// PolicyProvider/PolicyPlacement identify an explicit local runtime using
 	// this wire format. Empty values mean the external OpenAI-compatible lane.
 	PolicyProvider  string
@@ -60,7 +65,11 @@ type Client struct {
 // repaired before go-openai parses them. There is no transport-level retry:
 // retry policy is owned by the resilience engine above this adapter.
 func NewClient(cfg Config) *Client {
-	c := goopenai.DefaultConfig(cfg.APIKey)
+	key := cfg.APIKey
+	if cfg.Credentials != nil {
+		key = ""
+	}
+	c := goopenai.DefaultConfig(key)
 	accountingProvider := cfg.Backend
 	if accountingProvider == "" && (cfg.BaseURL == "" || strings.TrimRight(cfg.BaseURL, "/") == strings.TrimRight(c.BaseURL, "/")) {
 		accountingProvider = "openai"
@@ -80,7 +89,16 @@ func NewClient(cfg Config) *Client {
 	if placement == "" {
 		placement = "external"
 	}
-	c.HTTPClient = &normalizingDoer{next: modelpolicy.Client(&http.Client{}, provider, placement, modelpolicy.OpenAI, cfg.PolicyModel), quirks: q, onHTTPError: cfg.OnHTTPError}
+	h := &http.Client{Transport: cfg.BaseTransport}
+	if cfg.Credentials != nil {
+		h.Transport = chatAttemptTransport(cfg.BaseTransport)
+		h.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	var next goopenai.HTTPDoer = &normalizingDoer{next: modelpolicy.Client(h, provider, placement, modelpolicy.OpenAI, cfg.PolicyModel), quirks: q, onHTTPError: cfg.OnHTTPError}
+	if cfg.Credentials != nil {
+		next = chatAttemptDoer{cfg: cfg, next: next}
+	}
+	c.HTTPClient = next
 	return &Client{accountingProvider: accountingProvider, api: goopenai.NewClientWithConfig(c), model: cfg.Model, backend: cfg.Backend, quirks: q, supportsVision: cfg.SupportsVision}
 }
 

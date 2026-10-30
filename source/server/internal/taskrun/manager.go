@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"cercano/source/server/internal/broker"
@@ -48,7 +49,7 @@ type Manager struct {
 	// notifications already pending when the wait began never replay into a
 	// busy loop.
 	waitWake map[string][]chan struct{}
-	closed   bool
+	closed   atomic.Bool
 	wg       sync.WaitGroup
 	// Notify is nonblocking host scheduling, not a turn-scoped progress callback.
 	notify      func(string)
@@ -160,7 +161,7 @@ func (m *Manager) Launch(ctx context.Context, spec dispatch.Spec) (conversation.
 	// concurrent Close cannot race WaitGroup.Add or leave an accepted task behind.
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.closed {
+	if m.closed.Load() {
 		if ticket != nil {
 			_ = ticket.Complete()
 		}
@@ -218,7 +219,7 @@ func (m *Manager) run(ctx context.Context, t conversation.TaskRecord, spec dispa
 	// Serialize explicit stop versus completion; the first terminal write wins.
 	if e.stop {
 		t.Status = "stopped"
-	} else if m.closed {
+	} else if m.closed.Load() {
 		t.Status = "interrupted"
 	}
 	if t.Status == "interrupted" && t.Error == "" {
@@ -424,9 +425,14 @@ func (m *Manager) UnresolvedTerminalOutcomes(parent string) map[string]error {
 // Success only means goroutines drained, not durable quiescence; callers must
 // also account for UnresolvedTerminalOutcomes before releasing ownership.
 // The caller must keep persistence open until this returns successfully.
+// Fence closes launch admission without cancelling or dropping active authority.
+func (m *Manager) Fence() {
+	m.closed.Store(true)
+}
+
 func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Lock()
-	m.closed = true
+	m.closed.Store(true)
 	m.cancel()
 	m.mu.Unlock()
 	done := make(chan struct{})

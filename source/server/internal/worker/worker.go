@@ -54,6 +54,8 @@ import (
 
 // WorkerServer implements the gRPC Worker service (worker-side).
 type WorkerServer struct {
+	failureLogPath      string
+	routingLogPath      string
 	prepared            bool // immutable constructor contract, independent of RPC metadata
 	managed             atomic.Bool
 	processGuard        bool
@@ -102,7 +104,7 @@ func New(options ...Option) *WorkerServer {
 }
 
 // NewPrepared creates a dedicated prepared worker; metadata cannot downgrade it.
-func NewPrepared() *WorkerServer { return New(WithPrepared()) }
+func NewPrepared(options ...Option) *WorkerServer { return New(append(options, WithPrepared())...) }
 
 // NewWithSecretStore creates an in-process worker with an explicitly supplied
 // capability credential store. It retains the full production tool stack, but
@@ -142,6 +144,8 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 		return status.Errorf(codes.InvalidArgument, "worker: first message must be StartTurn")
 	}
 
+	observeAcceptanceTurn(start)
+
 	if start.GetEnterpriseManaged() != managed {
 		return status.Error(codes.FailedPrecondition, "managed turn requires the enterprise worker protocol")
 	}
@@ -175,6 +179,12 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	var dispatchLifetime *preparedDispatchLifetime
+	md, _ := metadata.FromIncomingContext(ctx)
+	if w.prepared || len(md.Get(preparedCredentialPolicyHeader)) != 0 {
+		dispatchLifetime = &preparedDispatchLifetime{}
+		ctx = context.WithValue(ctx, preparedDispatchLifetimeKey{}, dispatchLifetime)
+	}
 
 	// Serialized sender: all outbound messages go through one goroutine.
 	sndr := newSender(stream)
@@ -400,6 +410,10 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 		result, runErr = runner.New(deps).RunTurn(ctx, req, sink, permFn, persistFn)
 	}()
 
+	if dispatchLifetime != nil {
+		runErr = errors.Join(runErr, dispatchLifetime.join())
+	}
+
 	// Flush sender before the terminal send: close blocks until the sender
 	// goroutine exits, so the direct Send below can't race it.
 	sndr.close()
@@ -434,6 +448,14 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 // ─── buildDeps ────────────────────────────────────────────────────────────────
 
 func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, credSource *streamCredentialSource, openProxy *streamOpenProvider, subPersist *streamSubagentPersist, profileCtl *streamSessionProfileController, mcpControl *streamMCPControl, autonomyLedger *streamAutonomyLedger, permStoreRef *atomic.Pointer[agent.PermissionStore], sessionModel chatroute.Control, tasks capabilities.Tasks, history conversation.HistoryReader, restart ...runtimeRestartFunc) (runner.Deps, error) {
+	if w.prepared {
+		if err := ValidatePreparedFailureLog(w.failureLogPath); err != nil {
+			return runner.Deps{}, err
+		}
+		if err := ValidatePreparedRoutingLog(w.routingLogPath); err != nil {
+			return runner.Deps{}, err
+		}
+	}
 	// Build config from snapshot.
 	cfg := ConfigFromSnapshot(start.GetConfig())
 	cfgService := cfgsvc.New("", cfg, secrets.NewMemory())
@@ -559,8 +581,15 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 		Mode:          func() locus.Mode { m, _ := locus.ParseMode(cfg.LocusMode); return m },
 	})
 
-	failureLog, err := failurelog.NewWriter("")
+	openFailureLog := failurelog.NewWriter
+	if w.prepared {
+		openFailureLog = failurelog.NewPrivateWriter
+	}
+	failureLog, err := openFailureLog(w.failureLogPath)
 	if err != nil {
+		if w.prepared {
+			return runner.Deps{}, fmt.Errorf("prepared worker open failure log: %w", err)
+		}
 		log.Printf("[failures] worker open log: %v", err)
 	}
 
@@ -614,8 +643,16 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 	// when the watchdog is disabled — the runner's live accessor (c.d.Watchdog())
 	// then yields nil, the correct default-off behavior.
 	wd := buildWorkerWatchdog(cfg, engine)
-	routeLog, err := routinglog.NewWriter("")
+	openRoutingLog := routinglog.NewWriter
+	if w.prepared {
+		openRoutingLog = routinglog.NewPrivateWriter
+	}
+	routeLog, err := openRoutingLog(w.routingLogPath)
 	if err != nil {
+		if w.prepared {
+			failureLog.Close()
+			return runner.Deps{}, fmt.Errorf("prepared worker open routing log: %w", err)
+		}
 		log.Printf("[routing] worker open log: %v", err)
 	}
 	if provSvc != nil {

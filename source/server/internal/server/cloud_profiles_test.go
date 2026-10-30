@@ -2,12 +2,18 @@ package server
 
 import (
 	"cercano/source/server/internal/credentialtest"
+	cfgsvc "cercano/source/server/internal/hostsvc/config"
+	"cercano/source/server/internal/hostsvc/providers"
 	"context"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/cloudfactory"
+	"cercano/source/server/internal/inference"
+	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
@@ -245,34 +251,86 @@ func TestRebuildCloudKeylessGoesAbsent(t *testing.T) {
 	}
 }
 
-// TestRebuildCloudKeylessBaseURLCarveout verifies Fix 1's proxy carve-out: when
-// BaseURL is set (proxy/Meridian handles auth), an empty key is acceptable and
-// the profile proceeds to BuildCloudProvider rather than going absent.
+// TestRebuildCloudKeylessBaseURLCarveout permits a keyless local proxy, but
+// still rejects a direct vendor endpoint without a key. Admission must reject
+// both before reading secrets or invoking the builder when policy is disabled.
 func TestRebuildCloudKeylessBaseURLCarveout(t *testing.T) {
-	s, r := newTestServer()
-	// Add a messages profile with a BaseURL but no key.
-	proxyProfile := config.CloudProfile{
-		Name:    "proxy-one",
-		Flavor:  cloudfactory.FlavorMessages,
-		Model:   "claude-3-5-haiku-20241022",
-		BaseURL: "http://proxy.example.com",
-	}
-	s.cfgSvc.Mutate(func(c *config.Config) {
-		c.CloudProfiles = append(c.CloudProfiles, proxyProfile)
-		c.ActiveCloudProfile = "proxy-one"
-	})
-	// No key stored — but BaseURL is set, so guard must not trigger.
+	for _, tc := range []struct {
+		name    string
+		baseURL string
+		allowed bool
+	}{
+		{name: "local proxy", baseURL: "http://127.0.0.1:3456", allowed: true},
+		{name: "remote vendor", baseURL: "https://api.anthropic.com", allowed: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+			s, r := newTestServer()
+			profile := config.CloudProfile{
+				Name: "keyless", Flavor: cloudfactory.FlavorMessages, Route: "direct",
+				Model: "claude-3-5-haiku-20241022", BaseURL: tc.baseURL,
+			}
+			s.cfgSvc.Set(config.Config{
+				ActiveCloudProfile: profile.Name,
+				CloudProfiles:      []config.CloudProfile{profile},
+			})
+			// Reuse the graph-only fake, but not allowMemoryGraphFixture: that
+			// helper seeds keys, whereas this fixture must remain keyless.
+			store := &graphFixtureSecrets{Store: secrets.NewMemory()}
+			s.cfgSvc.SetSecrets(store)
+			builds := 0
+			s.SetCloudProviderBuilder(func(got config.CloudProfile, key string, _ ...cloudfactory.Options) (inference.Provider, error) {
+				builds++
+				if got.Name != profile.Name || key != "" {
+					t.Fatalf("unexpected build: profile=%q key empty=%t", got.Name, key == "")
+				}
+				return &graphFixtureProvider{}, nil // panics on inference
+			})
+			assertAbsent := func() {
+				t.Helper()
+				if s.CloudLLMProvider() != nil {
+					t.Error("cloud provider should be absent")
+				}
+				if _, ok := r.last.(*agent.AbsentCloudProvider); !ok {
+					t.Errorf("router should hold AbsentCloudProvider, got %T", r.last)
+				}
+			}
+			if err := s.rebuildCloud(); !errors.Is(err, secrets.ErrDisabled) {
+				t.Fatalf("disabled rebuild: %v", err)
+			}
+			if builds != 0 || store.reads.Load() != 0 {
+				t.Fatalf("disabled dependencies: builds=%d reads=%d", builds, store.reads.Load())
+			}
+			assertAbsent()
 
-	err := s.rebuildCloud()
-	if err != nil {
-		t.Fatalf("rebuildCloud with BaseURL but no key should not go absent: %v", err)
-	}
-	if s.CloudLLMProvider() == nil {
-		t.Error("cloudLLMProvider should be non-nil when BaseURL carve-out applies")
-	}
-	// Router should hold a real provider, not AbsentCloudProvider.
-	if _, ok := r.last.(*agent.AbsentCloudProvider); ok {
-		t.Error("router should NOT hold AbsentCloudProvider when BaseURL carve-out applies")
+			// All dependencies are now memory/fake; no token-source routes,
+			// native opener, transport, inference or child process is involved.
+			credentialtest.Enable(t)
+			err := s.rebuildCloud()
+			if tc.allowed {
+				if err != nil {
+					t.Fatalf("keyless local proxy rebuild: %v", err)
+				}
+				if builds != 1 || s.CloudLLMProvider() == nil || r.last == nil {
+					t.Fatalf("local proxy not published: builds=%d provider=%T router=%T", builds, s.CloudLLMProvider(), r.last)
+				}
+				if _, ok := r.last.(*agent.AbsentCloudProvider); ok {
+					t.Error("local proxy router should not be absent")
+				}
+			} else {
+				var credentialErr *llm.CredentialError
+				if !errors.As(err, &credentialErr) || credentialErr.Reason != llm.CredentialMissing {
+					t.Fatalf("remote missing-key error: %v", err)
+				}
+				if builds != 0 {
+					t.Fatalf("remote missing key invoked builder %d times", builds)
+				}
+				assertAbsent()
+			}
+			if store.reads.Load() != 1 {
+				t.Fatalf("enabled memory reads=%d, want 1", store.reads.Load())
+			}
+		})
 	}
 }
 
@@ -658,4 +716,121 @@ func TestUpsertCloudProfile_InactiveDoesNotBroadcast(t *testing.T) {
 
 func premiumChoices(model string) *proto.ProfileModelChoices {
 	return &proto.ProfileModelChoices{TierOverrides: map[string]string{"premium": model}}
+}
+
+// These wrappers inject failures without touching disk or native credentials.
+type removalSaveFailure struct{ cfgsvc.Service }
+
+func (s removalSaveFailure) SaveAndSet(config.Config) error {
+	return errors.New("injected save failure")
+}
+
+type removalRebuildFailure struct{ providers.ComposableResolver }
+
+func (s removalRebuildFailure) Rebuild() error { return errors.New("injected rebuild failure") }
+
+func TestRemoveCloudProfileLast(t *testing.T) {
+	credentialtest.Enable(t)
+	s, r := newTestServer()
+	s.cfgSvc.Set(config.Config{ActiveCloudProfile: "only", CloudProfiles: []config.CloudProfile{{Name: "only", Flavor: "messages"}}})
+	if err := s.cfgSvc.Secrets().Set("only", "synthetic"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "only"})
+	if err != nil || !resp.Ok {
+		t.Fatalf("remove last: %+v %v", resp, err)
+	}
+	c := s.cfgSvc.Get()
+	if len(c.CloudProfiles) != 0 || c.ActiveCloudProfile != "" {
+		t.Fatalf("remaining config: %+v", c)
+	}
+	if err := c.ValidateRouting(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.cfgSvc.Secrets().Get("only"); err == nil {
+		t.Fatal("credential retained")
+	}
+	if _, ok := r.last.(*agent.AbsentCloudProvider); !ok {
+		t.Fatalf("fallback: %T", r.last)
+	}
+}
+
+func TestRemoveCloudProfileInactive(t *testing.T) {
+	credentialtest.Enable(t)
+	s, r := newTestServer()
+	s.cfgSvc.Mutate(func(c *config.Config) { c.ActiveCloudProfile = "messages-one" })
+	if err := s.cfgSvc.Secrets().Set("cc-one", "synthetic"); err != nil {
+		t.Fatal(err)
+	}
+	turn, _, release := s.turnBroker.BeginTurn(t.Context(), "inactive-removal")
+	defer release()
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "cc-one"})
+	if err != nil || !resp.Ok {
+		t.Fatalf("remove inactive: %+v %v", resp, err)
+	}
+	c := s.cfgSvc.Get()
+	if c.ActiveCloudProfile != "messages-one" {
+		t.Fatal("active binding changed")
+	}
+	if _, ok := c.Profile("cc-one"); ok {
+		t.Fatal("profile retained")
+	}
+	if _, err := s.cfgSvc.Secrets().Get("cc-one"); err == nil {
+		t.Fatal("credential retained")
+	}
+	if r.last != nil || turn.Err() != nil {
+		t.Fatal("inactive removal changed runtime")
+	}
+}
+
+func TestRemoveCloudProfileSaveFailure(t *testing.T) {
+	credentialtest.Enable(t)
+	s, r := newTestServer()
+	s.cfgSvc.Mutate(func(c *config.Config) { c.ActiveCloudProfile = "messages-one" })
+	if err := s.cfgSvc.Secrets().Set("messages-one", "synthetic"); err != nil {
+		t.Fatal(err)
+	}
+	before := s.cfgSvc.Get()
+	s.cfgSvc = removalSaveFailure{s.cfgSvc}
+	turn, gen, release := s.turnBroker.BeginTurn(t.Context(), "save-failure")
+	defer release()
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "messages-one"})
+	if err != nil || resp.Ok || !strings.Contains(resp.Error, "injected save failure") {
+		t.Fatalf("response: %+v %v", resp, err)
+	}
+	if !reflect.DeepEqual(before, s.cfgSvc.Get()) {
+		t.Fatal("failed save published config")
+	}
+	if key, err := s.cfgSvc.Secrets().Get("messages-one"); err != nil || key != "synthetic" {
+		t.Fatalf("credential changed: %q %v", key, err)
+	}
+	if r.last != nil || turn.Err() != nil || !s.turnBroker.IsCurrent("save-failure", gen) {
+		t.Fatal("failed save changed runtime or canceled turn")
+	}
+}
+
+func TestRemoveCloudProfileRealRebuildFailure(t *testing.T) {
+	s, _ := newTestServer()
+	s.cfgSvc.Mutate(func(c *config.Config) { c.ActiveCloudProfile = "messages-one" })
+	s.providerSvc = removalRebuildFailure{s.providerSvc}
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "messages-one"})
+	if err != nil || resp.Ok || resp.Error != "configuration saved but not applied: injected rebuild failure" {
+		t.Fatalf("response: %+v %v", resp, err)
+	}
+	if _, ok := s.cfgSvc.Get().Profile("messages-one"); ok {
+		t.Fatal("saved removal not published")
+	}
+}
+
+func TestRemoveCloudProfileRejectsInvalidRouting(t *testing.T) {
+	s, r := newTestServer()
+	s.cfgSvc.Mutate(func(c *config.Config) { c.ActiveCloudProfile = "messages-one"; c.BackupCloudProfile = "missing" })
+	before := s.cfgSvc.Get()
+	resp, err := s.RemoveCloudProfile(t.Context(), &proto.RemoveCloudProfileRequest{Name: "messages-one"})
+	if err != nil || resp.Ok || strings.Contains(resp.Error, "saved") {
+		t.Fatalf("response: %+v %v", resp, err)
+	}
+	if !reflect.DeepEqual(before, s.cfgSvc.Get()) || r.last != nil {
+		t.Fatal("invalid routing published or applied")
+	}
 }

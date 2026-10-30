@@ -34,8 +34,15 @@ var replaceWait = 5 * time.Second
 // it down or launches a competing one.
 var ErrNewerModelHost = errors.New("model host is newer than this client")
 
+// ErrOlderModelHost reports an older live host that this caller may not replace.
+var ErrOlderModelHost = errors.New("model host is older than this client; replacement not permitted")
+
 // EnsureOptions configures Ensure.
 type EnsureOptions struct {
+	// RefuseOlderHost leaves an incompatible live host untouched and returns
+	// ErrOlderModelHost. Ordinary agent startup uses this to fall back locally;
+	// it does not prohibit launching an absent host or sharing a compatible one.
+	RefuseOlderHost bool
 	// CoexistenceProtection requires Hello to assert persistent server-wide
 	// protection, and prohibits replacement and shared runtime mutation.
 	CoexistenceProtection bool
@@ -216,7 +223,9 @@ func sleep(ctx context.Context, d time.Duration) {
 
 // Ensure returns the record of a live, compatible model host, launching one
 // if necessary. At most one Launch call is made per Ensure. A host speaking
-// an older API is shut down and replaced; a host speaking a newer API is left
+// an older API is shut down and replaced unless RefuseOlderHost is set;
+// in that case it is left running and ErrOlderModelHost is returned.
+// A host speaking a newer API is left
 // running and Ensure returns an error wrapping ErrNewerModelHost, so an older
 // client lingering after an upgrade never takes the newer host down.
 func Ensure(ctx context.Context, opts EnsureOptions) (Record, error) {
@@ -247,6 +256,10 @@ func Ensure(ctx context.Context, opts EnsureOptions) (Record, error) {
 		if opts.CoexistenceProtection {
 			conn.Close()
 			return Record{}, ErrCoexistenceProtected
+		}
+		if opts.RefuseOlderHost {
+			conn.Close()
+			return Record{}, ErrOlderModelHost
 		}
 		if opts.Launch == nil {
 			conn.Close()
@@ -279,6 +292,10 @@ func Ensure(ctx context.Context, opts EnsureOptions) (Record, error) {
 		return rec, nil
 	case newer:
 		return Record{}, err
+	case older:
+		if opts.RefuseOlderHost {
+			return Record{}, ErrOlderModelHost
+		}
 	}
 	if err := opts.Launch(ctx); err != nil {
 		return Record{}, fmt.Errorf("launching model host: %w", err)
@@ -297,6 +314,10 @@ func Ensure(ctx context.Context, opts EnsureOptions) (Record, error) {
 			return rec, nil
 		case newer:
 			return Record{}, err
+		case older:
+			if opts.RefuseOlderHost {
+				return Record{}, ErrOlderModelHost
+			}
 		}
 		if err := ctx.Err(); err != nil {
 			return Record{}, err

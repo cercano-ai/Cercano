@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -50,6 +51,26 @@ func Enable(t *testing.T) {
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
 }
 
+// EnableHermetic layers deny-all default HTTP isolation over Enable, including
+// loopback, and clears all inherited ANTHROPIC_* SDK configuration. Use only with
+// explicitly injected in-memory transports and stores. Like Enable, it does not
+// make native credential constructors safe.
+func EnableHermetic(t *testing.T) {
+	t.Helper()
+	Enable(t)
+	// Clear alternate auth, base URL and any other inherited SDK overrides,
+	// not just the API key. t.Setenv restores each value during cleanup.
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(key, "ANTHROPIC_") || strings.HasPrefix(key, "OPENAI_") || strings.HasPrefix(key, "AZURE_OPENAI_") || strings.Contains(key, "INTEGRATION") {
+			t.Setenv(key, "")
+		}
+	}
+	previous := http.DefaultTransport
+	http.DefaultTransport = &ForbiddenTransport{}
+	t.Cleanup(func() { http.DefaultTransport = previous })
+}
+
 type loopbackOnly struct{ next http.RoundTripper }
 
 func (r loopbackOnly) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -65,4 +86,13 @@ func (r loopbackOnly) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("credential test blocked external HTTP request to %s", req.URL.Host)
 	}
 	return r.next.RoundTrip(req)
+}
+
+// ForbiddenTransport counts attempted wire access without DNS, sockets or TLS.
+// It can also guard explicit constructor transports that bypass DefaultTransport.
+type ForbiddenTransport struct{ Calls atomic.Int64 }
+
+func (r *ForbiddenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.Calls.Add(1)
+	return nil, fmt.Errorf("credential test forbidden wire: %s", req.URL.Host)
 }

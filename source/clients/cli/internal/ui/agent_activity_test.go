@@ -178,13 +178,21 @@ func TestAgentActivitySubscriptionRelayout(t *testing.T) {
 
 func TestAgentActivityGutterAndCountStyle(t *testing.T) {
 	m := activityModel(t)
-	for _, palette := range []theme.Palette{theme.Cracker(), builtinPaletteForTest("daylight")} {
+	for _, builtin := range theme.BuiltinThemes() {
+		palette := builtin.Palette
+		m.palette = palette
 		m.styles = theme.NewStyles(palette)
-		if m.styles.Success.Render("Agents 2: ") == m.styles.Info.Render("Agents 2: ") {
-			t.Fatal("styling regression requires distinguishable green and blue output")
+		// Recap uses an upright Accent label, not the semantic Success green.
+		recapStyle := lipgloss.NewStyle().Foreground(palette.Accent)
+		m.recap = "Style probe"
+		if !strings.Contains(m.renderRecap(), recapStyle.Render(recapLabelText)) {
+			t.Fatalf("%s: recap no longer uses expected Accent style", builtin.Name)
+		}
+		if recapStyle.Render("Agents 2: ") == m.styles.Info.Render("Agents 2: ") {
+			t.Fatal("styling regression requires distinguishable recap and blue output")
 		}
 		row, links := m.agentActivityRow()
-		want := strings.Repeat(" ", entryIndent) + m.styles.Success.Render("Agents 2: ") +
+		want := strings.Repeat(" ", entryIndent) + recapStyle.Render("Agents 2: ") +
 			m.styles.Info.Render("⠋ ") + m.styles.Info.Underline(true).Render("Research (running)") +
 			m.styles.Info.Render(" · ") + m.styles.Info.Render("⠋ ") + m.styles.Info.Underline(true).Render("Tests (running)")
 		if row != want {
