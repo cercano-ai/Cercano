@@ -46,7 +46,7 @@ func (f *hostCredentialFake) AdmitAttempt(ctx context.Context, name, revision st
 }
 
 func TestCoordinatedChatGPTHostGraph(t *testing.T) {
-	credentialtest.Enable(t)
+	credentialtest.EnableHermetic(t)
 	authority := &hostCredentialFake{Store: secrets.NewMemory()}
 	prof := config.CloudProfile{Name: "subscription-profile", Flavor: cloudfactory.FlavorResponses, Route: cloudfactory.RouteChatGPT, Model: "fixture"}
 	c := config.Defaults()
@@ -102,12 +102,18 @@ func TestCoordinatedChatGPTHostGraph(t *testing.T) {
 	}
 	before := calls
 	for _, unsupported := range []config.CloudProfile{
-		{Flavor: cloudfactory.FlavorMessages, Route: cloudfactory.RouteSubscription},
+		{Flavor: cloudfactory.FlavorMessages, Route: "meridian"},
 		{Flavor: cloudfactory.FlavorResponses, Route: "other"},
-		{Flavor: cloudfactory.FlavorMessages}, {Flavor: cloudfactory.FlavorChatCompletions}, {Flavor: cloudfactory.FlavorBedrock},
+		{Flavor: cloudfactory.FlavorBedrock},
 	} {
 		if _, err := s.buildProfile(unsupported); err == nil {
 			t.Fatalf("allowed unsupported profile: %+v", unsupported)
+		}
+	}
+	// Supported static routes still require a named profile/key, independently of route admission.
+	for _, flavor := range []string{cloudfactory.FlavorMessages, cloudfactory.FlavorChatCompletions} {
+		if _, err := s.buildProfile(config.CloudProfile{Flavor: flavor}); err == nil {
+			t.Fatal("missing key accepted")
 		}
 	}
 	if calls != before {

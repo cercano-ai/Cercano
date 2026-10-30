@@ -99,8 +99,8 @@ func newClientWithFallback(cfg Config, fallback http.RoundTripper) *Client {
 	// sleeps inside the request — a silent multi-minute hang that no layer
 	// above can observe (the 2026-07-16 quota incident).
 	opts := []option.RequestOption{option.WithAPIKey(apiKey), option.WithMaxRetries(0)}
-	if cfg.Route == RouteSubscription {
-		// Subscription bearer credentials must never follow cfg or SDK env overrides.
+	if cfg.Route == RouteSubscription && cfg.Credentials != nil {
+		// Coordinated subscription bearers must never follow cfg or SDK env overrides.
 		cfg.BaseURL = "https://api.anthropic.com"
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 	} else if cfg.BaseURL != "" {

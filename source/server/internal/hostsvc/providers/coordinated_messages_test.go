@@ -31,7 +31,7 @@ func TestCoordinatedMessagesHostGraph(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, route := range []string{"subscription", "meridian", "unknown"} {
+	for _, route := range []string{"meridian", "unknown"} {
 		if _, err := s.buildProfile(config.CloudProfile{Name: "fixture", Flavor: cloudfactory.FlavorMessages, Route: route}); err == nil {
 			t.Fatal("unsupported route allowed")
 		}

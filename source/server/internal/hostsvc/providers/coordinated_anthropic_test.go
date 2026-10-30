@@ -40,6 +40,12 @@ func TestCoordinatedAnthropicHostGraph(t *testing.T) {
 	var client *anthropic.Client
 	calls := 0
 	s.SetCloudBuilder(func(got config.CloudProfile, key string, opts ...cloudfactory.Options) (inference.Provider, error) {
+		if got.Name != prof.Name || key != "" || opts[0].Credentials == nil || opts[0].Credentials == authority || opts[0].AnthropicTokenSource == nil || opts[0].AnthropicTokenSource.(interface{ CredentialProfile() string }).CredentialProfile() != prof.Name {
+			t.Fatal("missing facade/source/profile or raw-key fallback")
+		}
+		if _, err := opts[0].AnthropicTokenSource.Token(context.Background()); err == nil {
+			t.Fatal("raw token fallback enabled")
+		}
 		opts[0].AnthropicBaseTransport = hostAnthropicWire(func(r *http.Request) (*http.Response, error) {
 			calls++
 			if r.URL.Host != "api.anthropic.com" || r.Header.Get("Authorization") != "Bearer fake-access" || r.Header.Get("X-Api-Key") != "" {
@@ -61,6 +67,12 @@ func TestCoordinatedAnthropicHostGraph(t *testing.T) {
 	}
 	if _, err := client.Chat(context.Background(), anthropic.ChatRequest{Model: "fixture"}); err != nil {
 		t.Fatal(err)
+	}
+	if err := authority.Delete(prof.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Chat(context.Background(), anthropic.ChatRequest{Model: "fixture"}); err == nil {
+		t.Fatal("logout did not fence wire")
 	}
 	if calls != 1 || issuer.Calls.Load() != 0 || deny.Calls.Load() != 0 {
 		t.Fatalf("wire=%d issuer=%d default=%d", calls, issuer.Calls.Load(), deny.Calls.Load())
@@ -86,16 +98,23 @@ func TestCoordinatedAnthropicHostRefresh(t *testing.T) {
 			}
 			deny := &credentialtest.ForbiddenTransport{}
 			issuerCalls, wireCalls := 0, 0
+			var activeRaw string
 			flow := anthropicauth.Flow{TokenURL: "https://issuer.invalid/token", Client: &http.Client{Transport: hostAnthropicWire(func(r *http.Request) (*http.Response, error) {
 				issuerCalls++
 				if r.URL.Host != "issuer.invalid" || r.URL.Path != "/token" {
 					t.Fatal("wrong issuer")
 				}
-				if !strings.Contains(backend.raw, `"state":"pending"`) {
-					t.Fatal("issuer without pending record")
+				if backend.raw != activeRaw {
+					t.Fatal("issuer mutated active record")
+				}
+				if _, err := authority.CredentialSnapshot(r.Context(), "profile"); !errors.Is(err, credentials.ErrBusy) {
+					t.Fatalf("snapshot contender: %v", err)
+				}
+				if err := authority.Set("profile", "replacement"); !errors.Is(err, credentials.ErrBusy) {
+					t.Fatalf("replacement contender: %v", err)
 				}
 				if mode == "logout" {
-					if err := authority.Delete("profile"); err != nil {
+					if err := authority.Delete("profile"); !errors.Is(err, credentials.ErrBusy) {
 						t.Fatal(err)
 					}
 				}
@@ -106,6 +125,13 @@ func TestCoordinatedAnthropicHostRefresh(t *testing.T) {
 			})}}
 			wire := hostAnthropicWire(func(r *http.Request) (*http.Response, error) {
 				wireCalls++
+				if mode == "logout" {
+					// Issuance has released exclusion; logout now fences subsequent attempts.
+					if err := authority.Delete("profile"); err != nil {
+						t.Fatal(err)
+					}
+					return nil, errors.New("wire blocked after logout")
+				}
 				if r.URL.Host != "api.anthropic.com" || r.Header.Get("Authorization") != "Bearer rotated-access" || r.Header.Get("X-Api-Key") != "" || r.GetBody != nil {
 					t.Error("endpoint/auth/replay mismatch")
 				}
@@ -138,6 +164,7 @@ func TestCoordinatedAnthropicHostRefresh(t *testing.T) {
 			if err := anthropicauth.Save(authority, "profile", anthropicauth.TokenSet{Access: "expired-access", Refresh: "single-use", ExpiresAt: time.Now().Add(-time.Hour)}); err != nil {
 				t.Fatal(err)
 			}
+			activeRaw = backend.raw
 			before, err := authority.CredentialSnapshot(context.Background(), "profile")
 			if err != nil {
 				t.Fatal(err)
@@ -156,7 +183,16 @@ func TestCoordinatedAnthropicHostRefresh(t *testing.T) {
 					t.Fatalf("mode=%s request=%d err=%v", mode, i, err)
 				}
 			}
-			wantWire := 0
+			wantWire, wantIssuer := 0, 1
+			if mode == "logout" {
+				wantWire = 1
+			}
+			if mode == "issuer-uncertain" {
+				wantIssuer = 2 // independent requests may retry; neither request may replay issuance.
+				if backend.raw != activeRaw {
+					t.Fatal("uncertainty published credentials")
+				}
+			}
 			if mode == "refresh" {
 				wantWire = 2
 				after, err := authority.CredentialSnapshot(ctx, "profile")
@@ -164,7 +200,7 @@ func TestCoordinatedAnthropicHostRefresh(t *testing.T) {
 					t.Fatal("rotation revision missing")
 				}
 			}
-			if issuerCalls != 1 || wireCalls != wantWire || deny.Calls.Load() != 0 {
+			if issuerCalls != wantIssuer || wireCalls != wantWire || deny.Calls.Load() != 0 {
 				t.Fatalf("issuer=%d wire=%d default=%d", issuerCalls, wireCalls, deny.Calls.Load())
 			}
 		})
