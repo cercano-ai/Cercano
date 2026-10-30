@@ -1,0 +1,3 @@
+package main
+import("context";"fmt";"os";"time";"io";pb "cercano/source/server/pkg/proto";"google.golang.org/grpc";"google.golang.org/grpc/credentials/insecure";"google.golang.org/protobuf/encoding/protojson")
+func main(){ c,e:=grpc.NewClient(os.Args[1],grpc.WithTransportCredentials(insecure.NewCredentials()));if e!=nil{panic(e)};defer c.Close();ctx,cancel:=context.WithTimeout(context.Background(),45*time.Second);defer cancel();a:=pb.NewAgentClient(c);s,e:=a.StreamProcessRequest(ctx,&pb.ProcessRequestRequest{Input:os.Args[2],WorkDir:os.Args[3],ConversationId:os.Args[4]});if e!=nil{panic(e)};for{r,e:=s.Recv();if e==io.EOF{return};if e!=nil{fmt.Println(e);return};b,_:=protojson.Marshal(r);fmt.Println(string(b))}}

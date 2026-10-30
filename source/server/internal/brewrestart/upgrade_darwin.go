@@ -26,7 +26,12 @@ func StopUpgradeHost(ctx context.Context, endpoint netip.AddrPort) error {
 
 // The PID boundary permits disposable-process tests without inspecting the
 // developer's agents. All identity, socket, signal and exit checks remain native.
-func stopUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pids []int) (retErr error) {
+func stopUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pids []int) error {
+	return stopUpgradeHostObserved(ctx, endpoint, pids, nil)
+}
+
+// afterTERM is a package-test observation seam, never an alternative signal path.
+func stopUpgradeHostObserved(ctx context.Context, endpoint netip.AddrPort, pids []int, afterTERM func()) (retErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -97,8 +102,12 @@ func stopUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pids []int) (
 	// resuming even to deliver TERM would reopen the historical spawn race.
 	// On refusal/cancellation, resume only this same process, never a reused PID.
 	frozen := true
+	frozenChildren := map[int]Identity{}
 	defer func() {
 		if frozen {
+			for _, id := range frozenChildren {
+				_ = signalIdentity(id, syscall.SIGCONT)
+			}
 			_ = signalIdentity(*host, syscall.SIGCONT)
 		}
 	}()
@@ -158,10 +167,18 @@ func stopUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pids []int) (
 		}
 	}
 	// Historical escalation: TERM, twenty 100ms exit polls, then KILL. The host
-	// remains frozen, so TERM is pending there; workers may exit normally. No
+	// and worker tree remain frozen, so TERM stays pending until escalation. No
 	// negative/group PID is ever signalled (workers have independent groups).
 	targets := map[int]Identity{host.PID: *host}
 	for pid, id := range workers {
+		targets[pid] = id
+	}
+	// Workers are producers too: RunCommand owns a separate process group.
+	// Freeze the verified tree before TERM can orphan its tool descendants.
+	if err := freezeUpgradeDescendants(ctx, *host, workers, frozenChildren); err != nil {
+		return err
+	}
+	for pid, id := range frozenChildren {
 		targets[pid] = id
 	}
 	if err := ctx.Err(); err != nil {
@@ -193,6 +210,9 @@ func stopUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pids []int) (
 		if err := signalIdentity(id, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 			return err
 		}
+	}
+	if afterTERM != nil {
+		afterTERM()
 	}
 	for i := 0; i < 20; i++ {
 		select {

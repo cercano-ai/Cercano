@@ -114,24 +114,14 @@ func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 	}
 	// Only fixture PIDs enter discovery; native kernel checks and the actual
 	// external signals control both disposable processes, not injected stubs.
+	var afterTERM func()
 	if cancelAfterTERM {
-		// The worker exits on TERM. Cancel only after observing that irreversible
-		// boundary, while the frozen host is still in its escalation interval.
-		go func() {
-			for {
-				if _, err := Inspect(pid); errors.Is(err, syscall.ESRCH) {
-					cancel()
-					return
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(5 * time.Millisecond):
-				}
-			}
-		}()
+		// Producers now remain frozen through escalation, including workers.
+		// Observe completed native TERM delivery, not worker exit (which now
+		// occurs during KILL). No signals or exit checks are mocked.
+		afterTERM = cancel
 	}
-	err = stopUpgradeHost(ctx, endpoint, []int{host.Process.Pid})
+	err = stopUpgradeHostObserved(ctx, endpoint, []int{host.Process.Pid}, afterTERM)
 	if cancelAfterTERM {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("expected cancellation, got %v", err)
