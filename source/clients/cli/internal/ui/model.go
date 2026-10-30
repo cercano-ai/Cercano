@@ -197,7 +197,8 @@ type Model struct {
 	cloudModel          string // cloud model name (from config), used for the c: header chip; empty when no cloud configured
 	activeCloudProfile  string // active cloud profile name, used as a fallback when the model is unknown
 	cloudState          string // "" = unknown, "NONE" = absent, "ok" = real cloud configured
-	ctrlCArmed          bool   // first ctrl-c on empty input arms quit; any other key disarms
+	intentionalExit     bool
+	ctrlCArmed          bool // first ctrl-c on empty input arms quit; any other key disarms
 	errMsg              string
 
 	// Live turn telemetry, surfaced by renderStatus while a turn streams. Reset
@@ -3292,7 +3293,7 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 		if len(f) > 0 && f[0] == "/host" {
 			return m.runDevHost(line)
 		}
-		if len(f) > 0 && f[0] != "/version" && f[0] != "/quit" && f[0] != "/search" && f[0] != "/history" && f[0] != "/resume" {
+		if len(f) > 0 && f[0] != "/version" && f[0] != "/quit" && f[0] != "/exit" && f[0] != "/search" && f[0] != "/history" && f[0] != "/resume" {
 			m.errMsg = "Pinned development mode: /history, /resume, /host, /version, /search, /quit only"
 			return m, nil
 		}
@@ -3318,6 +3319,7 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 		m.openConversationSearch(res.Text)
 		return m, nil
 	case slash.ResultQuit:
+		m.intentionalExit = true
 		return m, tea.Quit
 	case slash.ResultClearConversation:
 		m.mainChat().SetEntriesSlice(nil)
@@ -3708,6 +3710,7 @@ func (m Model) handleCtrlCKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.ctrlCArmed {
+		m.intentionalExit = true
 		return m, tea.Quit
 	}
 	m.ctrlCArmed = true

@@ -130,7 +130,7 @@ func (m Model) WithDevHost(s DevHostSelection, version string) Model {
 func (m Model) runDevHost(line string) (tea.Model, tea.Cmd) {
 	f := strings.Fields(line)
 	if len(f) < 2 {
-		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "/host detach (retain), reconnect, list, acquire, release, retire, transfer <destination.json> <handover>, claim <destination.json> <handover> <receipt>. Transfer/release require detach first. Exit also retains ownership."})
+		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "/host detach (retain), reconnect, list, acquire, release, retire, transfer <destination.json> <handover>, claim <destination.json> <handover> <receipt>. Transfer/release require detach first. Normal attached exit releases ownership; exit after explicit detach retains ownership, as does unexpected disconnect."})
 		m.refreshViewport()
 		return m, nil
 	}

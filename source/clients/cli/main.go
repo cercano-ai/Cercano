@@ -73,7 +73,11 @@ func main() {
 				ag, err = s.Dial(ctx)
 				if err == nil {
 					defer ag.Close()
-					_, err = tea.NewProgram(cliui.New(ag, false).WithVersion(version).WithDevHost(s, version)).Run()
+					var final tea.Model
+					final, err = tea.NewProgram(cliui.New(ag, false).WithVersion(version).WithDevHost(s, version)).Run()
+					if err == nil {
+						err = closeIntentionalSession(final)
+					}
 				}
 			}
 		}
@@ -136,8 +140,22 @@ func runCLI(cfg config.Config, openHistoryOnStart, openWizardOnStart bool, seedD
 	// we can diagnose the paste color-loss bug. Remove once diagnosed.
 	cliui.LogStartupColorProfile()
 	p := tea.NewProgram(m)
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if err == nil {
+		err = closeIntentionalSession(final)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
 		os.Exit(1)
 	}
+}
+
+func closeIntentionalSession(final tea.Model) error {
+	m, ok := final.(cliui.Model)
+	if !ok || !m.IntentionalExit() {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return m.CloseSession(ctx)
 }
