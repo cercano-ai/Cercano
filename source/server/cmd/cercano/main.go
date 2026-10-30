@@ -548,6 +548,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		}
 		generationStoreOwner = srv
 		admission.generation.retired = srv.CoexistenceRetired()
+		admission.generation.retire = srv.RetireCoexistence
 	}
 	enterpriseHost.bindAdmission(srv)
 	srv.SetBuildVersion(version)

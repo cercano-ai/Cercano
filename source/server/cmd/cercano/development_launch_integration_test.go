@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"cercano/source/server/internal/conversation"
@@ -26,9 +27,26 @@ import (
 type launchTestHost struct {
 	pb.UnimplementedAgentServer
 	identity *pb.LifecycleIdentity
+	reject   atomic.Bool
+	entered  chan struct{}
+	ready    chan struct{}
 }
 
 func (h *launchTestHost) LifecycleList(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+	if h.reject.Load() {
+		return nil, fmt.Errorf("not ready")
+	}
+	if h.entered != nil {
+		select {
+		case h.entered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-h.ready:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if !proto.Equal(r.Target, h.identity) {
 		return nil, fmt.Errorf("wrong target")
 	}
@@ -104,7 +122,8 @@ func TestDevelopmentLaunchAuthenticatedConcurrentReuse(t *testing.T) {
 		t.Fatal(e)
 	}
 	server := grpc.NewServer(auth.ServerOptions()...)
-	pb.RegisterAgentServer(server, &launchTestHost{identity: id})
+	host := &launchTestHost{identity: id, entered: make(chan struct{}, 2), ready: make(chan struct{})}
+	pb.RegisterAgentServer(server, host)
 	go server.Serve(listener)
 	defer server.Stop()
 	record := launchSelection{ConfigAuthority: filepath.Join(state, "config.yaml"), Endpoint: listener.Addr().String(), TokenFile: token, Identity: id}
@@ -118,6 +137,23 @@ func TestDevelopmentLaunchAuthenticatedConcurrentReuse(t *testing.T) {
 		b, e := cmd.CombinedOutput()
 		return strings.TrimSpace(string(b)), e
 	}
+	previous := launchSelection{Identity: &pb.LifecycleIdentity{Host: "A", Store: id.Store, Contract: id.Contract, Schema: id.Schema}, Generation: "A"}
+	if e = publishCurrentTarget(state, previous); e != nil {
+		t.Fatal(e)
+	}
+	assertA := func() {
+		t.Helper()
+		var target launchSelection
+		if err := launchRead(filepath.Join(state, "current-target.json"), &target); err != nil || target.Identity.GetHost() != "A" {
+			t.Fatalf("A target lost before B readiness: %+v %v", target, err)
+		}
+	}
+	host.reject.Store(true)
+	if output, err := invoke(); err == nil {
+		t.Fatalf("unready B succeeded: %s", output)
+	}
+	assertA()
+	host.reject.Store(false)
 	var wg sync.WaitGroup
 	paths := make([]string, 2)
 	errs := make([]error, 2)
@@ -125,6 +161,9 @@ func TestDevelopmentLaunchAuthenticatedConcurrentReuse(t *testing.T) {
 		wg.Add(1)
 		go func(i int) { defer wg.Done(); paths[i], errs[i] = invoke() }(i)
 	}
+	<-host.entered
+	assertA()
+	close(host.ready)
 	wg.Wait()
 	for i, e := range errs {
 		if e != nil {
@@ -144,11 +183,23 @@ func TestDevelopmentLaunchAuthenticatedConcurrentReuse(t *testing.T) {
 	if a.Conversation == b.Conversation || a.Epoch == b.Epoch || !proto.Equal(a.Identity, b.Identity) {
 		t.Fatal("fresh ownership and same-host reuse required")
 	}
+	var current launchSelection
+	if e = launchRead(filepath.Join(state, "current-target.json"), &current); e != nil {
+		t.Fatalf("successful new-session launch did not publish current target: %v", e)
+	}
+	if !proto.Equal(current.Identity, id) || current.Generation != generation || current.Conversation != "" || current.Epoch != "" {
+		t.Fatalf("invalid current target: %+v", current)
+	}
+	targetBefore, _ := os.ReadFile(filepath.Join(state, "current-target.json"))
 	before, _ := os.ReadFile(paths[0])
 	server.Stop()
 	output, e := invoke()
 	if e == nil || !strings.Contains(output, "refusing replacement") {
 		t.Fatalf("unreachable record: %v %s", e, output)
+	}
+	targetAfter, _ := os.ReadFile(filepath.Join(state, "current-target.json"))
+	if string(targetBefore) != string(targetAfter) {
+		t.Fatal("failed launch changed current target")
 	}
 	after, _ := os.ReadFile(paths[0])
 	if string(before) != string(after) {

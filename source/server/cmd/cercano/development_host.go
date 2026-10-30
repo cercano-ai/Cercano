@@ -198,6 +198,8 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		return fmt.Errorf("authenticated readiness: %w", err)
 	}
 	conn.Close()
+	stopWatch := watchCurrentTarget(ctx, filepath.Dir(o.Identity.Store), o.Identity, srv.RetireCoexistence)
+	defer stopWatch()
 	record := developmentHostSelection{ConfigAuthority: o.ConfigAuthority, Endpoint: endpoint, TokenFile: o.TokenFile, Identity: o.Identity}
 	if err := publishDevelopmentRecord(o.Record, record); err != nil {
 		return err

@@ -195,6 +195,16 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 			return e
 		}
 	}
+	// Serialize target publication across generations, not only per-host starts.
+	targetLock, e := os.OpenFile(filepath.Join(*state, "current-target.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	if e != nil {
+		return e
+	}
+	defer targetLock.Close()
+	if e = syscall.Flock(int(targetLock.Fd()), syscall.LOCK_EX); e != nil {
+		return e
+	}
+	defer syscall.Flock(int(targetLock.Fd()), syscall.LOCK_UN)
 	key := sha256.Sum256([]byte(*generation))
 	base := filepath.Join(hosts, hex.EncodeToString(key[:]))
 	lock, e := os.OpenFile(base+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
@@ -291,6 +301,9 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 	s.Generation = *generation
 	selection := filepath.Join(selections, id+".json")
 	if e = launchExclusive(selection, s); e != nil {
+		return e
+	}
+	if e = publishCurrentTarget(*state, s); e != nil {
 		return e
 	}
 	_, e = fmt.Fprintln(out, selection)

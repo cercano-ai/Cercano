@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"time"
 
 	"cercano/source/server/pkg/config"
@@ -40,6 +41,8 @@ func runOrdinaryGenerationHost(ctx context.Context, o developmentHostOptions, au
 		return fmt.Errorf("authenticated ordinary readiness: %w", err)
 	}
 	conn.Close()
+	stopWatch := watchCurrentTarget(ctx, filepath.Dir(o.Identity.Store), o.Identity, a.generation.retire)
+	defer stopWatch()
 	if err := publishDevelopmentRecord(o.Record, developmentHostSelection{ConfigAuthority: o.ConfigAuthority, Endpoint: address, TokenFile: o.TokenFile, Identity: o.Identity}); err != nil {
 		return err
 	}

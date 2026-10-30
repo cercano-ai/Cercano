@@ -32,6 +32,7 @@ func canonicalGenerationStartup() productionStartupPolicy {
 type ordinaryGenerationBinding struct {
 	options developmentHostOptions
 	auth    *devhostauth.Auth
+	retire  func(context.Context) error
 	retired <-chan struct{} // set by ordinary composition, observed by its transport owner
 }
 

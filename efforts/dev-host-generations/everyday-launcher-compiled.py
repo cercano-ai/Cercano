@@ -295,7 +295,19 @@ def run(repo,evidence,worker_delegation=False):
             assert A['Identity']['host']!=B['Identity']['host'] and A['Generation']!=B['Generation']
             assert a.p.poll() is None
             os.kill(pidA,0)
-            record('B published and launched without stopping A',A=A,B=B,pidA=pidA)
+            current_path=state/'current-target.json'
+            target_b=current_path.read_bytes()
+            assert json.loads(target_b)['Identity']==B['Identity']
+            control(sa,'list') # exact-A reconnect/control is not target selection
+            assert current_path.read_bytes()==target_b
+            record('B published as new-session target without stopping A',A=A,B=B,pidA=pidA)
+            fresh,sfresh,F=launch('B-normal-new-session')
+            assert F['Identity']==B['Identity'] and F['Conversation']!=B['Conversation']
+            fresh.stop();terminals.remove(fresh)
+            control(sfresh,'release')
+            assert json.loads(current_path.read_bytes())['Identity']==B['Identity']
+            target_b=current_path.read_bytes()
+            record('normal new session chooses B',selection=F)
             # First B turn exercises the ordinary model -> tool registry ->
             # host-owned stdio manager -> synthetic peer -> model result path.
             b.send('FIXTURE_MCP\r')
@@ -354,6 +366,7 @@ def run(repo,evidence,worker_delegation=False):
                 assert e['sha256']!=json.loads((P(B['Generation'])/'manifest.json').read_text())['binaries']['cercano']['sha256']
             shutil.copyfile(manifest_path,evidence/'A-manifest.json')
             shutil.copyfile(P(B['Generation'])/'manifest.json',evidence/'B-manifest.json')
+            assert current_path.read_bytes()==target_b, 'later A worker changed new-session target'
             record('fresh A foreground and newly born pinned worker after B',pidA=pidA,tasks=task,workers=later,A_manifest_sha256=manifest_hash,A_build_id=manifest['build_id'],A_generation=manifest['generation'])
             # A client really exits; its host and independent task must survive.
             a.stop();terminals.remove(a);time.sleep(1)
@@ -413,20 +426,17 @@ def run(repo,evidence,worker_delegation=False):
             (evidence/'synthetic-reopened-rows.json').write_text(json.dumps(export,indent=2)+'\n')
             spare.stop();terminals.remove(spare)
             control(ss,'release')
-            remaining=json.loads(control(sa,'list'))['Response'].get('retained',[])
-            assert not remaining, remaining
-            control(sa,'retire')
             def a_exited():
                 try: os.kill(pidA,0); return False
                 except ProcessLookupError: return True
-            wait(a_exited,'explicit A retirement process exit',20)
+            wait(a_exited,'automatic drained A retirement process exit',20)
             offset=len(events())
             reopened.send('FIXTURE_B_AFTER_A_RETIREMENT\r')
             wait(lambda:any('FIXTURE_B_AFTER_A_RETIREMENT' in json.dumps(e['request'].get('Messages')) for e in events()[offset:] if e['event']=='call'),'B fresh model work after A retirement',40)
             wait(lambda:rows("select conversation_id from turns where role='user' and content='FIXTURE_B_AFTER_A_RETIREMENT'")==[(A['Conversation'],)],'post-retirement B durable turn')
             post_reply_sql="select role,content from turns where conversation_id='"+A['Conversation']+"' and role='assistant' and rowid > (select rowid from turns where role='user' and content='FIXTURE_B_AFTER_A_RETIREMENT')"
             wait(lambda:any('FIXTURE_OK' in r[1] for r in rows(post_reply_sql)),'B durable assistant reply after A retirement',40)
-            record('explicit A retirement after transfer and release; B continues',calls=events()[offset:], durable_assistant_reply=rows(post_reply_sql))
+            record('automatic A retirement after transfer and release; B continues',calls=events()[offset:], durable_assistant_reply=rows(post_reply_sql))
             watchdog_opens=[e for e in events() if e['event']=='watchdog-open']
             assert {pidA, calls[0]['pid']}.issubset({e['pid'] for e in watchdog_opens}), watchdog_opens
             record('ordinary watchdog enabled on A and B with offline audit',opens=watchdog_opens)
