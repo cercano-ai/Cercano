@@ -28,9 +28,7 @@ func runUpgradeWorker() int {
 	}
 }
 
-// Lower-level shutdown diagnostic only, NOT migration safety acceptance.
-// A late differently named child can escape the snapshot; this test does not
-// qualify a worker-spawn/drain barrier or authorize automatic migration.
+// Native external shutdown regression; this does not qualify migration acceptance.
 func TestUpgradeStopsRealHostAndActiveWorker(t *testing.T) {
 	root := t.TempDir()
 	exe, err := os.Executable()
@@ -93,8 +91,8 @@ func TestUpgradeStopsRealHostAndActiveWorker(t *testing.T) {
 		t.Fatal("preflight disturbed worker")
 	}
 	// Only fixture PIDs enter discovery; native kernel checks and the actual
-	// shutdown RPC control both disposable processes, not injected RPC stubs.
-	if err := stopUpgradeHost(ctx, endpoint, []int{host.Process.Pid, pid}); err != nil {
+	// external signals control both disposable processes, not injected stubs.
+	if err := stopUpgradeHost(ctx, endpoint, []int{host.Process.Pid}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Inspect(host.Process.Pid); err == nil {
@@ -103,7 +101,7 @@ func TestUpgradeStopsRealHostAndActiveWorker(t *testing.T) {
 	if _, err := Inspect(pid); err == nil {
 		t.Fatal("worker survived")
 	}
-	if _, err := os.Stat(filepath.Join(root, "cancel-worker")); err != nil {
-		t.Fatal("worker cancellation missing", err)
+	if _, err := os.Stat(filepath.Join(root, "cancel-worker")); err == nil {
+		t.Fatal("unexpected historical RPC shutdown")
 	}
 }

@@ -11,3 +11,5 @@ import (
 func StopUpgradeHost(context.Context, netip.AddrPort) error {
 	return fmt.Errorf("verified upgrade shutdown requires macOS with cgo; no migration attempted")
 }
+
+func IsSharedModelHost(pid int) bool { return false }
