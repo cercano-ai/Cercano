@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Ordinary shell/Python entry, compiled migration, disposable discovery boundary.
+"""Temporary fail-closed ordinary upgrade containment (not migration acceptance).
 Host acquisition/publisher/CLI are synthetic: NOT native A/B execution coverage.
-Build helper with -tags ordinary_upgrade_acceptance; pass its absolute path as
-CERCANO_TEST_UPGRADE_BINARY. Never run production process discovery here.
+Helper build is a recording failure sentinel. Never run production discovery here.
 """
 import concurrent.futures
 import fcntl
@@ -48,11 +47,11 @@ class OrdinaryUpgrade(unittest.TestCase):
         for name in ('home', 'xdg', 'tmp', 'bin'):
             (self.root / name).mkdir(mode=0o700)
         go = self.root / 'bin/go'
-        go.write_text('#!/usr/bin/env python3\nimport os,shutil,sys\nshutil.copyfile(os.environ["CERCANO_TEST_UPGRADE_BINARY"],sys.argv[sys.argv.index("-o")+1]); os.chmod(sys.argv[sys.argv.index("-o")+1],0o700)\n')
+        go.write_text('#!/usr/bin/env python3\nimport os,pathlib\npathlib.Path(os.environ["BUILD_RECORD"]).touch()\nraise SystemExit(99)\n')
         go.chmod(0o700)
         self.env.update(HOME=str(self.root / 'home'), XDG_CONFIG_HOME=str(self.root / 'xdg'),
                         TMPDIR=str(self.root / 'tmp'), PATH=str(self.root / 'bin')+os.pathsep+os.environ['PATH'],
-                        CERCANO_TEST_UPGRADE_BINARY=os.environ['CERCANO_TEST_UPGRADE_BINARY'],
+                        BUILD_RECORD=str(self.root / 'helper-build'),
                         CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='empty')
         # Exercise the ordinary default original path, not a database override.
         (self.root / 'home/.config').mkdir(mode=0o700)
@@ -83,24 +82,21 @@ class OrdinaryUpgrade(unittest.TestCase):
     def backups(self):
         return list(self.state.glob('conversations.before-upgrade-*.db'))
 
-    def test_confirm_preserves_and_repeats(self):
-        expected = (1, 1, 1, [('running', 5)])
-        rc, out, err = self.launch(extra=('hello',))
-        self.assertEqual(rc, 0, err)
-        self.assertIn('hello', out)
-        self.assertEqual(self.counts(self.db)[:3], expected[:3])
-        self.assertEqual(self.counts(self.db)[3][0][0], 'interrupted')
-        self.assertEqual(len(self.backups()), 1)
-        self.assertEqual(self.counts(self.backups()[0]), expected)
-        for p in (self.db, self.state / 'config.yaml', self.backups()[0]):
-            self.assertEqual(p.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(self.state.stat().st_mode & 0o777, 0o700)
-        # A compatible repeat must not even invoke discovery, despite active fixture.
-        self.env['CERCANO_ACCEPTANCE_UPGRADE_PROCESSES'] = 'active'
-        rc, _, err = self.launch(answer='no')
-        self.assertEqual(rc, 0, err)
-        self.assertNotIn('Stop agents and upgrade now?', err)
-        self.assertEqual(len(self.backups()), 1)
+    def assert_refused(self, answer='y'):
+        before = self.snapshot()
+        mode = self.state.stat().st_mode
+        rc, _, err = self.launch(answer)
+        self.assertEqual(rc, 78, err)
+        self.assertIn('host lacks verified worker-spawn/drain shutdown control; upgrade not performed', err)
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual(mode, self.state.stat().st_mode)
+        self.assertFalse(self.backups())
+        self.assertFalse(Path(self.env['BUILD_RECORD']).exists())
+        self.assertFalse(Path(self.env['FAKE_ENV_LOG']).exists())
+
+    def test_confirm_refuses_before_helper_or_shutdown(self):
+        self.assert_refused('y')
+        self.assert_refused('Y')
 
     def test_decline_unchanged(self):
         before = self.db.read_bytes()
@@ -120,8 +116,7 @@ class OrdinaryUpgrade(unittest.TestCase):
             self.assertEqual(rc, 78, err)
             self.assertEqual(before, self.snapshot())
             self.assertFalse(self.backups())
-        rc, _, err = self.launch('Y')
-        self.assertEqual(rc, 0, err)
+        self.assert_refused('Y')
 
     def test_active_or_unresolved_refused_before_mutation(self):
         for process in ('active', 'unknown'):
@@ -162,22 +157,17 @@ class OrdinaryUpgrade(unittest.TestCase):
         authority = parent / 'config.yaml'
         (self.state / 'config.yaml').rename(authority)
         self.env['CERCANO_DEVELOPMENT_CONFIG_AUTHORITY'] = str(authority)
-        rc, _, err = self.launch()
-        self.assertEqual(rc, 0, err)
-        self.assertEqual(parent.stat().st_mode & 0o777, 0o700)
-        self.assertEqual(authority.stat().st_mode & 0o777, 0o600)
+        before = authority.read_bytes()
+        self.assert_refused()
+        self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(authority.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(authority.read_bytes(), before)
 
-    def test_second_discovery_failure_retains_backup(self):
+    def test_refuses_before_discovery_or_backup(self):
         self.env['CERCANO_ACCEPTANCE_UPGRADE_PROCESSES'] = 'second-active'
         self.env['CERCANO_ACCEPTANCE_DISCOVERY_RECORD'] = str(self.root / 'discovery')
-        expected = self.counts(self.db)
-        before = self.db.read_bytes()
-        rc, _, err = self.launch()
-        self.assertEqual(rc, 78, err)
-        self.assertIn('retained backup', err)
-        self.assertEqual(self.db.read_bytes(), before)
-        self.assertEqual(self.counts(self.db), expected)
-        self.assertEqual(self.counts(self.backups()[0]), expected)
+        self.assert_refused()
+        self.assertFalse((self.root / 'discovery').exists())
 
     def test_unsafe_sidecars(self):
         for suffix in ('-wal', '-shm', '-journal'):
@@ -218,13 +208,9 @@ class OrdinaryUpgrade(unittest.TestCase):
                 self.assertEqual(modes, (self.state.stat().st_mode,))
                 self.assertFalse(self.backups())
 
-    def test_startup_failure_retains_backup(self):
+    def test_refuses_before_startup(self):
         self.env['FAKE_HOST_FAIL'] = '1'
-        rc, _, err = self.launch()
-        self.assertEqual(rc, 78)
-        self.assertIn(str(self.backups()[0]), err)
-        self.assertEqual(self.counts(self.db)[:3], self.counts(self.backups()[0])[:3])
-        self.assertEqual(self.counts(self.db)[3][0][0], 'interrupted')
+        self.assert_refused()
 
     def test_shared_lock_serializes_ordinary_launches(self):
         lock = open(self.root / 'tmp/cercano-agent-launch.lock', 'w')
@@ -239,21 +225,18 @@ class OrdinaryUpgrade(unittest.TestCase):
             fcntl.flock(lock, fcntl.LOCK_UN)
             for future in (first, second):
                 rc, _, err = future.result()
-                self.assertEqual(rc, 0, err)
-        self.assertEqual(len(self.backups()), 1)
+                self.assertEqual(rc, 78, err)
+                self.assertIn('host lacks verified worker-spawn/drain shutdown control', err)
+        self.assertFalse(self.backups())
 
     def make_wal(self):
         # Child exits without closing SQLite: committed WAL remains, no writer remains.
         subprocess.run(['python3', '-c', 'import sqlite3,os,sys; c=sqlite3.connect(sys.argv[1]); c.execute("pragma journal_mode=wal"); c.execute("insert into turns(id,conversation_id,role,content,created_at) values (\'wal\',\'original\',\'user\',\'wal fixture\',6)"); c.commit(); os._exit(0)', str(self.db)], check=True, env=self.env)
         self.assertTrue(Path(str(self.db)+'-wal').exists())
 
-    def test_committed_wal_backup(self):
+    def test_committed_wal_refusal_unchanged(self):
         self.make_wal()
-        rc, _, err = self.launch()
-        self.assertEqual(rc, 0, err)
-        self.assertEqual(self.counts(self.backups()[0]), (1, 2, 1, [('running', 5)]))
-        self.assertEqual(self.counts(self.db)[:3], self.counts(self.backups()[0])[:3])
-        self.assertEqual(self.counts(self.db)[3][0][0], 'interrupted')
+        self.assert_refused()
 
 
 if __name__ == '__main__':

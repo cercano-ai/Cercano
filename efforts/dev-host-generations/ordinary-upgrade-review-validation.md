@@ -1,4 +1,26 @@
-# Ordinary upgrade review follow-up
+# Temporary automatic-upgrade safety containment
+
+Status: **safe refusal, incomplete implementation; not completion of the automatic-upgrade requirement.** No migration success acceptance is claimed.
+
+Known reproduction (reported and confirmed before this containment; not rerun here): native automatic upgrade shutdown can return success while a late-spawned, differently named child remains alive. A process snapshot and known-name detector cannot prove that worker spawning has stopped or all workers have drained. There is currently no qualified worker-spawn/drain shutdown barrier on any supported host.
+
+Containment keeps the exact y/Y confirmation and compatible unattended path. After affirmative consent the launcher refuses before helper build, shutdown, backup, permission changes, or migration. The native `--stop-hosts-config` path independently refuses before config loading, shutdown, discovery, or database access. Both say: `host lacks verified worker-spawn/drain shutdown control; upgrade not performed`. No STOPPED/manual prerequisite or detector bypass was added. Existing offline primitives remain lower-level diagnostics, not authorization for automatic migration. The native shutdown test is explicitly labeled diagnostic, not safety acceptance.
+
+Focused validation performed for this containment (disposable fixtures only; no live-state discovery):
+
+```sh
+# source/server; GOPROXY=off GOSUMDB=off CERCANO_DISABLE_CREDENTIALS=1
+python3 scripts/test-ordinary-upgrade.py
+python3 scripts/test-launcher-safety.py
+go test ./cmd/cercano -run 'Test(AutomaticUpgrade|OfflineUpgrade)' -count=1 -timeout=60s
+```
+
+Results: 12 ordinary containment tests PASS; 20 launcher safety tests PASS (expected cleanup-warning fixtures); focused Go tests PASS. Combined command bounded to 180 seconds, completed in 21 seconds. Tests assert affirmative refusal with bytes/modes unchanged, no backup/helper/startup, and native refusal before shutdown/discovery with a missing config path. Lower-level native shutdown diagnostic was not rerun. No push, land, install, or live discovery performed.
+
+## Historical validation — superseded, not migration safety acceptance
+
+The following records predate containment. Prior migration success observations do **not** establish safe automatic shutdown and are not current acceptance claims. Supported-success assertions have been replaced by refusal assertions.
+
 
 All executions used disposable synthetic stores; migration discovery was the explicit acceptance-tag injection. Production discovery is unchanged. No native inference claim.
 

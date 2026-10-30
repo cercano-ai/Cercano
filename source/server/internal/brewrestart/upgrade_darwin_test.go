@@ -28,6 +28,9 @@ func runUpgradeWorker() int {
 	}
 }
 
+// Lower-level shutdown diagnostic only, NOT migration safety acceptance.
+// A late differently named child can escape the snapshot; this test does not
+// qualify a worker-spawn/drain barrier or authorize automatic migration.
 func TestUpgradeStopsRealHostAndActiveWorker(t *testing.T) {
 	root := t.TempDir()
 	exe, err := os.Executable()

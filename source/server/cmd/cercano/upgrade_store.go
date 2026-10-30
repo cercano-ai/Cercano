@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"cercano/source/server/internal/conversation"
-	"cercano/source/server/pkg/config"
 )
 
 // Detection is deliberately bounded: same-user processes with the known
@@ -70,22 +68,9 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 		return fmt.Errorf("usage: cercano upgrade-store --database /absolute/path/conversations.db --all-legacy-agents-stopped; prerequisite: stop ALL legacy Cercano agents")
 	}
 	if *stopConfig != "" {
-		if !*checkOnly {
-			return fmt.Errorf("shutdown is a separate pre-backup check-only phase")
-		}
-		cfg, err := config.Load(*stopConfig)
-		if err != nil {
-			return err
-		}
-		endpoint, err := netip.ParseAddrPort("127.0.0.1:" + cfg.Port)
-		if err != nil {
-			return err
-		}
-		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		if err := upgradeHostStop(stopCtx, endpoint); err != nil {
-			return err
-		}
+		// No supported host provides a qualified worker-spawn/drain barrier.
+		// Snapshot-based shutdown is diagnostic only, never migration authorization.
+		return fmt.Errorf("host lacks verified worker-spawn/drain shutdown control; upgrade not performed")
 	}
 	// Do not open, initialize, or change the database before detection succeeds.
 	if err := check(ctx); err != nil {
