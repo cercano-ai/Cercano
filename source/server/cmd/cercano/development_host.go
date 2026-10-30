@@ -41,7 +41,7 @@ type developmentHostOptions struct {
 type developmentHostFactory func(context.Context, developmentHostOptions, *devhostauth.Auth) (*server.Server, *preparedShutdown, error)
 
 func runDevelopmentHost(ctx context.Context, args []string, out io.Writer) error {
-	return retainPreparedShutdown(runDevelopmentHostWithFactory(ctx, args, out, newProductionDevelopmentHost))
+	return retainPreparedShutdown(runDevelopmentHostWithFactory(ctx, args, out, nil))
 }
 func developmentPrivatePath(p string, directory bool) error {
 	if !filepath.IsAbs(p) || filepath.Clean(p) != p {
@@ -171,6 +171,9 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 	auth, err := devhostauth.Load(o.Host, o.TokenFile)
 	if err != nil {
 		return err
+	}
+	if factory == nil {
+		return runOrdinaryGenerationHost(ctx, o, auth, out)
 	}
 	srv, dependencies, err := factory(ctx, o, auth)
 	if err != nil {

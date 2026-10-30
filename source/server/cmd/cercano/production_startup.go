@@ -8,6 +8,7 @@ import (
 
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/devhostauth"
 )
 
 // productionStartupPolicy is invocation-local. Legacy preserves the ordinary
@@ -28,9 +29,16 @@ func canonicalGenerationStartup() productionStartupPolicy {
 	return productionStartupPolicy{authorities: productionAuthorityDefaults(), contract: conversation.DevelopmentCoexistenceDeclaration()}
 }
 
+type ordinaryGenerationBinding struct {
+	options developmentHostOptions
+	auth    *devhostauth.Auth
+	retired <-chan struct{} // set by ordinary composition, observed by its transport owner
+}
+
 type productionStartupAdmission struct {
-	paths  productionAuthorityPaths
-	legacy bool
+	generation *ordinaryGenerationBinding
+	paths      productionAuthorityPaths
+	legacy     bool
 	// Set only after read-only generation compatibility preflight succeeds.
 	generationPreflight bool
 	bounded             *validatedDevelopmentBinding
@@ -146,6 +154,14 @@ func (a productionStartupAdmission) validateActivation() error {
 	if a.paths.config == "" || a.paths.conversations == "" {
 		return fmt.Errorf("startup admission required")
 	}
+	if a.generation != nil {
+		if a.legacy || a.generation.auth == nil {
+			return fmt.Errorf("validated generation authentication required")
+		}
+		if err := a.validateGenerationOptions(); err != nil {
+			return err
+		}
+	}
 	if !a.legacy {
 		b := a.bounded
 		contract := conversation.DevelopmentCoexistenceDeclaration()
@@ -167,4 +183,11 @@ func (p productionStartupPolicy) admitActivation(ctx context.Context) (productio
 		return productionStartupAdmission{}, err
 	}
 	return a, nil
+}
+
+func (a productionStartupAdmission) validateGenerationOptions() error {
+	if a.bounded == nil || *a.bounded != developmentBinding(a.generation.options) {
+		return fmt.Errorf("generation binding mismatch")
+	}
+	return nil
 }

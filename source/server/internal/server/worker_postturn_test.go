@@ -9,7 +9,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"cercano/source/server/internal/agent"
 
 	runnersvc "cercano/source/server/internal/runner"
 	"cercano/source/server/internal/usage"
@@ -27,7 +30,7 @@ func TestWorkerPostTurn_EmitsUsageAndAdvancesMeter(t *testing.T) {
 	srv.SetUsageSink(func(u usage.Usage) { got = append(got, u) })
 
 	// The aggregate result a worker turn returns (token totals + model tier).
-	srv.workerPostTurn("conv-wpt", runnersvc.Result{
+	srv.workerPostTurn(ctx, "conv-wpt", runnersvc.Result{
 		Model: "m", IsCloud: true, InputTokens: 4321, OutputTokens: 99,
 	})
 
@@ -62,9 +65,68 @@ func TestWorkerPostTurn_NoopWithoutConversation(t *testing.T) {
 	srv.SetUsageSink(func(usage.Usage) { fired++ })
 
 	// Empty conversation id -> no-op (mirrors the runner's persistEnabled guard).
-	srv.workerPostTurn("", runnersvc.Result{InputTokens: 10, OutputTokens: 5})
+	srv.workerPostTurn(context.Background(), "", runnersvc.Result{InputTokens: 10, OutputTokens: 5})
 
 	if fired != 0 {
 		t.Errorf("usage sink fired %d times for an empty conversation id, want 0", fired)
+	}
+}
+
+// Worker turns must use the same owned scheduling bridge as in-process turns;
+// installing callbacks alone is not enough if post-turn bookkeeping bypasses it.
+func TestWorkerPostTurn_UsesOwnedScheduling(t *testing.T) {
+	srv, _ := newServerWithStore(t)
+	wantCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls []string
+	agent.WithOwnedScheduling(&agent.OwnedScheduling{
+		Recap: func(ctx context.Context, id string) error {
+			if ctx != wantCtx {
+				t.Error("scheduling lost the admitted context")
+			}
+			calls = append(calls, "recap:"+id)
+			return nil
+		},
+		Compaction: func(ctx context.Context, id string) error {
+			if ctx != wantCtx {
+				t.Error("scheduling lost the admitted context")
+			}
+			calls = append(calls, "compaction:"+id)
+			return nil
+		},
+	})(srv.agent)
+	if err := srv.workerPostTurn(wantCtx, "owned-post-turn", runnersvc.Result{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[0] != "recap:owned-post-turn" || calls[1] != "compaction:owned-post-turn" {
+		t.Fatalf("owned scheduling calls = %v, want recap then compaction", calls)
+	}
+}
+
+func TestWorkerPostTurn_RejectsUnownedScheduling(t *testing.T) {
+	for _, rejectAt := range []string{"recap", "compaction"} {
+		t.Run(rejectAt, func(t *testing.T) {
+			srv, _ := newServerWithStore(t)
+			denied := errors.New("ownership admission denied")
+			compactionCalled := false
+			agent.WithOwnedScheduling(&agent.OwnedScheduling{
+				Recap: func(context.Context, string) error {
+					if rejectAt == "recap" {
+						return denied
+					}
+					return nil
+				},
+				Compaction: func(context.Context, string) error {
+					compactionCalled = true
+					return denied
+				},
+			})(srv.agent)
+			if err := srv.workerPostTurn(context.Background(), "unowned", runnersvc.Result{}); !errors.Is(err, denied) {
+				t.Fatalf("post-turn error = %v, want ownership denial", err)
+			}
+			if compactionCalled != (rejectAt == "compaction") {
+				t.Fatalf("compaction called = %v after %s rejection", compactionCalled, rejectAt)
+			}
+		})
 	}
 }

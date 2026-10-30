@@ -27,10 +27,17 @@ import (
 // terminal frame rather than an RPC error so the client's log pane stays the
 // single source of truth for user-visible outcomes.
 func (s *Server) InstallOpenRuntime(req *proto.InstallOpenRuntimeRequest, stream proto.Agent_InstallOpenRuntimeServer) error {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	// Prepared hosts refuse before touching the request or stream.
+	if !s.ordinaryGeneration {
+		if _, _, err := s.beginOrdinaryServiceWork(context.Background(), ""); err != nil {
+			return err
+		}
+	}
+	ctx, work, err := s.beginOrdinaryServiceWork(stream.Context(), "")
+	if err != nil {
 		return err
 	}
-	ctx := stream.Context()
+	defer work.finish()
 
 	if req.GetRuntime() != "llama_server" {
 		return sendTerminalFrame(stream, false, fmt.Sprintf("install not supported for runtime %q (only llama_server)", req.GetRuntime()))

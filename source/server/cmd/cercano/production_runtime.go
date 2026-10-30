@@ -19,11 +19,12 @@ import (
 // Prepared hosts deliberately do not use this legacy fallback policy: they keep
 // their explicit authority connector and exact lifecycle-owned store.
 type productionRuntimeDependencies struct {
-	probe  func(string) error
-	mode   func() string
-	remote func(context.Context) (productionRuntimeRemote, error)
-	local  func(config.Config, *crashlog.Writer) localruntime.Manager
-	warm   func(localruntime.Manager, config.Config)
+	generation func(context.Context, config.Config, string, string) (localruntime.Manager, func() error, error)
+	probe      func(string) error
+	mode       func() string
+	remote     func(context.Context) (productionRuntimeRemote, error)
+	local      func(config.Config, *crashlog.Writer) localruntime.Manager
+	warm       func(localruntime.Manager, config.Config)
 }
 
 type productionRuntimeRemote interface {
@@ -34,11 +35,11 @@ type productionRuntimeRemote interface {
 // Creating defaults performs no I/O; activation is checked before using them.
 func productionRuntimeDefaults() productionRuntimeDependencies {
 	return productionRuntimeDependencies{
-		probe:  checkOllama,
-		mode:   func() string { return os.Getenv(modelHostEnv) },
-		remote: func(ctx context.Context) (productionRuntimeRemote, error) { return newModelHostRemote(ctx) },
-		local:  buildRuntimeManager,
-		warm:   warmActiveRuntime,
+		probe:      checkOllama,
+		mode:       func() string { return os.Getenv(modelHostEnv) },
+		remote:     func(ctx context.Context) (productionRuntimeRemote, error) { return newModelHostRemote(ctx) },
+		local:      buildRuntimeManager,
+		warm:       warmActiveRuntime,
 	}
 }
 

@@ -166,17 +166,18 @@ def assert_new_worker(events, pre_pids, boundary, conversation):
     assert boundary < birth['unix_nano'] < turns[0]['unix_nano'], 'startup must follow B publication and precede first turn'
     return birth, turns
 
-def run(repo,evidence):
+def run(repo,evidence,worker_delegation=False):
     assert all(os.environ.get(k)==v for k,v in {"CERCANO_DISABLE_CREDENTIALS":"1","GOPROXY":"off","GOSUMDB":"off"}.items()), "required outer offline/credential guards missing"
     evidence.mkdir(parents=True,exist_ok=True)
-    report={'scope':'actual shell -> real publisher -> compiled production host -> compiled CLI PTY','steps':[],'passed':False}
+    report={'scope':'actual shell -> real publisher -> compiled production host -> compiled CLI PTY','steps':[],'passed':False,'worker_delegation_required':worker_delegation}
     terminals=[]
     def record(step,**kw):
         report['steps'].append(dict(step=step,**kw)); (evidence/'compiled.json').write_text(json.dumps(report,indent=2)+'\n'); print(step,flush=True)
     with __import__('contextlib').nullcontext(tempfile.mkdtemp(prefix='ca-',dir='/tmp')) as tmp:
         root=P(tmp).resolve(); owned=OwnedProcesses(root); os.chmod(root,0o700); report['artifact_directory']=str(root); state=root/'state'; runtime=root/'r'; runtime.mkdir(mode=0o700)
-        copy=root/'repo'; copy.mkdir(); shutil.copytree(repo/'source',copy/'source')
+        copy=root/'repo'; copy.mkdir(); shutil.copytree(repo/'source',copy/'source',ignore=shutil.ignore_patterns('bin', '__pycache__', '.routing-check*'))
         home=root/'home';home.mkdir(); barrier=root/'barrier';barrier.mkdir(mode=0o700)
+        if worker_delegation: (barrier/'worker-delegation.enabled').touch(mode=0o600)
         mcp_fixture=barrier/'mcp-fixture'
         mcp_source=(repo/'efforts/dev-host-generations/compiled-mcp-fixture.py').read_text()
         mcp_fixture.write_text('#!'+sys.executable+'\n'+mcp_source.split('\n',1)[1]);mcp_fixture.chmod(0o700)
@@ -192,7 +193,7 @@ def run(repo,evidence):
         env=dict(os.environ)
         for k in list(env):
             if k.startswith(('GO','CGO_')) or k in ('CC','CXX','PKG_CONFIG','SDKROOT','LIBRARY_PATH','CPATH','C_INCLUDE_PATH','CPLUS_INCLUDE_PATH'):env.pop(k)
-        env.update(HOME=str(home),XDG_CONFIG_HOME=str(home/'config'),XDG_DATA_HOME=str(home/'data'),XDG_CACHE_HOME=str(home/'cache'),PATH=str(tools)+':'+env['PATH'],GOPATH=goenv('GOPATH'),GOCACHE=goenv('GOCACHE'),GOPROXY='off',GOSUMDB='off',CGO_ENABLED='0',VERSION='compiled-acceptance',TERM='xterm-256color',CERCANO_DISABLE_CREDENTIALS='1',CERCANO_OUTER_ENABLED='0',CERCANO_REPO=str(copy),CERCANO_DEVELOPMENT_STATE=str(state),CERCANO_RUNTIME_ROOT=str(runtime),CERCANO_FIXTURE_BARRIER=str(barrier))
+        env.update(HOME=str(home),XDG_CONFIG_HOME=str(home/'config'),XDG_DATA_HOME=str(home/'data'),XDG_CACHE_HOME=str(home/'cache'),PATH=str(tools)+':'+env['PATH'],GOPATH=goenv('GOPATH'),GOCACHE=goenv('GOCACHE'),GOPROXY='off',GOSUMDB='off',CGO_ENABLED='0',VERSION='compiled-acceptance',TERM='xterm-256color',CERCANO_DISABLE_CREDENTIALS='1',CERCANO_OUTER_ENABLED='1',CERCANO_REPO=str(copy),CERCANO_DEVELOPMENT_STATE=str(state),CERCANO_RUNTIME_ROOT=str(runtime),CERCANO_FIXTURE_BARRIER=str(barrier))
         script=copy/'source/server/scripts/cercano-launcher.sh'
         def call(args,cwd=None,timeout=240):
             p=subprocess.run(list(map(str,args)),cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout)
@@ -246,10 +247,10 @@ def run(repo,evidence):
             # Preparation copies normal config discovery; seed only synthetic HOME.
             synthetic=home/'.config/cercano/config.yaml'
             synthetic.parent.mkdir(parents=True,mode=0o700)
-            synthetic.write_text('outer:\n  enabled: false\n');synthetic.chmod(0o600)
+            synthetic.write_text('watchdog:\n  enabled: true\n  audit:\n    enabled: true\n');synthetic.chmod(0o600)
             prepared=call([bootstrap,'prepare-development','--new-state',state])
             record('fresh bootstrap preparation',output=prepared,files=[str(x) for x in state.iterdir()])
-            cfg=state/'config.yaml';cfg.write_text('open_runtime: llama_server\nlocus_mode: open_only\ntask_assignments:\n  dispatch: {destination: local, quality: standard}\nllama_server:\n  enabled: true\n  default_model: offline-fixture\nmodels:\n  open:\n    overrides:\n      llama_server:\n        everyday: offline-fixture\n        most_capable: offline-fixture\n        fast_light: offline-fixture\n        fast_light_text: offline-fixture\n        embedding: offline-fixture\nouter:\n  enabled: false\n');cfg.chmod(0o600)
+            cfg=state/'config.yaml';cfg.write_text('open_runtime: llama_server\nlocus_mode: open_only\ntask_assignments:\n  dispatch: {destination: local, quality: standard}\n  review: {destination: local, quality: standard}\nllama_server:\n  enabled: true\n  default_model: offline-fixture\nmodels:\n  open:\n    overrides:\n      llama_server:\n        everyday: offline-fixture\n        most_capable: offline-fixture\n        fast_light: offline-fixture\n        fast_light_text: offline-fixture\n        embedding: offline-fixture\nwatchdog:\n  enabled: true\n  audit:\n    enabled: true\n');cfg.chmod(0o600)
             record('explicit tagged real bootstrap and prepared private state', files=[str(x) for x in state.iterdir()], sqlite=rows('pragma user_version'))
             assert rows('pragma user_version')==[(2,)]
             mcp_definition=state/'mcp.json'
@@ -258,6 +259,9 @@ def run(repo,evidence):
             env['CERCANO_DEVELOPMENT_CONFIG_AUTHORITY']=str(cfg)
             record('one explicit shared A/B configuration authority', config=str(cfg), mcp=str(mcp_definition), mcp_sha256=mcp_digest,
                    exclusions=['not ordinary startup parity', 'no native credentials or loaded runtime', 'no enterprise integration', 'MCP definition mutation unsupported'])
+            # Ordinary startup retains its permissive default; this probe explicitly
+            # requests strict permissions to exercise the interactive approval path.
+            permissions=state/'permissions.yaml';permissions.write_text('mode: strict\n');permissions.chmod(0o600)
             a,sa,A=launch('A')
             a.send('FIXTURE_ORIGINAL_HISTORY\r')
             wait(lambda:any('FIXTURE_ORIGINAL_HISTORY' in json.dumps(e['request'].get('Messages')) for e in events() if e['event']=='call'),'A initial foreground')
@@ -272,6 +276,16 @@ def run(repo,evidence):
             a.send('y\r')
             wait(lambda:any(x['event']=='child-entered' for x in events()),'original independent task active before B',40)
             assert rows('select status from delegated_tasks')==[('running',)]
+            if worker_delegation:
+                assert any(e['event']=='worker-delegation-request' for e in events()), 'host dispatch alone is not worker delegation'
+                independent=rows('select child_id from delegated_tasks')[0][0]
+                nested=rows("select id,parent_id,kind from conversations where parent_id='"+independent+"'")
+                assert len(nested)==1 and nested[0][2]=='subagent', nested
+                descendant=nested[0][0]
+                assert rows("select parent_id from conversations where id='"+independent+"'")==[(A['Conversation'],)]
+                assert rows("select kind from dispatch_events where conversation_id='"+descendant+"' and kind='dispatch_start'")==[('dispatch_start',)]
+                record('real worker delegation descendant active', independent=independent, descendant=nested,
+                       history=rows("select kind,payload from dispatch_events where conversation_id='"+descendant+"' order by seq"))
             pre_b_workers=worker_events()
             pre_b_pids=sorted({e['pid'] for e in pre_b_workers})
             record('pre-B worker set', workers=pre_b_workers, pids=pre_b_pids, unstarted_conversation=S['Conversation'])
@@ -350,8 +364,28 @@ def run(repo,evidence):
             assert A['Conversation'] in {r['conversation'] for r in retained}
             assert json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)==0
             record('ordinary busy reopen preserves A task and schedules no transfer')
+            if worker_delegation:
+                # Both explicit management paths must refuse, not merely the UI.
+                control(sa,'transfer',sb,success=False)
+                control(sa,'retire',success=False)
+                assert json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)==0
+                record('descendant execution barrier refuses transfer and retirement')
             (barrier/'child.release').touch()
             wait(lambda:rows('select status from delegated_tasks')==[('completed',)],'independent task completion',40)
+            if worker_delegation:
+                wait(lambda:any(e['event']=='final-entered' for e in events()),'completion callback final-write barrier',40)
+                assert any(e['event']=='worker-delegation-result' for e in events()), 'worker did not observe nested tool result'
+                history=rows("select kind,payload from dispatch_events where conversation_id='"+descendant+"' order by seq")
+                assert sum(k=='dispatch_done' for k,_ in history)==1, history
+                assert any('FIXTURE_OK' in payload for _,payload in history), history
+                assert rows('select notification_pending,wake_claimed from delegated_tasks')==[(1,1)]
+                control(sa,'transfer',sb,success=False)
+                control(sa,'retire',success=False)
+                assert json.loads(control(sb,'list'))['Response'].get('pending_incoming',0)==0
+                record('descendant durable completion before blocked final callback', history=history,
+                       ancestry=rows("select id,parent_id,kind from conversations where id in ('"+independent+"','"+descendant+"')"),
+                       outcomes=rows('select id,parent_id,status,child_id,error,result_json from delegated_tasks'))
+                (barrier/'final.release').touch()
             wait(lambda:rows('select notification_pending,wake_claimed from delegated_tasks')==[(0,1)],'exactly one handled completion',40)
             assert len([e for e in events() if e['event']=='completion-notice'])==1
             retained=json.loads(control(sa,'list'))['Response']['retained']
@@ -393,6 +427,9 @@ def run(repo,evidence):
             post_reply_sql="select role,content from turns where conversation_id='"+A['Conversation']+"' and role='assistant' and rowid > (select rowid from turns where role='user' and content='FIXTURE_B_AFTER_A_RETIREMENT')"
             wait(lambda:any('FIXTURE_OK' in r[1] for r in rows(post_reply_sql)),'B durable assistant reply after A retirement',40)
             record('explicit A retirement after transfer and release; B continues',calls=events()[offset:], durable_assistant_reply=rows(post_reply_sql))
+            watchdog_opens=[e for e in events() if e['event']=='watchdog-open']
+            assert {pidA, calls[0]['pid']}.issubset({e['pid'] for e in watchdog_opens}), watchdog_opens
+            record('ordinary watchdog enabled on A and B with offline audit',opens=watchdog_opens)
             report['passed']=True
             record('PASS bounded compiled A/B rehearsal through validated launcher startup', limitations=['synthetic providers and memory credentials', 'not full ordinary-app production acceptance', 'canonical production activation remains denied'])
         except Exception as e:
@@ -418,4 +455,4 @@ def run(repo,evidence):
     assert report['passed']
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);a=p.parse_args();run(a.repo.resolve(),a.evidence.resolve())
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');a=p.parse_args();run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation)

@@ -33,10 +33,17 @@ func (s *Server) StartClaudeLogin(req *proto.StartClaudeLoginRequest, stream pro
 }
 
 func (s *Server) runClaudeLogin(req *proto.StartClaudeLoginRequest, stream proto.Agent_StartClaudeLoginServer, reauthenticate bool, flow anthropicauth.Flow) error {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	// Prepared hosts refuse before touching the request or stream.
+	if !s.ordinaryGeneration {
+		if _, _, err := s.beginOrdinaryServiceWork(context.Background(), ""); err != nil {
+			return err
+		}
+	}
+	ctx, work, err := s.beginOrdinaryServiceWork(stream.Context(), "")
+	if err != nil {
 		return err
 	}
-	ctx := stream.Context()
+	defer work.finish()
 	st := s.cfgSvc.Secrets()
 	if st == nil {
 		return sendClaudeLoginResult(stream, false, "", "keychain unavailable")

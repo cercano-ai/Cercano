@@ -179,6 +179,12 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	var dispatchLifetime *preparedDispatchLifetime
+	md, _ := metadata.FromIncomingContext(ctx)
+	if w.prepared || len(md.Get(preparedCredentialPolicyHeader)) != 0 {
+		dispatchLifetime = &preparedDispatchLifetime{}
+		ctx = context.WithValue(ctx, preparedDispatchLifetimeKey{}, dispatchLifetime)
+	}
 
 	// Serialized sender: all outbound messages go through one goroutine.
 	sndr := newSender(stream)
@@ -401,6 +407,10 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 		}()
 		result, runErr = runner.New(deps).RunTurn(ctx, req, sink, permFn, persistFn)
 	}()
+
+	if dispatchLifetime != nil {
+		runErr = errors.Join(runErr, dispatchLifetime.join())
+	}
 
 	// Flush sender before the terminal send: close blocks until the sender
 	// goroutine exits, so the direct Send below can't race it.

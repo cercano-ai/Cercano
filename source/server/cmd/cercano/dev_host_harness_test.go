@@ -87,7 +87,7 @@ func devHostCheckWorkerLease(t *testing.T, binary, root string, env []string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, "worker", "--socket", filepath.Join(dir, "w.sock"), "--prepared")
+	cmd := exec.CommandContext(ctx, binary, "worker", "--socket", filepath.Join(dir, "w.sock"), "--prepared", "--failure-log", filepath.Join(dir, "failure.jsonl"), "--routing-log", filepath.Join(dir, "routing.jsonl"))
 	cmd.Env = append([]string(nil), env...)
 	for i, value := range cmd.Env {
 		if strings.HasPrefix(value, "CERCANO_DEV_FIXTURE_STOP=") {

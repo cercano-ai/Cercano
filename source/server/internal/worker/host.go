@@ -675,6 +675,24 @@ func (w *workerRunner) RunTurn(
 		startTurn.ChatRoute = &proto.SessionChatRoute{Profile: req.ChatRoute.Profile, Model: req.ChatRoute.Model}
 	}
 
+	// Fence every asynchronous host callback before the authority's deferred Close.
+	// Cancel first on all exits so context-aware callbacks cannot await the dead stream.
+	var callbacks sync.WaitGroup
+	callbackCtx, cancelCallbacks := context.WithCancel(ctx)
+	ctx = callbackCtx
+	var callbackErrMu sync.Mutex
+	var callbackErr error
+	defer func() {
+		cancelCallbacks()
+		callbacks.Wait()
+		if authority != nil {
+			callbackErrMu.Lock()
+			turnErr = errors.Join(turnErr, callbackErr)
+			callbackErrMu.Unlock()
+		}
+	}()
+	spawnCallback := func(f func()) { callbacks.Add(1); go func() { defer callbacks.Done(); f() }() }
+
 	// ── 5. Acquire a warm worker (pool) or use injected dial ──────────────
 	//
 	// turnHealthy records whether the worker is safe to keep WARM for the next
@@ -774,7 +792,13 @@ func (w *workerRunner) RunTurn(
 	safeSend := func(msg *proto.HostToWorker) error {
 		sendMu.Lock()
 		defer sendMu.Unlock()
-		return stream.Send(msg)
+		err := stream.Send(msg)
+		if err != nil && authority != nil {
+			callbackErrMu.Lock()
+			callbackErr = errors.Join(callbackErr, err)
+			callbackErrMu.Unlock()
+		}
+		return err
 	}
 
 	// ── 7. Drain loop ─────────────────────────────────────────────────────
@@ -801,7 +825,7 @@ func (w *workerRunner) RunTurn(
 
 		msg, recvErr := stream.Recv()
 		if recvErr != nil {
-			if turnDone {
+			if turnDone && errors.Is(recvErr, io.EOF) {
 				// TurnDone received; the stream closed normally afterwards. The
 				// worker finished cleanly → keep it WARM for the next turn.
 				turnHealthy = true
@@ -843,7 +867,7 @@ func (w *workerRunner) RunTurn(
 		case *proto.WorkerToHost_PermRequest:
 			// Answer in a goroutine so a slow human decision doesn't block Recv.
 			pr := m.PermRequest
-			go func() {
+			spawnCallback(func() {
 				id := pr.GetId()
 				tier := llm.Permission(pr.GetTier())
 				var args json.RawMessage
@@ -866,11 +890,11 @@ func (w *workerRunner) RunTurn(
 				if sendErr := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_PermResponse{PermResponse: resp}}); sendErr != nil {
 					log.Printf("[workerRunner] send perm response id=%d: %v", id, sendErr)
 				}
-			}()
+			})
 
 		case *proto.WorkerToHost_AuthRequest:
 			request := m.AuthRequest
-			go func() {
+			spawnCallback(func() {
 				response := &proto.WorkerAuthenticationResponse{Id: request.GetId()}
 				if req.AuthRecovery == nil || request.GetChallenge() == nil {
 					response.Error = "authentication recovery unavailable"
@@ -884,12 +908,12 @@ func (w *workerRunner) RunTurn(
 					}
 				}
 				safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_AuthResponse{AuthResponse: response}})
-			}()
+			})
 		case *proto.WorkerToHost_CredRequest:
 			// Answer credential requests off the drain path (in a goroutine) so
 			// a slow keychain/OAuth resolve doesn't stall the event stream.
 			cr := m.CredRequest
-			go func() {
+			spawnCallback(func() {
 				id := cr.GetId()
 				profileName := cr.GetProfileName()
 				token, account, credErr := w.resolveCredential(ctx, cfg, profileName)
@@ -904,14 +928,14 @@ func (w *workerRunner) RunTurn(
 				if sendErr := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_CredResponse{CredResponse: resp}}); sendErr != nil {
 					log.Printf("[workerRunner] send cred response id=%d: %v", id, sendErr)
 				}
-			}()
+			})
 
 		case *proto.WorkerToHost_OpenRequest:
 			// Answer open-model inference off the drain path: the worker has no
 			// local runtime manager, so it proxies open calls here and we run
 			// them through the host's open provider, streaming events back.
 			or := m.OpenRequest
-			go w.serveOpenInference(ctx, or, safeSend)
+			spawnCallback(func() { w.serveOpenInference(ctx, or, safeSend) })
 
 		case *proto.WorkerToHost_Persist:
 			if m.Persist != nil && m.Persist.Message != nil {
@@ -944,7 +968,7 @@ func (w *workerRunner) RunTurn(
 		case *proto.WorkerToHost_EnsureSubagent:
 			// A worker-side dispatch created a sub-agent: persist its conversation
 			// row on the host so the tab survives restart and is post-mortemable.
-			if err := w.ensureDispatchChild(ctx, m.EnsureSubagent, req.ConversationID, dispatchScope); err != nil {
+			if err := w.ensureDispatchChild(ctx, m.EnsureSubagent, req.ConversationID, dispatchScope, authority); err != nil {
 				if authority != nil {
 					return runner.Result{}, err
 				}
@@ -959,7 +983,15 @@ func (w *workerRunner) RunTurn(
 			// the host store write completed; the worker never treats evidence as
 			// recorded before this acknowledgment.
 			if m.DispatchEvent != nil {
-				resp := w.handleDispatchEvent(ctx, m.DispatchEvent, dispatchScope)
+				eventCtx := ctx
+				if authority != nil {
+					var err error
+					eventCtx, err = authority.Context(ctx, m.DispatchEvent.GetConversationId())
+					if err != nil {
+						return runner.Result{}, err
+					}
+				}
+				resp := w.handleDispatchEvent(eventCtx, m.DispatchEvent, dispatchScope)
 				if err := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_DispatchEventResponse{DispatchEventResponse: resp}}); err != nil {
 					log.Printf("[workerRunner] send dispatch event response: %v", err)
 					if authority != nil {
@@ -973,7 +1005,7 @@ func (w *workerRunner) RunTurn(
 
 		case *proto.WorkerToHost_RuntimeRequest:
 			request := m.RuntimeRequest
-			go func() {
+			spawnCallback(func() {
 				response := &proto.RuntimeRestartToolResponse{Id: request.GetId()}
 				if w.restartRuntime == nil {
 					response.Error = "runtime control not configured"
@@ -988,7 +1020,7 @@ func (w *workerRunner) RunTurn(
 				if err := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_RuntimeResponse{RuntimeResponse: response}}); err != nil {
 					log.Printf("[workerRunner] runtime response: %v", err)
 				}
-			}()
+			})
 		case *proto.WorkerToHost_McpRequest:
 			// The worker invoked a proxied MCP tool. Resolve against the LIVE host
 			// registry (not the advertisement snapshot) so a server restarted
@@ -996,7 +1028,7 @@ func (w *workerRunner) RunTurn(
 			// cleanly. Runs in its own goroutine: an MCP call can block on server
 			// warm-up, and the stream reader must stay responsive to Cancel.
 			request := m.McpRequest
-			go func() {
+			spawnCallback(func() {
 				response := &proto.McpCallResponse{Id: request.GetId()}
 				if w.mcpCall == nil {
 					response.Error = "mcp not configured on host"
@@ -1011,7 +1043,7 @@ func (w *workerRunner) RunTurn(
 				if err := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_McpResponse{McpResponse: response}}); err != nil {
 					log.Printf("[workerRunner] mcp response: %v", err)
 				}
-			}()
+			})
 
 		case *proto.WorkerToHost_AutonomyRequest:
 			// A worker-side autonomous-mode capability touched the autonomy
@@ -1019,7 +1051,7 @@ func (w *workerRunner) RunTurn(
 			// (the ledger's only owner) and acknowledge, so the capability's
 			// control flow depends on the durable write completing.
 			request := m.AutonomyRequest
-			go func() {
+			spawnCallback(func() {
 				response := &proto.AutonomyLedgerResponse{Id: request.GetId()}
 				if w.autonomyLedger == nil {
 					response.Error = "autonomy ledger is not available"
@@ -1035,17 +1067,17 @@ func (w *workerRunner) RunTurn(
 				if err := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_AutonomyResponse{AutonomyResponse: response}}); err != nil {
 					log.Printf("[workerRunner] autonomy ledger response: %v", err)
 				}
-			}()
+			})
 
 		case *proto.WorkerToHost_TaskControlRequest:
 			request := m.TaskControlRequest
-			go func() {
+			spawnCallback(func() {
 				response := handleTaskControl(ctx, w.tasks, req.ConversationID, request)
 				_ = safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_TaskControlResponse{TaskControlResponse: response}})
-			}()
+			})
 		case *proto.WorkerToHost_SessionModelRequest:
 			request := m.SessionModelRequest
-			go func() {
+			spawnCallback(func() {
 				response := &proto.SessionModelResponse{Id: request.GetId()}
 				if request.GetConversationId() != req.ConversationID {
 					response.Error = "session model control is scoped to the active conversation"
@@ -1063,18 +1095,18 @@ func (w *workerRunner) RunTurn(
 					}
 				}
 				_ = safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_SessionModelResponse{SessionModelResponse: response}})
-			}()
+			})
 		case *proto.WorkerToHost_ProfileRequest:
 			// Session-control capabilities run in the worker but own no session
 			// state. Apply profile changes on the host profile broker and respond so
 			// the capability can report success/failure to the model.
 			pr := m.ProfileRequest
-			go func() {
+			spawnCallback(func() {
 				resp := w.handleProfileRequest(ctx, req.ConversationID, pr)
 				if sendErr := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_ProfileResponse{ProfileResponse: resp}}); sendErr != nil {
 					log.Printf("[workerRunner] send profile response id=%d: %v", pr.GetId(), sendErr)
 				}
-			}()
+			})
 
 		case *proto.WorkerToHost_Done:
 			// Capture result; continue draining until Recv returns EOF.
@@ -1307,14 +1339,22 @@ func (w *workerRunner) serveOpenInference(ctx context.Context, req *proto.OpenIn
 
 // ensureDispatchChild runs on the stream drain path, before evidence appends.
 // Only successfully created descendants can acquire an event-writing scope.
-func (w *workerRunner) ensureDispatchChild(ctx context.Context, e *proto.EnsureSubagentConversation, parent string, scope map[string]bool) error {
+func (w *workerRunner) ensureDispatchChild(ctx context.Context, e *proto.EnsureSubagentConversation, parent string, scope map[string]bool, authorities ...TurnAuthority) error {
 	if e == nil || e.GetId() == "" || e.GetId() == parent || e.GetId() == e.GetParentId() || (e.GetParentId() != parent && !scope[e.GetParentId()]) {
 		return errors.New("dispatch parent not authorized")
 	}
-	if w.ensureSubagent == nil {
+	ensure := w.ensureSubagent
+	if len(authorities) > 0 && authorities[0] != nil {
+		retained, ok := authorities[0].(DescendantAuthority)
+		if !ok {
+			return errors.New("dispatch descendant authority unavailable")
+		}
+		ensure = retained.Ensure
+	}
+	if ensure == nil {
 		return errors.New("dispatch conversation store unavailable")
 	}
-	if err := w.ensureSubagent(ctx, e.GetId(), e.GetParentId(), e.GetProjectDir(), e.GetModel(), e.GetGrantedTools()); err != nil {
+	if err := ensure(ctx, e.GetId(), e.GetParentId(), e.GetProjectDir(), e.GetModel(), e.GetGrantedTools()); err != nil {
 		return err
 	}
 	scope[e.GetId()] = true

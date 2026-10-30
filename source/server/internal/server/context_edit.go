@@ -13,8 +13,10 @@ func (s *Server) ProposeContextEdit(ctx context.Context, req *proto.ProposeConte
 
 // DeleteConversationTurns implements proto.AgentServer — delegates to persistSvc.
 func (s *Server) DeleteConversationTurns(ctx context.Context, req *proto.DeleteConversationTurnsRequest) (*proto.DeleteConversationTurnsResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	return s.persistSvc.DeleteConversationTurns(ctx, req)
 }

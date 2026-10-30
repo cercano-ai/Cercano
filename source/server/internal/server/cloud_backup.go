@@ -19,9 +19,11 @@ import (
 func (s *Server) SetBackupCloudProfile(ctx context.Context, req *proto.SetBackupCloudProfileRequest) (*proto.SetBackupCloudProfileResponse, error) {
 	s.configApplyMu.Lock()
 	defer s.configApplyMu.Unlock()
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	name := req.GetName()
 	candidate := s.cfgSvc.Get()
 	if name != "" {

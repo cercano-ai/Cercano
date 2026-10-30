@@ -93,6 +93,12 @@ func (s *Server) Retain(ctx context.Context, id string) (broker.Owner, error) {
 	return l.acquire(ctx, id, nil)
 }
 func (l *coexistenceLifecycle) acquire(ctx context.Context, id string, accepted *IncomingAcceptance) (broker.Owner, error) {
+	return l.acquireInitialized(ctx, id, accepted, nil)
+}
+
+// initialize creates a fresh owned row before reload; rollover needs its linked
+// row and handoff in one transaction rather than the default empty row.
+func (l *coexistenceLifecycle) acquireInitialized(ctx context.Context, id string, accepted *IncomingAcceptance, initialize func(context.Context, *conversation.Ownership) error) (broker.Owner, error) {
 	if l.owners[id] != nil {
 		return broker.Owner{}, broker.ErrAdmissionBusy
 	}
@@ -123,7 +129,12 @@ func (l *coexistenceLifecycle) acquire(ctx context.Context, id string, accepted 
 	// its exact capability, before reload or dependent writes. Fixture and
 	// handover paths retain their existing semantics. A failed write remains
 	// unresolved and must not be reported as a completed acquisition.
-	if accepted == nil && l.options.Contract == conversation.DevelopmentCoexistenceDeclaration() {
+	if initialize != nil {
+		if e = initialize(ctx, o); e != nil {
+			_ = t.PersistenceFailed()
+			return broker.Owner{}, fmt.Errorf("acquired but conversation creation unresolved: %w", e)
+		}
+	} else if accepted == nil && l.options.Contract == conversation.DevelopmentCoexistenceDeclaration() {
 		if e = l.store.EnsureConversation(ctx, id, "", ""); e != nil {
 			_ = t.PersistenceFailed()
 			return broker.Owner{}, fmt.Errorf("acquired but conversation creation unresolved: %w", e)

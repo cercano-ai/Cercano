@@ -117,7 +117,8 @@ type Server struct {
 	watchAdmission        workadmission.Gate
 	configWatchers        sync.WaitGroup
 	diagnosticClose       sync.Once
-	coexistence           *coexistenceLifecycle // explicit lifecycle-only opt-in; never enabled by NewServer
+	coexistence           *coexistenceLifecycle // ownership and ticket authority
+	ordinaryGeneration    bool                  // ordinary service policy; set only by lifecycle attachment
 	pendingPrompts        pendingPromptHub
 	configApplyMu         sync.Mutex // serializes publication and runtime activation on this host
 	mistralMu             sync.Mutex
@@ -527,9 +528,11 @@ func (s *Server) RemoveMcpServer(ctx context.Context, req *proto.RemoveMcpServer
 
 // RestartMcpServer implements proto.AgentServer — tears down and reconnects a hosted MCP server.
 func (s *Server) RestartMcpServer(ctx context.Context, req *proto.RestartMcpServerRequest) (*proto.RestartMcpServerResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	mgr := s.mcpMgr()
 	if mgr == nil {
 		return &proto.RestartMcpServerResponse{Ok: false, Error: "mcp host not enabled"}, nil
@@ -1013,9 +1016,11 @@ func (s *Server) GetCloudProfiles(ctx context.Context, req *proto.GetCloudProfil
 func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActiveCloudProfileRequest) (*proto.SetActiveCloudProfileResponse, error) {
 	s.configApplyMu.Lock()
 	defer s.configApplyMu.Unlock()
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	// The client may have given up while this RPC sat in a queue (agent
 	// restart, lock contention). Applying it anyway split-brains client and
 	// server: the CLI reports failure while the switch silently lands. Bail
@@ -1064,9 +1069,11 @@ func (s *Server) SetActiveCloudProfile(ctx context.Context, req *proto.SetActive
 func (s *Server) SetCloudProfileKey(ctx context.Context, req *proto.SetCloudProfileKeyRequest) (*proto.SetCloudProfileKeyResponse, error) {
 	s.configApplyMu.Lock()
 	defer s.configApplyMu.Unlock()
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	releaseCatalog := s.lockMistralConfiguration()
 	defer releaseCatalog()
 	st := s.cfgSvc.Secrets()
@@ -2547,10 +2554,14 @@ func classifyResumeRPCError(err error) string {
 
 // DeleteConversation implements proto.AgentServer — delegates to persistSvc.
 func (s *Server) DeleteConversation(ctx context.Context, req *proto.DeleteConversationRequest) (*proto.DeleteConversationResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
-	return s.persistSvc.DeleteConversation(ctx, req)
+	defer work.finish()
+	resp, err := s.persistSvc.DeleteConversation(ctx, req)
+	persistsvc.ReportWriteFailure(ctx, err)
+	return resp, err
 }
 
 // RenameConversation implements proto.AgentServer — delegates to persistSvc.
@@ -3142,9 +3153,11 @@ func catalogModelToProto(m catalog.Model, servable bool) *proto.RuntimeModel {
 // fetch of the online catalog, bypassing the 24h TTL. Used by the
 // CLI dashboard's "R" refresh key.
 func (s *Server) RefreshOnlineCatalog(ctx context.Context, req *proto.RefreshOnlineCatalogRequest) (*proto.RefreshOnlineCatalogResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	cm := s.providerSvc.CatalogManager()
 	if cm == nil {
 		return &proto.RefreshOnlineCatalogResponse{Error: "online catalog not configured"}, nil
@@ -3181,9 +3194,11 @@ func (s *Server) ListRuntimeEndpoints(ctx context.Context, req *proto.ListRuntim
 
 // StartRuntimeModel implements proto.AgentServer.
 func (s *Server) StartRuntimeModel(ctx context.Context, req *proto.StartRuntimeModelRequest) (*proto.StartRuntimeModelResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.StartRuntimeModelResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3200,9 +3215,11 @@ func (s *Server) StartRuntimeModel(ctx context.Context, req *proto.StartRuntimeM
 
 // StopRuntimeModel implements proto.AgentServer.
 func (s *Server) StopRuntimeModel(ctx context.Context, req *proto.StopRuntimeModelRequest) (*proto.StopRuntimeModelResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.StopRuntimeModelResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3215,9 +3232,11 @@ func (s *Server) StopRuntimeModel(ctx context.Context, req *proto.StopRuntimeMod
 
 // RestartRuntime implements proto.AgentServer.
 func (s *Server) RestartRuntime(ctx context.Context, req *proto.RestartRuntimeRequest) (*proto.RestartRuntimeResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.RestartRuntimeResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3235,9 +3254,11 @@ func (s *Server) RestartRuntime(ctx context.Context, req *proto.RestartRuntimeRe
 
 // DownloadRuntimeModel implements proto.AgentServer.
 func (s *Server) DownloadRuntimeModel(ctx context.Context, req *proto.DownloadRuntimeModelRequest) (*proto.DownloadRuntimeModelResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.DownloadRuntimeModelResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3431,9 +3452,11 @@ func defaultModelDir(cfg config.Config) string {
 
 // CancelRuntimeModelDownload implements proto.AgentServer.
 func (s *Server) CancelRuntimeModelDownload(ctx context.Context, req *proto.CancelRuntimeModelDownloadRequest) (*proto.CancelRuntimeModelDownloadResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.CancelRuntimeModelDownloadResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -3450,9 +3473,11 @@ func (s *Server) CancelRuntimeModelDownload(ctx context.Context, req *proto.Canc
 
 // DeleteRuntimeModel implements proto.AgentServer.
 func (s *Server) DeleteRuntimeModel(ctx context.Context, req *proto.DeleteRuntimeModelRequest) (*proto.DeleteRuntimeModelResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	rm := s.runtimeMgr()
 	if rm == nil {
 		return &proto.DeleteRuntimeModelResponse{Ok: false, Error: "runtime manager not configured"}, nil
@@ -4258,7 +4283,9 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 		// so the host compensates here. Runs for worker turns only (tr.worker) —
 		// in-process already did it, so no double-counting.
 		if tr.worker {
-			s.workerPostTurn(convID, tr.result)
+			if err := s.workerPostTurn(ctx, convID, tr.result); err != nil {
+				return err
+			}
 		}
 
 		if reserved == nil && ctx.Err() == nil && s.turnIsCurrent(convID, turnGen) {
@@ -4403,9 +4430,9 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 // telemetry. In-process, runner.Core does all of this inside RunTurn. Uses the
 // model + aggregate token counts the worker returned. No-op when there is no
 // conversation or no host Agent.
-func (s *Server) workerPostTurn(convID string, res runnersvc.Result) {
+func (s *Server) workerPostTurn(ctx context.Context, convID string, res runnersvc.Result) error {
 	if convID == "" || s.agent == nil {
-		return
+		return nil
 	}
 	model := ""
 	if s.providerSvc != nil {
@@ -4415,8 +4442,14 @@ func (s *Server) workerPostTurn(convID string, res runnersvc.Result) {
 		model = res.Route.Model
 	}
 	s.agent.RecordContextUsageForRoute(convID, model, res.InputTokens, res.OutputTokens, res.Route)
-	s.agent.ScheduleRecap(convID)
-	s.agent.ScheduleCompaction(convID)
+	// Preserve the admitted foreground capability for owned background work.
+	// Context-aware scheduling retains the legacy behavior on unowned agents.
+	if err := s.agent.ScheduleRecapContext(ctx, convID); err != nil {
+		return err
+	}
+	if err := s.agent.ScheduleCompactionContext(ctx, convID); err != nil {
+		return err
+	}
 	// Usage telemetry: one aggregate event for the whole worker turn — the host
 	// only has turn totals (the child provider is unwrapped), whereas in-process
 	// emits per model call via usage.Wrap. Approximate, but keeps cost/usage
@@ -4434,6 +4467,7 @@ func (s *Server) workerPostTurn(convID string, res runnersvc.Result) {
 			OutputTokens: res.OutputTokens,
 		})
 	}
+	return nil
 }
 
 // brokerSink implements runner.EventSink by publishing each event to the turn
@@ -4783,9 +4817,11 @@ func (s *Server) ExportImage(ctx context.Context, req *proto.ExportImageRequest)
 // permission mode; takes effect on the next turn (the runner reads the active
 // profile live at turn time).
 func (s *Server) SetSessionProfile(ctx context.Context, req *proto.SetSessionProfileRequest) (*proto.SetSessionProfileResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if s.profileBroker == nil {
 		return &proto.SetSessionProfileResponse{Ok: false, Error: "profile broker not configured"}, nil
 	}
@@ -4843,9 +4879,11 @@ func (s *Server) DenyToolCall(ctx context.Context, req *proto.DenyToolCallReques
 // links it to the current one via precursor_id, and returns the new id to
 // resume into. offer_id must match the outstanding offer (else stale).
 func (s *Server) AcceptRollover(ctx context.Context, req *proto.AcceptRolloverRequest) (*proto.AcceptRolloverResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if s.rollover == nil {
 		return &proto.AcceptRolloverResponse{Ok: false, Error: "rollover not enabled"}, nil
 	}
@@ -4863,8 +4901,30 @@ func (s *Server) AcceptRollover(ctx context.Context, req *proto.AcceptRolloverRe
 	}
 	handoff := s.buildHandoffFor(ctx, convID)
 	newID := conversation.NewID()
-	if err := store.CreateRolledOver(ctx, newID, info.ProjectDir, info.Model, convID,
-		conversation.Turn{Role: "user", Content: handoff}); err != nil {
+	create := func(writeCtx context.Context) error {
+		err := store.CreateRolledOver(writeCtx, newID, info.ProjectDir, info.Model, convID,
+			conversation.Turn{Role: "user", Content: handoff})
+		persistsvc.ReportWriteFailure(ctx, err)
+		return err
+	}
+	if s.ordinaryGeneration {
+		// Both endpoints require exact capabilities. Keep the source foreground
+		// ticket and the destination acquisition ticket live through the atomic
+		// insert, then reload only the fully seeded destination.
+		var source *conversation.Ownership
+		source, err = s.resolvePreparedTaskOwner(ctx, convID)
+		if err == nil {
+			l := s.coexistence
+			l.mu.Lock()
+			_, err = l.acquireInitialized(ctx, newID, nil, func(writeCtx context.Context, destination *conversation.Ownership) error {
+				return create(conversation.WithOwnership(writeCtx, source, destination))
+			})
+			l.mu.Unlock()
+		}
+	} else {
+		err = create(ctx)
+	}
+	if err != nil {
 		return &proto.AcceptRolloverResponse{Ok: false, Error: fmt.Sprintf("create rolled-over conversation: %v", err)}, nil
 	}
 	return &proto.AcceptRolloverResponse{Ok: true, NewConversationId: newID}, nil
@@ -4874,9 +4934,11 @@ func (s *Server) AcceptRollover(ctx context.Context, req *proto.AcceptRolloverRe
 // offer until the session grows past the re-arm line (hysteresis). offer_id must
 // match the outstanding offer.
 func (s *Server) DeclineRollover(ctx context.Context, req *proto.DeclineRolloverRequest) (*proto.DeclineRolloverResponse, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, req.GetConversationId())
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if s.rollover == nil {
 		return &proto.DeclineRolloverResponse{Ok: false}, nil
 	}
@@ -5049,9 +5111,11 @@ func (s *Server) profileModelEvidence(p config.CloudProfile, model string) model
 }
 
 func (s *Server) restartRuntimeTool(ctx context.Context, id string) (json.RawMessage, error) {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	return runtimecontrol.Restart(ctx, s, id)
 }
 

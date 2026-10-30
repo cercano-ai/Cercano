@@ -51,3 +51,20 @@ func (s *Server) refuseUnintegratedCoexistenceWork() error {
 	}
 	return nil
 }
+
+// Ordinary service operations are not prepared-service operations. Keep the
+// prepared deny gate, but admit the ordinary operation against its exact owner
+// before calling normal persistence/runtime services. Empty target means a
+// shared operation: use the terminal binding, never a guessed current owner.
+func (s *Server) beginOrdinaryServiceWork(ctx context.Context, target string) (context.Context, *foregroundWork, error) {
+	if !s.ordinaryGeneration {
+		if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+			return nil, nil, err
+		}
+		return ctx, nil, nil
+	}
+	if target != "" {
+		return s.beginForeground(ctx, target)
+	}
+	return s.beginSettingsWork(ctx)
+}

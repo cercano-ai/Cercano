@@ -39,6 +39,11 @@ func (s *Server) validateSharedSettings(req *proto.UpdateConfigRequest, authorit
 	if s.cfgSvc.Frozen() {
 		return cfgsvc.ErrFrozen
 	}
+	// Ordinary attachment keeps normal config validation/reconfiguration. The
+	// caller still holds exact-owner admission through beginSettingsWork.
+	if s.ordinaryGeneration {
+		return nil
+	}
 	rest := pb.Clone(req).(*proto.UpdateConfigRequest)
 	rest.ToolLoopMaxIterations = ""
 	rest.ElideToolResults = ""

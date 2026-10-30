@@ -11,6 +11,7 @@
 package server
 
 import (
+	"context"
 	"strings"
 
 	"cercano/source/server/internal/chatgptauth"
@@ -25,10 +26,17 @@ func (s *Server) StartChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream p
 }
 
 func (s *Server) runChatGPTLogin(req *proto.StartChatGPTLoginRequest, stream proto.Agent_StartChatGPTLoginServer, reauthenticate bool, flow chatgptauth.Flow) error {
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	// Prepared hosts refuse before touching the request or stream.
+	if !s.ordinaryGeneration {
+		if _, _, err := s.beginOrdinaryServiceWork(context.Background(), ""); err != nil {
+			return err
+		}
+	}
+	ctx, work, err := s.beginOrdinaryServiceWork(stream.Context(), "")
+	if err != nil {
 		return err
 	}
-	ctx := stream.Context()
+	defer work.finish()
 	st := s.cfgSvc.Secrets()
 	if st == nil {
 		return sendChatGPTLoginResult(stream, false, "", "", "keychain unavailable")

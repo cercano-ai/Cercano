@@ -23,6 +23,12 @@ type preparedScheduling struct {
 func (s *Server) installPreparedScheduling(a *agent.Agent, factory PreparedSchedulingFactory) {
 	r, c := factory(s.persistSvc.Store())
 	s.preparedScheduling = &preparedScheduling{r, c}
+	// Ordinary regeneration must use the same owned producer (and shutdown
+	// root) as request-path scheduling, never a separate ID-only generator.
+	// Prepared persistence remains frozen and must not expose regeneration.
+	if s.ordinaryGeneration {
+		s.persistSvc.SetCompactionGenerator(c)
+	}
 	agent.WithOwnedScheduling(&agent.OwnedScheduling{
 		ReportFailure: persistsvc.ReportWriteFailure,
 		Recap: func(ctx context.Context, id string) error {

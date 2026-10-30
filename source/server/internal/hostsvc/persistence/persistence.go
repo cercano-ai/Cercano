@@ -1319,7 +1319,16 @@ func (x *svc) RegenerateContext(req *proto.RegenerateContextRequest, stream prot
 		// pass claims the conversation immediately (so the status bar can show
 		// real Compacting=true), persists bounded progress, and reschedules
 		// itself while backlog remains.
-		go func() { _ = x.compactionGen.CompactNow(context.Background(), convID) }()
+		if owned, ok := x.convAgent.(ownedSchedulingAgent); ok && owned.HasOwnedScheduling() {
+			// The RPC only acknowledges admission. The owned producer retains the
+			// exact capability and ticket across debounce, every retry and write.
+			// Its host root, not the completed transport, controls cancellation.
+			if err := owned.ScheduleCompactionContext(context.WithoutCancel(stream.Context()), convID); err != nil {
+				return stream.Send(&proto.RegenerateContextProgress{Done: true, Ok: false, Error: err.Error()})
+			}
+		} else {
+			go func() { _ = x.compactionGen.CompactNow(context.Background(), convID) }()
+		}
 		return stream.Send(&proto.RegenerateContextProgress{
 			Done: true,
 			Ok:   true,
@@ -1333,7 +1342,13 @@ func (x *svc) RegenerateContext(req *proto.RegenerateContextRequest, stream prot
 	} else {
 		pre, post, err = x.compactionGen.Regenerate(stream.Context(), convID, false, progress)
 	}
+	if err == nil {
+		err = WriteFailure(stream.Context())
+	}
 	if err != nil {
+		// A failed pass can follow a durable partial write. Preserve the owner
+		// blocker even if the transport has already disconnected.
+		ReportWriteFailure(stream.Context(), err)
 		return stream.Send(&proto.RegenerateContextProgress{Done: true, Ok: false, Error: err.Error(), PreTokens: int32(pre)})
 	}
 	verb := "rebuilt"

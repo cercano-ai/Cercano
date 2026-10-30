@@ -11,9 +11,11 @@ import (
 func (s *Server) UpdateRoutingAssignments(ctx context.Context, req *proto.UpdateRoutingAssignmentsRequest) (*proto.UpdateRoutingAssignmentsResponse, error) {
 	s.configApplyMu.Lock()
 	defer s.configApplyMu.Unlock()
-	if err := s.refuseUnintegratedCoexistenceWork(); err != nil {
+	ctx, work, err := s.beginOrdinaryServiceWork(ctx, "")
+	if err != nil {
 		return nil, err
 	}
+	defer work.finish()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

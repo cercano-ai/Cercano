@@ -26,6 +26,7 @@ import (
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/cloudfactory"
+	"cercano/source/server/internal/compactiongen"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/crashlog"
 	"cercano/source/server/internal/engine"
@@ -45,6 +46,7 @@ import (
 	"cercano/source/server/internal/modelpolicy"
 	"cercano/source/server/internal/openmodels"
 	"cercano/source/server/internal/protocols"
+	"cercano/source/server/internal/recap"
 	"cercano/source/server/internal/retention"
 	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/server"
@@ -269,10 +271,19 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// Local models live in the shared model host (or in-process as a
 	// fallback). The close function runs at shutdown after Server.Shutdown,
 	// or here if startup fails.
-	runtimeManager, closeRuntime, err := runtimes.connect(context.Background(), cfg, events)
+	connectRuntime := func() (localruntime.Manager, func() error, error) {
+		return runtimes.connect(context.Background(), cfg, events)
+	}
+	if admission.generation != nil && runtimes.generation != nil {
+		connectRuntime = func() (localruntime.Manager, func() error, error) {
+			return runtimes.generation(context.Background(), cfg, admission.bounded.state, admission.bounded.host)
+		}
+	}
+	runtimeManager, closeRuntime, err := connectRuntime()
 	if err != nil {
 		return "", nil, fmt.Errorf("connect runtime manager: %w", err)
 	}
+	closeRuntime = sync.OnceValue(closeRuntime)
 	rollback = append(rollback, func() error {
 		return closeRuntime()
 	})
@@ -342,7 +353,34 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// The public agent must not bind without it: otherwise /resume renders an
 	// empty picker while a degraded singleton owns the port.
 	persistentStorePath := admission.paths.conversations
-	persistentStore, err := admission.conversationStore(nil, lifecycle.openStore)
+	var generationLifecycle *server.Server
+	var generationPolicy *worker.SpawnPolicy
+	var generationStoreOwner *server.Server
+	if admission.generation != nil {
+		g := admission.generation
+		policy, policyErr := worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: g.options.Generation, ManifestPath: filepath.Join(g.options.Generation, "manifest.json"), HostInstance: g.options.Host, ResourceRoot: g.options.RuntimeRoot})
+		if policyErr != nil {
+			return "", nil, policyErr
+		}
+		generationPolicy = &policy
+		generationLifecycle, err = server.NewCoexistenceServer(context.Background(), server.CoexistenceOptions{
+			StorePath: admission.paths.conversations, Build: admission.bounded.build, Host: admission.bounded.host,
+			Contract: conversation.DevelopmentCoexistenceDeclaration(), ControlAuthorize: g.auth.Authorize,
+			ControlDial:        developmentPeerDial(g.options.State, g.options.Identity),
+			Reload:             func(context.Context, conversation.Store, *conversation.Ownership) error { return nil },
+			CloseParticipation: func(context.Context) error { return closeRuntime() },
+		})
+		if err != nil {
+			return "", nil, err
+		}
+		generationStoreOwner = generationLifecycle
+		rollback = append(rollback, func() error { return generationStoreOwner.CloseCoexistenceStore() })
+	}
+	var borrowed conversation.Store
+	if generationLifecycle != nil {
+		borrowed = generationLifecycle.GenerationStore()
+	}
+	persistentStore, err := admission.conversationStore(borrowed, lifecycle.openStore)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w; refusing to start agent without /history and /resume persistence", err)
 	}
@@ -364,7 +402,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 			if sweeper != nil {
 				sweeper.Wait()
 			}
-			if persistentStore != nil {
+			if persistentStore != nil && generationPolicy == nil {
 				dataErr = persistentStore.Close()
 			}
 		})
@@ -446,7 +484,12 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		cancelSweeper = cancel
 		sweeperDone = sweeper.Start(sweepCtx)
 	}
-	orchestrator, ctxLoader, err := composeProductionAgent(routing, persistentStore, cfg, producers)
+	agentProducers := producers
+	if generationPolicy != nil {
+		agentProducers.recap = nil
+		agentProducers.compaction = nil
+	}
+	orchestrator, ctxLoader, err := composeProductionAgent(routing, persistentStore, cfg, agentProducers)
 	if err != nil {
 		return "", nil, err
 	}
@@ -455,8 +498,12 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// groups + pidfiles/sockets behind. Reap the ones still alive that identify
 	// as cercano workers before we start serving (and before this host spawns
 	// any worker of its own). Best-effort — never blocks startup.
-	if n := lifecycle.reap(); n > 0 {
-		fmt.Fprintf(os.Stderr, "reaped %d orphaned worker(s) from a previous run\n", n)
+	// Generation workers have invocation-local lifecycle ownership. The legacy
+	// process-wide orphan scan cannot distinguish a coexisting host's workers.
+	if generationPolicy == nil {
+		if n := lifecycle.reap(); n > 0 {
+			fmt.Fprintf(os.Stderr, "reaped %d orphaned worker(s) from a previous run\n", n)
+		}
 	}
 
 	lis, err := lifecycle.listen("tcp", bindAddr)
@@ -467,7 +514,11 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// 64 MiB comfortably fits multiple 20 MiB images (the per-image client cap).
 	const maxGRPCMessageBytes = 64 << 20
 	gate := newProductionAdmissionGate()
-	s := grpc.NewServer(append([]grpc.ServerOption{grpc.MaxRecvMsgSize(maxGRPCMessageBytes), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream)}, enterpriseHost.serverOptions()...)...)
+	var generationServerOptions []grpc.ServerOption
+	if admission.generation != nil {
+		generationServerOptions = admission.generation.auth.ServerOptions()
+	}
+	s := grpc.NewServer(append(generationServerOptions, append([]grpc.ServerOption{grpc.MaxRecvMsgSize(maxGRPCMessageBytes), grpc.ChainUnaryInterceptor(gate.unary), grpc.ChainStreamInterceptor(gate.stream)}, enterpriseHost.serverOptions()...)...)...)
 	srv := server.NewServerWithLogs(orchestrator, lazyRouter, coordinator, cloudFactory, registry, lifecycle.routingLogPath, lifecycle.failureLogPath)
 	stopAdmission = func() {
 		gate.close()
@@ -491,6 +542,13 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		s.Stop()
 		return errors.Join(lis.Close(), srv.Shutdown())
 	})
+	if generationLifecycle != nil {
+		if err := srv.AttachGenerationLifecycle(generationLifecycle, func(conversation.Store) (*recap.Generator, *compactiongen.Generator) { return recapGen, compGen }); err != nil {
+			return "", nil, err
+		}
+		generationStoreOwner = srv
+		admission.generation.retired = srv.CoexistenceRetired()
+	}
 	enterpriseHost.bindAdmission(srv)
 	srv.SetBuildVersion(version)
 	compactionCandidates = srv.DispatchCandidates
@@ -516,7 +574,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if sweeper != nil {
 		srv.SetRetentionSweeper(sweeper)
 	}
-	if compGen != nil {
+	if compGen != nil && generationPolicy == nil {
 		srv.SetCompactionGenerator(compGen)
 	}
 	if newLoopCompactor != nil {
@@ -711,7 +769,11 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// pre-assemble history, build the ConfigSnapshot, and resolve credentials.
 	// The startup-only fixture reaches this path with explicit in_process mode;
 	// worker execution requires a separately owned backend fixture.
-	if err := executionPolicy.install(srv); err != nil {
+	installExecution := func() error { return executionPolicy.install(srv) }
+	if generationPolicy != nil {
+		installExecution = func() error { return srv.ConfigureGenerationWorker(*generationPolicy) }
+	}
+	if err := installExecution(); err != nil {
 		return "", nil, err
 	}
 
@@ -747,6 +809,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		closeMCP()
 		cleanupErr = errors.Join(cleanupErr, srv.Shutdown())
 		cleanupErr = errors.Join(cleanupErr, closeData())
+		if generationStoreOwner != nil {
+			cleanupErr = errors.Join(cleanupErr, generationStoreOwner.CloseCoexistenceStore())
+		}
 		// Usage producers have stopped; drain before closing the database.
 		if closeAgentTelemetry != nil {
 			cleanupErr = errors.Join(cleanupErr, closeAgentTelemetry())

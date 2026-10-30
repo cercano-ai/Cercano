@@ -91,6 +91,28 @@ func (*acceptanceProvider) Chat(ctx context.Context, req inference.Call) (infere
 	}
 	if strings.HasPrefix(text, "<host:task-completions>") {
 		fixtureRecord("completion-notice", req)
+		if fixtureWorkerDelegation() {
+			if err := fixtureWait(ctx, "final"); err != nil {
+				return inference.Result{}, err
+			}
+		}
+	}
+	// Review with a tool grant is an ordinary worker-local agentic dispatch,
+	// not the host's independent-task launch capability.
+	if strings.Contains(text, "FIXTURE_WORKER_DELEGATE") {
+		seen := false
+		for _, m := range req.Messages {
+			for _, b := range m.Blocks {
+				if b.Type == llm.BlockToolResult && b.ToolUseRef == "acceptance-worker-review" {
+					seen = true
+				}
+			}
+		}
+		if !seen {
+			fixtureRecord("worker-delegation-request", req)
+			return inference.Result{Blocks: []llm.Block{{Type: llm.BlockToolUse, ToolUseID: "acceptance-worker-review", ToolName: "review", ToolInput: json.RawMessage(`{"claim":"FIXTURE_CHILD descendant execution","tools":["Read"]}`)}}, StopReason: "tool_use"}, nil
+		}
+		fixtureRecord("worker-delegation-result", req)
 	}
 	// Worker prompts contain the marker in the independently dispatched task.
 	kind := ""
@@ -146,11 +168,40 @@ func (*acceptanceProvider) Chat(ctx context.Context, req inference.Call) (infere
 			}
 		}
 		if !seen {
-			return inference.Result{Blocks: []llm.Block{{Type: llm.BlockToolUse, ToolUseID: "acceptance-dispatch", ToolName: "dispatch", ToolInput: json.RawMessage(`{"task":"FIXTURE_CHILD complete the offline independent acceptance task","tools":["Read"]}`)}}, StopReason: "tool_use"}, nil
+			input := json.RawMessage(`{"task":"FIXTURE_CHILD complete the offline independent acceptance task","tools":["Read"]}`)
+			if fixtureWorkerDelegation() {
+				input = json.RawMessage(`{"task":"FIXTURE_WORKER_DELEGATE use review to delegate the claim, then report the result","tools":["review","Read"]}`)
+			}
+			return inference.Result{Blocks: []llm.Block{{Type: llm.BlockToolUse, ToolUseID: "acceptance-dispatch", ToolName: "dispatch", ToolInput: input}}, StopReason: "tool_use"}, nil
 		}
 	}
 	return inference.Result{Blocks: []llm.Block{{Type: llm.BlockText, Text: "FIXTURE_OK " + kind}}, StopReason: "end_turn"}, nil
 }
+func fixtureWorkerDelegation() bool {
+ _, err := os.Stat(filepath.Join(os.Getenv("CERCANO_FIXTURE_BARRIER"), "worker-delegation.enabled"))
+ return err == nil
+}
+
+// fixtureWait holds the synthetic completion callback before its final history
+// write. Cancellation is bounded by the owning request; the harness has a
+// separate deadline and only ever releases barriers in its private directory.
+func fixtureWait(ctx context.Context, kind string) error {
+	fixtureRecord(kind+"-entered", inference.Call{})
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Stat(filepath.Join(os.Getenv("CERCANO_FIXTURE_BARRIER"), kind+".release")); err == nil {
+			fixtureRecord(kind+"-released", inference.Call{})
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 func (p *acceptanceProvider) StreamChat(ctx context.Context, req inference.Call) (inference.Stream, error) {
 	r, e := p.Chat(ctx, req)
 	if e != nil {
