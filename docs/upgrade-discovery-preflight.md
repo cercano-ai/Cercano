@@ -1,7 +1,8 @@
 # Upgrade discovery preflight — parent review required
 
-Scope: independent discovery/progress fixes only. `compatible_store` is unchanged;
-the choice about SQLite SHM effects remains pending. Nothing here authorizes migration.
+Scope: corrected discovery/progress plus lightweight WAL-aware compatibility
+inspection. SQLite SHM coordination is now explicitly permitted during READ ONLY
+inspection. Nothing here authorizes migration.
 
 ## Build and proposed invocation
 
@@ -70,7 +71,13 @@ and passes with the kernel-name/alias guard. Cleanup kills/waits only its own ch
 mock, to verify the contention message; uncontended locks do not claim waiting.
 Phase timers preserve raised refusals. Launcher instrumentation covers inspection,
 helper build, discovery/shutdown, backup and migration; Go separately times discovery.
-The compatibility inspection function body and migration/backup semantics are unchanged.
+Compatibility now uses normal SQLite `mode=ro` and one read transaction for
+version, marker and historical-schema metadata. It does not copy the database,
+checkpoint, or perform a full integrity scan. SQLite may create/update `-shm`;
+application data/schema and existing permissions remain unchanged before consent.
+Database, parent and existing sidecar ownership/alias checks remain enforced.
+Unknown/incompatible metadata still refuses. This is metadata admission, not a
+full corruption check; the post-consent backup integrity check remains intact.
 
 Tests (from repository root unless noted):
 
@@ -85,3 +92,40 @@ PYTHONDONTWRITEBYTECODE=1 python3 source/server/scripts/test_launcher_progress.p
 The new command has NOT been executed against live inventory. Production inventory
 was enumerated only by the isolated regression above. No live database access,
 ambient signals, installation, permission changes, landing or push are required.
+
+## WAL correction verification
+
+The correction baseline `2e41b2f4` copied DB/WAL, checkpointed the disposable copy,
+then used immutable reads and `integrity_check`. Source-boundary regression tests
+now prohibit those operations in compatibility inspection, while requiring the
+post-consent backup integrity check. Disposable tests put committed metadata only
+in WAL (including missing SHM), compare logical application data/schema, and check
+unknown markers/versions and duplicate metadata refusal. Byte identity is not an
+invariant because SQLite coordination is permitted.
+
+Focused passing verification includes `test_launcher_compatibility.py`,
+`test_launcher_progress.py`, `test-launcher-safety.py`, `test-launcher-feedback.py`,
+and ordinary-upgrade WAL refusal, unsafe-sidecar, unsupported-before-prompt and
+noninteractive/decline cases. Feedback assertions were aligned with the existing
+nonblocking lock/progress behavior. Discovery verification additionally covers
+`TestMissingExecutableFinalInspection`,
+`TestMissingListenerRequiresConfirmedDisappearance` and
+`TestMissingExecutableZeroFDAndConfirmedExit`. Preflight boundary tests inject
+discovery and cover absent/invalid endpoint, config/database flags, extra arguments,
+IPv6, success and refusal. No full-suite or live inventory run is claimed.
+
+The preflight has **no default address**. Full production candidate enumeration can
+be run without reading live config by supplying an explicit numeric loopback
+endpoint; the documented 127.0.0.1:8080 remains an example, not the verified live
+endpoint. Parent review and execution are still required.
+
+Reviewed artifact built (not executed) from the corrected worktree:
+`/tmp/cercano-preflight-reviewed.I9l68kCJ/upgrade-discovery-preflight`
+
+SHA-256: `27e91271fed4b99cb6a63300d1ec1c59f5c903e4f6080ca8e4728ef203ea7cae`
+
+Example only, for parent execution after review with the correct explicit endpoint:
+
+```sh
+/tmp/cercano-preflight-reviewed.I9l68kCJ/upgrade-discovery-preflight --address 127.0.0.1:8080
+```

@@ -224,60 +224,46 @@ def owned(path, directory=False):
 
 
 def compatible_store(db):
-    def inspect(path):
-        try:
-            with closing(sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True)) as conn:
-                if conn.execute('pragma integrity_check').fetchall() != [('ok',)]:
-                    raise ValueError('unsupported or corrupt store; no upgrade performed')
-                uv = conn.execute('pragma user_version').fetchone()[0]
-                marked = conn.execute("select 1 from sqlite_master where name='coexistence_metadata'").fetchone()
-                if marked:
-                    if (conn.execute('select singleton, contract, schema_version from coexistence_metadata').fetchall()
-                            == [(1, 'cercano-development-owned-v2', 2)] and uv == 2):
-                        return True
-                    raise ValueError('unsupported store marker; no upgrade performed')
-                if uv != 0:
-                    raise ValueError('unsupported store user_version; no upgrade performed')
-                # Require the historical core, not merely an arbitrary SQLite file.
-                for table, required in (
-                        ('conversations', {'id', 'title', 'project_dir', 'model', 'started_at', 'last_turn_at'}),
-                        ('turns', {'id', 'conversation_id', 'role', 'content', 'created_at'})):
-                    columns = {row[1] for row in conn.execute('pragma table_info(' + table + ')')}
-                    if not required <= columns:
-                        raise ValueError('unsupported store schema; no upgrade performed')
-                return False
-        except sqlite3.DatabaseError as error:
-            raise ValueError('unsupported or corrupt store; no upgrade performed') from error
-    # Immutable reads cannot create SHM or recover a journal before consent.
-    wal = Path(str(db) + '-wal')
-    for sidecar in (wal, Path(str(db) + '-shm'), Path(str(db) + '-journal')):
+    # Supported read-only SQLite admission includes committed WAL metadata.
+    # SQLite may create/update -shm for coordination, but cannot change application
+    # data/schema. Existing sidecars retain the same ownership/alias checks.
+    owned(db)
+    owned(db.parent, directory=True)
+    for suffix in ('-wal', '-shm', '-journal'):
+        sidecar = Path(str(db) + suffix)
         if os.path.lexists(sidecar):
             owned(sidecar)
-    if not os.path.lexists(wal):
-        return inspect(db)
-    owned(wal)
-    # A disposable inspection copy can read a committed WAL without touching the
-    # original store. It is never passed to acquisition or migration.
-    with tempfile.TemporaryDirectory(prefix='cercano-inspect-') as scratch:
-        copy = Path(scratch) / 'inspect.db'
-        for source, target in ((db, copy), (wal, Path(str(copy)+'-wal'))):
-            with source.open('rb') as inp, target.open('xb') as out:
-                os.fchmod(out.fileno(), 0o600)
-                shutil.copyfileobj(inp, out)
-        try:
-            with closing(sqlite3.connect(copy)) as conn:
-                conn.execute('pragma wal_checkpoint(TRUNCATE)')
-            return inspect(copy)
-        except sqlite3.DatabaseError as error:
-            raise ValueError('unsupported or corrupt WAL store; no upgrade performed') from error
+    try:
+        with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as conn:
+            # One snapshot for marker, version and historical schema checks.
+            conn.execute('BEGIN')
+            uv = conn.execute('pragma user_version').fetchone()[0]
+            marked = conn.execute("select type from sqlite_master where name='coexistence_metadata'").fetchone()
+            if marked:
+                if (marked == ('table',) and conn.execute('select singleton, contract, schema_version from coexistence_metadata limit 2').fetchall()
+                        == [(1, 'cercano-development-owned-v2', 2)] and uv == 2):
+                    return True
+                raise ValueError('unsupported store marker; no upgrade performed')
+            if uv != 0:
+                raise ValueError('unsupported store user_version; no upgrade performed')
+            # Require the historical core, not merely an arbitrary SQLite file.
+            for table, required in (
+                    ('conversations', {'id', 'title', 'project_dir', 'model', 'started_at', 'last_turn_at'}),
+                    ('turns', {'id', 'conversation_id', 'role', 'content', 'created_at'})):
+                columns = {row[1] for row in conn.execute('pragma table_info(' + table + ')')}
+                if not required <= columns:
+                    raise ValueError('unsupported store schema; no upgrade performed')
+            return False
+    except sqlite3.DatabaseError as error:
+        raise ValueError('unsupported or unreadable store metadata; no upgrade performed') from error
 
 
 def confirmed_upgrade(state, db, authority, repo, env):
     if not sys.stdin.isatty():
         raise ValueError('interactive confirmation required; no upgrade performed')
-    print('Database upgrade required\n\nThis version of Cercano needs to upgrade your existing conversation database. Your saved history will be preserved, and a backup will be created before migration.\n\nContinuing will shut down incompatible agent hosts, disconnect their sessions, and stop any work in progress. Unsaved progress may be lost.\n\nIf you have work in progress that you want to finish, choose No and run Cercano again when it is complete.\n\nStop agents and upgrade now? [y/N]', end='', file=sys.stderr, flush=True)
+    print('Database upgrade required\n\nThis version of Cercano needs to upgrade your existing conversation database. Your saved history will be preserved, and a backup will be created before migration. Read-only compatibility inspection may create or update SQLite SHM coordination; it does not change application data or schema.\n\nContinuing will shut down incompatible agent hosts, disconnect their sessions, and stop any work in progress. Unsaved progress may be lost.\n\nIf you have work in progress that you want to finish, choose No and run Cercano again when it is complete.\n\nStop agents and upgrade now? [y/N]', end='', file=sys.stderr, flush=True)
     if sys.stdin.readline().rstrip('\r\n') not in ('y', 'Y'):
-        raise ValueError('upgrade declined; database and permissions unchanged')
+        raise ValueError('upgrade declined; application data, schema and existing permissions unchanged (SQLite may update SHM coordination)')
     # Build away from live binaries, without credential access. The helper retains
     # the production detector after verified shutdown.
     backup = None
@@ -290,7 +276,7 @@ def confirmed_upgrade(state, db, authority, repo, env):
                                     env=dict(env, CERCANO_DISABLE_CREDENTIALS='1'),
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if result.returncode:
-                raise ValueError('upgrade helper build failed; store unchanged')
+                raise ValueError('upgrade helper build failed; application data and schema unchanged')
         command = [helper, 'upgrade-store', '--database', str(db), '--all-legacy-agents-stopped']
         def run(args):
             result = subprocess.run(args, env=env, text=True, capture_output=True)

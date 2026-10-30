@@ -31,7 +31,7 @@ class LauncherFeedback(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             def blocked_lock(*args):
                 self.assertIn('[cercano] Starting', stderr.flushed)
-                self.assertIn('waiting for launch lock', stderr.flushed)
+                self.assertNotIn('waiting for launch lock', stderr.flushed)
 
             def database_phase():
                 # Represents the later DB compatibility/prompt boundary. No DB opens.
@@ -84,10 +84,16 @@ class LauncherFeedback(unittest.TestCase):
             env.update(TMPDIR=root, CERCANO_RUNTIME_ROOT=str(Path(runtime).resolve()))
             result = fixture.source_launch(env)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stderr.splitlines(), [
-                '[cercano] Starting Cercano; waiting for launch lock...',
+            import re
+            lines = [re.sub(r'elapsed=[0-9.]+s', 'elapsed=<time>', line)
+                     for line in result.stderr.splitlines()]
+            self.assertEqual(lines, [
+                '[cercano] Starting Cercano...',
+                '[cercano] launch lock acquired elapsed=<time>',
                 '[cercano] Checking local state and database compatibility...',
-                '[cercano] Waiting for state preparation lock...',
+                '[cercano] state preparation lock acquired elapsed=<time>',
+                '[cercano] inspection started',
+                '[cercano] inspection elapsed=<time>',
                 '[cercano] Checking source fingerprint...',
                 '[cercano] Preparing binaries (building if needed)...',
                 '[cercano] Acquiring development host...',

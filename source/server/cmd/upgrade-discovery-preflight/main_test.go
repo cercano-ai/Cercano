@@ -16,6 +16,12 @@ func TestPreflightBoundary(t *testing.T) {
 		code, calls  int
 	}{
 		{nil, nil, 2, 0},
+		{[]string{"--address", "localhost:8080"}, nil, 2, 0},
+		{[]string{"--address", "127.0.0.1:0"}, nil, 2, 0},
+		{[]string{"--address", "[::1%lo0]:8080"}, nil, 2, 0},
+		{[]string{"--address", "127.0.0.1:8080", "extra"}, nil, 2, 0},
+		{[]string{"--address", "127.0.0.1:8080", "--config", "anything"}, nil, 2, 0},
+		{[]string{"--address", "[::1]:8080"}, nil, 0, 1},
 		{[]string{"--address", "0.0.0.0:8080"}, nil, 2, 0},
 		{[]string{"--address", "127.0.0.1:8080", "--database", "anything"}, nil, 2, 0},
 		{[]string{"--address", "127.0.0.1:8080"}, nil, 0, 1},

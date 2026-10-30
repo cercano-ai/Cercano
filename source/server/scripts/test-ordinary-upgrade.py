@@ -211,14 +211,20 @@ class OrdinaryUpgrade(unittest.TestCase):
                 sidecar.unlink()
                 target.unlink()
 
+    def logical_snapshot(self):
+        with sqlite3.connect(self.db.as_uri() + '?mode=ro', uri=True) as conn:
+            return (conn.execute('pragma user_version').fetchall(), list(conn.iterdump()))
+
     def test_wal_refusals_unchanged(self):
         self.make_wal()
         for missing_shm in (False, True):
             if missing_shm:
-                Path(str(self.db) + '-shm').unlink()
+                Path(str(self.db) + '-shm').unlink(missing_ok=True)
             for interactive in (False, True):
-                before = self.snapshot()
-                modes = (self.state.stat().st_mode,)
+                before = self.logical_snapshot()
+                if missing_shm:
+                    Path(str(self.db) + '-shm').unlink(missing_ok=True)
+                modes = tuple(p.stat().st_mode for p in (self.state, self.db, self.state / 'config.yaml'))
                 if interactive:
                     rc, _, err = self.launch('no')
                 else:
@@ -226,8 +232,8 @@ class OrdinaryUpgrade(unittest.TestCase):
                                             env=self.env, input='', capture_output=True, text=True)
                     rc, err = result.returncode, result.stderr
                 self.assertEqual(rc, 78, err)
-                self.assertEqual(before, self.snapshot())
-                self.assertEqual(modes, (self.state.stat().st_mode,))
+                self.assertEqual(before, self.logical_snapshot())
+                self.assertEqual(modes, tuple(p.stat().st_mode for p in (self.state, self.db, self.state / 'config.yaml')))
                 self.assertFalse(self.backups())
 
     def test_startup_failure_retains_upgrade_and_backup(self):
