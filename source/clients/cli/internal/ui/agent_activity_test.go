@@ -261,6 +261,9 @@ func TestAgentActivityBeforeRecap(t *testing.T) {
 			if lines[activityY] != ansi.Strip(row) {
 				t.Fatal("activity hit coordinates do not match rendered frame")
 			}
+			if want := ansi.Strip(m.recapLines()[0]); lines[activityY+1] != want {
+				t.Fatalf("recap must immediately follow activity: next row=%q want=%q", lines[activityY+1], want)
+			}
 			if len(lines) > m.height {
 				t.Fatalf("frame overflows: %d > %d", len(lines), m.height)
 			}
@@ -268,6 +271,28 @@ func TestAgentActivityBeforeRecap(t *testing.T) {
 				t.Fatal("prompt coordinates drifted")
 			}
 		}
+	}
+}
+
+func TestAgentActivityRecapHeight(t *testing.T) {
+	m := activityModel(t)
+	before := m.mainChat().Height()
+	m.recap = "A summary that wraps over multiple lines at narrow widths"
+	m.relayout()
+	if got, want := m.mainChat().Height(), before-len(m.recapLines()); got != want {
+		t.Fatalf("activity recap height=%d want=%d", got, want)
+	}
+	withActivity := m.mainChat().Height()
+	for _, id := range []string{"one", "two"} {
+		m.chatTabs.tabs[id].applyTaskLifecycle("task-"+id, "completed")
+	}
+	m.refreshViewport()
+	// Reclaim activity's two rows, but restore recap's standalone spacer.
+	if got, want := m.mainChat().Height(), withActivity+1; got != want {
+		t.Fatalf("standalone recap height=%d want=%d", got, want)
+	}
+	if !strings.HasPrefix(m.renderRecap(), "\n") {
+		t.Fatal("standalone recap lost its spacer")
 	}
 }
 

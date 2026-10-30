@@ -3615,7 +3615,10 @@ func (m *Model) relayout() {
 	// the viewport is one row too tall and shoves the status bar off-screen.
 	recapH := 0
 	if n := len(m.recapLines()); n > 0 {
-		recapH = 1 + n // blank spacer line + the wrapped recap line(s)
+		recapH = n
+		if m.agentActivityHeight() == 0 {
+			recapH++ // spacer above recap only when no activity row precedes it
+		}
 	}
 	queuedH := 0
 	if !m.contentPageActive() {
@@ -6003,7 +6006,10 @@ func (m Model) renderRecap() string {
 	if len(lines) == 0 {
 		return ""
 	}
-	// Blank line above for breathing room, then the wrapped recap.
+	// Activity already has breathing room above it; keep recap directly below.
+	if m.agentActivityHeight() > 0 {
+		return strings.Join(lines, "\n")
+	}
 	return "\n" + strings.Join(lines, "\n")
 }
 
