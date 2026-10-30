@@ -102,3 +102,58 @@ func TestTerminalDrainEligibility(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Exercise competing goroutines, not just the two sequential orderings above.
+func TestTerminalDrainNotificationConcurrentCompletion(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		a := NewAdmission("host")
+		o := Owner{"conversation", "host", "epoch"}
+		mustOK(t, a.RegisterOwner(o))
+		_, err := a.AttachTerminal(o, "pane")
+		mustOK(t, err)
+		work, err := a.AdmitWork(o, TaskAcceptanceWork)
+		mustOK(t, err)
+		closure, err := a.DrainTerminal(o, "pane")
+		mustOK(t, err)
+		if closure.Drained() {
+			t.Fatal("work drained before completion")
+		}
+		start := make(chan struct{})
+		ready := make(chan struct{}, 2)
+		results := make(chan error, 2)
+		notified := make(chan bool, 2)
+		// Hold the accounting lock until both contenders reach the start barrier.
+		a.mu.Lock()
+		go func() { ready <- struct{}{}; <-start; results <- work.Complete() }()
+		go func() {
+			ready <- struct{}{}
+			<-start
+			results <- closure.WhenDrained(func() { notified <- closure.Drained() })
+		}()
+		<-ready
+		<-ready
+		close(start)
+		a.mu.Unlock()
+		for j := 0; j < 2; j++ {
+			select {
+			case err := <-results:
+				mustOK(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("completion/registration blocked")
+			}
+		}
+		select {
+		case drained := <-notified:
+			if !drained {
+				t.Fatal("notification before drainage")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("lost drain notification")
+		}
+		if err := closure.WhenDrained(func() { notified <- false }); !errors.Is(err, ErrAdmissionStale) {
+			t.Fatalf("duplicate registration: %v", err)
+		}
+		mustOK(t, closure.Relinquished())
+		mustOK(t, a.Retire())
+	}
+}
