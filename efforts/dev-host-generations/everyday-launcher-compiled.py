@@ -306,7 +306,7 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             record('one explicit shared A/B configuration authority', config=str(cfg), mcp=str(mcp_definition), mcp_sha256=mcp_digest,
                    exclusions=['not ordinary startup parity', 'no native credentials or loaded runtime', 'no enterprise integration', 'MCP definition mutation unsupported'])
             # Ordinary startup retains its permissive default; this probe explicitly
-            # requests strict permissions to exercise the interactive approval path.
+            # requests strict permissions; read-only dispatch must remain prompt-free.
             permissions=state/'permissions.yaml';permissions.write_text('mode: strict\n');permissions.chmod(0o600)
             a,sa,A=launch('A')
             a.send('FIXTURE_ORIGINAL_HISTORY\r')
@@ -318,9 +318,8 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             assert S['Identity']['host']==A['Identity']['host']
             assert not any(e.get('conversation')==S['Conversation'] for e in worker_events())
             a.send('FIXTURE_DISPATCH\r')
-            wait(lambda:b'wants to run a delegated agent' in a.data,'ordinary dispatch permission prompt')
-            a.send('y\r')
             wait(lambda:any(x['event']=='child-entered' for x in events()),'original independent task active before B',40)
+            assert b'wants to run a delegated agent' not in a.data
             assert rows('select status from delegated_tasks where parent_id != "offline-original"')==[('running',)]
             if worker_delegation:
                 assert any(e['event']=='worker-delegation-request' for e in events()), 'host dispatch alone is not worker delegation'
@@ -505,9 +504,8 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
                 (barrier/'child.release').unlink()
                 offset=len(events()); screen_offset=len(spare.data)
                 spare.send('FIXTURE_DISPATCH\r')
-                wait(lambda:b'wants to run a delegated agent' in spare.data[screen_offset:], 'same-conversation dispatch permission')
-                spare.send('y\r')
                 wait(lambda:any(e['event']=='child-entered' for e in events()[offset:]), 'same-conversation independent task barrier',40)
+                assert b'wants to run a delegated agent' not in spare.data[screen_offset:]
                 task_sql="select id,parent_id,status,child_id from delegated_tasks where parent_id='"+S['Conversation']+"'"
                 same_task=rows(task_sql)
                 assert len(same_task)==1 and same_task[0][2]=='running', same_task
