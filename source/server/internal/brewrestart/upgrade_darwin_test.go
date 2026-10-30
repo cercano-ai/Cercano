@@ -4,6 +4,7 @@ package brewrestart
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -30,6 +32,14 @@ func runUpgradeWorker() int {
 
 // Native external shutdown regression; this does not qualify migration acceptance.
 func TestUpgradeStopsRealHostAndActiveWorker(t *testing.T) {
+	testUpgradeStop(t, false)
+}
+
+func TestUpgradeCancellationAfterTERMFinishesCleanup(t *testing.T) {
+	testUpgradeStop(t, true)
+}
+
+func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 	root := t.TempDir()
 	exe, err := os.Executable()
 	if err != nil {
@@ -59,7 +69,11 @@ func TestUpgradeStopsRealHostAndActiveWorker(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() { _ = host.Wait(); close(done) }()
-	t.Cleanup(func() { _ = host.Process.Kill(); <-done })
+	hostIdentity, err := Inspect(host.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = signalIdentity(hostIdentity, syscall.SIGKILL); <-done })
 	waitFixtureFile(t, filepath.Join(root, "1-ready"))
 	pid, err := strconv.Atoi(string(waitFixtureFile(t, filepath.Join(root, "worker-pid"))))
 	if err != nil {
@@ -69,17 +83,25 @@ func TestUpgradeStopsRealHostAndActiveWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if now, err := Inspect(pid); err == nil && now.SameProcess(worker) {
-			p, _ := os.FindProcess(pid)
-			_ = p.Kill()
-		}
-	})
+	t.Cleanup(func() { _ = signalIdentity(worker, syscall.SIGKILL) })
 	before := string(waitFixtureFile(t, filepath.Join(root, "worker-progress")))
 	time.Sleep(80 * time.Millisecond)
 	after := string(waitFixtureFile(t, filepath.Join(root, "worker-progress")))
 	if before == after {
 		t.Fatal("worker not active")
+	}
+	canceled, cancelBefore := context.WithTimeout(context.Background(), time.Second)
+	cancelBefore()
+	if err := stopUpgradeHost(canceled, endpoint, []int{host.Process.Pid}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("already canceled: %v", err)
+	}
+	if now, err := Inspect(host.Process.Pid); err != nil || !now.SameProcess(hostIdentity) {
+		t.Fatalf("already canceled shutdown disturbed host: %v", err)
+	}
+	progress := string(waitFixtureFile(t, filepath.Join(root, "worker-progress")))
+	time.Sleep(80 * time.Millisecond)
+	if progress == string(waitFixtureFile(t, filepath.Join(root, "worker-progress"))) {
+		t.Fatal("already canceled shutdown disturbed worker")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -92,14 +114,36 @@ func TestUpgradeStopsRealHostAndActiveWorker(t *testing.T) {
 	}
 	// Only fixture PIDs enter discovery; native kernel checks and the actual
 	// external signals control both disposable processes, not injected stubs.
-	if err := stopUpgradeHost(ctx, endpoint, []int{host.Process.Pid}); err != nil {
+	if cancelAfterTERM {
+		// The worker exits on TERM. Cancel only after observing that irreversible
+		// boundary, while the frozen host is still in its escalation interval.
+		go func() {
+			for {
+				if _, err := Inspect(pid); errors.Is(err, syscall.ESRCH) {
+					cancel()
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Millisecond):
+				}
+			}
+		}()
+	}
+	err = stopUpgradeHost(ctx, endpoint, []int{host.Process.Pid})
+	if cancelAfterTERM {
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected cancellation, got %v", err)
+		}
+	} else if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Inspect(host.Process.Pid); err == nil {
-		t.Fatal("host survived")
+	if _, err := Inspect(host.Process.Pid); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("host exit not confirmed: %v", err)
 	}
-	if _, err := Inspect(pid); err == nil {
-		t.Fatal("worker survived")
+	if _, err := Inspect(pid); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("worker exit not confirmed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "cancel-worker")); err == nil {
 		t.Fatal("unexpected historical RPC shutdown")

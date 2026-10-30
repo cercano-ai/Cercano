@@ -26,7 +26,10 @@ func StopUpgradeHost(ctx context.Context, endpoint netip.AddrPort) error {
 
 // The PID boundary permits disposable-process tests without inspecting the
 // developer's agents. All identity, socket, signal and exit checks remain native.
-func stopUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pids []int) error {
+func stopUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pids []int) (retErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if _, ok := ctx.Deadline(); !ok {
 		return fmt.Errorf("upgrade shutdown requires deadline")
 	}
@@ -161,6 +164,31 @@ func stopUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pids []int) e
 	for pid, id := range workers {
 		targets[pid] = id
 	}
+	if err := ctx.Err(); err != nil {
+		return err // Still reversible: no TERM sent, deferred CONT is safe.
+	}
+	// Once TERM may have been delivered, resuming the producer is not rollback:
+	// it can spawn replacement workers or deliver pending host shutdown while
+	// orphaning surviving work. Finish bounded identity-checked cleanup even if
+	// the caller cancels. Preserve the caller error so migration stays refused.
+	frozen = false
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		for _, id := range targets {
+			if err := signalIdentity(id, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+				retErr = errors.Join(retErr, fmt.Errorf("upgrade cleanup pid=%d: %w", id.PID, err))
+			}
+		}
+		for _, id := range targets {
+			if err := waitProcessExit(cleanupCtx, id); err != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("upgrade cleanup pid=%d not exited: %w", id.PID, err))
+			}
+		}
+	}()
 	for _, id := range targets {
 		if err := signalIdentity(id, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 			return err
