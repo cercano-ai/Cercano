@@ -554,7 +554,9 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	srv.SetBuildVersion(version)
 	compactionCandidates = srv.DispatchCandidates
 	srv.SetRuntimeManager(runtimeManager)
-	if os.Getenv("CERCANO_AUTOLAUNCHED") == "1" && cfg.Agent.ShutdownOnLastClient {
+	// Generation retirement is governed by retained sessions and work drain,
+	// not by the lifetime of SubscribeEvents transports.
+	if admission.generation == nil && os.Getenv("CERCANO_AUTOLAUNCHED") == "1" && cfg.Agent.ShutdownOnLastClient {
 		srv.EnableIdleShutdown(2*time.Second, func() {
 			if p, err := os.FindProcess(os.Getpid()); err == nil {
 				_ = p.Signal(syscall.SIGTERM)

@@ -81,10 +81,13 @@ func (l *countedStartupListener) Close() error { l.closes.Add(1); return l.Liste
 // Sequential subtests own ONE full Agent/policy authority at a time. This is a
 // startup-only, in_process check, not worker acceptance or model qualification.
 func TestProductionSingleHostStartupShutdown(t *testing.T) {
-	for _, scenario := range []struct{ fail, initial, watcher, closeFailure bool }{{}, {closeFailure: true}, {fail: true}, {initial: true}, {watcher: true}, {fail: true, initial: true}, {fail: true, watcher: true}} {
+	for _, scenario := range []struct{ fail, initial, watcher, closeFailure, idle bool }{{}, {idle: true}, {closeFailure: true}, {fail: true}, {initial: true}, {watcher: true}, {fail: true, initial: true}, {fail: true, watcher: true}} {
 		failMCP := scenario.fail
 		blocked := scenario.initial || scenario.watcher
 		name := "serves"
+		if scenario.idle {
+			name = "legacy-idle-shutdown"
+		}
 		if scenario.closeFailure {
 			name += "-close-failure"
 		}
@@ -106,6 +109,9 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 			restoreSentinel := modelpolicy.Install(modelpolicy.AuthorizeFunc(func(context.Context, modelpolicy.Attempt) error { panic("unexpected model authorization") }))
 			defer restoreSentinel()
 			t.Setenv("CERCANO_AUTOLAUNCHED", "0")
+			if scenario.idle {
+				t.Setenv("CERCANO_AUTOLAUNCHED", "1")
+			}
 			dir := t.TempDir()
 			t.Setenv("HOME", dir)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
@@ -115,6 +121,7 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg := config.Config{OpenRuntime: "ollama", OllamaURL: "http://unreachable.invalid", ExecutionMode: "in_process", LocusMode: "open_only"}.WithSnapshot(base.Snapshot())
+			cfg.Agent.ShutdownOnLastClient = true
 			cfg.Watchdog.Enabled = true
 			cfg.Watchdog.Audit.Enabled = true
 			cfg.Watchdog.Audit.Path = filepath.Join(dir, "audit.db")
@@ -136,6 +143,7 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 			var catCtx, mcpCtx context.Context
 			catDone, mcpDone := make(chan struct{}), make(chan struct{})
 			var wired int
+			var startupServer *server.Server
 			var catStops, mcpStarts, mcpStops, providers, engines, reaps, audits, accountingOpens int
 			catalogs := productionCatalogDependencies{
 				newManager: func(path string) *ollamacatalog.Manager {
@@ -181,6 +189,7 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				runtimeHTTPClient: &http.Client{Transport: startupTransportTrap{}},
 				afterWiring: func(srv *server.Server) {
 					wired++
+					startupServer = srv
 					// Observe the actual startup instance without widening Server API for tests.
 					// A nil runner cannot spawn worker subprocesses; no turn is requested.
 					if !reflect.ValueOf(srv).Elem().FieldByName("workerRunner").IsNil() {
@@ -279,6 +288,9 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer cleanup.Shutdown()
+				if scenario.idle {
+					checkStartupLastClientShutdown(t, startupServer, true)
+				}
 				if addr != "bufconn" {
 					t.Fatal(addr)
 				}

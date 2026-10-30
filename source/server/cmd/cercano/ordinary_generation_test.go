@@ -23,6 +23,11 @@ import (
 // Real ordinary entrypoint and all ordinary services. Only external backends
 // are fake; enabled watchdog and memory credentials remain wired.
 func TestOrdinaryGenerationStartup(t *testing.T) {
+	startOrdinaryGenerationTest(t)
+}
+
+func startOrdinaryGenerationTest(t *testing.T) *server.Server {
+	t.Helper()
 	o, auth := developmentProductionFixture(t)
 	t.Setenv("HOME", o.State)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(o.State, "xdg"))
@@ -33,6 +38,7 @@ func TestOrdinaryGenerationStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Agent.ShutdownOnLastClient = true
 	cfg.Watchdog.Enabled = true
 	cfg.Watchdog.Audit.Enabled = true
 	cfg.Watchdog.Audit.Path = filepath.Join(o.State, "audit.db")
@@ -68,8 +74,10 @@ func TestOrdinaryGenerationStartup(t *testing.T) {
 	audits := 0
 	deps.watchdog = server.WatchdogDependencies{OpenAudit: func(string) (watchdog.AuditLogger, error) { audits++; return audit, nil }, OneShot: func(context.Context, string) (string, error) { panic("watchdog inference") }}
 	wired := false
+	var srv *server.Server
 	deps.afterWiring = func(s *server.Server) {
 		wired = true
+		srv = s
 		if s.GenerationStore() == nil || reflect.ValueOf(s).Elem().FieldByName("workerRunner").IsNil() {
 			t.Fatal("ordinary generation installer absent")
 		}
@@ -77,13 +85,13 @@ func TestOrdinaryGenerationStartup(t *testing.T) {
 	credentials := productionCredentialDependencies{openSecrets: func() (secrets.Store, error) { return secrets.NewMemory(), nil }}
 	address, cleanup, err := startGRPCServerWithLifecycle(cfg, "127.0.0.1:0", nil, credentials, a, runtimes, catalogs, productionAccountingDefaults(), deps)
 	if cleanup != nil {
-		defer func() {
+		t.Cleanup(func() {
 			cleanup.Request()
 			<-cleanup.done
 			if err := cleanup.Status().Err; err != nil {
 				t.Error(err)
 			}
-		}()
+		})
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -91,4 +99,5 @@ func TestOrdinaryGenerationStartup(t *testing.T) {
 	if address == "" || !wired || audits != 1 {
 		t.Fatalf("ordinary services missing: %s %v %d", address, wired, audits)
 	}
+	return srv
 }
