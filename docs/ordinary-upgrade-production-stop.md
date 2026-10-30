@@ -112,12 +112,15 @@ Production discovery and the production stop-hosts guard are unchanged.
 Negative controls (temporary mutations restored in finally):
 - P1 strict executable rollback: `upgrade-build-k2vs1y16/output.log`, expected
   failure `rollback lifetime changed` in `TestUpgradeExecSTOPRollback`.
-- P2 old equal-executable exclusion: `upgrade-build-2cdqptaj/output.log`, expected
+- P2 old equal-executable exclusion: `upgrade-build-hr4xdmkc/output.log`, expected
   failure `different-version model host frozen`.
 These build roots are under `/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/`.
-An initial test run (`upgrade-build-gderg4v4`) exposed a fixture path canonicalization
-error (/var versus /private/var); fixed by resolving the copied executable path.
-Three repeated affected native test runs passed in `upgrade-build-51n5sgqv`.
+The copied fixture executable path is canonicalized (/var versus /private/var).
+At implementation commit `a58d7556e2e5`, affected checks passed in
+`upgrade-build-2284px0i`, builds passed in `upgrade-build-rdp_tutn`, and combined
+acceptance passed at `/private/tmp/cstop-ovs48wmf` (writer ticks stable at 8,
+schema 2, three preserved history rows, fresh generation reply, no cleanup survivors).
+Final documentation checkpoint is reverified separately.
 
 `TestUpgradeInFlightForkObservable` compiles a disposable C fixture with a real
 fork and pipe handshake. The child has been published but waits before exec.
