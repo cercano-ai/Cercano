@@ -15,6 +15,11 @@ import tempfile
 import shutil
 
 
+def feedback(message):
+    """Human-readable progress stays off the CLI/publisher stdout protocol."""
+    print('[cercano] ' + message, file=sys.stderr, flush=True)
+
+
 def private(path):
     p = Path(path)
     if not p.is_absolute() or str(p.resolve()) != str(p):
@@ -149,6 +154,7 @@ def prepare_if_absent(state, repo, env):
         mode = os.fstat(lock.fileno())
         if not stat.S_ISREG(mode.st_mode) or mode.st_uid != os.getuid() or mode.st_mode & 0o077 or mode.st_nlink != 1:
             raise ValueError('private owned setup lock required')
+        feedback('Waiting for state preparation lock...')
         fcntl.flock(lock, fcntl.LOCK_EX)
         if os.path.lexists(state):
             return
@@ -166,14 +172,17 @@ def prepare_if_absent(state, repo, env):
                 if result.returncode:
                     raise ValueError('automatic development preparation failed; existing files preserved (check source config and build prerequisites)')
                 return result.stdout.strip()
+            feedback('Checking source for initial setup...')
             fingerprint = run([*publisher, 'fingerprint', *common])
             if not fingerprint or Path(fingerprint).name != fingerprint or fingerprint in {'.', '..'}:
                 raise ValueError('invalid bootstrap fingerprint')
+            feedback('Preparing initial binaries (building if needed)...')
             generation = run([*publisher, 'publish', *common, '--root', str(root),
                               '--generation', fingerprint, '--fingerprint', fingerprint, '--reuse'])
             if generation != str(root / fingerprint):
                 raise ValueError('publisher returned noncanonical bootstrap generation')
             validate_generation(generation, bootstrap)
+            feedback('Preparing development state...')
             run([str(Path(generation) / 'cercano'), 'prepare-development', '--new-state', str(state)])
         finally:
             # Cleanup must not mask preparation errors or turn successful
@@ -255,6 +264,7 @@ def confirmed_upgrade(state, db, authority, repo, env):
     backup = None
     with tempfile.TemporaryDirectory(prefix='cercano-upgrade-') as scratch:
         helper = str(Path(scratch) / 'cercano')
+        feedback('Building database upgrade helper...')
         result = subprocess.run(['go', 'build', '-o', helper, './cmd/cercano/'],
                                 cwd=repo / 'source/server',
                                 env=dict(env, CERCANO_DISABLE_CREDENTIALS='1'),
@@ -324,6 +334,7 @@ def main():
     # entry, after migration and host acquisition; reconnect cannot spawn mid-upgrade.
     if parse_args(sys.argv[3:])[2]:
         return launch_main()
+    feedback('Starting Cercano; waiting for launch lock...')
     path = Path(os.environ.get('TMPDIR') or '/tmp') / 'cercano-agent-launch.lock'
     if not path.is_absolute():
         raise ValueError('SDK launch lock directory must be absolute')
@@ -344,6 +355,7 @@ def launch_main():
         else:
             print('Usage: cercano [--dev-host SELECTION] [--dev-host-action ACTION]\nDevelopment only; no legacy discovery. --help / --version never acquire a host.')
         return
+    feedback('Checking local state and database compatibility...')
     runtime_env = dict(os.environ, CERCANO_LAUNCHED_DEVELOPMENT='1')
     repo = Path(sys.argv[2]).resolve()
     state = Path(os.environ.get('CERCANO_DEVELOPMENT_STATE') or str(Path.home() / '.config/cercano'))
@@ -420,12 +432,15 @@ def launch_main():
     common = ['--repo', str(repo), '--sign']
     # Build tooling may not access credentials; runtime policy belongs to the caller.
     build_env = dict(runtime_env, CERCANO_DISABLE_CREDENTIALS='1')
+    feedback('Checking source fingerprint...')
     fingerprint = subprocess.check_output([*publisher, 'fingerprint', *common], env=build_env, text=True).strip()
+    feedback('Preparing binaries (building if needed)...')
     generation = subprocess.check_output([*publisher, 'publish', *common, '--root', str(root), '--generation', fingerprint, '--fingerprint', fingerprint, '--reuse'], env=build_env, text=True).strip()
     if generation != str(root / fingerprint):
         raise ValueError('publisher returned noncanonical generation')
     validate_generation(generation, state)
     binary = str(Path(generation) / 'cercano')
+    feedback('Acquiring development host...')
     selection = subprocess.check_output([binary, 'development-launch', '--state', str(state), '--generation', generation, '--runtime-root', str(runtime), '--config-authority', str(authority)], env=runtime_env, text=True).strip()
     selection_file(selection, state)
     validate_generation(generation, state)
