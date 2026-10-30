@@ -166,7 +166,7 @@ def assert_new_worker(events, pre_pids, boundary, conversation):
     assert boundary < birth['unix_nano'] < turns[0]['unix_nano'], 'startup must follow B publication and precede first turn'
     return birth, turns
 
-def run(repo,evidence,worker_delegation=False):
+def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordinary_session_close=False):
     assert all(os.environ.get(k)==v for k,v in {"CERCANO_DISABLE_CREDENTIALS":"1","GOPROXY":"off","GOSUMDB":"off"}.items()), "required outer offline/credential guards missing"
     evidence.mkdir(parents=True,exist_ok=True)
     report={'scope':'actual shell -> real publisher -> compiled production host -> compiled CLI PTY','steps':[],'passed':False,'worker_delegation_required':worker_delegation}
@@ -303,8 +303,12 @@ def run(repo,evidence,worker_delegation=False):
             record('B published as new-session target without stopping A',A=A,B=B,pidA=pidA)
             fresh,sfresh,F=launch('B-normal-new-session')
             assert F['Identity']==B['Identity'] and F['Conversation']!=B['Conversation']
+            if ordinary_closure_probe or ordinary_session_close:
+                fresh.send('/quit\r')
+                assert fresh.p.wait(timeout=30)==0
+                fresh.pump()
             fresh.stop();terminals.remove(fresh)
-            control(sfresh,'release')
+            if not (ordinary_closure_probe or ordinary_session_close): control(sfresh,'release')
             assert json.loads(current_path.read_bytes())['Identity']==B['Identity']
             target_b=current_path.read_bytes()
             record('normal new session chooses B',selection=F)
@@ -424,8 +428,32 @@ def run(repo,evidence,worker_delegation=False):
             record('physical client restart and ordinary resume on B with original history; A still alive',calls=calls, original_conversation=A['Conversation'], durable_row_columns=['conversation_id','role','content'], durable_rows=rows("select conversation_id,role,content from turns where role='user' and content in ('FIXTURE_REOPENED_ON_B','FIXTURE_ORIGINAL_HISTORY') order by content"))
             export={'columns':['conversation_id','role','content'], 'rows':rows("select conversation_id,role,content from turns where conversation_id='"+A['Conversation']+"' order by rowid")}
             (evidence/'synthetic-reopened-rows.json').write_text(json.dumps(export,indent=2)+'\n')
+            if ordinary_closure_probe:
+                spare.send('/quit\r')
+                assert spare.p.wait(timeout=30)==0
+                spare.pump()
+                # Observation only: no release/transfer control substitute.
+                time.sleep(5)
+                os.kill(pidA,0)
+                retained=json.loads(control(ss,'list'))['Response'].get('retained',[])
+                assert S['Conversation'] in {r['conversation'] for r in retained}, retained
+                record('BLOCKED ordinary quit retains A session; automatic retirement correctly waits',
+                       pidA=pidA, retained=retained, observation_seconds=5,
+                       terminal_returncode=spare.p.returncode)
+                report['ordinary_closure_acceptance']='blocked: ordinary quit retains ownership'
+                report['explicit_reopen_acceptance']='passed: PTY /resume on B preserves original history'
+                report['passed']=True # probe expectations, NOT closure acceptance
+                return
+            if ordinary_session_close:
+                spare.send('/host detach\r')
+                wait(lambda:b'Detached; session retained.' in spare.data,'ordinary A UI detach')
+                close_offset=len(spare.data)
+                spare.send('/host release\r')
+                wait(lambda:b'Completed; attachment requires explicit' in spare.data[close_offset:],'ordinary A UI release completion')
+                assert b'REFUSED' not in spare.data[close_offset:]
+                record('explicit session closure through PTY /host detach then /host release')
             spare.stop();terminals.remove(spare)
-            control(ss,'release')
+            if not ordinary_session_close: control(ss,'release')
             def a_exited():
                 try: os.kill(pidA,0); return False
                 except ProcessLookupError: return True
@@ -465,4 +493,4 @@ def run(repo,evidence,worker_delegation=False):
     assert report['passed']
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');a=p.parse_args();run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');p.add_argument('--ordinary-closure-probe',action='store_true',help='probe ordinary PTY quit retention without management release; not retirement acceptance');p.add_argument('--ordinary-session-close',action='store_true',help='close final A session using documented /host detach and /host release in PTY');a=p.parse_args();assert not (a.ordinary_closure_probe and a.ordinary_session_close);run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation,a.ordinary_closure_probe,a.ordinary_session_close)
