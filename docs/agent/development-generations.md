@@ -1,5 +1,22 @@
 # Everyday development launcher: operation and live cutover
 
+## Data-default correction (2026-10-30)
+
+The source shell/Python launcher and installed `~/bin/cercano` now default to
+`~/.config/cercano`: its existing `config.yaml` and `conversations.db` are used
+in place, never copied or overwritten by preparation. Explicit
+`CERCANO_DEVELOPMENT_STATE` still selects isolated state. A nonempty
+`CERCANO_CONVERSATIONS_DB` is accepted only when it exactly matches the selected
+state's `conversations.db`; other paths are explicitly refused before setup or
+database access. Existing incompatible stores still require a separately
+approved offline upgrade; this correction performs no transition. Path ownership,
+privacy and canonical-path checks remain enforced (no automatic permission repair).
+
+The separate-default/cutover details below describe the earlier workflow, not
+the corrected default or the current installed wrapper hash. The installed
+wrapper's default alone was edited statically, preserving its embedded repo path;
+it was not executed.
+
 ## Current boundary
 
 The source launcher publishes immutable generations and acquires an authenticated development host; it no longer uses the earlier fail-closed-only stub. This is a development workflow, not the packaged singleton launcher. **The approved launcher cutover completed on 2026-10-27:** `~/bin/cercano` was replaced using static-only checks, without executing either launcher. The installed launcher's SHA-256 is `99f14bdf3815401086a283e23aaf6e344991968d95c31fcd0a77640a48d4b4ce`. The original is preserved at `~/bin/.cercano-launcher-backup-65xn2gpz/cercano`, SHA-256 `d37ee44856fd8ef34aaec5091a5c9ad265bfc67378d847edde0cdc67459256fc`. No native credentials were accessed, no real-model test was performed, and no agent was stopped during this cutover. The packaged launcher path was not changed. The actual ordinary-launcher A/B acceptance has passed with compiled hosts/workers and injected synthetic providers; see [acceptance evidence](../../efforts/dev-host-generations/everyday-launcher-acceptance-evidence.md). This is not real-model or native-credential qualification.

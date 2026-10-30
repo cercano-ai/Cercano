@@ -7,7 +7,7 @@ if [[ $# == 1 ]]; then
     case "$1" in -h|--h|-help|--help|-version|--version) INFO_ONLY=1 ;; esac
 fi
 if [[ "$INFO_ONLY" == 0 ]]; then
-    export CERCANO_DEVELOPMENT_STATE="${CERCANO_DEVELOPMENT_STATE:-${HOME}/.config/cercano-development}"
+    export CERCANO_DEVELOPMENT_STATE="${CERCANO_DEVELOPMENT_STATE:-${HOME}/.config/cercano}"
     # Explicit isolated authority is passed unchanged through Python to both Go entries.
     export CERCANO_DEVELOPMENT_CONFIG_AUTHORITY="${CERCANO_DEVELOPMENT_CONFIG_AUTHORITY:-${CERCANO_DEVELOPMENT_STATE}/config.yaml}"
 fi

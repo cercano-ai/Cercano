@@ -93,7 +93,8 @@ with open(os.environ['FAKE_ENV_LOG'], 'a') as log:
  log.write(json.dumps(['cli', os.environ.get('CERCANO_DISABLE_CREDENTIALS')])+'\\n')
 print(json.dumps(sys.argv[1:]))
 ''')
-        return dict(os.environ, CERCANO_REPO=str(root / 'repo'),
+        clean_env = {k: v for k, v in os.environ.items() if not k.startswith(('CERCANO_', 'FAKE_'))}
+        return dict(clean_env, CERCANO_REPO=str(root / 'repo'),
                     CERCANO_DEVELOPMENT_STATE=str(state), CERCANO_DISABLE_CREDENTIALS='1',
                     FAKE_ENV_LOG=str(root / 'child-environments.jsonl'))
 
@@ -112,7 +113,7 @@ print(json.dumps(sys.argv[1:]))
         source.write_bytes(b'# synthetic-secret config\n')
         (source.parent / 'conversations.db').write_bytes(b'legacy sentinel')
         env['HOME'] = str(home)
-        env.pop('CERCANO_DEVELOPMENT_STATE')
+        env['CERCANO_DEVELOPMENT_STATE'] = str(home / '.config/cercano-development')
         return env, home / '.config/cercano-development', source
 
     def test_immutable_bootstrap_success_and_preparation_failure(self):
@@ -210,32 +211,78 @@ print(json.dumps(sys.argv[1:]))
                 if source.exists(): self.assertEqual(source.read_bytes(), b'# synthetic-secret config\n')
                 self.assertFalse(list(state.parent.glob('.*-bootstrap-*')))
 
-    def test_later_builds_preserve_development_config_and_default_state(self):
+    def test_default_uses_ordinary_state_and_config_without_overwrite(self):
         with tempfile.TemporaryDirectory() as root:
             env = self.fixture(root)
             home = Path(root).resolve() / 'home'
             (home / '.config').mkdir(parents=True)
-            state = home / '.config/cercano-development'
+            state = home / '.config/cercano'
             Path(env['CERCANO_DEVELOPMENT_STATE']).rename(state)
             env['HOME'] = str(home)
             env.pop('CERCANO_DEVELOPMENT_STATE')
-            # Synthetic original is deliberately different; launcher must never
-            # recopy it over the independently edited development settings.
-            original = home / '.config/cercano/config.yaml'
-            original.parent.mkdir()
-            original.write_bytes(b'# synthetic original settings\n')
             config = state / 'config.yaml'
-            config.write_bytes(b'# synthetic development settings\n')
-            before = config.stat()
+            config.write_bytes(b'# ordinary settings\n')
+            before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in
+                      (config, state / 'conversations.db')}
             for _ in range(2):
                 result = self.source_launch(env)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(config.read_bytes(), b'# synthetic development settings\n')
-                self.assertEqual(config.stat().st_mtime_ns, before.st_mtime_ns)
-                self.assertEqual(config.stat().st_mode & 0o777, 0o600)
-                self.assertEqual(original.read_bytes(), b'# synthetic original settings\n')
-            events = [json.loads(line)[0] for line in Path(env['FAKE_ENV_LOG']).read_text().splitlines()]
-            self.assertEqual(events.count('publish'), 2)
+                selection = Path(json.loads(result.stdout)[1])
+                self.assertEqual(selection.parent, state / 'selections')
+                self.assertEqual(json.loads(selection.read_text())['ConfigAuthority'], str(config))
+                for path, snapshot in before.items():
+                    self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), snapshot)
+            self.assertFalse((home / '.config/cercano-development').exists())
+
+    def test_python_default_and_ordinary_legacy_refusal(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy), tempfile.TemporaryDirectory() as root:
+                env = self.fixture(root)
+                home = Path(root).resolve() / 'home'
+                (home / '.config').mkdir(parents=True)
+                state = home / '.config/cercano'
+                Path(env.pop('CERCANO_DEVELOPMENT_STATE')).rename(state)
+                env['HOME'] = str(home)
+                if legacy:
+                    with closing(sqlite3.connect(state / 'conversations.db')) as db, db:
+                        db.execute('drop table coexistence_metadata')
+                before = {p.name: p.read_bytes() for p in state.iterdir()}
+                result = subprocess.run(['python3', str(SCRIPTS / 'cercano-launcher.py'),
+                                         '--repo', env['CERCANO_REPO']],
+                                        env=env, capture_output=True, text=True)
+                if legacy:
+                    self.assertEqual(result.returncode, 78, result.stderr)
+                    self.assertIn('one-time OFFLINE upgrade only', result.stderr)
+                    self.assertIn(str(state / 'conversations.db'), result.stderr)
+                    self.assertIn('no upgrade has been performed', result.stderr)
+                    # Only the private setup serialization lock lives outside state.
+                    self.assertEqual({p.name: p.read_bytes() for p in state.iterdir()}, before)
+                    self.assertFalse(Path(env['FAKE_ENV_LOG']).exists())
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    selection = Path(json.loads(result.stdout)[1])
+                    self.assertEqual(selection.parent, state / 'selections')
+                self.assertFalse((home / '.config/cercano-development').exists())
+
+    def test_database_override_exact_match_or_early_refusal(self):
+        for override in ('matching', 'conflicting', 'relative'):
+            with self.subTest(override=override), tempfile.TemporaryDirectory() as root:
+                env = self.fixture(root)
+                state = Path(env['CERCANO_DEVELOPMENT_STATE'])
+                db = state / 'conversations.db'
+                env['CERCANO_CONVERSATIONS_DB'] = {
+                    'matching': str(db), 'conflicting': str(Path(root) / 'other.db'),
+                    'relative': 'conversations.db'}[override]
+                before = {p.name: p.read_bytes() for p in state.iterdir()}
+                result = self.source_launch(env)
+                if override == 'matching':
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 78, result.stderr)
+                    self.assertIn('CERCANO_CONVERSATIONS_DB conflicts', result.stderr)
+                    self.assertEqual({p.name: p.read_bytes() for p in state.iterdir()}, before)
+                    self.assertFalse(Path(env['FAKE_ENV_LOG']).exists())
+                    self.assertFalse((Path(root) / 'other.db').exists())
 
     def test_runtime_preserves_credential_policy_while_builds_disable_credentials(self):
         # Only these fake-command probes opt out of the outer disabled policy.

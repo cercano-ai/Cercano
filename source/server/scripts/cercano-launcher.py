@@ -194,7 +194,16 @@ def main():
         return
     runtime_env = dict(os.environ, CERCANO_LAUNCHED_DEVELOPMENT='1')
     repo = Path(sys.argv[2]).resolve()
-    state = Path(os.environ['CERCANO_DEVELOPMENT_STATE'])
+    state = Path(os.environ.get('CERCANO_DEVELOPMENT_STATE') or str(Path.home() / '.config/cercano'))
+    runtime_env['CERCANO_DEVELOPMENT_STATE'] = str(state)
+    # Development host acquisition binds the database to this exact state path.
+    # Refuse unsupported overrides before provisioning or opening either store.
+    db = state / 'conversations.db'
+    override = os.environ.get('CERCANO_CONVERSATIONS_DB')
+    if override and override != str(db):
+        raise ValueError('CERCANO_CONVERSATIONS_DB conflicts with launcher state; '
+                         'only the exact state/conversations.db path is supported. '
+                         'Select its state with CERCANO_DEVELOPMENT_STATE or unset the DB override.')
     explicit_authority = os.environ.get('CERCANO_DEVELOPMENT_CONFIG_AUTHORITY')
     if selected is None:
         if explicit_authority and explicit_authority != str(state / 'config.yaml') and not state.exists():
@@ -202,7 +211,6 @@ def main():
         prepare_if_absent(state, repo, runtime_env)
     state = private(state)
     # Read-only prerequisite check before any build; authoritative Go preflight follows.
-    db = state / 'conversations.db'
     authority = Path(os.environ.get('CERCANO_DEVELOPMENT_CONFIG_AUTHORITY', str(state / 'config.yaml')))
     if not authority.is_absolute() or authority.resolve() != authority or state not in authority.parents:
         raise ValueError('config authority must be canonical and inside isolated prepared state')
