@@ -115,12 +115,14 @@ https://github.com/user-attachments/assets/d4a81e65-0206-475c-994b-067174f3a5f2
 
 **The agent isn't tied to the interface.** Cercano's independent agent server
 handles execution, models, permissions, and saved conversations; clients provide
-the experience. Today, that means the terminal UI and headless commands. The same
-architecture opens the door to IDE integrations, full desktop applications, and
-other clients—without rebuilding the agent for each one. Those possibilities
-are largely unbuilt, but the separation is here today.
+the experience. Today, that means the terminal UI, headless commands, and an
+Agent Client Protocol (ACP) v1 stdio adapter for ACP-capable editors or extensions.
+Launch the server executable with `cercano acp` to connect to the same local agent;
+execution and permission policy stay in the shared server. The initial adapter
+supports new sessions, prompts, streamed responses, tool activity, approvals,
+and cancellation—not ACP v2 or session history loading.
 
-[Explore the client/server architecture →](docs/agent/features/client-server-architecture.md)
+[Explore the client/server architecture →](docs/agent/features/client-server-architecture.md) · [Set up ACP →](docs/acp.md)
 
 ### Free and open. Yours to build on.
 

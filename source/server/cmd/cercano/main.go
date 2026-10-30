@@ -1097,6 +1097,16 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "acp":
+			// Explicit ACP stdio mode: speaks the Agent Client Protocol to an
+			// editor on stdin/stdout.
+			cfg, err := config.Load(config.DefaultPath())
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[WARN] Failed to load config: %v (using defaults)\n", err)
+				cfg = config.Defaults()
+			}
+			runACPMode(cfg, nil)
+			return
 		case "worker":
 			// Isolated turn-execution worker: serves the Worker gRPC service on a
 			// unix socket, runs ONE conversation's turns, proxies state to the
