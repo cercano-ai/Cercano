@@ -100,6 +100,7 @@ type Model struct {
 	// misaligns the tab-click row until some other event forces a relayout.
 	stripShown         bool
 	agentActivityShown bool
+	agentActivityFrame int // tick-owned: rendering and hit testing see the same glyph
 
 	// contentScrollbarDragging is the same gesture, but for a reusable content
 	// page scrollbar rather than the main chat scrollback.
@@ -1026,6 +1027,9 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		if next, ok := nextModel.(Model); ok {
 			if cmd := next.ensureTaskSubscription(); cmd != nil {
 				nextCmd = tea.Batch(nextCmd, cmd)
+			}
+			if next.hasRunningAgentActivity() {
+				nextCmd = tea.Batch(nextCmd, next.ensureAnimTick())
 			}
 			if cmd := next.conversationSearchCmd(); cmd != nil {
 				nextCmd = tea.Batch(nextCmd, cmd)
@@ -2932,6 +2936,9 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		// (e.g. from toolEntryStartMsg) from doubling the tick rate.
 		m.animTickActive = false
 		frameTime := time.Time(msg)
+		if m.hasRunningAgentActivity() {
+			m.agentActivityFrame = int(frameTime.UnixMilli()/80) % 10
+		}
 		m.mainChat().SetAnimationTime(frameTime)
 		if av := m.activeChat(); av != nil && av != m.mainChat() {
 			av.SetAnimationTime(frameTime)
@@ -2941,7 +2948,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		}
 		contentRepaint := false
 		animRepaint := false
-		keep := false
+		keep := m.hasRunningAgentActivity()
 		// Flush coalesced stream events: token deltas and progress notes set
 		// chatDirty instead of rebuilding per event, so this frame carries
 		// their repaint. Keep ticking while the stream is alive — the next
@@ -5638,7 +5645,7 @@ func (m Model) composeFrame() (parts []string, inputIdx int) {
 		}
 		parts = append(parts, m.renderViewportWithScrollbar())
 		if row, _ := m.agentActivityRow(); row != "" {
-			parts = append(parts, row)
+			parts = append(parts, "", row)
 		}
 		if m.recap != "" {
 			parts = append(parts, m.renderRecap())

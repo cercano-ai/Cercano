@@ -35,7 +35,7 @@ func (m Model) agentActivityRow() (string, []agentActivityLink) {
 	if c := m.pendingConfirm; c != nil && !c.stale && (c.tool != nil || c.auth != nil) {
 		text = "! Approval required | " + text
 	}
-	text = strings.Repeat(" ", min(entryIndent, max(0, m.width))) + m.styles.Muted.Render(text)
+	text = strings.Repeat(" ", min(entryIndent, max(0, m.width))) + m.styles.Info.Render(text)
 	var links []agentActivityLink
 	shown := len(live)
 	if shown > 2 {
@@ -43,7 +43,7 @@ func (m Model) agentActivityRow() (string, []agentActivityLink) {
 	}
 	for i, tab := range live[:shown] {
 		if i > 0 {
-			text += m.styles.Muted.Render(" · ")
+			text += m.styles.Info.Render(" · ")
 		}
 		status := "running"
 		if tab.taskStatus == "accepted" {
@@ -57,20 +57,26 @@ func (m Model) agentActivityRow() (string, []agentActivityLink) {
 		if remaining := len(live) - i - 1; remaining > 0 {
 			suffix = fmt.Sprintf(" +%d more", remaining)
 		}
-		budget := m.width - lipgloss.Width(text) - lipgloss.Width(suffix)
+		budget := m.width - lipgloss.Width(text) - lipgloss.Width(suffix) - 2
 		if budget < 4 {
 			break
 		}
+		indicator := "○"
+		if status == "running" {
+			frames := []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+			indicator = string(frames[m.agentActivityFrame])
+		}
+		text += m.styles.Info.Render(indicator + " ")
 		label = ansi.Truncate(label+" ("+status+")", budget, "…")
 		start := lipgloss.Width(text)
-		text += m.styles.Muted.Underline(true).Render(label)
+		text += m.styles.Info.Underline(true).Render(label)
 		links = append(links, agentActivityLink{tab.id, start, lipgloss.Width(text)})
 	}
 	// The existing task pane tracks TaskNode checklist entries, not these
 	// delegated child lifecycles. Keep overflow informational until there is a
 	// task-list navigation target for this same population.
 	if remaining := len(live) - len(links); remaining > 0 {
-		text += m.styles.Muted.Render(fmt.Sprintf(" +%d more", remaining))
+		text += m.styles.Info.Render(fmt.Sprintf(" +%d more", remaining))
 	}
 	return ansi.Truncate(text, max(0, m.width), ""), links
 }
@@ -78,7 +84,7 @@ func (m Model) agentActivityRow() (string, []agentActivityLink) {
 func (m Model) agentActivityHeight() int {
 	row, _ := m.agentActivityRow()
 	if row != "" {
-		return 1
+		return 2
 	}
 	return 0
 }
@@ -103,4 +109,19 @@ func (m Model) agentActivityHit(x, y int) string {
 		top += countLines([]string{part})
 	}
 	return ""
+}
+
+// Only running children need repaint ticks. Queued children keep a static
+// indicator, and hidden content pages need no activity-row animation.
+func (m Model) hasRunningAgentActivity() bool {
+	if m.contentPageActive() {
+		return false
+	}
+	for _, id := range m.chatTabs.order {
+		tab := m.chatTabs.tabs[id]
+		if id != mainChatTabID && !strings.HasPrefix(id, "activity:") && tab != nil && !tab.done && tab.taskStatus != "accepted" {
+			return true
+		}
+	}
+	return false
 }
