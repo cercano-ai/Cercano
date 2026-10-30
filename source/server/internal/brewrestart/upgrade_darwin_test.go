@@ -121,13 +121,24 @@ func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 		// occurs during KILL). No signals or exit checks are mocked.
 		afterTERM = cancel
 	}
-	err = stopUpgradeHostObserved(ctx, endpoint, []int{host.Process.Pid}, afterTERM)
+	candidates := []int{host.Process.Pid}
+	unrelated := 0
+	if !cancelAfterTERM {
+		unrelated, _ = replacedPathCandidate(t, "unrelated-helper")
+		candidates = append(candidates, unrelated)
+	}
+	err = stopUpgradeHostObserved(ctx, endpoint, candidates, afterTERM)
 	if cancelAfterTERM {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("expected cancellation, got %v", err)
 		}
 	} else if err != nil {
 		t.Fatal(err)
+	}
+	if unrelated != 0 {
+		if err := missingIdentityError(unrelated); err != nil {
+			t.Fatalf("excluded helper was disturbed: %v", err)
+		}
 	}
 	if _, err := Inspect(host.Process.Pid); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("host exit not confirmed: %v", err)

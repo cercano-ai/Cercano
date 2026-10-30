@@ -120,9 +120,10 @@ func missingExecutableEvidence(pid int) (Identity, error) {
 			return Identity{}, fmt.Errorf("worker lifetime or user changed")
 		}
 	}
-	if _, err := os.Lstat(string(raw[:n])); !errors.Is(err, os.ErrNotExist) {
-		return Identity{}, fmt.Errorf("unresolved plausible writer: saved launch path still exists or is inaccessible (possible alias or replacement)")
-	}
+	// The saved launch path may be a surviving symlink to an unlinked image.
+	// Its current filesystem entry says nothing about this process's writer
+	// role. Keep the kernel lifetime/role/socket checks, not a path-existence
+	// veto. This evidence still never grants signal authority.
 	// Do not apply this evidence after an exec has made normal inspection work.
 	_, inspectErr := Inspect(pid)
 	if err := missingExecutableStateError(inspectErr); err != nil {
