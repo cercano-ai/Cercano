@@ -768,8 +768,14 @@ func (c *Core) RunTurn(
 	// gate used to imply Agent != nil, but no longer does now that worker turns
 	// persist. RecordContextUsage below is nil-receiver-safe.
 	if persistEnabled && c.d.Agent != nil {
-		c.d.Agent.ScheduleRecap(req.ConversationID)
-		c.d.Agent.ScheduleCompaction(req.ConversationID)
+		// Keep the foreground capability when admitting host background work.
+		// These methods retain legacy scheduling on agents without ownership.
+		if err := c.d.Agent.ScheduleRecapContext(ctx, req.ConversationID); err != nil {
+			return Result{}, fmt.Errorf("schedule recap: %w", err)
+		}
+		if err := c.d.Agent.ScheduleCompactionContext(ctx, req.ConversationID); err != nil {
+			return Result{}, fmt.Errorf("schedule compaction: %w", err)
+		}
 	}
 	c.d.Agent.RecordContextUsageForRoute(req.ConversationID, selectedModel, result.InputTokens, result.OutputTokens, result.Route)
 
