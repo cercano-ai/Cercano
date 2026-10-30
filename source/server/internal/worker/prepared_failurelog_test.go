@@ -20,7 +20,7 @@ func TestPreparedFailureLogMissingAuthority(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	ws := NewWithFactories(func(*proto.StartTurn) (providers.Resolver, error) { return nil, nil }, func(*proto.StartTurn) (runner.ToolSvc, error) { return modeTestTools{}, nil }, WithPrepared())
-	_, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	_, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Error("prepared dependency construction accepted missing failure-log authority")
 	}
@@ -49,7 +49,7 @@ func TestPreparedFailureLogConsumption(t *testing.T) {
 	}
 	ws := failureLogTestWorker(WithPrepared(), WithFailureLogPath(cmd.Args[6]), WithRoutingLogPath(cmd.Args[8]))
 	for i := 0; i < 2; i++ {
-		deps, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		deps, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -75,7 +75,7 @@ func TestPreparedFailureLogConsumption(t *testing.T) {
 		t.Fatalf("private routing log=%q err=%v", data, err)
 	}
 	ordinary := failureLogTestWorker()
-	deps, err := ordinary.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	deps, err := ordinary.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestPreparedFailureLogInvalidAuthority(t *testing.T) {
 		ws := failureLogTestWorker(WithPrepared(), WithFailureLogPath(path), WithRoutingLogPath(filepath.Join(dir, "turn-routing.jsonl")))
 		called := false
 		ws.providerFactory = func(*proto.StartTurn) (providers.Resolver, error) { called = true; return nil, nil }
-		if _, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil); err == nil {
+		if _, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil); err == nil {
 			t.Errorf("accepted %q", path)
 		}
 		if called {
@@ -179,7 +179,7 @@ func TestPreparedRoutingLogInvalidAuthority(t *testing.T) {
 		called := false
 		ws.providerFactory = func(*proto.StartTurn) (providers.Resolver, error) { called = true; return nil, nil }
 		ws.toolsFactory = func(*proto.StartTurn) (runner.ToolSvc, error) { called = true; return modeTestTools{}, nil }
-		if _, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil); err == nil {
+		if _, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil); err == nil {
 			t.Errorf("accepted routing authority %q", path)
 		}
 		if called {
@@ -222,7 +222,7 @@ func TestPreparedRoutingLogFullAssembly(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := NewWithSecretStore(secrets.NewMemory(), WithPrepared(), WithFailureLogPath(policy.failureLogPath()), WithRoutingLogPath(policy.routingLogPath()))
-	deps, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	deps, err := ws.buildDeps(context.Background(), &proto.StartTurn{Config: &proto.ConfigSnapshot{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
