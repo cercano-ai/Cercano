@@ -15,6 +15,7 @@ for k in ['CONFIG','RUNTIME','STATE','CACHE','DATA']:
 commands = [sys.argv[1:]] if len(sys.argv)>1 else [
  ['build','-o',str(base/'cercano'),'./cmd/cercano'],
  ['build','-tags=ordinary_upgrade_acceptance','-o',str(base/'cercano-upgrade'),'./cmd/cercano'],
+ ['build','-tags=ordinary_upgrade_acceptance,upgradefixture','-o',str(base/'cercano-native-upgrade'),'./cmd/cercano'],
  ['build','-o',str(base/'client'),str(base/'client.go')],
  ['build','-tags=upgradefixture','-o',str(base/'upgrade-fixture'),'./cmd/upgrade-fixture']]
 print('BUILD_ROOT',root,flush=True)

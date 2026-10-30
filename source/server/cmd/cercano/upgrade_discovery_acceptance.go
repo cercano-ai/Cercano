@@ -32,4 +32,6 @@ func upgradeAgentCheck(ctx context.Context) error {
 	}
 }
 
-func upgradeHostStop(ctx context.Context, _ netip.AddrPort) error { return nil }
+func upgradeHostStop(ctx context.Context, endpoint netip.AddrPort) error {
+	return acceptanceHostStop(ctx, endpoint)
+}

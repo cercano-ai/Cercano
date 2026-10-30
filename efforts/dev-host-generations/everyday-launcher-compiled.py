@@ -176,6 +176,12 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
     with __import__('contextlib').nullcontext(tempfile.mkdtemp(prefix='ca-',dir='/tmp')) as tmp:
         root=P(tmp).resolve(); owned=OwnedProcesses(root); os.chmod(root,0o700); report['artifact_directory']=str(root); state=root/'state'; runtime=root/'r'; runtime.mkdir(mode=0o700)
         copy=root/'repo'; copy.mkdir(); shutil.copytree(repo/'source',copy/'source',ignore=shutil.ignore_patterns('bin', '__pycache__', '.routing-check*'))
+        # Test-only subprocess boundary instrumentation in the disposable source copy.
+        # No production source behavior is changed; every call delegates unchanged.
+        upgrade_trace=root/'upgrade-calls.jsonl'
+        launcher=copy/'source/server/scripts/cercano-launcher.py'
+        instrumentation = '\n_run_uninstrumented = subprocess.run\ndef _acceptance_run(args, *a, **kw):\n    if "upgrade-store" in args:\n        with open('+repr(str(upgrade_trace))+', "a") as f: f.write(json.dumps(list(map(str,args)))+"\\n")\n    return _run_uninstrumented(args, *a, **kw)\nsubprocess.run = _acceptance_run\n'
+        launcher.write_text(launcher.read_text().replace("if __name__ == '__main__':", instrumentation+"\nif __name__ == '__main__':"))
         home=root/'home';home.mkdir(); barrier=root/'barrier';barrier.mkdir(mode=0o700)
         if worker_delegation: (barrier/'worker-delegation.enabled').touch(mode=0o600)
         mcp_fixture=barrier/'mcp-fixture'
@@ -237,7 +243,10 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             p=subprocess.run(args,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=20)
             record('control '+action,exit=p.returncode,output=p.stdout.decode(errors='replace'))
             assert (p.returncode==0)==success,p.stdout.decode(errors='replace')
-            return p.stdout.decode()
+            output=p.stdout.decode()
+            # Launcher progress is merged into this test capture; retain full
+            # evidence above, but return the management JSON to its consumers.
+            return output[output.index('{'):] if success and '{' in output else output
         def rows(sql):
             # Python's macOS SQLite cannot open a fresh WAL database read-only
             # before -shm exists. rw forbids creation; SQL remains observation only.
@@ -581,6 +590,11 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             watchdog_opens=[e for e in events() if e['event']=='watchdog-open']
             assert {pidA, calls[0]['pid']}.issubset({e['pid'] for e in watchdog_opens}), watchdog_opens
             record('ordinary watchdog enabled on A and B with offline audit',opens=watchdog_opens)
+            if not offline_upgrade:
+                calls=[json.loads(line) for line in upgrade_trace.read_text().splitlines()] if upgrade_trace.exists() else []
+                assert not calls, calls
+                assert not list(state.glob('conversations.before-upgrade-*.db'))
+                record('compatible path: zero shutdown and migration helper calls',shutdown_calls=0,migration_calls=0,upgrade_calls=calls)
             report['passed']=True
             record('PASS bounded compiled A/B rehearsal through validated launcher startup', limitations=['synthetic providers and memory credentials', 'not full ordinary-app production acceptance', 'canonical production activation remains denied'])
         except Exception as e:

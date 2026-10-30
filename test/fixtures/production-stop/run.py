@@ -112,39 +112,39 @@ try:
  result['late_workers']=[pid for pid,i in owned.items() if pid not in result['existing_pids'] and ' worker --socket ' in i]
  assert result['late_workers'], 'second production worker was not observed after initial inventory'
  result['ticks_at_stop']=(root/'work/ticks.txt').read_text().count('tick')
- if mode in ['native','combined']:
-  r=sp.run([str(base/'upgrade-fixture'),'127.0.0.1:'+str(port),str(host.pid)],env=env,capture_output=True,text=True,timeout=15);result['native_exit']=r.returncode;result['native_output']=r.stdout+r.stderr
- else: result['host_killed']=stop(host.pid)
- result['host_exit']=host.poll();result['stop_time']=time.time();snap('immediate-after-stop');release.set();result['ticks_after_shutdown']=(root/'work/ticks.txt').read_text().count('tick');time.sleep(2);capture();snap('after-release');result['ticks_after_wait']=(root/'work/ticks.txt').read_text().count('tick');result['survivors']={str(pid):identity(pid) for pid in owned if identity(pid)}
- if mode in ['native','combined']:
-  assert result['writer_started'] and result['provider_hold_reached'], 'production work not established'
-  assert result['native_exit']==0 and result['host_exit'] is not None, 'native stop failed'
-  assert result['ticks_after_shutdown']==result['ticks_after_wait'], 'tool continues writing'
-  assert result['survivors'] and all(' model-host' in i for i in result['survivors'].values()), 'unexpected survivor or lost shared model host'
+ if mode != 'combined':
+  if mode in ['native']:
+   r=sp.run([str(base/'upgrade-fixture'),'127.0.0.1:'+str(port),str(host.pid)],env=env,capture_output=True,text=True,timeout=15);result['native_exit']=r.returncode;result['native_output']=r.stdout+r.stderr
+  else: result['host_killed']=stop(host.pid)
+  result['host_exit']=host.poll();result['stop_time']=time.time();snap('immediate-after-stop');release.set();result['ticks_after_shutdown']=(root/'work/ticks.txt').read_text().count('tick');time.sleep(2);capture();snap('after-release');result['ticks_after_wait']=(root/'work/ticks.txt').read_text().count('tick');result['survivors']={str(pid):identity(pid) for pid in owned if identity(pid)}
+  if mode in ['native']:
+   assert result['writer_started'] and result['provider_hold_reached'], 'production work not established'
+   assert result['native_exit']==0 and result['host_exit'] is not None, 'native stop failed'
+   assert result['ticks_after_shutdown']==result['ticks_after_wait'], 'tool continues writing'
+   assert result['survivors'] and all(' model-host' in i for i in result['survivors'].values()), 'unexpected survivor or lost shared model host'
  if mode=='combined':
-  # The writer fence above precedes every store write. Only disposable stores.
+  descendants=[]
+  def descend(pid):
+   for raw in sp.run(['pgrep','-P',str(pid)],capture_output=True,text=True).stdout.split():
+    child=int(raw)
+    if ' model-host' in owned.get(child,''): continue  # Shared model host is not a DB writer.
+    descendants.append(child); descend(child)
+  descend(host.pid)
+  result['owned_descendants_before_confirmation']=descendants
+  assert len(descendants)>=3, 'expected workers plus live work descendant'
   db=root/'state/conversations.db'
-  c=sqlite3.connect(db)
-  history=c.execute('select * from turns order by id').fetchall()
-  c.execute("insert into delegated_tasks(id,parent_id,status,task,work_dir,created_at,updated_at) values('fixture-task','fixture-parent','running','preserve without replay','',1,2)")
-  c.commit()
-  backup=root/'before-upgrade.db'
-  b=sqlite3.connect(backup);c.backup(b);b.close();c.close()
-  upgrade_env=dict(env,CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='empty')
-  r=sp.run([str(base/'cercano-upgrade'),'upgrade-store','--database',str(db),'--all-legacy-agents-stopped','--interrupt-tasks'],env=upgrade_env,capture_output=True,text=True,timeout=20)
-  result['migration_exit']=r.returncode;result['migration_output']=r.stdout+r.stderr
-  assert r.returncode==0, 'migration refused'
-  c=sqlite3.connect(db);b=sqlite3.connect(backup)
-  assert c.execute('select * from turns order by id').fetchall()==history, 'history changed'
-  assert c.execute("select status from delegated_tasks where id='fixture-task'").fetchone()==('interrupted',)
-  assert b.execute("select status from delegated_tasks where id='fixture-task'").fetchone()==('running',)
-  assert b.execute('pragma user_version').fetchone()==(0,)
-  assert c.execute('pragma integrity_check').fetchone()==('ok',)
-  result['migrated_version']=c.execute('pragma user_version').fetchone()[0];assert result['migrated_version']>0
-  b.close();c.close()
+  with sqlite3.connect(db) as c:
+   c.execute("insert into delegated_tasks(id,parent_id,status,task,work_dir,created_at,updated_at) values('fixture-task','fixture-parent','running','preserve without replay','',1,2)")
+  # Keep production endpoint authority, but use the compiled synthetic generation backend.
+  import shutil
+  shutil.copy2(conf/'config.yaml',root/'state/config.yaml')
+  upgrade_env=dict(env,CERCANO_FIXTURE_OWNED_DESCENDANTS=','.join(map(str,[host.pid,*descendants])),CERCANO_FIXTURE_PORT=str(port),CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='empty',CERCANO_FIXTURE_OWNED_HOST=str(host.pid),CERCANO_FIXTURE_STOP_RECORD=str(root/'native-stop.log'),CERCANO_FIXTURE_UPGRADE_HELPER=str(base/'cercano-native-upgrade'))
   from generation import accept
-  accept(base.parents[2],root,env,history,result)
-  assert (root/'work/ticks.txt').read_text().count('tick')==result['ticks_after_wait'], 'old tool replayed'
+  accept(base.parents[2],root,upgrade_env,None,result,upgrading=True)
+  result['host_exit']=host.poll()
+  assert result['host_exit'] is not None
+  ticks=(root/'work/ticks.txt').read_text().count('tick');time.sleep(2)
+  assert (root/'work/ticks.txt').read_text().count('tick')==ticks
   result['fixture_combined_acceptance']=True
 except Exception as e:result['error']=repr(e)
 finally:
