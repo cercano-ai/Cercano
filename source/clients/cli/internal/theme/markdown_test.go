@@ -45,3 +45,35 @@ func TestCrackerMarkdownStyle_KeyColorsSet(t *testing.T) {
 		t.Fatalf("document margin = %v, want 0 (we add our own indent)", sc.Document.Margin)
 	}
 }
+
+func TestMarkdownStyleBlockquoteSubtleAcrossThemes(t *testing.T) {
+	for _, theme := range BuiltinThemes() {
+		t.Run(theme.Name, func(t *testing.T) {
+			p := theme.Palette
+			sc := MarkdownStyle(p)
+			if sc.BlockQuote.Indent == nil || *sc.BlockQuote.Indent != 2 || sc.BlockQuote.IndentToken == nil || *sc.BlockQuote.IndentToken != " " {
+				t.Fatal("blockquote must use two single-space indent columns")
+			}
+			if sc.BlockQuote.Italic == nil || *sc.BlockQuote.Italic {
+				t.Fatal("blockquote must not force italics")
+			}
+			if *sc.BlockQuote.Color != Hex(p.Primary) {
+				t.Fatal("quote must retain normal foreground")
+			}
+			bg := Lerp(p.BgDeep, p.Primary, 0.035)
+			if sc.BlockQuote.BackgroundColor == nil || *sc.BlockQuote.BackgroundColor != Hex(bg) {
+				t.Fatal("quote must use a palette-derived subtle background")
+			}
+			base, tint := RGB(p.BgDeep), RGB(bg)
+			for i := range base {
+				delta := int(base[i]) - int(tint[i])
+				if delta < -9 || delta > 9 {
+					t.Fatalf("tint too strong: base=%v tint=%v", base, tint)
+				}
+			}
+			if contrastRatio(p.Primary, bg) < contrastRatio(p.Primary, p.BgDeep)*0.9 {
+				t.Fatal("quote tint significantly reduces foreground contrast")
+			}
+		})
+	}
+}

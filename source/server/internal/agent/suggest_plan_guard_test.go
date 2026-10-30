@@ -215,3 +215,35 @@ func TestSuggestPlan_QueuedExecutionFence(t *testing.T) {
 		}
 	}
 }
+
+func TestQueuedExternalPlanningTransition(t *testing.T) {
+	for _, stage := range []string{"inference", "approval", "read_error", "approval_read_error"} {
+		t.Run(stage, func(t *testing.T) {
+			active := Profile{}
+			approved := false
+			runs := 0
+			p := &profileTransitionProvider{mockProvider: &mockProvider{scripts: [][]llm.Block{{{Type: llm.BlockToolUse, ToolUseID: "one", ToolName: "Bash", ToolInput: json.RawMessage(`{}`)}}, {{Type: llm.BlockText, Text: "done"}}}, caps: inference.Capabilities{SupportsTools: true}}}
+			if stage == "inference" {
+				p.transition = func() { active = PlanProfile() }
+			}
+			reg := agenttools.NewRegistry()
+			reg.Register(profileControlTool{stubTool: stubTool{name: "Bash", perm: agenttools.PermX}, run: func() { runs++ }})
+			_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: p, Registry: reg, UserInput: "test", CurrentProfile: func(context.Context) (Profile, error) {
+				if stage == "read_error" || (stage == "approval_read_error" && approved) {
+					return Profile{}, fmt.Errorf("unavailable")
+				}
+				return active, nil
+			}, PermissionRequester: func(context.Context, string, string, json.RawMessage, llm.Permission, bool) (bool, error) {
+				active = PlanProfile()
+				approved = true
+				return true, nil
+			}})
+			if runs != 0 {
+				t.Fatalf("executed %d forbidden calls", runs)
+			}
+			if (stage == "read_error" || stage == "approval_read_error") && err == nil {
+				t.Fatal("profile read failure ignored")
+			}
+		})
+	}
+}

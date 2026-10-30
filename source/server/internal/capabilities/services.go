@@ -54,6 +54,7 @@ type Tasks interface {
 // when the registry is built. There is no ProviderSet type — the agent holds
 // cloud + local providers as two discrete fields, so Services mirrors that.
 type Services struct {
+	History       conversation.HistoryReader
 	Tasks         Tasks              // nil means independent task execution is unavailable
 	CloudProvider inference.Provider // may be nil (local-only deployments)
 	OpenProvider  inference.Provider

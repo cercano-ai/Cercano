@@ -38,3 +38,12 @@ func TestFinalizeHeadlessExit_TextSuccess(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 }
+
+func TestHeadlessExperimentNeverBlanketApproved(t *testing.T) {
+	if headlessAllows(true, "plan_experiment") {
+		t.Fatal("blanket approval authorizes experiment")
+	}
+	if !headlessAllows(true, "RunCommand") || headlessAllows(false, "RunCommand") {
+		t.Fatal("ordinary compatibility changed")
+	}
+}

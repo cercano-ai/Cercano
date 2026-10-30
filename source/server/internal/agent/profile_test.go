@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"cercano/source/server/internal/invocationapproval"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -42,7 +44,7 @@ func TestPlanProfile_AllowsReadAndFileWritesOnly(t *testing.T) {
 		{llm.PermW, "Edit", true},                  // file edit — permitted to author the plan
 		{llm.PermX, "request_plan_approval", true}, // handoff tool — permitted to leave planning after approval
 		{llm.PermX, "bash", false},                 // exec tier — fenced
-		{llm.PermX, "RunCommand", false},                 // exec tier — fenced (display alias)
+		{llm.PermX, "RunCommand", false},           // exec tier — fenced (display alias)
 		{llm.PermW, "git_commit", false},           // non-file write tool — fenced
 		{llm.PermW, "Checkpoint", false},           // git mutation — fenced
 	}
@@ -599,5 +601,126 @@ func TestFenceDenialMessage_SuggestPlanUnderPlanProfile_IsSelfAware(t *testing.T
 	other := fenceDenialMessage("plan", "run_command", llm.PermX)
 	if !strings.Contains(other, "unavailable") || !strings.Contains(other, "run_command") {
 		t.Fatalf("non-planning tool denial should keep the read-only explanation; got: %q", other)
+	}
+}
+
+func TestPlanningExperimentSingleInvocation(t *testing.T) {
+	for _, allow := range []bool{false, true} {
+		t.Run(fmt.Sprint(allow), func(t *testing.T) {
+			ran, shell := false, false
+			reg := agenttools.NewRegistry()
+			reg.MustRegister(stubTool{name: "plan_experiment", perm: agenttools.PermX, ran: &ran})
+			reg.MustRegister(stubTool{name: "RunCommand", perm: agenttools.PermW, ran: &shell})
+			prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+				{{Type: llm.BlockToolUse, ToolUseID: "one", ToolName: "plan_experiment", ToolInput: json.RawMessage(`{}`)}},
+				{{Type: llm.BlockToolUse, ToolUseID: "two", ToolName: "plan_experiment", ToolInput: json.RawMessage(`{}`)}, {Type: llm.BlockToolUse, ToolUseID: "shell", ToolName: "RunCommand", ToolInput: json.RawMessage(`{}`)}},
+				{{Type: llm.BlockText, Text: "done"}}}}
+			confirms := 0
+			_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, Profile: PlanProfile(), PreauthorizedTools: []string{"plan_experiment"}, UserInput: "experiment", PermissionRequester: func(context.Context, string, string, json.RawMessage, llm.Permission, bool) (bool, error) {
+				confirms++
+				return allow, nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := 1
+			if allow {
+				want = 2
+			}
+			if confirms != want || ran != allow || shell {
+				t.Fatalf("confirms=%d ran=%v shell=%v", confirms, ran, shell)
+			}
+		})
+	}
+}
+
+// The loop authorization survives adapter-style context forwarding, not replay.
+type experimentApprovalProbe struct {
+	stubTool
+	t *testing.T
+}
+
+func (p experimentApprovalProbe) Execute(ctx context.Context, args json.RawMessage) (*agenttools.Result, error) {
+	if string(args) != `{"package":".","test":"TestOne"}` {
+		p.t.Fatalf("approval mutated args: %s", args)
+	}
+	if !invocationapproval.Consume(ctx, "plan_experiment", args) {
+		p.t.Fatal("missing exact approval")
+	}
+	if invocationapproval.Consume(ctx, "plan_experiment", args) {
+		p.t.Fatal("replayed approval")
+	}
+	return p.stubTool.Execute(ctx, args)
+}
+func TestPlanningExperimentApprovalImmutable(t *testing.T) {
+	ran := false
+	reg := agenttools.NewRegistry()
+	reg.MustRegister(experimentApprovalProbe{stubTool: stubTool{name: "plan_experiment", perm: agenttools.PermX, ran: &ran}, t: t})
+	prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+		{{Type: llm.BlockToolUse, ToolUseID: "one", ToolName: "plan_experiment", ToolInput: json.RawMessage(`{"package":".","test":"TestOne"}`)}},
+		{{Type: llm.BlockText, Text: "done"}}}}
+	_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, Profile: PlanProfile(), UserInput: "experiment", PermissionRequester: func(_ context.Context, _, _ string, args json.RawMessage, _ llm.Permission, _ bool) (bool, error) {
+		args[0] = '!'
+		return true, nil
+	}})
+	if err != nil || !ran {
+		t.Fatalf("ran=%v err=%v", ran, err)
+	}
+}
+
+// Leaving planning drops only the profile fence, never the execution gate.
+func TestPlanExitDoesNotApproveImplementation(t *testing.T) {
+	ran := false
+	reg := agenttools.NewRegistry()
+	reg.MustRegister(stubTool{name: "plan_exit", perm: agenttools.PermW})
+	reg.MustRegister(stubTool{name: "implementation", perm: agenttools.PermX, ran: &ran})
+	prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+		{{Type: llm.BlockToolUse, ToolUseID: "exit", ToolName: "plan_exit", ToolInput: json.RawMessage(`{}`)}},
+		{{Type: llm.BlockToolUse, ToolUseID: "write", ToolName: "implementation", ToolInput: json.RawMessage(`{}`)}},
+	}}
+	confirms := 0
+	_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, Profile: PlanProfile(), UserInput: "abandon plan", PermissionRequester: func(_ context.Context, _, name string, _ json.RawMessage, _ llm.Permission, _ bool) (bool, error) {
+		if name != "implementation" {
+			t.Fatalf("unexpected confirmation: %s", name)
+		}
+		confirms++
+		return false, nil
+	}})
+	if err != nil || confirms != 1 || ran {
+		t.Fatalf("err=%v confirms=%d implementation=%v", err, confirms, ran)
+	}
+}
+
+func TestPlanningExperimentPreauthorizationWithoutReviewerFailsClosed(t *testing.T) {
+	ran := false
+	reg := agenttools.NewRegistry()
+	reg.MustRegister(stubTool{name: "plan_experiment", perm: agenttools.PermX, ran: &ran})
+	prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+		{{Type: llm.BlockToolUse, ToolUseID: "test", ToolName: "plan_experiment", ToolInput: json.RawMessage(`{}`)}},
+	}}
+	_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, Profile: PlanProfile(), UserInput: "experiment", PreauthorizedTools: []string{"plan_experiment"}})
+	if err != nil || ran {
+		t.Fatalf("err=%v ran=%v", err, ran)
+	}
+}
+
+func TestQueuedPlanningFenceCannotBeLaunderedByWorkerGrant(t *testing.T) {
+	ran := false
+	reg := agenttools.NewRegistry()
+	reg.MustRegister(stubTool{name: "suggest_plan", perm: agenttools.PermX})
+	reg.MustRegister(stubTool{name: "implementation", perm: agenttools.PermX, ran: &ran})
+	prov := &mockProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{
+		{{Type: llm.BlockToolUse, ToolUseID: "enter", ToolName: "suggest_plan", ToolInput: json.RawMessage(`{}`)},
+			{Type: llm.BlockToolUse, ToolUseID: "write", ToolName: "implementation", ToolInput: json.RawMessage(`{}`)}},
+		{{Type: llm.BlockText, Text: "planning"}},
+	}}
+	_, err := RunToolLoop(t.Context(), ToolLoopInput{Provider: prov, Registry: reg, UserInput: "plan first", PreauthorizedTools: []string{"implementation"}, PermissionRequester: func(_ context.Context, _, name string, _ json.RawMessage, _ llm.Permission, _ bool) (bool, error) {
+		if name != "suggest_plan" {
+			t.Fatalf("fenced implementation reached approval: %s", name)
+		}
+		return true, nil
+	}})
+	if err != nil || ran {
+		t.Fatalf("err=%v implementation=%v", err, ran)
 	}
 }

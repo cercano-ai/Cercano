@@ -24,7 +24,7 @@ var compactFallbackTools = map[string]bool{
 	// Git inspection and local checkpointing used by Cercano's workflow. Push,
 	// reset, recover, land, and other branch-mutating operations stay hidden in
 	// compact fallback unless explicitly hydrated later.
-	"git_info": true, "git_status": true, "git_diff_stat": true, "git_log": true,
+	"git_info": true, "git_status": true, "git_diff_stat": true, "git_diff": true, "conversation_search": true, "conversation_retrieve": true, "git_log": true,
 	"git_add": true, "git_commit": true, "checkpoint": true,
 	// Native agent workflow and local model helpers.
 	"dispatch": true, "workflow": true, "local": true, "classify": true,

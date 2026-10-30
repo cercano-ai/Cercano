@@ -84,7 +84,7 @@ func (p Profile) Allows(tier llm.Permission, name string) bool {
 // Both the agent-surface display aliases ("Write"/"Edit") and the underlying
 // capability names ("write_file"/"edit_file") are listed so the fence permits
 // the file tools regardless of which name reaches the gate.
-var planExtraTools = []string{"Write", "Edit", "write_file", "edit_file", "request_plan_approval", "plan_exit", "session_model"}
+var planExtraTools = []string{"Write", "Edit", "write_file", "edit_file", "request_plan_approval", "plan_exit", "session_model", "plan_experiment"}
 
 // ToolLiftsPlanFence reports whether a tool, once executed successfully, exits
 // planning mode and therefore must drop the read-only fence for the remainder

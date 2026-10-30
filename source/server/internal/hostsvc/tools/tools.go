@@ -284,6 +284,9 @@ func (x *Service) GrantedRegistry(tools []string) (*agenttools.Registry, []strin
 				normalized = append(normalized, name+"→"+resolved)
 			}
 			t, _ := x.toolRegistry.Get(resolved)
+			if resolved == "dispatch" || resolved == "workflow" {
+				return nil, nil, nil, fmt.Errorf("dispatch: nested delegation is not permitted")
+			}
 			_ = reg.Register(t)
 		}
 		if len(ignored) > 0 {
@@ -297,6 +300,9 @@ func (x *Service) GrantedRegistry(tools []string) (*agenttools.Registry, []strin
 		}
 	} else {
 		for _, t := range x.toolRegistry.Filter(agenttools.PermR) {
+			if t.Name() == "dispatch" || t.Name() == "workflow" {
+				continue
+			}
 			_ = reg.Register(t)
 		}
 		if len(reg.All()) == 0 {
@@ -527,6 +533,16 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 		})
 		emitDispatchProgress(spec.Emit, agenttools.ProgressEvent{Kind: "error", Text: fmt.Sprintf("sub-agent grant failed: %v", err), IsError: true})
 		return dispatch.Result{}, err
+	}
+	readOnly := spec.ReadOnly || spec.RoutingTask == "reconnaissance"
+	var profile agent.Profile
+	if readOnly {
+		for _, tool := range reg.All() {
+			if tool.Permission() != agenttools.PermR {
+				return dispatch.Result{}, fmt.Errorf("dispatch: read-only task cannot grant %s", tool.Name())
+			}
+		}
+		profile = agent.Profile{Name: "reconnaissance", AllowedTiers: map[llm.Permission]bool{llm.PermR: true}}
 	}
 	// Preserve both the normal default R-tier catalog and invalid-grant errors.
 	// Only after that grant succeeds do we add this turn's assigned text reader.
@@ -793,6 +809,7 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 		WorkDir:            spec.WorkDir,
 		ConversationID:     subConvID, // nested dispatches link to this sub-conversation
 		PreauthorizedTools: granted,
+		Profile:            profile,
 		OnTextDelta: func(t string) {
 			buf.WriteString(t)
 			emitDispatchProgress(spec.Emit, agenttools.ProgressEvent{SubAgentID: subConvID, SubAgentParentID: spec.ConversationID, SubAgentTitle: subTitle, Kind: "token", Text: t, GrantedTools: granted, IgnoredTools: ignored})

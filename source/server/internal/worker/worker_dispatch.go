@@ -85,6 +85,16 @@ func buildWorkerToolSvcWithSecrets(
 	attachments capabilities.AttachmentLookup,
 	failures *failurelog.Writer, diagnostic reasoningexperiment.Service, autonomy conversation.AutonomyLedger, candidates func() inference.Tiers, sessionModel chatroute.Control, tasks capabilities.Tasks, openSecrets func() capabilities.SecretStore, restart ...runtimeRestartFunc,
 ) runner.ToolSvc {
+	return buildWorkerToolSvcWithHistory(permBroker, engine, ctxLoader, cloud, open, cfg, subPersist, enterProfile, vision, attachments, failures, diagnostic, autonomy, candidates, sessionModel, tasks, openSecrets, nil, restart...)
+}
+
+func buildWorkerToolSvcWithHistory(
+	permBroker permissions.Broker, engine *dispatch.Engine, ctxLoader *projectctx.Loader,
+	cloud, open inference.Provider, cfg pkgcfg.Config, subPersist *streamSubagentPersist,
+	enterProfile func(context.Context, string) error, vision capabilities.VisionService,
+	attachments capabilities.AttachmentLookup,
+	failures *failurelog.Writer, diagnostic reasoningexperiment.Service, autonomy conversation.AutonomyLedger, candidates func() inference.Tiers, sessionModel chatroute.Control, tasks capabilities.Tasks, openSecrets func() capabilities.SecretStore, history conversation.HistoryReader, restart ...runtimeRestartFunc,
+) runner.ToolSvc {
 	var runDiagnostic func(context.Context, reasoningexperiment.Spec) (reasoningexperiment.Report, error)
 	if diagnostic != nil {
 		runDiagnostic = diagnostic.RunReasoningDiagnostic
@@ -125,6 +135,7 @@ func buildWorkerToolSvcWithSecrets(
 		Config:              &cfg,
 		CtxLoader:           ctxLoader,
 		Autonomy:            autonomy,
+		History:             history,
 		// deepinfra_infer reads configured DeepInfra credentials from the OS
 		// keychain. The worker is a same-machine child process, so it opens its
 		// own keychain handle (nil on headless systems — the capability errors

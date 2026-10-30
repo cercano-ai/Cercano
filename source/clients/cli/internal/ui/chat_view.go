@@ -1496,9 +1496,12 @@ func (c *chatView) renderAssistantMarkdown(e *Entry, textW int) string {
 		if prefix == "" {
 			return live
 		}
-		// committedPrefix adds a trailing "\n" after a heading block so the
-		// heading isn't glued to whatever follows; here the tail is what
-		// follows, so join with a single "\n" to land on one blank line.
+		// A split quote loses the separation Glamour would supply when it
+		// renders both blocks together. Add it only when neither edge already
+		// has a blank line (headings and subsequent quotes can supply one).
+		if len(blocks) > 0 && endsWithBlockquote(blocks[len(blocks)-1]) && quoteNeedsGap(prefix, live) {
+			return prefix + "\n\n" + live
+		}
 		return prefix + "\n" + live
 	}
 	// A heading as the final committed block leaves a dangling trailing "\n"

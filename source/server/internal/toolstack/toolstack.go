@@ -77,6 +77,7 @@ func NewEngine(d EngineDeps) *dispatch.Engine {
 // but they are populated to keep the host and worker Services identical, so a
 // future capability that reads them cannot silently diverge between the two.
 type CapDeps struct {
+	History   conversation.HistoryReader
 	Tasks     capabilities.Tasks
 	Cloud     inference.Provider
 	Open      inference.Provider
@@ -135,6 +136,7 @@ func InstallCapabilities(svc tools.Catalog, d CapDeps) {
 		OpenProvider:  d.Open,
 		Config:        d.Config,
 		Autonomy:      d.Autonomy,
+		History:       d.History,
 		ProjectCtx:    d.CtxLoader,
 		Dispatch: func(ctx context.Context, spec dispatch.Spec) (dispatch.Result, error) {
 			e := svc.Engine()

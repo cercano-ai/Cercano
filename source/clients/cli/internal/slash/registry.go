@@ -73,17 +73,20 @@ type Registry struct {
 // New returns an empty registry.
 func New() *Registry { return &Registry{cmds: map[string]*Command{}} }
 
-// Register adds a command. Panics on duplicate names so the bug surfaces at startup.
+// Register adds a command. Names and aliases are case-insensitive; their original
+// spelling is preserved for display. Panics on duplicates at startup.
 func (r *Registry) Register(c Command) {
-	if _, exists := r.cmds[c.Name]; exists {
+	name := strings.ToLower(c.Name)
+	if _, exists := r.cmds[name]; exists {
 		panic("slash: duplicate command name: " + c.Name)
 	}
-	r.cmds[c.Name] = &c
+	r.cmds[name] = &c
 	for _, a := range c.Aliases {
-		if _, exists := r.cmds[a]; exists {
+		key := strings.ToLower(a)
+		if _, exists := r.cmds[key]; exists {
 			panic("slash: duplicate alias: " + a)
 		}
-		r.cmds[a] = &c
+		r.cmds[key] = &c
 	}
 }
 
@@ -102,27 +105,23 @@ func (r *Registry) All() []*Command {
 }
 
 // Lookup returns the command registered under `name` (including alias
-// lookups). The returned bool reports presence; the command pointer is
+// lookups), ignoring case. The returned bool reports presence; the command pointer is
 // nil when not found.
 func (r *Registry) Lookup(name string) (*Command, bool) {
-	c, ok := r.cmds[name]
+	c, ok := r.cmds[strings.ToLower(name)]
 	return c, ok
 }
 
 // PrefixMatches returns the canonical command names whose name starts with
-// `prefix` (leading `/` is stripped). Sorted, no aliases, deduped. Used by
+// `prefix`, ignoring case (leading `/` is stripped). Original spelling is
+// preserved. Sorted, no aliases, deduped. Used by
 // the CLI to render autocomplete suggestions.
 func (r *Registry) PrefixMatches(prefix string) []string {
-	prefix = strings.TrimPrefix(prefix, "/")
-	seen := map[*Command]bool{}
+	prefix = strings.ToLower(strings.TrimPrefix(prefix, "/"))
 	var names []string
-	for n, c := range r.cmds {
-		if c.Name != n {
-			continue // skip aliases
-		}
-		if strings.HasPrefix(n, prefix) && !seen[c] {
-			seen[c] = true
-			names = append(names, n)
+	for _, c := range r.All() {
+		if strings.HasPrefix(strings.ToLower(c.Name), prefix) {
+			names = append(names, c.Name)
 		}
 	}
 	sort.Strings(names)
@@ -160,17 +159,14 @@ func (r *Registry) Dispatch(line string) (Result, bool) {
 	name := parts[0]
 	args := parts[1:]
 
-	if c, ok := r.cmds[name]; ok {
+	if c, ok := r.Lookup(name); ok {
 		return c.Handler(args), true
 	}
 	// Fuzzy suggestion: shortest command name whose canonical form starts with the input.
 	var hint string
 	bestLen := 1 << 30
-	for n, c := range r.cmds {
-		if c.Name != n {
-			continue // skip aliases
-		}
-		if strings.HasPrefix(n, name) && len(n) < bestLen {
+	for _, n := range r.PrefixMatches(name) {
+		if len(n) < bestLen {
 			hint = n
 			bestLen = len(n)
 		}

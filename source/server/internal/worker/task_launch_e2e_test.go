@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
@@ -62,6 +63,7 @@ func TestPublicWorkerDispatchReturnsBeforeChildFinishes(t *testing.T) {
 		return grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 	host := newWorkerRunnerWithDial(nil, cfgsvc.New("", cfg, secret), permissions.New(nil, nil, nil), dial)
+	host.SetProfileReader(func(string) agent.Profile { return agent.Profile{Name: "developer"} })
 	store, err := conversation.Open(filepath.Join(t.TempDir(), "tasks.db"))
 	if err != nil {
 		t.Fatal(err)

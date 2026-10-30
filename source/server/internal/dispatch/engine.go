@@ -37,6 +37,8 @@ const (
 
 // Spec describes a unit of work to dispatch.
 type Spec struct {
+	// ReadOnly is a host-derived execution fence, never a model permission override.
+	ReadOnly bool
 	// LocalOffload explicitly retains the local tool's pre-existing placement
 	// policy. Ordinary missing-class dispatch never enters this path.
 	LocalOffload        bool

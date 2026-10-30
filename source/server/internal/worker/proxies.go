@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/pkg/approvaldisclosure"
 	"context"
 	"encoding/json"
 	"errors"
@@ -136,6 +137,7 @@ func (e *streamEventSink) Emit(ev runner.Event) {
 // streamPermissionRequester round-trips PermissionRequest↔PermissionResponse over the stream.
 // It assigns a monotonic ID, sends the request, and blocks until the host responds.
 type streamPermissionRequester struct {
+	workDir string
 	sndr    *sender
 	nextID  atomic.Uint64
 	mu      sync.Mutex
@@ -177,6 +179,7 @@ func (p *streamPermissionRequester) Request(
 	}()
 
 	req := &proto.PermissionRequest{
+		Disclosure:  approvaldisclosure.ForTool(name, args, p.workDir),
 		Id:          id,
 		ToolUseId:   toolUseID,
 		Name:        name,

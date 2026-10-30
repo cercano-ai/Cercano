@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"cercano/source/server/pkg/approvaldisclosure"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -97,7 +98,9 @@ type Model struct {
 	// sub-agent tab created mid-turn, or the last one closed) cannot leave bodyH
 	// and scrollbarTop stale — which pushes the status bar off-screen and
 	// misaligns the tab-click row until some other event forces a relayout.
-	stripShown bool
+	stripShown         bool
+	agentActivityShown bool
+	agentActivityFrame int // tick-owned: rendering and hit testing see the same glyph
 
 	// contentScrollbarDragging is the same gesture, but for a reusable content
 	// page scrollbar rather than the main chat scrollback.
@@ -370,7 +373,8 @@ type pendingToolCall struct {
 	Name        string
 	Args        string
 	Permission  string // "R" | "W" | "X" — R never reaches here, but kept for symmetry
-	Destructive bool   // display-only ⚠ hint (MCP destructiveHint)
+	Disclosure  string
+	Destructive bool // display-only ⚠ hint (MCP destructiveHint)
 }
 
 // confirmRequest is a generic confirmation gate. Any feature raises one; the
@@ -1025,6 +1029,9 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			if cmd := next.ensureTaskSubscription(); cmd != nil {
 				nextCmd = tea.Batch(nextCmd, cmd)
 			}
+			if next.hasRunningAgentActivity() {
+				nextCmd = tea.Batch(nextCmd, next.ensureAnimTick())
+			}
 			if cmd := next.conversationSearchCmd(); cmd != nil {
 				nextCmd = tea.Batch(nextCmd, cmd)
 			}
@@ -1037,6 +1044,11 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 	}
 	if update, ok := msg.(taskSubscriptionMsg); ok {
 		cmd := m.applyTaskSubscription(update)
+		// Durable child lifecycle events bypass the main stream handlers. Their
+		// chrome must reserve/reclaim rows in this same frame too.
+		if (m.hasSubAgentTabs() && !m.contentPageActive()) != m.stripShown || (m.agentActivityHeight() > 0) != m.agentActivityShown {
+			m.relayout()
+		}
 		return m, cmd
 	}
 	if result, ok := msg.(conversationSearchResultMsg); ok {
@@ -1257,6 +1269,11 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		if m.taskPane.Expanded && m.taskPaneHit(mouse.X, mouse.Y) {
 			// The expanded pane body belongs to task interactions; do not let a
 			// click through to scrollback selection behind the right-side drawer.
+			return m, nil
+		}
+		if id := m.agentActivityHit(mouse.X, mouse.Y); id != "" {
+			m.switchChatTab(id)
+			m.refreshViewport()
 			return m, nil
 		}
 		if m.hasSubAgentTabs() && mouse.Y == m.scrollbarTop-2 {
@@ -2040,6 +2057,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 				Args:        ev.argsJSON,
 				Permission:  ev.tier,
 				Destructive: ev.destructive,
+				Disclosure:  ev.disclosure,
 			}
 			m.enqueueConfirmation(toolConfirm(tc))
 		case rolloverOfferedMsg:
@@ -2624,11 +2642,8 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		if msg.ch != nil {
 			cmds = append(cmds, drainChatGPTLoginCmd(msg.ch, msg.attempt))
 		}
-		// Auto-open the verification page once, the moment we have the URL, so
-		// the user lands on it without hunting for the link in the modal.
-		if !m.chatgptLoginModal.browserOpened && m.chatgptLoginModal.verificationURL != "" {
-			m.chatgptLoginModal.browserOpened = true
-			cmds = append(cmds, openBrowserCmd(m.chatgptLoginModal.verificationURL))
+		if cmd := m.chatgptLoginModal.autoOpenBrowser(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
 
@@ -2929,6 +2944,9 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		// (e.g. from toolEntryStartMsg) from doubling the tick rate.
 		m.animTickActive = false
 		frameTime := time.Time(msg)
+		if m.hasRunningAgentActivity() {
+			m.agentActivityFrame = int(frameTime.UnixMilli()/80) % 10
+		}
 		m.mainChat().SetAnimationTime(frameTime)
 		if av := m.activeChat(); av != nil && av != m.mainChat() {
 			av.SetAnimationTime(frameTime)
@@ -2938,7 +2956,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		}
 		contentRepaint := false
 		animRepaint := false
-		keep := false
+		keep := m.hasRunningAgentActivity()
 		// Flush coalesced stream events: token deltas and progress notes set
 		// chatDirty instead of rebuilding per event, so this frame carries
 		// their repaint. Keep ticking while the stream is alive — the next
@@ -3560,7 +3578,7 @@ func (m *Model) relayout() {
 	if contentW < 20 {
 		contentW = 20
 	}
-	const chromeNoInput = 5 // header + 3 dividers + status (input height added below)
+	chromeNoInput := 4 + countLines([]string{m.renderStatus()}) // header + 3 dividers + status (which wraps on narrow terminals)
 	splashH := 0
 	if m.splashEffective() {
 		splashH = 9 // 8 banner rows + 1 blank
@@ -3590,7 +3608,10 @@ func (m *Model) relayout() {
 	// the viewport is one row too tall and shoves the status bar off-screen.
 	recapH := 0
 	if n := len(m.recapLines()); n > 0 {
-		recapH = 1 + n // blank spacer line + the wrapped recap line(s)
+		recapH = n
+		if m.agentActivityHeight() == 0 {
+			recapH++ // spacer above recap only when no activity row precedes it
+		}
 	}
 	queuedH := 0
 	if !m.contentPageActive() {
@@ -3600,7 +3621,7 @@ func (m *Model) relayout() {
 	// this width; the body claims whatever rows are left.
 	m.input.SetWidth(contentW - 4)
 	inputH := m.input.Height()
-	bodyH := m.height - chromeNoInput - inputH - splashH - suggestH - recapH - queuedH - searchH
+	bodyH := m.height - chromeNoInput - inputH - splashH - suggestH - recapH - queuedH - searchH - m.agentActivityHeight()
 	if m.hasSubAgentTabs() && !m.contentPageActive() {
 		bodyH -= 2 // chat tab strip row + its underline rule
 	}
@@ -3618,6 +3639,7 @@ func (m *Model) relayout() {
 	// Record the strip's shown-state so refreshViewport() can detect a drift
 	// (a tab created/closed between layouts) and re-run us before painting.
 	m.stripShown = m.hasSubAgentTabs() && !m.contentPageActive()
+	m.agentActivityShown = m.agentActivityHeight() > 0
 	m.refreshViewport()
 }
 
@@ -3769,7 +3791,7 @@ func (m *Model) refreshViewport() {
 	// reserved). Re-lay-out first; relayout() calls back here with stripShown in
 	// sync, so this recurses at most once. Single choke point that keeps every
 	// tab-mutation path (create, sweep, close) self-correcting.
-	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown {
+	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown || (m.agentActivityHeight() > 0) != m.agentActivityShown {
 		m.relayout()
 		return
 	}
@@ -3785,7 +3807,7 @@ func (m *Model) refreshVisibleDynamicViewport() {
 	// structural, so fall back to the full layout pass that recalculates bodyH and
 	// scrollbarTop. Ordinary token deltas keep the existing layout and repaint only
 	// visible dynamic units; this is the hot path while the model streams.
-	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown {
+	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown || (m.agentActivityHeight() > 0) != m.agentActivityShown {
 		m.relayout()
 		return
 	}
@@ -4711,6 +4733,19 @@ func confirmPromptDetails(p *pendingToolCall) []string {
 		return nil
 	}
 	details := make([]string, 0, 2)
+	if p.Disclosure != "" {
+		details = append(details, strings.Split(p.Disclosure, "\n")...)
+	} else if p.Name == "plan_experiment" {
+		// Compatibility with older hosts: never omit the risk warning.
+		fallback := strings.Split(approvaldisclosure.ForTool(p.Name, json.RawMessage(p.Args), ""), "\n")
+		for i, line := range fallback {
+			if strings.HasPrefix(line, "Directory:") {
+				fallback[i] = "Directory: host working directory (not supplied by older server)"
+			}
+		}
+		details = append(details, fallback...)
+	}
+
 	if command := gitStashCommand(p); command != "" {
 		details = append(details, "Command: "+truncateArgs(command, 200))
 		if cwd := oneLine(stringArg(obj, "cwd")); cwd != "" {
@@ -5608,6 +5643,9 @@ func (m Model) composeFrame() (parts []string, inputIdx int) {
 			parts = append(parts, m.styles.BorderDim.Render(strings.Repeat("▔", m.width)))
 		}
 		parts = append(parts, m.renderViewportWithScrollbar())
+		if row, _ := m.agentActivityRow(); row != "" {
+			parts = append(parts, "", row)
+		}
 		if m.recap != "" {
 			parts = append(parts, m.renderRecap())
 		}
@@ -5733,6 +5771,11 @@ func (m Model) View() tea.View {
 		ReportAssociatedText:       true,
 	}
 	v.MouseMode = tea.MouseModeCellMotion
+	// Release mouse tracking only for ChatGPT's selectable device URL/code.
+	// Claude's compact browser and code-entry actions remain clickable.
+	if m.chatgptLoginModal != nil && m.chatgptLoginModal.showsCode() {
+		v.MouseMode = tea.MouseModeNone
+	}
 	// Drive the real terminal cursor to the input caret position. Only
 	// when the chat input owns focus (no overlay, no pending confirm).
 	if m.searchVisible() && m.searchCanOwnInput() {
@@ -5959,7 +6002,10 @@ func (m Model) renderRecap() string {
 	if len(lines) == 0 {
 		return ""
 	}
-	// Blank line above for breathing room, then the wrapped recap.
+	// Activity already has breathing room above it; keep recap directly below.
+	if m.agentActivityHeight() > 0 {
+		return strings.Join(lines, "\n")
+	}
 	return "\n" + strings.Join(lines, "\n")
 }
 

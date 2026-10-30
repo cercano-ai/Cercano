@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/credentialtest"
 	"context"
 	"encoding/json"
@@ -73,6 +74,7 @@ func TestSessionModelWorkerNextTurnAndToolControl(t *testing.T) {
 		return grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 	host := newWorkerRunnerWithDial(nil, cfgsvc.New("", cfg, secret), permissions.New(nil, nil, nil), dial)
+	host.SetProfileReader(func(string) agent.Profile { return agent.Profile{Name: "developer"} })
 	var override *chatroute.Route
 	host.SetSessionModel(func(_ context.Context, convID string, req chatroute.Request) (chatroute.Status, error) {
 		if convID != "one" || req.Action != "set" {

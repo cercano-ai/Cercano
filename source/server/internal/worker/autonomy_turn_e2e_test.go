@@ -21,6 +21,7 @@ package worker_test
 //     final text, all within the single RunTurn (no second user message).
 
 import (
+	"cercano/source/server/internal/agent"
 	"context"
 	"encoding/json"
 	"net"
@@ -145,6 +146,14 @@ func TestWorkerAutonomousEntryPersistsLedgerAndContinues(t *testing.T) {
 	// the approved entry would abandon the run (no profile broker on the host).
 	var profileMu sync.Mutex
 	var enteredProfile []string
+	r.(worker.ProfileReaderSetter).SetProfileReader(func(string) agent.Profile {
+		profileMu.Lock()
+		defer profileMu.Unlock()
+		if len(enteredProfile) > 0 {
+			return agent.Profile{Name: enteredProfile[len(enteredProfile)-1]}
+		}
+		return agent.Profile{Name: "developer"}
+	})
 	profileSetter, ok := r.(worker.ProfileHandlerSetter)
 	if !ok {
 		t.Fatal("dial-built worker runner does not implement ProfileHandlerSetter")

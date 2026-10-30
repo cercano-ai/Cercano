@@ -191,6 +191,7 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 
 	// Permission requester: round-trips PermissionRequest↔PermissionResponse.
 	permReq := newStreamPermissionRequester(sndr)
+	permReq.workDir = start.GetWorkDir()
 
 	// Credential source: round-trips CredentialRequest↔CredentialResponse.
 	// Created before the recv loop so it is ready to receive routed responses.
@@ -230,6 +231,7 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 	// acknowledgment. Built before buildDeps so the tool stack can wire it,
 	// same as credSource.
 	autonomyLedger := newStreamAutonomyLedger(sndr)
+	historyReader := newStreamHistory(sndr, start.GetConversationId())
 
 	// MCP proxy: host-side MCP tools advertised in StartTurn become worker-side
 	// proxy tools that call back over this stream. The worker owns no MCP
@@ -308,7 +310,7 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 	}()
 
 	// Build Deps from StartTurn.
-	deps, buildErr := w.buildDeps(ctx, start, credSource, openProxy, subPersist, profileCtl, mcpControl, autonomyLedger, &permStoreRef, sessionModel.Control, tasks, runtimeControl.Restart)
+	deps, buildErr := w.buildDeps(ctx, start, credSource, openProxy, subPersist, profileCtl, mcpControl, autonomyLedger, &permStoreRef, sessionModel.Control, tasks, historyReader, runtimeControl.Restart)
 	if buildErr != nil {
 		sndr.close()
 		cancel() // returning finalizes the stream; the recv goroutine unwinds on the Recv error
@@ -445,7 +447,7 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 
 // ─── buildDeps ────────────────────────────────────────────────────────────────
 
-func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, credSource *streamCredentialSource, openProxy *streamOpenProvider, subPersist *streamSubagentPersist, profileCtl *streamSessionProfileController, mcpControl *streamMCPControl, autonomyLedger *streamAutonomyLedger, permStoreRef *atomic.Pointer[agent.PermissionStore], sessionModel chatroute.Control, tasks capabilities.Tasks, restart ...runtimeRestartFunc) (runner.Deps, error) {
+func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, credSource *streamCredentialSource, openProxy *streamOpenProvider, subPersist *streamSubagentPersist, profileCtl *streamSessionProfileController, mcpControl *streamMCPControl, autonomyLedger *streamAutonomyLedger, permStoreRef *atomic.Pointer[agent.PermissionStore], sessionModel chatroute.Control, tasks capabilities.Tasks, history conversation.HistoryReader, restart ...runtimeRestartFunc) (runner.Deps, error) {
 	if w.prepared {
 		if err := ValidatePreparedFailureLog(w.failureLogPath); err != nil {
 			return runner.Deps{}, err
@@ -617,7 +619,7 @@ func (w *WorkerServer) buildDeps(ctx context.Context, start *proto.StartTurn, cr
 			workerAttachments = visionStore
 		}
 		openSecrets := workerSecretOpener(ctx, w.secretOpener, w.prepared)
-		toolSvc = buildWorkerToolSvcWithSecrets(permBroker, engine, ctxLoader, provSvc.Cloud(), provSvc.Open(), cfg, subPersist, profileCtl.SetProfile, visionSvc, workerAttachments, failureLog, diagnostic, autonomy, provSvc.Candidates, sessionModel, tasks, openSecrets, restart...)
+		toolSvc = buildWorkerToolSvcWithHistory(permBroker, engine, ctxLoader, provSvc.Cloud(), provSvc.Open(), cfg, subPersist, profileCtl.SetProfile, visionSvc, workerAttachments, failureLog, diagnostic, autonomy, provSvc.Candidates, sessionModel, tasks, openSecrets, history, restart...)
 	}
 
 	configurePreparedDispatch(ctx, toolSvc, w.prepared)

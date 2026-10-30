@@ -54,6 +54,8 @@ var (
 
 // Options describes one command invocation.
 type Options struct {
+	// MaxOutputBytes bounds each captured stream; zero preserves legacy behavior.
+	MaxOutputBytes int
 	// Args is the argv; Args[0] is the executable. Required.
 	Args []string
 	// Dir is the working directory; empty means the current process's.
@@ -71,10 +73,11 @@ type Options struct {
 
 // Result carries everything observed about the run, including on failure.
 type Result struct {
-	Stdout   []byte
-	Stderr   []byte
-	ExitCode int
-	Elapsed  time.Duration
+	Stdout          []byte
+	Stderr          []byte
+	ExitCode        int
+	Elapsed         time.Duration
+	OutputTruncated bool
 	// TimedOut and Canceled are also signalled via the returned error; they
 	// are surfaced here too so callers that log Result need not unwrap.
 	TimedOut bool
@@ -131,7 +134,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 
 	// syncBuffer, not bytes.Buffer: when WaitDelay fires, os/exec abandons the
 	// output-copying goroutines and returns while they may still be writing.
-	var stdout, stderr syncBuffer
+	stdout, stderr := syncBuffer{limit: opts.MaxOutputBytes}, syncBuffer{limit: opts.MaxOutputBytes}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -140,6 +143,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	res.Elapsed = time.Since(startedAt)
 	res.Stdout = stdout.Bytes()
 	res.Stderr = stderr.Bytes()
+	res.OutputTruncated = stdout.Truncated() || stderr.Truncated()
 
 	res.TimedOut = errors.Is(runCtx.Err(), context.DeadlineExceeded)
 	res.Canceled = errors.Is(runCtx.Err(), context.Canceled)
@@ -185,14 +189,22 @@ func withBound(ctx context.Context, timeout time.Duration) (context.Context, con
 // os/exec may still be copying child output when WaitDelay forces Wait to
 // return.
 type syncBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
 }
 
 func (b *syncBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buf.Write(p)
+	n := len(p)
+	if b.limit > 0 && len(p) > b.limit-b.buf.Len() {
+		p = p[:b.limit-b.buf.Len()]
+		b.truncated = true
+	}
+	b.buf.Write(p)
+	return n, nil
 }
 
 // Bytes returns a copy, so the caller never aliases memory a late-arriving
@@ -202,3 +214,5 @@ func (b *syncBuffer) Bytes() []byte {
 	defer b.mu.Unlock()
 	return append([]byte(nil), b.buf.Bytes()...)
 }
+
+func (b *syncBuffer) Truncated() bool { b.mu.Lock(); defer b.mu.Unlock(); return b.truncated }
