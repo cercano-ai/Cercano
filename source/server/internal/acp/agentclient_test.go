@@ -44,12 +44,32 @@ func (s *grpcBackend) StreamProcessRequest(req *proto.ProcessRequestRequest, str
 func (s *grpcBackend) AllowToolCall(_ context.Context, r *proto.AllowToolCallRequest) (*proto.AllowToolCallResponse, error) {
 	s.decisions <- decision{r.ConversationId, r.ToolUseId, true}
 	s.approved <- true
-	return &proto.AllowToolCallResponse{}, nil
+	return &proto.AllowToolCallResponse{Ok: true}, nil
 }
 func (s *grpcBackend) DenyToolCall(_ context.Context, r *proto.DenyToolCallRequest) (*proto.DenyToolCallResponse, error) {
 	s.decisions <- decision{r.ConversationId, r.ToolUseId, false}
-	return &proto.DenyToolCallResponse{}, nil
+	return &proto.DenyToolCallResponse{Ok: true}, nil
 }
+
+// Successful fixture decisions must acknowledge acceptance, just like the real
+// daemon: agentclient rejects a successful RPC whose response has Ok=false.
+func TestGRPCBackendAcknowledgesPermissionDecisions(t *testing.T) {
+	service := &grpcBackend{decisions: make(chan decision, 2), approved: make(chan bool, 1)}
+	allow, err := service.AllowToolCall(context.Background(), &proto.AllowToolCallRequest{ConversationId: "session", ToolUseId: "tool"})
+	if err != nil || !allow.GetOk() {
+		t.Fatalf("allow acknowledgement = %v, err = %v", allow, err)
+	}
+	deny, err := service.DenyToolCall(context.Background(), &proto.DenyToolCallRequest{ConversationId: "session", ToolUseId: "tool"})
+	if err != nil || !deny.GetOk() {
+		t.Fatalf("deny acknowledgement = %v, err = %v", deny, err)
+	}
+	for _, wantAllow := range []bool{true, false} {
+		if got := recv(t, service.decisions); got.sid != "session" || got.tool != "tool" || got.allow != wantAllow {
+			t.Fatalf("permission decision = %+v, want allow=%v", got, wantAllow)
+		}
+	}
+}
+
 func TestGRPCAdapterPermissionAndCancel(t *testing.T) {
 	for _, cancel := range []bool{false, true} {
 		t.Run(map[bool]string{false: "allow", true: "cancel"}[cancel], func(t *testing.T) {
