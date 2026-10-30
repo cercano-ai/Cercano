@@ -43,7 +43,7 @@ HTTP.do_GET=get
 s=socket.socket();s.bind(('127.0.0.1',0));port=s.getsockname()[1];s.close()
 url='http://127.0.0.1:'+str(srv.server_port)
 (conf/'config.yaml').write_text('locus_mode: open_only\nopen_runtime: ollama\nollama_url: '+url+'\nport: "'+str(port)+'"\nmodels:\n  open:\n    overrides:\n      ollama:\n'+''.join('        '+t+': fake-model\n' for t in ['most_capable','everyday','fast_light','fast_light_text','embedding','vision']))
-env={'PATH':'/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin','HOME':str(root/'h'),'XDG_CONFIG_HOME':str(root/'h/.config'),'XDG_DATA_HOME':str(root/'data'),'XDG_CACHE_HOME':str(root/'cache'),'XDG_STATE_HOME':str(root/'state'),'XDG_RUNTIME_DIR':str(root/'run'),'TMPDIR':str(root/'t'),'CERCANO_DISABLE_CREDENTIALS':'1','CERCANO_PORT':str(port),'CERCANO_CONVERSATIONS_DB':str(conf/'conversations.db'),'CERCANO_OPEN_RUNTIME':'ollama','CERCANO_OPEN_MODEL':'fake-model','OLLAMA_URL':url,'AWS_EC2_METADATA_DISABLED':'true'}
+env={'PATH':'/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin','HOME':str(root/'h'),'XDG_CONFIG_HOME':str(root/'h/.config'),'XDG_DATA_HOME':str(root/'data'),'XDG_CACHE_HOME':str(root/'cache'),'XDG_STATE_HOME':str(root/'state'),'XDG_RUNTIME_DIR':str(root/'run'),'TMPDIR':str(root/'t'),'CERCANO_DISABLE_CREDENTIALS':'1','CERCANO_PORT':str(port),'CERCANO_CONVERSATIONS_DB':str(root/'state/conversations.db'),'CERCANO_OPEN_RUNTIME':'ollama','CERCANO_OPEN_MODEL':'fake-model','OLLAMA_URL':url,'AWS_EC2_METADATA_DISABLED':'true'}
 (root/'env.json').write_text(json.dumps(env,indent=2))
 def identity(pid):
  try:
@@ -77,7 +77,7 @@ def stop(pid):
  return killed
 
 def snap(name):
- p=conf/'conversations.db'
+ p=root/'state/conversations.db'
  if p.exists():
   c=sqlite3.connect('file:'+str(p)+'?mode=ro',uri=True)
   data={}
@@ -86,7 +86,7 @@ def snap(name):
    except sqlite3.Error as e:data[table]=str(e)
   c.close();(root/(name+'.json')).write_text(json.dumps(data,indent=2,default=str))
 log=open(root/'host.log','w');host=sp.Popen([str(base/'cercano'),'agent'],env=env,cwd=root/'work',stdout=log,stderr=sp.STDOUT);track(host.pid)
-result={}
+result={'source_commit':sp.check_output(['git','rev-parse','HEAD'],cwd=base,text=True).strip()}
 try:
  for _ in range(100):
   capture()
@@ -123,7 +123,7 @@ try:
   assert result['survivors'] and all(' model-host' in i for i in result['survivors'].values()), 'unexpected survivor or lost shared model host'
  if mode=='combined':
   # The writer fence above precedes every store write. Only disposable stores.
-  db=conf/'conversations.db'
+  db=root/'state/conversations.db'
   c=sqlite3.connect(db)
   history=c.execute('select * from turns order by id').fetchall()
   c.execute("insert into delegated_tasks(id,parent_id,status,task,work_dir,created_at,updated_at) values('fixture-task','fixture-parent','running','preserve without replay','',1,2)")
@@ -142,16 +142,8 @@ try:
   assert c.execute('pragma integrity_check').fetchone()==('ok',)
   result['migrated_version']=c.execute('pragma user_version').fetchone()[0];assert result['migrated_version']>0
   b.close();c.close()
-  host=sp.Popen([str(base/'cercano'),'agent'],env=env,cwd=root/'work',stdout=open(root/'replacement.log','w'),stderr=sp.STDOUT);track(host.pid)
-  ready=False
-  for _ in range(100):
-   capture()
-   if host.poll() is not None:break
-   try:
-    with socket.create_connection(('127.0.0.1',port),timeout=.1):ready=True;break
-   except OSError:time.sleep(.1)
-  assert ready, 'replacement did not start'
-  result['replacement_started']=True
+  from generation import accept
+  accept(base.parents[2],root,env,history,result)
   assert (root/'work/ticks.txt').read_text().count('tick')==result['ticks_after_wait'], 'old tool replayed'
   result['fixture_combined_acceptance']=True
 except Exception as e:result['error']=repr(e)
