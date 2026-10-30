@@ -29,7 +29,7 @@ func (m Model) agentActivityRow() (string, []agentActivityLink) {
 	if len(live) == 0 {
 		return "", nil
 	}
-	text := m.styles.Success.Render(fmt.Sprintf("Agents %d: ", len(live)))
+	text := lipgloss.NewStyle().Foreground(m.palette.Accent).Render(fmt.Sprintf("Agents %d: ", len(live)))
 	// Permission gates are session-scoped: there is no reliable child attribution.
 	// Don't imply every child is blocked or display a stale reconnect gate as live.
 	if c := m.pendingConfirm; c != nil && !c.stale && (c.tool != nil || c.auth != nil) {
