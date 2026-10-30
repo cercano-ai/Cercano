@@ -321,6 +321,42 @@ func (l *coexistenceLifecycle) reserveRelinquishLocked(o broker.Owner, requester
 	return r, nil
 }
 func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Owner, requester *broker.Attachment, terminal *string, h *broker.IncomingHandover) error {
+	// Terminal release is session closure, not a quiescent handover or an
+	// administrative release. Retain the exact owner and host ticket until all
+	// accepted work (including descendants and persistence) has drained.
+	if terminal != nil && *terminal != "" && h == nil {
+		if !l.ready[o] {
+			return broker.ErrAdmissionBusy
+		}
+		cap := l.owners[o.Conversation]
+		if cap == nil || ownerOf(cap) != o {
+			return broker.ErrAdmissionStale
+		}
+		ticket, err := l.admission.AdmitHostWork(broker.PersistenceWork)
+		if err != nil {
+			return err
+		}
+		closure, err := l.admission.DrainTerminal(o, *terminal)
+		if err != nil {
+			_ = ticket.Complete()
+			return err
+		}
+		r := &relinquishReservation{closure: closure, ticket: ticket}
+		if l.closures == nil {
+			l.closures = make(map[broker.Owner]*relinquishReservation)
+		}
+		l.closures[o] = r
+		if closure.Drained() {
+			return l.commitRelinquishLocked(ctx, o, r, nil)
+		}
+		return closure.WhenDrained(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			// The request/transport lifetime must not cancel retained writeback.
+			// commitRelinquishLocked retains unresolved blockers on every failure.
+			_ = l.commitRelinquishLocked(context.Background(), o, r, nil)
+		})
+	}
 	r, e := l.reserveRelinquishLocked(o, requester, terminal)
 	if e != nil {
 		return e
