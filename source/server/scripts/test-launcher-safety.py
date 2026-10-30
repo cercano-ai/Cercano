@@ -252,9 +252,9 @@ print(json.dumps(sys.argv[1:]))
                                         env=env, capture_output=True, text=True)
                 if legacy:
                     self.assertEqual(result.returncode, 78, result.stderr)
-                    self.assertIn('one-time OFFLINE upgrade only', result.stderr)
+                    self.assertIn('One-time in-place store upgrade', result.stderr)
                     self.assertIn(str(state / 'conversations.db'), result.stderr)
-                    self.assertIn('no upgrade has been performed', result.stderr)
+                    self.assertIn('no upgrade performed', result.stderr)
                     # Only the private setup serialization lock lives outside state.
                     self.assertEqual({p.name: p.read_bytes() for p in state.iterdir()}, before)
                     self.assertFalse(Path(env['FAKE_ENV_LOG']).exists())
@@ -478,7 +478,7 @@ print(json.dumps(sys.argv[1:]))
                 db.execute('delete from coexistence_metadata')
             result = self.source_launch(env)
             self.assertEqual(result.returncode, 78)
-            self.assertIn('unprepared', result.stderr)
+            self.assertIn('interactive confirmation required', result.stderr)
             self.assertFalse((Path(env['CERCANO_DEVELOPMENT_STATE']) / 'generations').exists())
 
     def install(self, *args):

@@ -51,12 +51,13 @@ func refuseKnownUpgradeAgents(snapshot string, self int) error {
 }
 
 func runUpgradeStore(ctx context.Context, args []string, out io.Writer) error {
-	return runUpgradeStoreChecked(ctx, args, out, knownUpgradeAgents)
+	return runUpgradeStoreChecked(ctx, args, out, upgradeAgentCheck)
 }
 func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, check func(context.Context) error) error {
 	fs := flag.NewFlagSet("upgrade-store", flag.ContinueOnError)
 	fs.SetOutput(out)
 	db := fs.String("database", "", "existing conversation database (absolute path)")
+	checkOnly := fs.Bool("check-only", false, "check known processes without opening the store")
 	stopped := fs.Bool("all-legacy-agents-stopped", false, "confirm ALL legacy Cercano agents are stopped and will remain stopped")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -67,6 +68,9 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 	// Do not open, initialize, or change the database before detection succeeds.
 	if err := check(ctx); err != nil {
 		return err
+	}
+	if *checkOnly {
+		return nil
 	}
 	if err := conversation.UpgradeOffline(ctx, *db); err != nil {
 		return err

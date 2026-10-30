@@ -10,9 +10,9 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import time
 import tempfile
 import shutil
-import shlex
 
 
 def private(path):
@@ -184,7 +184,150 @@ def prepare_if_absent(state, repo, env):
                 print('[cercano] warning: temporary bootstrap cleanup failed; scratch directory retained', file=sys.stderr)
 
 
+def owned(path, directory=False):
+    path = Path(path)
+    if not path.is_absolute() or path.resolve() != path:
+        raise ValueError('canonical nonsymlink path required: ' + str(path))
+    mode = path.lstat()
+    if mode.st_uid != os.getuid() or ((not stat.S_ISDIR(mode.st_mode) or mode.st_mode & 0o022) if directory else
+                                    not stat.S_ISREG(mode.st_mode) or mode.st_nlink != 1):
+        raise ValueError('owned unlinked regular file/directory required: ' + str(path))
+    return path
+
+
+def compatible_store(db):
+    def inspect(path):
+        try:
+            with closing(sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True)) as conn:
+                return (conn.execute('select contract, schema_version from coexistence_metadata').fetchall()
+                        == [('cercano-development-owned-v2', 2)]
+                        and conn.execute('pragma user_version').fetchone() == (2,))
+        except sqlite3.DatabaseError:
+            return False
+    # Immutable reads cannot create SHM or recover a journal before consent.
+    wal = Path(str(db) + '-wal')
+    if not os.path.lexists(wal):
+        return inspect(db)
+    owned(wal)
+    # A disposable inspection copy can read a committed WAL without touching the
+    # original store. It is never passed to acquisition or migration.
+    with tempfile.TemporaryDirectory(prefix='cercano-inspect-') as scratch:
+        copy = Path(scratch) / 'inspect.db'
+        for source, target in ((db, copy), (wal, Path(str(copy)+'-wal'))):
+            with source.open('rb') as inp, target.open('xb') as out:
+                os.fchmod(out.fileno(), 0o600)
+                shutil.copyfileobj(inp, out)
+        try:
+            with closing(sqlite3.connect(copy)) as conn:
+                conn.execute('pragma wal_checkpoint(TRUNCATE)')
+            return inspect(copy)
+        except sqlite3.DatabaseError:
+            return False
+
+
+def confirmed_upgrade(state, db, authority, repo, env):
+    print(f'One-time in-place store upgrade for {db}: history and task statuses are preserved; '
+          'no reconciliation or replay. A verified private SQLite backup will be retained. '
+          'State, database, WAL/SHM and config permissions will be made private.', file=sys.stderr)
+    print('Historical agents cannot prove accepted-work drain or stopped writers. '
+          'No shutdown will be requested. Let tasks finish, then quit incompatible clients '
+          'and agents using their existing controls and retry this SAME command. '
+          'Detection covers only same-user known executable names, not custom/renamed '
+          'writers or other users. All legacy writers must remain stopped; quit reconnecting '
+          'legacy clients too. The shared SDK lock covers only this TMPDIR.', file=sys.stderr)
+    if not sys.stdin.isatty():
+        raise ValueError('interactive confirmation required; no upgrade performed')
+    print('Type STOPPED to confirm accepted work has finished, ALL legacy writers/clients are stopped and will remain '
+          'stopped, and authorize backup, private permissions and in-place upgrade: ',
+          end='', file=sys.stderr, flush=True)
+    if sys.stdin.readline().strip() != 'STOPPED':
+        raise ValueError('upgrade declined; database and permissions unchanged')
+    # Build away from live binaries, without credential access. The helper retains
+    # the production detector; never invoke shutdown or claim it is a writer fence.
+    backup = None
+    with tempfile.TemporaryDirectory(prefix='cercano-upgrade-') as scratch:
+        helper = str(Path(scratch) / 'cercano')
+        result = subprocess.run(['go', 'build', '-o', helper, './cmd/cercano/'],
+                                cwd=repo / 'source/server',
+                                env=dict(env, CERCANO_DISABLE_CREDENTIALS='1'),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode:
+            raise ValueError('upgrade helper build failed; store unchanged')
+        command = [helper, 'upgrade-store', '--database', str(db), '--all-legacy-agents-stopped']
+        def run(args):
+            result = subprocess.run(args, env=env, text=True, capture_output=True)
+            if result.returncode:
+                raise ValueError(result.stderr.strip() or 'offline upgrade helper failed')
+        run([*command, '--check-only'])
+        # Revalidate before chmod; descriptor-based changes do not follow links.
+        paths = [(state, True), (db, False), (authority, False)]
+        paths += [(p, False) for p in (Path(str(db)+'-wal'), Path(str(db)+'-shm')) if os.path.lexists(p)]
+        descriptors = []
+        try:
+            for path, directory in paths:
+                owned(path, directory)
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                descriptors.append((fd, directory))
+                mode = os.fstat(fd)
+                if mode.st_uid != os.getuid() or (not stat.S_ISDIR(mode.st_mode) if directory else
+                        not stat.S_ISREG(mode.st_mode) or mode.st_nlink != 1):
+                    raise ValueError('unsafe store descriptor during upgrade')
+                current = path.lstat()
+                if (mode.st_dev, mode.st_ino) != (current.st_dev, current.st_ino):
+                    raise ValueError('store path changed during upgrade')
+            for fd, directory in descriptors:
+                os.fchmod(fd, 0o700 if directory else 0o600)
+        finally:
+            for fd, _ in descriptors:
+                os.close(fd)
+        fd, name = tempfile.mkstemp(prefix='conversations.before-upgrade-', suffix='.db', dir=state)
+        os.close(fd)
+        backup = Path(name)
+        print('[cercano] retained backup: ' + str(backup), file=sys.stderr)
+        try:
+            # SQLite online backup includes committed WAL, unlike copying the main file.
+            with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as source:
+                with closing(sqlite3.connect(backup)) as destination:
+                    deadline = time.monotonic() + 30
+                    def progress(status, remaining, total):
+                        if time.monotonic() > deadline:
+                            raise ValueError('backup timed out; writers must remain stopped')
+                    source.backup(destination, pages=256, progress=progress)
+                    if destination.execute('pragma integrity_check').fetchall() != [('ok',)]:
+                        raise ValueError('backup integrity verification failed')
+            with backup.open('rb') as saved:
+                os.fsync(saved.fileno())
+            directory_fd = os.open(state, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+            run(command)
+        except Exception as error:
+            raise ValueError('upgrade failed; retained backup (may be incomplete if backup failed): '
+                             + str(backup) + '; ' + str(error)) from error
+    return backup
+
+
 def main():
+    # Same identity as agentclient.acquireAutoLaunchLock (os.TempDir()), taken
+    # before setup/runtime/development acquisition locks. CLOEXEC releases at CLI
+    # entry, after migration and host acquisition; reconnect cannot spawn mid-upgrade.
+    if parse_args(sys.argv[3:])[2]:
+        return launch_main()
+    path = Path(os.environ.get('TMPDIR') or '/tmp') / 'cercano-agent-launch.lock'
+    if not path.is_absolute():
+        raise ValueError('SDK launch lock directory must be absolute')
+    fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'r+') as lock:
+        mode = os.fstat(fd)
+        if not stat.S_ISREG(mode.st_mode) or mode.st_uid != os.getuid() or mode.st_nlink != 1:
+            raise ValueError('unsafe SDK launch lock')
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        launch_main()
+
+
+def launch_main():
     selected, args, info = parse_args(sys.argv[3:])
     if info:
         if info == 'version':
@@ -209,34 +352,30 @@ def main():
         if explicit_authority and explicit_authority != str(state / 'config.yaml') and not state.exists():
             raise ValueError('explicit config authority requires already prepared isolated state; no ambient provisioning')
         prepare_if_absent(state, repo, runtime_env)
-    state = private(state)
+    state = owned(state, directory=True)
+    parent_mode = state.parent.stat()
+    if parent_mode.st_uid != os.getuid() or parent_mode.st_mode & 0o022:
+        raise ValueError('state parent must be owned and not writable by others')
     # Read-only prerequisite check before any build; authoritative Go preflight follows.
     authority = Path(os.environ.get('CERCANO_DEVELOPMENT_CONFIG_AUTHORITY', str(state / 'config.yaml')))
     if not authority.is_absolute() or authority.resolve() != authority or state not in authority.parents:
         raise ValueError('config authority must be canonical and inside isolated prepared state')
-    private(authority.parent)
+    owned(authority.parent, directory=True)
     if db.is_symlink() or not db.is_file() or not authority.is_file():
         raise ValueError('prepared database and explicit config.yaml required')
     for p in (db, authority):
-        s = p.lstat()
-        if not stat.S_ISREG(s.st_mode) or s.st_uid != os.getuid() or s.st_mode & 0o077:
-            raise ValueError('database and config.yaml must be owned private regular files (0600)')
-    try:
-        with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as conn:
-            compatible = conn.execute('select contract, schema_version from coexistence_metadata').fetchall() == [('cercano-development-owned-v2', 2)] and conn.execute('pragma user_version').fetchone() == (2,)
-    except sqlite3.DatabaseError:
-        compatible = False
+        owned(p)
+    compatible = compatible_store(db)
     if not compatible:
-        raise ValueError('unprepared or incompatible store; never implicitly migrated. '
-                         'For an existing-format store, one-time OFFLINE upgrade only: back up the database, '
-                         'stop ALL legacy Cercano agents and other writers yourself and keep them stopped. '
-                         'Build a separate server (never replace running binaries), then run:\n'
-                         'upgrade_dir=$(mktemp -d) && (cd ' + shlex.quote(str(repo / 'source/server')) +
-                         ' && go build -o "$upgrade_dir/cercano" ./cmd/cercano/) && '
-                         '"$upgrade_dir/cercano" upgrade-store --database ' + shlex.quote(str(db)) +
-                         ' --all-legacy-agents-stopped\n'
-                         'Do not restart legacy writers against the upgraded store. Retry ordinary cercano afterward. '
-                         'Unknown/newer schemas remain refused; no upgrade has been performed.')
+        if selected is not None:
+            raise ValueError('explicit selection requires compatible store; retry ordinary cercano')
+        backup = confirmed_upgrade(state, db, authority, repo, runtime_env)
+        print('[cercano] upgrade complete; if startup fails, backup remains at ' + str(backup), file=sys.stderr)
+    private(state)
+    private(authority.parent)
+    for p in (db, authority):
+        if p.stat().st_mode & 0o077:
+            raise ValueError('compatible database and config must be private')
     # An explicit selection reconnect never builds or creates an attachment here.
     if selected is not None:
         selection_path = selection_file(selected, state)
@@ -290,5 +429,5 @@ if __name__ == '__main__':
         main()
     except (OSError, ValueError, KeyError, IndexError, sqlite3.Error, subprocess.CalledProcessError) as error:
         print('[cercano] launch refused: ' + str(error), file=sys.stderr)
-        print('Absent state is prepared automatically from existing config.yaml. Existing partial/incompatible state is never adopted; originals and legacy databases are preserved.', file=sys.stderr)
+        print('Absent state is prepared automatically from existing config.yaml. Existing incompatible state requires confirmed offline upgrade; no unsafe agent shutdown is attempted.', file=sys.stderr)
         sys.exit(78)

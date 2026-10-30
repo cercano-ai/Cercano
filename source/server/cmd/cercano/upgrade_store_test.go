@@ -59,3 +59,17 @@ func TestOfflineUpgradeDiscoveryErrorBeforeOpen(t *testing.T) {
 		t.Fatalf("database opened before preflight: entries=%v err=%v", entries, err)
 	}
 }
+
+// The ordinary launcher uses this before changing any store permissions.
+func TestOfflineUpgradeCheckOnlyNeverOpensStore(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "missing.db")
+	calls := 0
+	err := runUpgradeStoreChecked(context.Background(), []string{"--database", p, "--all-legacy-agents-stopped", "--check-only"}, &bytes.Buffer{}, func(context.Context) error {
+		calls++
+		return nil
+	})
+	entries, readErr := os.ReadDir(filepath.Dir(p))
+	if err != nil || calls != 1 || readErr != nil || len(entries) != 0 {
+		t.Fatalf("err=%v calls=%d entries=%v readErr=%v", err, calls, entries, readErr)
+	}
+}
