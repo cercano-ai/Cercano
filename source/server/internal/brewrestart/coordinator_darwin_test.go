@@ -63,7 +63,11 @@ func runRestartFixture() int {
 	}
 	var worker *exec.Cmd
 	if os.Getenv("CERCANO_UPGRADE_WORKER") == "1" {
-		worker = exec.Command(exe, "worker")
+		workerExe := exe
+		if override := os.Getenv("CERCANO_COORD_WORKER_BINARY"); override != "" {
+			workerExe = override
+		}
+		worker = exec.Command(workerExe, "worker")
 		worker.Env = os.Environ()
 		if err := worker.Start(); err != nil {
 			return 4

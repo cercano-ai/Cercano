@@ -40,7 +40,17 @@ func TestUpgradeCancellationAfterTERMFinishesCleanup(t *testing.T) {
 	testUpgradeStop(t, true)
 }
 
+func TestUpgradeStopsDifferentImageWorker(t *testing.T) {
+	for _, name := range []string{"cercano", "cercano-agent", "unrecognized-worker"} {
+		t.Run(name, func(t *testing.T) { testUpgradeStopWithWorker(t, false, name) })
+	}
+}
+
 func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
+	testUpgradeStopWithWorker(t, cancelAfterTERM, "")
+}
+
+func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName string) {
 	root := t.TempDir()
 	exe, err := os.Executable()
 	if err != nil {
@@ -65,6 +75,16 @@ func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 	listener.Close()
 	host := exec.Command(binary, "agent")
 	host.Env = []string{"HOME=" + root, "TMPDIR=" + root, "CERCANO_COORD_FIXTURE=1", "CERCANO_UPGRADE_WORKER=1", "CERCANO_COORD_ROOT=" + root, "CERCANO_COORD_ENDPOINT=" + endpoint.String()}
+	if workerName != "" {
+		workerBinary := filepath.Join(root, "worker-version", workerName)
+		if err := os.MkdirAll(filepath.Dir(workerBinary), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(workerBinary, contents, 0700); err != nil {
+			t.Fatal(err)
+		}
+		host.Env = append(host.Env, "CERCANO_COORD_WORKER_BINARY="+workerBinary)
+	}
 	if err := host.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +105,13 @@ func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = signalIdentity(worker, syscall.SIGKILL) })
+	if workerName != "" {
+		role, roleErr := processRole(worker)
+		if roleErr != nil || role != "worker" || worker.Executable == hostIdentity.Executable || worker.ParentPID != hostIdentity.PID || worker.UID != hostIdentity.UID {
+			t.Fatalf("different-image probe: host=%+v worker=%+v role=%q err=%v", hostIdentity, worker, role, roleErr)
+		}
+		t.Log("verified attached same-user worker has worker role but different executable path")
+	}
 	before := string(waitFixtureFile(t, filepath.Join(root, "worker-progress")))
 	time.Sleep(80 * time.Millisecond)
 	after := string(waitFixtureFile(t, filepath.Join(root, "worker-progress")))
@@ -104,7 +131,11 @@ func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 	if progress == string(waitFixtureFile(t, filepath.Join(root, "worker-progress"))) {
 		t.Fatal("already canceled shutdown disturbed worker")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	timeout := 5 * time.Second
+	if workerName == "unrecognized-worker" {
+		timeout = 500 * time.Millisecond
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	// A recognized worker is not a database writer, even without its host.
 	if err := stopUpgradeHost(ctx, endpoint, []int{pid}); err != nil {
@@ -129,6 +160,17 @@ func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 		candidates = append(candidates, unrelated)
 	}
 	err = stopUpgradeHostObserved(ctx, endpoint, candidates, afterTERM)
+	if workerName == "unrecognized-worker" {
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("unrecognized image must block: %v", err)
+		}
+		for _, id := range []Identity{hostIdentity, worker} {
+			if now, err := Inspect(id.PID); err != nil || !now.SameProcess(id) {
+				t.Fatalf("refusal disturbed fixture identity: %v", err)
+			}
+		}
+		return
+	}
 	if cancelAfterTERM {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("expected cancellation, got %v", err)

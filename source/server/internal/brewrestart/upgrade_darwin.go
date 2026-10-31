@@ -119,7 +119,13 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 			if shared {
 				continue
 			}
-			if id.Executable == host.Executable && role == "worker" {
+			// A host can retain workers from a different executable version.
+			// As with model-host classification, use the kernel image name and
+			// verified role, not equality with the host's current image path.
+			// Attachment, lifetime and UID establish ownership; the tree freeze
+			// and every signal still revalidate the full executable identity.
+			name := filepath.Base(id.Executable)
+			if id.UID == host.UID && (name == "cercano" || name == "cercano-agent") && role == "worker" {
 				workers[pid] = id
 				continue
 			}
