@@ -67,7 +67,11 @@ def parse_args(args):
     must not hide an overriding selector from wrapper preflight.
     """
     values = {}
-    positionals = []
+    cli_args = []
+    cli_stopped = False
+    cli_bools = {'r', 'resume', 's', 'setup', 'mdtest'}
+    bool_values = {'1', 't', 'T', 'TRUE', 'true', 'True',
+                   '0', 'f', 'F', 'FALSE', 'false', 'False'}
     options = {'dev-host', 'dev-host-action', 'dev-host-destination',
                'dev-host-handover', 'dev-host-receipt'}
     info = None
@@ -75,10 +79,28 @@ def parse_args(args):
     while i < len(args):
         arg = args[i]
         i += 1
-        if not arg.startswith('-'):
-            positionals.append(arg)
+        if not arg.startswith('-') or arg in {'-', '--'}:
+            cli_args.append(arg)
+            cli_stopped = True
             continue
         name, equal, value = arg.removeprefix('-').removeprefix('-').partition('=')
+        # Always preflight launcher selectors, even behind Go's parsing stop.
+        # Everything else retains its order and Go's bool/positional semantics.
+        if name not in options and cli_stopped:
+            cli_args.append(arg)
+            continue
+        if name in cli_bools:
+            if equal and value not in bool_values:
+                raise ValueError('invalid boolean value for ' + name)
+            cli_args.append(arg)
+            continue
+        if name == 'version' and equal:
+            if value not in bool_values:
+                raise ValueError('invalid boolean value for version')
+            if value in {'0', 'f', 'F', 'FALSE', 'false', 'False'}:
+                cli_args.append(arg)
+                continue
+            equal = ''
         if name in {'h', 'help', 'version'} and not equal:
             if info is not None:
                 raise ValueError('duplicate informational flag')
@@ -95,7 +117,7 @@ def parse_args(args):
             raise ValueError('empty or duplicate selector: ' + name)
         values[name] = value
     if info:
-        if values or positionals:
+        if values or cli_args:
             raise ValueError('informational flags must be used alone')
         return None, [], info
     if values and 'dev-host' not in values:
@@ -103,7 +125,7 @@ def parse_args(args):
     if 'dev-host-action' in values and values['dev-host-action'] not in {'list', 'acquire', 'release', 'retire', 'transfer', 'claim'}:
         raise ValueError('unsupported host action')
     normalized = [item for name, value in values.items() for item in ('--' + name, value)]
-    return values.get('dev-host'), normalized + positionals, None
+    return values.get('dev-host'), normalized + cli_args, None
 
 
 def object_json(path):

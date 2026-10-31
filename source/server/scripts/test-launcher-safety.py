@@ -98,6 +98,21 @@ print(json.dumps(sys.argv[1:]))
                     CERCANO_DEVELOPMENT_STATE=str(state), CERCANO_DISABLE_CREDENTIALS='1',
                     FAKE_ENV_LOG=str(root / 'child-environments.jsonl'))
 
+    def test_cli_arguments_forwarded_to_pinned_generation(self):
+        for args in [('-r',), ('--resume=false', '-r'), ('--setup',),
+                     ('--mdtest', 'sample with spaces.md'), ('--mdtest', '--', '-sample.md')]:
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as root:
+                env = self.fixture(root)
+                result = self.source_launch(env, *args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                forwarded = json.loads(result.stdout)
+                self.assertEqual(forwarded[0], '--dev-host')
+                self.assertEqual(forwarded[2:], list(args))
+                # Exact reconnect retains the same immutable selection.
+                result = self.source_launch(env, '--dev-host', forwarded[1], *args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), forwarded)
+
     def source_launch(self, env, *args):
         return subprocess.run(['/bin/bash', str(SCRIPTS / 'cercano-launcher.sh'), *args], env=env, capture_output=True, text=True)
 

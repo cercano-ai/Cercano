@@ -74,7 +74,16 @@ func main() {
 				if err == nil {
 					defer ag.Close()
 					var final tea.Model
-					final, err = tea.NewProgram(cliui.New(ag, false).WithVersion(version).WithDevHost(s, version)).Run()
+					m := cliui.New(ag, *resumeShort || *resumeLong).WithVersion(version).WithDevHost(s, version)
+					// Pinned startup uses the same explicit UI options, without
+					// loading global config or taking the legacy auto-launch path.
+					if *setupShort || *setupLong {
+						m = m.OpenWizardOnStart()
+					}
+					if *mdtest {
+						m = m.SeedAssistantMarkdown(loadMdTestDoc(flag.Arg(0)))
+					}
+					final, err = tea.NewProgram(m).Run()
 					if err == nil {
 						err = closeIntentionalSession(final)
 					}
