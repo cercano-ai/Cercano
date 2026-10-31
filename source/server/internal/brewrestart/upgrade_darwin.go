@@ -9,6 +9,8 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -92,24 +94,26 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 		if err != nil {
 			return err
 		}
-		pending := false
+		unresolved := childResolutionDiagnostics{}
 		for _, pid := range candidates {
 			id, err := Inspect(pid)
 			if errors.Is(err, syscall.ESRCH) {
 				continue
 			}
 			if err != nil {
-				return err
+				return fmt.Errorf("host child pid=%d identity inspection failed: %w", pid, err)
 			}
 			if id.ParentPID != host.PID {
 				continue
 			}
 			if id.StartSeconds < host.StartSeconds || (id.StartSeconds == host.StartSeconds && id.StartMicroseconds < host.StartMicroseconds) {
-				return fmt.Errorf("invalid child identity")
+				return fmt.Errorf("host child pid=%d identity predates host", pid)
 			}
 			role, err := processRole(id)
 			if err != nil {
-				pending = true
+				// processRole errors contain only fixed categories and the PID,
+				// never argument values or executable paths.
+				unresolved.add(pid, "role unavailable: "+err.Error())
 				continue
 			}
 			shared, sharedErr := verifiedModelHost(id)
@@ -131,14 +135,20 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 			}
 			// Unknown children are not ours to kill. Refuse rather than leave possible
 			// work running and authorize migration.
-			pending = true
+			reason := "unsupported role"
+			if id.UID != host.UID {
+				reason = "UID mismatch"
+			} else if name != "cercano" && name != "cercano-agent" {
+				reason = "unrecognized executable identity"
+			}
+			unresolved.add(pid, "role="+safeUpgradeRole(role)+" reason="+reason)
 		}
-		if !pending {
+		if unresolved.total == 0 {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("unresolved host child: %w", ctx.Err())
+			return fmt.Errorf("unresolved host children host_pid=%d %s: %w", host.PID, unresolved.String(), ctx.Err())
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
@@ -383,4 +393,41 @@ func discoverUpgradeTargets(endpoint netip.AddrPort, pids []int, aggregate bool)
 		return nil, errors.Join(blockers...)
 	}
 	return targets, nil
+}
+
+// Only fixed role labels are logged: argv[1] may contain a credential or arbitrary
+// tool input. Keep the lowest eight PIDs for deterministic, bounded diagnostics.
+type childResolutionDiagnostics struct {
+	total   int
+	entries []childResolutionDiagnostic
+}
+type childResolutionDiagnostic struct {
+	pid    int
+	reason string
+}
+
+func (d *childResolutionDiagnostics) add(pid int, reason string) {
+	d.total++
+	d.entries = append(d.entries, childResolutionDiagnostic{pid, reason})
+	sort.Slice(d.entries, func(i, j int) bool { return d.entries[i].pid < d.entries[j].pid })
+	if len(d.entries) > 8 {
+		d.entries = d.entries[:8]
+	}
+}
+func (d childResolutionDiagnostics) String() string {
+	parts := make([]string, 0, len(d.entries))
+	for _, e := range d.entries {
+		parts = append(parts, fmt.Sprintf("pid=%d %s", e.pid, e.reason))
+	}
+	return fmt.Sprintf("unresolved=%d omitted=%d [%s]", d.total, d.total-len(d.entries), strings.Join(parts, "; "))
+}
+func safeUpgradeRole(role string) string {
+	switch role {
+	case "worker", "model-host", "agent", "development-host":
+		return role
+	case "":
+		return "missing"
+	default:
+		return "unrecognized"
+	}
 }

@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	}
-	if os.Getenv("CERCANO_UPGRADE_WORKER") == "1" && len(os.Args) == 2 && os.Args[1] == "worker" {
+	if os.Getenv("CERCANO_CHILD_FIXTURE") == "1" || (os.Getenv("CERCANO_UPGRADE_WORKER") == "1" && len(os.Args) == 2 && os.Args[1] == "worker") {
 		os.Exit(runUpgradeWorker())
 	}
 	if os.Getenv("CERCANO_COORD_FIXTURE") == "1" && len(os.Args) == 2 && (os.Args[1] == "agent" || os.Args[1] == "development-host") {
@@ -67,8 +67,12 @@ func runRestartFixture() int {
 		if override := os.Getenv("CERCANO_COORD_WORKER_BINARY"); override != "" {
 			workerExe = override
 		}
-		worker = exec.Command(workerExe, "worker")
-		worker.Env = os.Environ()
+		role := os.Getenv("CERCANO_COORD_CHILD_ROLE")
+		if role == "" {
+			role = "worker"
+		}
+		worker = exec.Command(workerExe, role)
+		worker.Env = append(os.Environ(), "CERCANO_CHILD_FIXTURE=1")
 		if err := worker.Start(); err != nil {
 			return 4
 		}

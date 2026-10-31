@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -50,7 +51,11 @@ func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 	testUpgradeStopWithWorker(t, cancelAfterTERM, "")
 }
 
-func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName string) {
+func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName string, childRoles ...string) {
+	childRole := "worker"
+	if len(childRoles) > 0 {
+		childRole = childRoles[0]
+	}
 	root := t.TempDir()
 	exe, err := os.Executable()
 	if err != nil {
@@ -75,6 +80,7 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 	listener.Close()
 	host := exec.Command(binary, "agent")
 	host.Env = []string{"HOME=" + root, "TMPDIR=" + root, "CERCANO_COORD_FIXTURE=1", "CERCANO_UPGRADE_WORKER=1", "CERCANO_COORD_ROOT=" + root, "CERCANO_COORD_ENDPOINT=" + endpoint.String()}
+	host.Env = append(host.Env, "CERCANO_COORD_CHILD_ROLE="+childRole)
 	if workerName != "" {
 		workerBinary := filepath.Join(root, "worker-version", workerName)
 		if err := os.MkdirAll(filepath.Dir(workerBinary), 0700); err != nil {
@@ -107,10 +113,10 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 	t.Cleanup(func() { _ = signalIdentity(worker, syscall.SIGKILL) })
 	if workerName != "" {
 		role, roleErr := processRole(worker)
-		if roleErr != nil || role != "worker" || worker.Executable == hostIdentity.Executable || worker.ParentPID != hostIdentity.PID || worker.UID != hostIdentity.UID {
+		if roleErr != nil || role != childRole || worker.Executable == hostIdentity.Executable || worker.ParentPID != hostIdentity.PID || worker.UID != hostIdentity.UID {
 			t.Fatalf("different-image probe: host=%+v worker=%+v role=%q err=%v", hostIdentity, worker, role, roleErr)
 		}
-		t.Log("verified attached same-user worker has worker role but different executable path")
+		t.Logf("verified attached same-user child role=%s with different executable path", safeUpgradeRole(role))
 	}
 	before := string(waitFixtureFile(t, filepath.Join(root, "worker-progress")))
 	time.Sleep(80 * time.Millisecond)
@@ -132,14 +138,16 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 		t.Fatal("already canceled shutdown disturbed worker")
 	}
 	timeout := 5 * time.Second
-	if workerName == "unrecognized-worker" {
+	if workerName == "unrecognized-worker" || childRole != "worker" {
 		timeout = 500 * time.Millisecond
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	// A recognized worker is not a database writer, even without its host.
-	if err := stopUpgradeHost(ctx, endpoint, []int{pid}); err != nil {
-		t.Fatalf("recognized worker blocked discovery: %v", err)
+	if childRole == "worker" {
+		if err := stopUpgradeHost(ctx, endpoint, []int{pid}); err != nil {
+			t.Fatalf("recognized worker blocked discovery: %v", err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(root, "cancel-worker")); err == nil {
 		t.Fatal("preflight disturbed worker")
@@ -160,9 +168,18 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 		candidates = append(candidates, unrelated)
 	}
 	err = stopUpgradeHostObserved(ctx, endpoint, candidates, afterTERM)
-	if workerName == "unrecognized-worker" {
+	if workerName == "unrecognized-worker" || childRole != "worker" {
+		t.Logf("probe: child pid=%d role=%s image=%s; stop error=%v", pid, safeUpgradeRole(childRole), workerName, err)
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("unrecognized image must block: %v", err)
+		}
+		for _, fragment := range []string{"pid=" + strconv.Itoa(pid), "role=" + safeUpgradeRole(childRole), "unresolved=1 omitted=0"} {
+			if !strings.Contains(err.Error(), fragment) {
+				t.Fatalf("missing child diagnostic %q: %v", fragment, err)
+			}
+		}
+		if strings.Contains(err.Error(), "fixture-secret") {
+			t.Fatalf("child argument leaked: %v", err)
 		}
 		for _, id := range []Identity{hostIdentity, worker} {
 			if now, err := Inspect(id.PID); err != nil || !now.SameProcess(id) {
@@ -390,5 +407,12 @@ func TestUpgradeHostWithUnrelatedRecognizedWorker(t *testing.T) {
 				t.Fatalf("unrelated worker lost: %v", err)
 			}
 		})
+	}
+}
+
+// These are real compiled child processes, not mocked role/identity reads.
+func TestUpgradeUnknownChildRoles(t *testing.T) {
+	for _, role := range []string{"agent", "development-host", "--fixture-secret=credential"} {
+		t.Run(safeUpgradeRole(role), func(t *testing.T) { testUpgradeStopWithWorker(t, false, "cercano", role) })
 	}
 }
