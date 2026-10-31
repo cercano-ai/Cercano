@@ -267,7 +267,10 @@ type Model struct {
 	// sessionTitle is the current conversation's display title. Shown in the
 	// header. Empty for fresh sessions (header omits the title slot until
 	// /rename or /resume sets one).
-	sessionTitle string
+	sessionTitle       string
+	titleRevision      uint64
+	pendingResumeTitle string
+	pendingResumeID    string
 
 	// headerSelection backs drag-select/copy for the centered session title. The
 	// terminal mouse mode used for scrollback selection prevents native terminal
@@ -583,10 +586,16 @@ func (m *Model) applyTheme(t theme.Theme) {
 
 // Init is called by Bubble Tea once at startup.
 func (m Model) Init() tea.Cmd {
-	if m.devHost != nil {
-		return tea.Batch(m.input.Focus(), fetchConfigCmd(m.agent), subscribeConnStateCmd(m.agent), func() tea.Msg { return resumeRequestedMsg{ConversationID: m.devHost.selection.Conversation} })
+	cmds := []tea.Cmd{m.input.Focus(), fetchConfigCmd(m.agent), subscribeConnStateCmd(m.agent)}
+	if !m.restrictedFixture() {
+		cmds = append(cmds, m.splash.Init(), fetchToolsCmd(m.agent), fetchPermissionModeCmd(m.agent), fetchOpenRuntimeStatusCmd(m.agent), subscribeEventsCmd(m.agent))
 	}
-	return tea.Batch(m.input.Focus(), m.splash.Init(), fetchConfigCmd(m.agent), fetchToolsCmd(m.agent), fetchPermissionModeCmd(m.agent), fetchOpenRuntimeStatusCmd(m.agent), subscribeEventsCmd(m.agent), subscribeConnStateCmd(m.agent))
+	if m.devHost != nil {
+		cmds = append(cmds, func() tea.Msg {
+			return resumeRequestedMsg{ConversationID: m.devHost.selection.Conversation, Title: m.sessionTitle}
+		})
+	}
+	return tea.Batch(cmds...)
 }
 
 // permissionModeMsg carries the result of the startup GetPermissionMode RPC.
@@ -612,6 +621,8 @@ func fetchPermissionModeCmd(ag *agentclient.Client) tea.Cmd {
 // conversation that may already be in planning mode — a brand-new conversation
 // always starts unrestricted, so only the resume path needs this.
 type sessionProfileFetchedMsg struct {
+	client  *agentclient.Client
+	gen     int
 	convID  string
 	profile string
 }
@@ -626,7 +637,7 @@ func normalizeProfile(p string) string {
 	return p
 }
 
-func fetchSessionProfileCmd(ag *agentclient.Client, convID string) tea.Cmd {
+func fetchSessionProfileCmd(ag *agentclient.Client, convID string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -634,7 +645,7 @@ func fetchSessionProfileCmd(ag *agentclient.Client, convID string) tea.Cmd {
 		if err != nil {
 			return nil // non-fatal; the chip stays at its last value
 		}
-		return sessionProfileFetchedMsg{convID: convID, profile: active}
+		return sessionProfileFetchedMsg{client: ag, gen: gen, convID: convID, profile: active}
 	}
 }
 
@@ -968,11 +979,12 @@ func ctxUsageHeartbeatTick() tea.Cmd {
 }
 
 type resumeViewportStreamMsg struct {
-	gen   int
-	event agentclient.ResumeViewportEvent
-	err   error
-	done  bool
-	ch    <-chan resumeViewportStreamMsg
+	frozenThrough int64
+	gen           int
+	event         agentclient.ResumeViewportEvent
+	err           error
+	done          bool
+	ch            <-chan resumeViewportStreamMsg
 }
 
 const (
@@ -981,24 +993,32 @@ const (
 )
 
 func startProgressiveResumeCmd(ag *agentclient.Client, conversationID string, gen int) tea.Cmd {
-	ch := make(chan resumeViewportStreamMsg, 8)
-	go func() {
-		defer close(ch)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		err := ag.StreamResumeConversationViewportFirst(ctx, conversationID, progressiveResumeTailTurns, progressiveResumeOlderChunkTurns, func(ev agentclient.ResumeViewportEvent) error {
-			select {
-			case ch <- resumeViewportStreamMsg{gen: gen, event: ev, ch: ch}:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
+	return func() tea.Msg {
+		ch := make(chan resumeViewportStreamMsg, 8)
+		go func() {
+			defer close(ch)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			var frozenThrough int64
+			compactCtx, compactCancel := context.WithTimeout(ctx, 2*time.Second)
+			if cs, err := ag.GetCompactionState(compactCtx, conversationID); err == nil && cs != nil {
+				frozenThrough = cs.FrozenThrough
 			}
-		})
-		if err != nil {
-			ch <- resumeViewportStreamMsg{gen: gen, err: err, ch: ch}
-		}
-	}()
-	return waitProgressiveResumeCmd(ch)
+			compactCancel()
+			err := ag.StreamResumeConversationViewportFirst(ctx, conversationID, progressiveResumeTailTurns, progressiveResumeOlderChunkTurns, func(ev agentclient.ResumeViewportEvent) error {
+				select {
+				case ch <- resumeViewportStreamMsg{gen: gen, event: ev, ch: ch, frozenThrough: frozenThrough}:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+			if err != nil {
+				ch <- resumeViewportStreamMsg{gen: gen, err: err, ch: ch}
+			}
+		}()
+		return waitProgressiveResumeCmd(ch)()
+	}
 }
 
 func waitProgressiveResumeCmd(ch <-chan resumeViewportStreamMsg) tea.Cmd {
@@ -2346,6 +2366,9 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		}
 		return m, nil
 	case sessionProfileFetchedMsg:
+		if msg.client != m.agent || msg.gen != m.resumeGen {
+			return m, nil
+		}
 		// Startup/resume seed for the footer chip. Apply only if it's still the
 		// active conversation (the user may have switched during the fetch).
 		if msg.convID == m.convID {
@@ -2901,10 +2924,22 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 	case resumeRequestedMsg:
 		// Fired by the history picker's OnSelect after the overlay closes.
 		m, resumeCmd := m.beginProgressiveResume(msg.ConversationID)
-		if msg.Title != "" {
+		if m.devHost != nil && msg.ConversationID != m.convID {
+			m.pendingResumeID, m.pendingResumeTitle = msg.ConversationID, msg.Title
+		} else {
 			m.sessionTitle = msg.Title
 		}
 		return m, resumeCmd
+
+	case resumeMetadataMsg:
+		if msg.client == m.agent && msg.convID == m.convID && msg.gen == m.resumeGen && msg.err == nil {
+			if msg.titleRevision == m.titleRevision {
+				m.sessionTitle = msg.info.Title
+			}
+			m.recap = recapDisplay(msg.info)
+			m.relayout()
+		}
+		return m, nil
 
 	case resumeViewportStreamMsg:
 		return m.applyProgressiveResumeEvent(msg)
@@ -3355,6 +3390,7 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 			m.wdRef.dir = ""
 		}
 		m.sessionTitle = ""
+		m.resumeGen++
 		m.recap = ""
 		m.cumIn = 0
 		m.cumOut = 0
@@ -3422,7 +3458,10 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "prompt color set"})
 		m.refreshViewport()
 	case slash.ResultSetSessionTitle:
-		m.sessionTitle = res.Text
+		if res.ConversationID == m.convID {
+			m.titleRevision++
+			m.sessionTitle = res.Text
+		}
 		// Route through AppendNotice: a title rename can land mid-stream, and a
 		// plain append would splice this line into an in-progress assistant
 		// message, splitting it (fenced code blocks torn in half). AppendNotice
@@ -4205,6 +4244,9 @@ func (m Model) beginProgressiveResume(conversationID string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.resumeGen++
+	m.sessionTitle = ""
+	m.recap = ""
+	m.sessionProfile = ""
 	gen := m.resumeGen
 	m.resumeHydrating = true
 	m.resumeBackfilling = true
@@ -4225,7 +4267,7 @@ func (m Model) beginProgressiveResume(conversationID string) (Model, tea.Cmd) {
 	m.mainChat().SetEntriesSlice([]*Entry{{Role: RoleSystem, Content: "loading conversation…"}})
 	m.mainChat().SetEntries(m.mainChat().entries)
 	m.errMsg = "rehydrating conversation…"
-	return m, startProgressiveResumeCmd(m.agent, conversationID, gen)
+	return m, tea.Batch(startProgressiveResumeCmd(m.agent, conversationID, gen), fetchResumeMetadata(m.agent, conversationID, gen, m.titleRevision))
 }
 
 func (m Model) applyProgressiveResumeEvent(msg resumeViewportStreamMsg) (Model, tea.Cmd) {
@@ -4254,13 +4296,13 @@ func (m Model) applyProgressiveResumeEvent(msg resumeViewportStreamMsg) (Model, 
 	case agentclient.ResumeViewportEventTail:
 		m.restoreDevMode(msg.event.DevWorkDir)
 		m.resumeTurns = append([]agentclient.PersistedTurn(nil), msg.event.Turns...)
-		m.mainChat().BeginProgressiveLoad(resumeEntries(msg.event.Turns, 0), msg.event.StartIndex > 0)
+		m.mainChat().BeginProgressiveLoad(resumeEntries(msg.event.Turns, msg.frozenThrough), msg.event.StartIndex > 0)
 		m.mainChat().PrependBanner(m.splash.Meta, m.splash.Started())
 		m.mainChat().SetEntries(m.mainChat().entries)
 	case agentclient.ResumeViewportEventOlder:
 		older := append([]agentclient.PersistedTurn(nil), msg.event.Turns...)
 		m.resumeTurns = append(older, m.resumeTurns...)
-		m.mainChat().PrependProgressiveEntries(resumeEntries(older, 0))
+		m.mainChat().PrependProgressiveEntries(resumeEntries(older, msg.frozenThrough))
 	case agentclient.ResumeViewportEventBackfillComplete:
 		m.resumeBackfilling = false
 		m.mainChat().CompleteProgressiveLoad()
@@ -4271,7 +4313,12 @@ func (m Model) applyProgressiveResumeEvent(msg resumeViewportStreamMsg) (Model, 
 	case agentclient.ResumeViewportEventHydrationComplete:
 		m.resumeHydrating = false
 		m.errMsg = ""
-		cmds = append(cmds, fetchContextUsage(m.agent, m.convID), fetchSessionProfileCmd(m.agent, m.convID), m.requestSessionModel("status", "", "", true), fetchRecap(m.agent, m.convID))
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if m.agent != nil {
+			m.restoreSubAgentTabs(ctx, m.convID)
+		}
+		cancel()
+		cmds = append(cmds, fetchContextUsage(m.agent, m.convID), fetchSessionProfileCmd(m.agent, m.convID, m.resumeGen), m.requestSessionModel("status", "", "", true), fetchRecap(m.agent, m.convID))
 	}
 	if !m.bannerTickActive {
 		m.bannerTickActive = true
@@ -4287,78 +4334,7 @@ func (m Model) applyProgressiveResumeEvent(msg resumeViewportStreamMsg) (Model, 
 // resume until the user takes their next turn. The cmd is the only way to
 // drive the meter from this code path; callers MUST plumb it through.
 func (m Model) applyResume(conversationID string) (Model, tea.Cmd) {
-	if m.devHost != nil {
-		return m.beginProgressiveResume(conversationID)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	turns, err := m.agent.ResumeConversation(ctx, conversationID)
-	if err != nil {
-		m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "resume failed: " + err.Error()})
-		m.refreshViewport()
-		return m, nil
-	}
-	m.convID = conversationID
-	if m.convRef != nil {
-		m.convRef.id = conversationID
-	}
-	m.workDirOverride = ""
-	if m.wdRef != nil {
-		m.wdRef.dir = ""
-	}
-	m.mainChat().SetEntriesSlice(nil)
-	// cumIn/cumOut wait for fetchContextUsage. The previous local sum here
-	// summed only TokensIn, mishandled tool-call turns, and got overwritten
-	// by the RPC within a roundtrip anyway — a wrong first-paint with no
-	// upside.
-	m.cumIn = 0
-	m.cumOut = 0
-	m.mainChat().ExitToolNav()
-	m.splashShown = false
-	// Fetch the compaction state so we can place the freeze-boundary divider
-	// in the right spot inside the resumed history. Failure is non-fatal —
-	// the resume still works, just without the divider.
-	var frozenThrough int64
-	if cs, err := m.agent.GetCompactionState(ctx, conversationID); err == nil && cs != nil {
-		frozenThrough = cs.FrozenThrough
-	}
-	m.mainChat().SetEntriesSlice(resumeEntries(turns, frozenThrough))
-	m.hydrateTaskPaneFromResumedTurns(turns)
-	// Seed ↑/↓ prompt recall from the resumed session's submitted prompts so
-	// the user can replay prior inputs immediately, exactly as they could
-	// before the CLI restarted. historyIdx parks at the live input (past the
-	// end) so the first ↑ recalls the most recent prompt.
-	m.inputHistory = resumeInputHistory(turns)
-	m.historyIdx = len(m.inputHistory)
-	m.historyStash = ""
-	m.mainChat().PrependBanner(m.splash.Meta, m.splash.Started())
-	// Restore the prior session's living recap into the footer line (renderRecap),
-	// or show a "recap unavailable" placeholder if the recap generator has been
-	// silently failing (e.g. local runtime misconfigured). Don't push into
-	// scrollback — that showed the recap twice on resume.
-	if info, err := m.agent.GetConversation(ctx, conversationID); err == nil {
-		m.restoreDevMode(info.DevWorkDir)
-		m.recap = recapDisplay(info)
-	}
-	// Reopen the conversation's sub-agent tabs from their persisted
-	// transcripts so a resumed session shows the same child chat tabs it had
-	// before the CLI restarted. Best-effort; never blocks the main resume.
-	m.restoreSubAgentTabs(ctx, conversationID)
-	m.relayout()
-	cmds := []tea.Cmd{
-		fetchContextUsage(m.agent, m.convID),
-		// Seed the footer mode chip: a resumed conversation may already be in
-		// planning mode, and no broadcast will fire until the next flip.
-		fetchSessionProfileCmd(m.agent, m.convID), m.requestSessionModel("status", "", "", true),
-	}
-	if !m.bannerTickActive {
-		// The tick chain died before this resume (e.g. launching straight
-		// into the history picker never shows the splash); restart it so the
-		// prepended scrollback banner animates.
-		m.bannerTickActive = true
-		cmds = append(cmds, banner.Tick())
-	}
-	return m, tea.Batch(cmds...)
+	return m.beginProgressiveResume(conversationID)
 }
 
 // rolloverConfirm builds the y/n gate for a rollover offer. Yes calls

@@ -77,7 +77,7 @@ func main() {
 					m := cliui.New(ag, *resumeShort || *resumeLong).WithVersion(version).WithDevHost(s, version)
 					// Pinned startup uses the same explicit UI options, without
 					// loading global config or taking the legacy auto-launch path.
-					if *setupShort || *setupLong {
+					if !s.Fixture && needsPinnedSetup(*setupShort || *setupLong, s.ConfigAuthority) {
 						m = m.OpenWizardOnStart()
 					}
 					if *mdtest {
