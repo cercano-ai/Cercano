@@ -32,8 +32,8 @@ import (
 	"unsafe"
 )
 
-// processRole is only a classifier AFTER kernel executable/start identity and
-// ancestry checks. Neither argv nor a process name establishes ownership.
+// processRole is only a classifier AFTER kernel executable/start identity
+// checks. Classification alone never establishes signal authority.
 func processRole(id Identity) (string, error) {
 	buf := make([]byte, 1<<20)
 	size := C.size_t(len(buf))
@@ -154,15 +154,25 @@ func verifiedModelHost(id Identity) (bool, error) {
 	return role == "model-host", err
 }
 
-// IsSharedModelHost excludes a verified same-user model host from the bounded
-// conversation-writer detector. It never authorizes sending a signal.
-func IsSharedModelHost(pid int) bool {
+// IsUpgradeNonWriter excludes bounded recognized non-writers from the database
+// gate, never authorizing signals. Missing images require the stronger saved
+// path/role/socket evidence used by discovery, not argv or ancestry alone.
+func IsUpgradeNonWriter(pid int) bool {
 	id, err := Inspect(pid)
+	if errors.Is(err, syscall.ENOENT) {
+		id, err = missingExecutableEvidence(pid)
+		name := filepath.Base(id.Executable)
+		return err == nil && id.UID == uint32(os.Getuid()) && (name == "cercano" || name == "cercano-agent")
+	}
 	if err != nil || id.UID != uint32(os.Getuid()) {
 		return false
 	}
+	name := filepath.Base(id.Executable)
+	if name != "cercano" && name != "cercano-agent" {
+		return false
+	}
 	role, err := processRole(id)
-	return err == nil && role == "model-host"
+	return err == nil && (role == "model-host" || role == "worker")
 }
 
 func upgradeChildren(pid int) ([]int, error) {

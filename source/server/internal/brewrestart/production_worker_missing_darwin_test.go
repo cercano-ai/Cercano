@@ -61,11 +61,17 @@ func TestProductionWorkerMissingExecutable(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	if !IsUpgradeNonWriter(child.Process.Pid) {
+		t.Fatal("intact worker rejected by DB gate")
+	}
 	if err := os.Remove(binary); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Inspect(child.Process.Pid); !errors.Is(err, syscall.ENOENT) {
 		t.Fatalf("not missing: %v", err)
+	}
+	if !IsUpgradeNonWriter(child.Process.Pid) {
+		t.Fatal("missing-image worker rejected by DB gate")
 	}
 	evidence, err := missingExecutableEvidence(child.Process.Pid)
 	if err != nil {

@@ -12,7 +12,7 @@ func StopUpgradeHost(context.Context, netip.AddrPort) error {
 	return fmt.Errorf("verified upgrade shutdown requires macOS with cgo; no migration attempted")
 }
 
-func IsSharedModelHost(pid int) bool { return false }
+func IsUpgradeNonWriter(pid int) bool { return false }
 
 func PreflightUpgradeHost(endpoint netip.AddrPort) error {
 	return fmt.Errorf("upgrade discovery requires macOS with cgo")

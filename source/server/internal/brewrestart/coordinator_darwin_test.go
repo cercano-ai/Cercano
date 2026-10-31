@@ -40,7 +40,7 @@ func TestMain(m *testing.M) {
 	if os.Getenv("CERCANO_UPGRADE_WORKER") == "1" && len(os.Args) == 2 && os.Args[1] == "worker" {
 		os.Exit(runUpgradeWorker())
 	}
-	if os.Getenv("CERCANO_COORD_FIXTURE") == "1" && len(os.Args) == 2 && os.Args[1] == "agent" {
+	if os.Getenv("CERCANO_COORD_FIXTURE") == "1" && len(os.Args) == 2 && (os.Args[1] == "agent" || os.Args[1] == "development-host") {
 		os.Exit(runRestartFixture())
 	}
 	os.Exit(m.Run())

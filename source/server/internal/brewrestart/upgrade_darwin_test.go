@@ -4,6 +4,8 @@ package brewrestart
 
 import (
 	"context"
+
+	"cercano/source/server/internal/conversation"
 	"errors"
 	"net"
 	"net/netip"
@@ -11,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -105,9 +106,9 @@ func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// An orphan candidate cannot authorize migration or disturb the host.
-	if err := stopUpgradeHost(ctx, endpoint, []int{pid}); err == nil || !strings.Contains(err.Error(), "association") {
-		t.Fatalf("orphan blocker: %v", err)
+	// A recognized worker is not a database writer, even without its host.
+	if err := stopUpgradeHost(ctx, endpoint, []int{pid}); err != nil {
+		t.Fatalf("recognized worker blocked discovery: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "cancel-worker")); err == nil {
 		t.Fatal("preflight disturbed worker")
@@ -232,5 +233,120 @@ func TestUpgradeMultipleActiveHosts(t *testing.T) {
 		if _, err := Inspect(id.PID); !errors.Is(err, syscall.ESRCH) {
 			t.Fatalf("target %d survived: %v", id.PID, err)
 		}
+	}
+}
+
+// The worker is a sibling, not a descendant of the target host. It must
+// neither prevent host shutdown nor acquire signal authority by exclusion.
+func TestUpgradeHostWithUnrelatedRecognizedWorker(t *testing.T) {
+	for _, role := range []string{"agent", "development-host"} {
+		t.Run(role, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
+			db := filepath.Join(root, "history.db")
+			store, err := conversation.Open(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store.Close()
+			self, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(self)
+			if err != nil {
+				t.Fatal(err)
+			}
+			binary := filepath.Join(root, "1", "bin", "cercano")
+			if err := os.MkdirAll(filepath.Dir(binary), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(binary, data, 0700); err != nil {
+				t.Fatal(err)
+			}
+			worker := exec.Command(binary, "worker")
+			worker.Env = append(os.Environ(), "CERCANO_UPGRADE_WORKER=1", "CERCANO_COORD_ROOT="+root)
+			if err := worker.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = worker.Process.Kill(); _ = worker.Wait() }()
+			waitFixtureFile(t, filepath.Join(root, "worker-progress"))
+			wid, err := Inspect(worker.Process.Pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			listener, err := net.Listen("tcp4", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			endpoint := netip.MustParseAddrPort(listener.Addr().String())
+			listener.Close()
+			host := exec.Command(binary, role)
+			host.Env = []string{"HOME=" + root, "TMPDIR=" + root, "CERCANO_COORD_FIXTURE=1", "CERCANO_COORD_ROOT=" + root, "CERCANO_COORD_ENDPOINT=" + endpoint.String()}
+			if err := host.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan struct{})
+			go func() { _ = host.Wait(); close(done) }()
+			defer func() { _ = host.Process.Kill(); <-done }()
+			waitFixtureFile(t, filepath.Join(root, "1-ready"))
+			if wid.ParentPID == host.Process.Pid {
+				t.Fatal("worker unexpectedly associated")
+			}
+			if !IsUpgradeNonWriter(worker.Process.Pid) {
+				t.Fatal("post-stop gate rejects recognized worker")
+			}
+			if IsUpgradeNonWriter(host.Process.Pid) {
+				t.Fatal("post-stop gate excludes host")
+			}
+			targets, err := discoverUpgradeTargets(netip.MustParseAddrPort("127.0.0.1:1"), []int{host.Process.Pid, worker.Process.Pid}, false)
+			if err != nil || len(targets) != 1 || targets[0].PID != host.Process.Pid {
+				t.Fatalf("additional %s host discovery: %v %v", role, targets, err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := stopUpgradeHost(ctx, endpoint, []int{host.Process.Pid, worker.Process.Pid}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Inspect(host.Process.Pid); !errors.Is(err, syscall.ESRCH) {
+				t.Fatalf("host exit not verified: %v", err)
+			}
+			// Disposable integrated sequence: only after native verified host exit,
+			// check the surviving worker, save a backup, then migrate the store.
+			if !IsUpgradeNonWriter(worker.Process.Pid) {
+				t.Fatal("worker blocks post-stop DB gate")
+			}
+			original, err := os.ReadFile(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			backup := db + ".backup"
+			if err := os.WriteFile(backup, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := conversation.UpgradeOffline(ctx, db); err != nil {
+				t.Fatal(err)
+			}
+			upgraded, err := conversation.OpenCoexistence(ctx, db, conversation.DevelopmentCoexistenceDeclaration())
+			if err != nil {
+				t.Fatal(err)
+			}
+			upgraded.Close()
+			t.Log("verified host exit -> non-writer check -> disposable backup -> migration")
+			before := string(waitFixtureFile(t, filepath.Join(root, "worker-progress")))
+			time.Sleep(80 * time.Millisecond)
+			if before == string(waitFixtureFile(t, filepath.Join(root, "worker-progress"))) {
+				t.Fatal("unrelated worker was stopped")
+			}
+			now, err := Inspect(worker.Process.Pid)
+			if err != nil || !now.SameProcess(wid) {
+				t.Fatalf("unrelated worker lost: %v", err)
+			}
+		})
 	}
 }

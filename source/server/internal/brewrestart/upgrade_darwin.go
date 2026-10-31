@@ -322,7 +322,7 @@ func discoverUpgradeTargets(endpoint netip.AddrPort, pids []int, aggregate bool)
 			continue
 		}
 		role, err := processRole(id)
-		if err == nil && role != "agent" {
+		if err == nil && role != "agent" && role != "development-host" {
 			continue
 		}
 		var ownEndpoint netip.AddrPort
@@ -362,17 +362,16 @@ func discoverUpgradeTargets(endpoint netip.AddrPort, pids []int, aggregate bool)
 			blockers = append(blockers, fmt.Errorf("upgrade blocker pid=%d: %w", pid, err))
 			continue
 		}
-		if role == "model-host" {
+		// These roles persist through hosts, not directly to the database.
+		// Exclusion grants no signal authority; child cleanup has its own checks.
+		if role == "model-host" || role == "worker" {
 			continue
 		}
-		parent, hasHost := hosts[id.ParentPID]
-		if !hasHost || id.Executable != parent.Executable || role != "worker" {
-			if !aggregate {
-				return nil, fmt.Errorf("upgrade blocker pid=%d: no verified host/worker association", pid)
-			}
-			blockers = append(blockers, fmt.Errorf("upgrade blocker pid=%d: no verified host/worker association", pid))
-			continue
+		blocker := fmt.Errorf("upgrade blocker pid=%d: unresolved possible writer role %q", pid, role)
+		if !aggregate {
+			return nil, blocker
 		}
+		blockers = append(blockers, blocker)
 	}
 	if len(blockers) > 0 {
 		return nil, errors.Join(blockers...)

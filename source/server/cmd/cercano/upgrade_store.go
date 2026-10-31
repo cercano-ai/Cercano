@@ -34,7 +34,7 @@ func knownUpgradeAgents(ctx context.Context) error {
 		fields := strings.Fields(line)
 		if len(fields) > 0 {
 			pid, _ := strconv.Atoi(fields[0])
-			if brewrestart.IsSharedModelHost(pid) {
+			if brewrestart.IsUpgradeNonWriter(pid) {
 				continue
 			}
 		}

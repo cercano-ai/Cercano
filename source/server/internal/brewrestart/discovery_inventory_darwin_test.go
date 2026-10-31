@@ -181,7 +181,7 @@ func TestDiscoveryInventoryAggregatesWithoutChangingRefusal(t *testing.T) {
 			t.Fatalf("inventory omitted pid=%d: %v", pid, all)
 		}
 	}
-	if !strings.Contains(all.Error(), first.Error()) || !strings.Contains(all.Error(), "no verified host/worker association") {
+	if !strings.Contains(all.Error(), first.Error()) || !strings.Contains(all.Error(), "unresolved possible writer role") {
 		t.Fatalf("classification lost: %v", all)
 	}
 }
