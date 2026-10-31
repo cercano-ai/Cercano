@@ -18,6 +18,9 @@ import (
 )
 
 type DevHostSelection struct {
+	// OrdinaryGeneration enables ordinary UI; absent/legacy selections stay restricted.
+	// This is presentation metadata, never server authorization.
+	OrdinaryGeneration bool
 	// Retain the launcher's explicit authority when emitting updated selections.
 	ConfigAuthority string
 	Endpoint        string
@@ -229,4 +232,9 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 	m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: text})
 	m.refreshViewport()
 	return m, nil
+}
+
+// restrictedDevHost separates fixture UI restrictions from lifecycle pinning.
+func (m Model) restrictedDevHost() bool {
+	return m.devHost != nil && !m.devHost.selection.OrdinaryGeneration
 }

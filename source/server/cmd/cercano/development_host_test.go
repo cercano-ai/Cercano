@@ -162,3 +162,21 @@ func TestDevelopmentAuthenticatedIdentityIncludesStore(t *testing.T) {
 		t.Fatal("accepted wrong token")
 	}
 }
+
+// Host publication and launcher read/update/write must retain the UI mode.
+// Legacy/prepared records deliberately keep the zero-value restriction.
+func TestDevelopmentSelectionOrdinaryGeneration(t *testing.T) {
+	for _, ordinary := range []bool{false, true} {
+		path := filepath.Join(t.TempDir(), "host.json")
+		if err := publishDevelopmentRecord(path, developmentHostSelection{OrdinaryGeneration: ordinary}); err != nil {
+			t.Fatal(err)
+		}
+		var selected launchSelection
+		if err := launchRead(path, &selected); err != nil {
+			t.Fatal(err)
+		}
+		if selected.OrdinaryGeneration != ordinary {
+			t.Fatal("launcher lost UI mode")
+		}
+	}
+}

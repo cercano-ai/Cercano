@@ -22,12 +22,15 @@ import (
 )
 
 type developmentHostSelection struct {
-	ConfigAuthority string
-	Endpoint        string
-	TokenFile       string
-	Identity        *proto.LifecycleIdentity
-	Conversation    string
-	Epoch           string
+	// OrdinaryGeneration enables ordinary UI; absent/legacy selections stay restricted.
+	// This is presentation metadata, never server authorization.
+	OrdinaryGeneration bool
+	ConfigAuthority    string
+	Endpoint           string
+	TokenFile          string
+	Identity           *proto.LifecycleIdentity
+	Conversation       string
+	Epoch              string
 }
 type developmentHostOptions struct {
 	State, Generation, Host, TokenFile, Record, RuntimeRoot, Listen string

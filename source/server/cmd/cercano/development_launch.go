@@ -27,13 +27,16 @@ import (
 )
 
 type launchSelection struct {
-	ConfigAuthority string
-	Endpoint        string
-	TokenFile       string
-	Identity        *pb.LifecycleIdentity
-	Conversation    string
-	Epoch           string
-	Generation      string
+	// OrdinaryGeneration enables ordinary UI; absent/legacy selections stay restricted.
+	// This is presentation metadata, never server authorization.
+	OrdinaryGeneration bool
+	ConfigAuthority    string
+	Endpoint           string
+	TokenFile          string
+	Identity           *pb.LifecycleIdentity
+	Conversation       string
+	Epoch              string
+	Generation         string
 }
 
 func launchPrivateDir(path string) error {

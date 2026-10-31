@@ -2271,8 +2271,8 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 
 	case settingsThemeMsg:
 		// Defense at the persistence boundary: queued/direct settings messages
-		// cannot bypass pinned mode's shared-config freeze.
-		if m.devHost != nil {
+		// cannot bypass a restricted fixture's shared-config freeze.
+		if m.restrictedDevHost() {
 			return m, nil
 		}
 		m.applyTheme(msg.working)
@@ -3311,7 +3311,7 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 		if len(f) > 0 && f[0] == "/host" {
 			return m.runDevHost(line)
 		}
-		if len(f) > 0 && f[0] != "/version" && f[0] != "/quit" && f[0] != "/exit" && f[0] != "/search" && f[0] != "/history" && f[0] != "/resume" {
+		if m.restrictedDevHost() && len(f) > 0 && f[0] != "/version" && f[0] != "/quit" && f[0] != "/exit" && f[0] != "/search" && f[0] != "/history" && f[0] != "/resume" {
 			m.errMsg = "Pinned development mode: /history, /resume, /host, /version, /search, /quit only"
 			return m, nil
 		}
@@ -3340,6 +3340,11 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 		m.intentionalExit = true
 		return m, tea.Quit
 	case slash.ResultClearConversation:
+		if m.devHost != nil {
+			// Acquire and dial before replacing UI/client bindings. Failure keeps
+			// the current conversation intact; never invent an unowned local ID.
+			return m.beginDevHostReopen(newConvID())
+		}
 		m.mainChat().SetEntriesSlice(nil)
 		m.convID = newConvID()
 		if m.convRef != nil {

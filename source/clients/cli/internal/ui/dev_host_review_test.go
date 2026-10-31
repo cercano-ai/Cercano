@@ -53,22 +53,24 @@ func TestDevHostReconnectFencesQueuedSubscriptions(t *testing.T) {
 	}
 }
 
-func TestDevHostPinnedConfigFreeze(t *testing.T) {
+func TestDevHostConfigPolicy(t *testing.T) {
+	isolateOrdinaryUI(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ui.yaml")
 	t.Setenv("CERCANO_UI_CONFIG", path)
 	t.Setenv("CERCANO_THEMES_DIR", filepath.Join(dir, "themes"))
 	t.Setenv("XDG_CONFIG_HOME", dir)
-	for _, pinned := range []bool{true, false} {
+	for _, mode := range []string{"fixture", "ordinary", "unpinned"} {
+		pinned := mode == "fixture"
 		for _, entry := range []string{"shortcut", "direct theme", "config entry"} {
-			t.Run(map[bool]string{true: "pinned/", false: "normal/"}[pinned]+entry, func(t *testing.T) {
+			t.Run(mode+"/"+entry, func(t *testing.T) {
 				before := []byte("# preserve exact shared preferences\ntheme: cr4k3r_j4x\n")
 				if err := os.WriteFile(path, before, 0600); err != nil {
 					t.Fatal(err)
 				}
 				m := New(nil, false)
-				if pinned {
-					m = m.WithDevHost(DevHostSelection{Conversation: "same"}, "test")
+				if mode != "unpinned" {
+					m = m.WithDevHost(DevHostSelection{Conversation: "same", OrdinaryGeneration: mode == "ordinary"}, "test")
 				}
 				switch entry {
 				case "shortcut":

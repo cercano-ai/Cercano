@@ -42,9 +42,9 @@ func (m Model) configStripTop() int {
 // openConfigSurface enters the tabbed config surface on the given tab with the
 // tab bar focused, and returns the new page's init/refresh cmd.
 func (m *Model) openConfigSurface(tab configTab) tea.Cmd {
-	// Pinned terminals must not expose editors for shared local config,
+	// Restricted fixture terminals must not expose editors for shared local config,
 	// including entry through the runtime-dashboard keyboard shortcut.
-	if m.devHost != nil {
+	if m.restrictedDevHost() {
 		return nil
 	}
 	closeMetricsPage(m.content)
