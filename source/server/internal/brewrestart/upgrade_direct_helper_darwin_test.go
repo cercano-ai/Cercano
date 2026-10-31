@@ -9,3 +9,7 @@ import "testing"
 func TestUpgradeDirectRuntimeHelperRemainsBlocked(t *testing.T) {
 	testUpgradeStopWithWorker(t, false, "dotnet", "fixture-secret.dll")
 }
+
+func TestUpgradePrivateStdioExternalImage(t *testing.T) {
+	testUpgradeStopWithWorker(t, false, "external-stdio", "private-stdio")
+}

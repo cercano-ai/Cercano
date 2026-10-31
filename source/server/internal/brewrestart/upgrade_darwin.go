@@ -87,6 +87,7 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 		return fmt.Errorf("frozen host lost listener: %v", err)
 	}
 	workers := map[int]Identity{}
+	stdioRoots := map[int]*stdioWitness{}
 	// A fork already in flight may still be execing. Wait for its role to settle;
 	// never classify such a child by name or group alone.
 	for {
@@ -94,6 +95,8 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 		if err != nil {
 			return err
 		}
+		workers = map[int]Identity{}
+		stdioRoots = map[int]*stdioWitness{}
 		unresolved := childResolutionDiagnostics{}
 		for _, pid := range candidates {
 			id, err := Inspect(pid)
@@ -109,18 +112,25 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 			if id.StartSeconds < host.StartSeconds || (id.StartSeconds == host.StartSeconds && id.StartMicroseconds < host.StartMicroseconds) {
 				return fmt.Errorf("host child pid=%d identity predates host", pid)
 			}
-			role, err := processRole(id)
-			if err != nil {
-				// processRole errors contain only fixed categories and the PID,
-				// never argument values or executable paths.
-				unresolved.add(pid, "role unavailable: "+err.Error())
-				continue
-			}
 			shared, sharedErr := verifiedModelHost(id)
 			if sharedErr != nil {
 				return sharedErr
 			}
 			if shared {
+				continue
+			}
+			witness := &stdioWitness{}
+			private, pipeErr := verifiedPrivateStdio(*host, id, witness)
+			if pipeErr == nil && private {
+				workers[pid] = id
+				stdioRoots[pid] = witness
+				continue
+			}
+			role, err := processRole(id)
+			if err != nil {
+				// processRole errors contain only fixed categories and the PID,
+				// never argument values or executable paths.
+				unresolved.add(pid, "role unavailable: "+err.Error())
 				continue
 			}
 			// A host can retain workers from a different executable version.
@@ -153,7 +163,17 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 	}
 	// Workers are producers too: RunCommand owns a separate process group.
 	// Freeze the verified tree before TERM can orphan its tool descendants.
-	if err := freezeUpgradeDescendants(ctx, *host, workers, frozenChildren); err != nil {
+	checkStdio := func(id Identity) error {
+		if stdioRoots[id.PID] == nil {
+			return nil
+		}
+		ok, err := verifiedPrivateStdio(*host, id, stdioRoots[id.PID])
+		if err != nil || !ok {
+			return fmt.Errorf("private stdio ownership changed pid=%d: %v", id.PID, err)
+		}
+		return nil
+	}
+	if err := freezeUpgradeDescendants(ctx, *host, workers, frozenChildren, checkStdio); err != nil {
 		return err
 	}
 	for pid, id := range frozenChildren {

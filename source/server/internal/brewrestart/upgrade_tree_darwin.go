@@ -14,7 +14,7 @@ import (
 // Each parent is stopped before enumerating children; no process-group signal or
 // executable-name-only ownership is used. The caller resumes the recorded set on
 // reversible refusal, or includes it in irreversible cleanup after TERM.
-func freezeUpgradeDescendants(ctx context.Context, host Identity, workers map[int]Identity, frozen map[int]stoppedIdentity) error {
+func freezeUpgradeDescendants(ctx context.Context, host Identity, workers map[int]Identity, frozen map[int]stoppedIdentity, rootChecks ...func(Identity) error) error {
 	queue := make([]Identity, 0, len(workers))
 	freeze := func(id Identity) error {
 		var record stoppedIdentity
@@ -27,8 +27,18 @@ func freezeUpgradeDescendants(ctx context.Context, host Identity, workers map[in
 		return nil
 	}
 	for _, id := range workers {
+		for _, check := range rootChecks {
+			if err := check(id); err != nil {
+				return err
+			}
+		}
 		if err := freeze(id); err != nil {
 			return err
+		}
+		for _, check := range rootChecks {
+			if err := check(id); err != nil {
+				return err
+			}
 		}
 	}
 	for len(queue) > 0 {

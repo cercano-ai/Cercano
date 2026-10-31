@@ -138,7 +138,7 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 		t.Fatal("already canceled shutdown disturbed worker")
 	}
 	timeout := 5 * time.Second
-	if workerName == "unrecognized-worker" || childRole != "worker" {
+	if (workerName == "unrecognized-worker" || childRole != "worker") && childRole != "private-stdio" {
 		timeout = 500 * time.Millisecond
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -168,7 +168,7 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 		candidates = append(candidates, unrelated)
 	}
 	err = stopUpgradeHostObserved(ctx, endpoint, candidates, afterTERM)
-	if workerName == "unrecognized-worker" || childRole != "worker" {
+	if (workerName == "unrecognized-worker" || childRole != "worker") && childRole != "private-stdio" {
 		t.Logf("probe: child pid=%d role=%s image=%s; stop error=%v", pid, safeUpgradeRole(childRole), workerName, err)
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("unrecognized image must block: %v", err)

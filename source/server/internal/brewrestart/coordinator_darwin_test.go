@@ -73,6 +73,18 @@ func runRestartFixture() int {
 		}
 		worker = exec.Command(workerExe, role)
 		worker.Env = append(os.Environ(), "CERCANO_CHILD_FIXTURE=1")
+		if role == "private-stdio" {
+			in, e := worker.StdinPipe()
+			if e != nil {
+				return 4
+			}
+			defer in.Close()
+			out, e := worker.StdoutPipe()
+			if e != nil {
+				return 4
+			}
+			defer out.Close()
+		}
 		if err := worker.Start(); err != nil {
 			return 4
 		}

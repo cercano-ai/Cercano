@@ -43,6 +43,7 @@ HTTP.do_GET=get
 s=socket.socket();s.bind(('127.0.0.1',0));port=s.getsockname()[1];s.close()
 url='http://127.0.0.1:'+str(srv.server_port)
 (conf/'config.yaml').write_text('locus_mode: open_only\nopen_runtime: ollama\nollama_url: '+url+'\nport: "'+str(port)+'"\nmodels:\n  open:\n    overrides:\n      ollama:\n'+''.join('        '+t+': fake-model\n' for t in ['most_capable','everyday','fast_light','fast_light_text','embedding','vision']))
+(conf/'mcp.json').write_text(json.dumps({'mcpServers': {'private-fixture': {'command': sys.executable, 'args': [str(base/'stdio-child.py'), str(root)]}}}))
 env={'PATH':'/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin','HOME':str(root/'h'),'XDG_CONFIG_HOME':str(root/'h/.config'),'XDG_DATA_HOME':str(root/'data'),'XDG_CACHE_HOME':str(root/'cache'),'XDG_STATE_HOME':str(root/'state'),'XDG_RUNTIME_DIR':str(root/'run'),'TMPDIR':str(root/'t'),'CERCANO_DISABLE_CREDENTIALS':'1','CERCANO_PORT':str(port),'CERCANO_CONVERSATIONS_DB':str(root/'state/conversations.db'),'CERCANO_OPEN_RUNTIME':'ollama','CERCANO_OPEN_MODEL':'fake-model','OLLAMA_URL':url,'AWS_EC2_METADATA_DISABLED':'true'}
 (root/'env.json').write_text(json.dumps(env,indent=2))
 def identity(pid):
@@ -115,6 +116,8 @@ try:
  result['provider_hold_reached']=hold.is_set();result['owned_before_stop']=owned.copy();snap('at-stop')
  result['late_workers']=[pid for pid,i in owned.items() if pid not in result['existing_pids'] and ' worker --socket ' in i]
  assert result['late_workers'], 'second production worker was not observed after initial inventory'
+ stdio = json.loads((root/('stdio-'+str(host.pid)+'.json')).read_text())
+ result['external_stdio'] = stdio
  result['ticks_at_stop']=(root/'work/ticks.txt').read_text().count('tick')
  if mode != 'combined':
   if mode in ['native']:
@@ -174,6 +177,10 @@ try:
     descendants.append(child); descend(child)
   descend(host.pid);descend(extra.pid);descendants.append(extra.pid)
   assert sibling.pid not in descendants
+  # Make the pre-backup native exit assertion explicitly cover both external
+  # stdio roots and their attached descendants, not only the worker inventory.
+  for f in root.glob('stdio-*.json'):
+   assert set(json.loads(f.read_text()).values()).issubset(descendants), 'external stdio fixture missing from pre-backup exit inventory'
   result['owned_descendants_before_confirmation']=descendants
   assert len(descendants)>=3, 'expected workers plus live work descendant'
   db=root/'state/conversations.db'
@@ -183,8 +190,15 @@ try:
   import shutil
   shutil.copy2(conf/'config.yaml',root/'state/config.yaml')
   upgrade_env=dict(env,CERCANO_FIXTURE_UNIDENTIFIED=str(unidentified.pid),CERCANO_FIXTURE_OWNED_DESCENDANTS=','.join(map(str,[host.pid,*descendants])),CERCANO_FIXTURE_PORT=str(port),CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='owned-worker',CERCANO_FIXTURE_SIBLING_WORKER=str(sibling.pid),CERCANO_FIXTURE_OWNED_HOST=str(host.pid),CERCANO_FIXTURE_ADDITIONAL_HOSTS=str(extra.pid),CERCANO_FIXTURE_STOP_RECORD=str(root/'native-stop.log'),CERCANO_FIXTURE_UPGRADE_HELPER=str(base/'cercano-native-upgrade'))
+  # Do not start new MCP fixtures in the replacement generation. Existing
+  # children and their live pipe ownership are unaffected by config removal.
+  (conf/'mcp.json').unlink()
   from generation import accept
   accept(base.parents[2],root,upgrade_env,None,result,upgrading=True)
+  for f in root.glob('stdio-*.json'):
+   for pid in json.loads(f.read_text()).values():
+    assert sp.run(['/bin/ps','-p',str(pid)],stdout=sp.DEVNULL).returncode != 0, 'external stdio process survived stop'
+  result['external_stdio_exited_before_backup'] = True # generation acceptance checks all owned descendants before backup
   assert unidentified.poll() is None, 'unrelated process terminated'
   result['unidentified_survived_upgrade']=True
   assert sibling.poll() is None and identity(sibling.pid)==result['sibling_worker']['identity']
@@ -205,6 +219,12 @@ finally:
  release.set();capture()
  # Writers self-expire; never signal an unverified shell or its process group.
  time.sleep(13)
+ # External fixtures self-expire without any broad/ambient signal authority.
+ for f in root.glob('stdio-*.json'):
+  for pid in json.loads(f.read_text()).values():
+   for _ in range(95):
+    if sp.run(['/bin/ps','-p',str(pid)],stdout=sp.DEVNULL).returncode != 0: break
+    time.sleep(1)
  for pid in list(owned):stop(pid)
  for p in children:
   if p.poll() is None:p.terminate()
