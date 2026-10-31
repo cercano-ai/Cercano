@@ -112,9 +112,7 @@ func stopVerifiedUpgradeHostWithSignal(ctx context.Context, target upgradeTarget
 		}
 		for pid, id := range targets {
 			now, err := Inspect(pid)
-			if errors.Is(err, syscall.ESRCH) || (err == nil && !now.SameProcess(id)) {
-				delete(targets, pid)
-			} else if err != nil {
+			if err := observeUpgradeExit(targets, id, now, err); err != nil {
 				return err
 			}
 		}
@@ -307,4 +305,15 @@ func safeUpgradeRole(role string) string {
 	default:
 		return "unrecognized"
 	}
+}
+
+// observeUpgradeExit updates only the verified host target set.
+func observeUpgradeExit(targets map[int]Identity, id, now Identity, inspectErr error) error {
+	exited, err := processExitStatus(id, now, inspectErr)
+	if exited || (inspectErr == nil && !now.SameProcess(id)) {
+		// Do not escalate or clean up an identity which we no longer own.
+		// A same-lifetime exec still returns a refusal, never migration success.
+		delete(targets, id.PID)
+	}
+	return err
 }

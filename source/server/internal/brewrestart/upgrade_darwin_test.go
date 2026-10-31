@@ -174,10 +174,16 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 				t.Fatal("signal targeted non-host")
 			}
 			calls++
-			return syscall.EPERM
+			if sig == syscall.SIGTERM {
+				return syscall.EPERM
+			}
+			if sig != syscall.SIGKILL {
+				t.Fatalf("unexpected signal: %v", sig)
+			}
+			return syscall.EACCES
 		})
-		if !errors.Is(err, syscall.EPERM) || calls < 2 {
-			t.Fatalf("signal failure lost: calls=%d err=%v", calls, err)
+		if !errors.Is(err, syscall.EPERM) || !errors.Is(err, syscall.EACCES) || !errors.Is(err, context.DeadlineExceeded) || calls != 2 {
+			t.Fatalf("TERM/cleanup failures lost: calls=%d err=%v", calls, err)
 		}
 		if now, err := Inspect(hostIdentity.PID); err != nil || !now.SameProcess(hostIdentity) {
 			t.Fatalf("failed termination disturbed host: %v", err)

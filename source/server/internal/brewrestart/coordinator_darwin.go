@@ -143,17 +143,8 @@ func pauseRestart(ctx context.Context) error {
 func waitProcessExit(ctx context.Context, id Identity) error {
 	for {
 		now, err := Inspect(id.PID)
-		if errors.Is(err, syscall.ESRCH) {
-			return nil
-		}
-		if err != nil {
+		if exited, err := processExitStatus(id, now, err); exited || err != nil {
 			return err
-		}
-		if now.StartSeconds != id.StartSeconds || now.StartMicroseconds != id.StartMicroseconds {
-			return nil
-		} // PID reused: original is gone.
-		if !now.SameProcess(id) {
-			return fmt.Errorf("original process changed identity without exiting")
 		}
 		if err := pauseRestart(ctx); err != nil {
 			return err
@@ -225,4 +216,22 @@ func pollReplacementReady(ctx context.Context, holds func() (bool, error), dial 
 			return err
 		}
 	}
+}
+
+// processExitStatus distinguishes a vanished lifetime from exec in the same
+// lifetime. An executable change is not proof that the writer exited.
+func processExitStatus(id, now Identity, inspectErr error) (bool, error) {
+	if errors.Is(inspectErr, syscall.ESRCH) {
+		return true, nil
+	}
+	if inspectErr != nil {
+		return false, inspectErr
+	}
+	if now.StartSeconds != id.StartSeconds || now.StartMicroseconds != id.StartMicroseconds {
+		return true, nil // PID reused: original is gone.
+	}
+	if !now.SameProcess(id) {
+		return false, fmt.Errorf("original process changed identity without exiting: pid=%d; stop the changed host manually before retrying", id.PID)
+	}
+	return false, nil
 }
