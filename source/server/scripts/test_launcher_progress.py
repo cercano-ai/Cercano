@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('launcher', Path(__file__).with_name('cercano-launcher.py'))
 launcher = importlib.util.module_from_spec(spec)
@@ -17,6 +18,96 @@ spec.loader.exec_module(launcher)
 
 
 class ProgressTests(unittest.TestCase):
+    def test_tty_replaces_shorter_line_and_cleans_up(self):
+        class TTY(io.StringIO):
+            def isatty(self):
+                return True
+        with contextlib.redirect_stderr(TTY()) as output:
+            launcher.feedback('long status message')
+            launcher.feedback('short')
+            launcher.clear_progress()
+            launcher.clear_progress()
+        self.assertEqual(output.getvalue(),
+                         '\r\x1b[2K[cercano] long status message'
+                         '\r\x1b[2K[cercano] short\r\x1b[2K')
+
+    def test_non_tty_has_no_controls(self):
+        with contextlib.redirect_stderr(io.StringIO()) as output:
+            launcher.feedback('long status message')
+            launcher.feedback('short')
+            launcher.clear_progress()
+        self.assertEqual(output.getvalue(),
+                         '[cercano] long status message\n[cercano] short\n')
+
+    def test_tty_durable_output_and_prompt_survive(self):
+        class TTY(io.StringIO):
+            def isatty(self):
+                return True
+        with contextlib.redirect_stderr(TTY()) as output:
+            launcher.feedback('inspection')
+            launcher.ordinary_output('warning: retained backup', file=sys.stderr)
+            launcher.feedback('inspection')
+            with patch.object(sys, 'stdin', TTY('n\n')):
+                with self.assertRaisesRegex(ValueError, 'upgrade declined'):
+                    launcher.confirmed_upgrade(None, None, None, None, None)
+            launcher.ordinary_output('launch refused', file=sys.stderr)
+        text = output.getvalue()
+        self.assertIn('\r\x1b[2Kwarning: retained backup\n', text)
+        self.assertIn('\r\x1b[2KDatabase upgrade required', text)
+        self.assertIn('Stop agents and upgrade now? [y/N]', text)
+        self.assertNotIn('\x1b', text.split('Database upgrade required')[1])
+
+    def test_tty_child_failure_and_unterminated_diagnostic_survive(self):
+        class TTY(io.StringIO):
+            def isatty(self):
+                return True
+        with contextlib.redirect_stderr(TTY()) as output:
+            launcher.feedback('building')
+            with self.assertRaises(subprocess.CalledProcessError) as failure:
+                launcher.progress_check_output([sys.executable, '-c',
+                    'import sys; print("protocol"); sys.stderr.write("build failed: detail"); sys.exit(42)'], text=True)
+            launcher.feedback('finished')
+            launcher.clear_progress()
+        self.assertEqual(failure.exception.returncode, 42)
+        self.assertEqual(failure.exception.output, 'protocol\n')
+        self.assertIn('\r\x1b[2Kbuild failed: detail\n\r\x1b[2K', output.getvalue())
+
+    def test_child_prompt_is_visible_before_child_exits(self):
+        with tempfile.TemporaryDirectory() as root:
+            marker = Path(root) / 'prompt-seen'
+            class TTY(io.StringIO):
+                def isatty(self):
+                    return True
+
+                def write(self, text):
+                    if 'Continue?' in text:
+                        marker.touch()
+                    return super().write(text)
+            with contextlib.redirect_stderr(TTY()) as output:
+                launcher.feedback('working')
+                result = launcher.progress_check_output([sys.executable, '-c',
+                    'import pathlib,sys,time; '
+                    'p=pathlib.Path(sys.argv[1]); '
+                    'sys.stderr.write("Continue?"); sys.stderr.flush(); '
+                    'deadline=time.monotonic()+3\n'
+                    'while not p.exists() and time.monotonic()<deadline: time.sleep(.01)\n'
+                    'sys.exit(0 if p.exists() else 42)', str(marker)], text=True)
+                launcher.clear_progress()
+            self.assertEqual(result, '')
+            self.assertEqual(output.getvalue(),
+                             '\r\x1b[2K[cercano] working\r\x1b[2KContinue?\n')
+
+    def test_narrow_terminal_does_not_wrap(self):
+        class TTY(io.StringIO):
+            def isatty(self):
+                return True
+        import os
+        with contextlib.redirect_stderr(TTY()) as output, \
+             patch.object(launcher.shutil, 'get_terminal_size', return_value=os.terminal_size((20, 24))):
+            launcher.feedback('a very long routine status')
+            launcher.clear_progress()
+        self.assertEqual(output.getvalue(), '\r\x1b[2K[cercano] a very lo\r\x1b[2K')
+
     def test_uncontended_lock_does_not_claim_wait(self):
         with tempfile.TemporaryFile() as lock, contextlib.redirect_stderr(io.StringIO()) as output:
             launcher.acquire_lock(lock, 'fixture lock')

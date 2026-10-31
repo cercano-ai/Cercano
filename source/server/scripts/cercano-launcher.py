@@ -13,11 +13,82 @@ import sys
 import time
 import tempfile
 import shutil
+import codecs
+import threading
+
+
+_progress_stream = None
+
+
+def clear_progress():
+    """Erase the entire transient line before durable output or CLI handoff."""
+    global _progress_stream
+    if _progress_stream is not None:
+        _progress_stream.write('\r\x1b[2K')
+        _progress_stream.flush()
+        _progress_stream = None
+
+
+def ordinary_output(*args, **kwargs):
+    clear_progress()
+    print(*args, **kwargs)
 
 
 def feedback(message):
-    """Human-readable progress stays off the CLI/publisher stdout protocol."""
-    print('[cercano] ' + message, file=sys.stderr, flush=True)
+    """Only routine status is transient; stdout remains the CLI protocol."""
+    global _progress_stream
+    if sys.stderr.isatty():
+        # Reserve the last column to avoid wrapping into another terminal row.
+        try:
+            columns = os.get_terminal_size(sys.stderr.fileno()).columns
+        except (OSError, ValueError):
+            columns = shutil.get_terminal_size().columns
+        if columns <= 0:
+            columns = 80
+        text = ('[cercano] ' + message)[:max(0, columns - 1)]
+        sys.stderr.write('\r\x1b[2K' + text)
+        sys.stderr.flush()
+        _progress_stream = sys.stderr
+    else:
+        ordinary_output('[cercano] ' + message, file=sys.stderr, flush=True)
+
+
+def progress_check_output(argv, **kwargs):
+    """Keep status visible while a child is quiet, not over its diagnostics.
+
+    Publisher build/signing stderr is ordinary output, never progress. Drain it
+    concurrently with protocol stdout, including unterminated prompts. Leave the
+    existing non-TTY subprocess path alone.
+    """
+    if not sys.stderr.isatty():
+        return subprocess.check_output(argv, **kwargs)
+    read_fd, write_fd = os.pipe()
+    with os.fdopen(read_fd, 'rb') as diagnostics, os.fdopen(write_fd, 'wb') as destination:
+        def relay():
+            decoder = codecs.getincrementaldecoder(sys.stderr.encoding or 'utf-8')(errors='replace')
+            unterminated = False
+            while True:
+                chunk = diagnostics.read1(8192)
+                text = decoder.decode(chunk, final=not chunk)
+                if text:
+                    clear_progress()
+                    sys.stderr.write(text)
+                    sys.stderr.flush()
+                    unterminated = not text.endswith('\n')
+                if not chunk:
+                    # A subsequent status must not erase a final diagnostic
+                    # (or prompt) that the child left without a newline.
+                    if unterminated:
+                        sys.stderr.write('\n')
+                        sys.stderr.flush()
+                    break
+        reader = threading.Thread(target=relay)
+        reader.start()
+        try:
+            return subprocess.check_output(argv, stderr=destination, **kwargs)
+        finally:
+            destination.close()
+            reader.join()
 
 
 @contextmanager
@@ -231,7 +302,7 @@ def prepare_if_absent(state, repo, env):
             try:
                 remove_owned_bootstrap(bootstrap)
             except OSError:
-                print('[cercano] warning: temporary bootstrap cleanup failed; scratch directory retained', file=sys.stderr)
+                ordinary_output('[cercano] warning: temporary bootstrap cleanup failed; scratch directory retained', file=sys.stderr)
 
 
 def owned(path, directory=False):
@@ -283,7 +354,7 @@ def compatible_store(db):
 def confirmed_upgrade(state, db, authority, repo, env):
     if not sys.stdin.isatty():
         raise ValueError('interactive confirmation required; no upgrade performed')
-    print('Database upgrade required\n\nThis version of Cercano needs to upgrade your existing conversation database. Your saved history will be preserved, and a backup will be created before migration. Read-only compatibility inspection may create or update SQLite SHM coordination; it does not change application data or schema.\n\nContinuing will shut down incompatible agent hosts, disconnect their sessions, and stop any work in progress. Unsaved progress may be lost.\n\nIf you have work in progress that you want to finish, choose No and run Cercano again when it is complete.\n\nStop agents and upgrade now? [y/N]', end='', file=sys.stderr, flush=True)
+    ordinary_output('Database upgrade required\n\nThis version of Cercano needs to upgrade your existing conversation database. Your saved history will be preserved, and a backup will be created before migration. Read-only compatibility inspection may create or update SQLite SHM coordination; it does not change application data or schema.\n\nContinuing will shut down incompatible agent hosts, disconnect their sessions, and stop any work in progress. Unsaved progress may be lost.\n\nIf you have work in progress that you want to finish, choose No and run Cercano again when it is complete.\n\nStop agents and upgrade now? [y/N]', end='', file=sys.stderr, flush=True)
     if sys.stdin.readline().rstrip('\r\n') not in ('y', 'Y'):
         raise ValueError('upgrade declined; application data, schema and existing permissions unchanged (SQLite may update SHM coordination)')
     # Build away from live binaries, without credential access. The helper retains
@@ -304,7 +375,7 @@ def confirmed_upgrade(state, db, authority, repo, env):
             result = subprocess.run(args, env=env, text=True, capture_output=True)
             for line in result.stderr.splitlines():
                 if line.startswith('[cercano] discovery elapsed='):
-                    print(line, file=sys.stderr, flush=True)
+                    feedback(line.removeprefix('[cercano] '))
             if result.returncode:
                 raise ValueError(result.stderr.strip() or 'offline upgrade helper failed')
         with phase('discovery and verified shutdown'):
@@ -312,7 +383,7 @@ def confirmed_upgrade(state, db, authority, repo, env):
         fd, name = tempfile.mkstemp(prefix='conversations.before-upgrade-', suffix='.db', dir=state)
         os.close(fd)
         backup = Path(name)
-        print('[cercano] retained backup: ' + str(backup), file=sys.stderr)
+        ordinary_output('[cercano] retained backup: ' + str(backup), file=sys.stderr)
         try:
             with phase('backup'):
                 # SQLite online backup includes committed WAL, unlike copying the main file.
@@ -385,9 +456,9 @@ def launch_main():
     selected, args, info = parse_args(sys.argv[3:])
     if info:
         if info == 'version':
-            print('cercano development source launcher (binary version requires an explicit generation)')
+            ordinary_output('cercano development source launcher (binary version requires an explicit generation)')
         else:
-            print('Usage: cercano [--dev-host SELECTION] [--dev-host-action ACTION]\nDevelopment only; no legacy discovery. --help / --version never acquire a host.')
+            ordinary_output('Usage: cercano [--dev-host SELECTION] [--dev-host-action ACTION]\nDevelopment only; no legacy discovery. --help / --version never acquire a host.')
         return
     feedback('Checking local state and database compatibility...')
     runtime_env = dict(os.environ, CERCANO_LAUNCHED_DEVELOPMENT='1')
@@ -426,7 +497,7 @@ def launch_main():
         if selected is not None:
             raise ValueError('explicit selection requires compatible store; retry ordinary cercano')
         backup = confirmed_upgrade(state, db, authority, repo, runtime_env)
-        print('[cercano] upgrade complete; if startup fails, backup remains at ' + str(backup), file=sys.stderr)
+        ordinary_output('[cercano] upgrade complete; if startup fails, backup remains at ' + str(backup), file=sys.stderr)
     private(state)
     private(authority.parent)
     for p in (db, authority):
@@ -439,6 +510,7 @@ def launch_main():
         if selection.get('ConfigAuthority') != str(authority):
             raise ValueError('selection config authority mismatch; refusing reuse')
         generation = validate_generation(selection.get('Generation'), state)
+        clear_progress()
         os.execve(str(generation / 'cercano-cli'), [str(generation / 'cercano-cli'), *args], runtime_env)
     runtime = os.environ.get('CERCANO_RUNTIME_ROOT')
     if runtime is None:
@@ -468,18 +540,19 @@ def launch_main():
     # Build tooling may not access credentials; runtime policy belongs to the caller.
     build_env = dict(runtime_env, CERCANO_DISABLE_CREDENTIALS='1')
     feedback('Checking source fingerprint...')
-    fingerprint = subprocess.check_output([*publisher, 'fingerprint', *common], env=build_env, text=True).strip()
+    fingerprint = progress_check_output([*publisher, 'fingerprint', *common], env=build_env, text=True).strip()
     feedback('Preparing binaries (building if needed)...')
-    generation = subprocess.check_output([*publisher, 'publish', *common, '--root', str(root), '--generation', fingerprint, '--fingerprint', fingerprint, '--reuse'], env=build_env, text=True).strip()
+    generation = progress_check_output([*publisher, 'publish', *common, '--root', str(root), '--generation', fingerprint, '--fingerprint', fingerprint, '--reuse'], env=build_env, text=True).strip()
     if generation != str(root / fingerprint):
         raise ValueError('publisher returned noncanonical generation')
     validate_generation(generation, state)
     binary = str(Path(generation) / 'cercano')
     feedback('Acquiring development host...')
-    selection = subprocess.check_output([binary, 'development-launch', '--state', str(state), '--generation', generation, '--runtime-root', str(runtime), '--config-authority', str(authority)], env=runtime_env, text=True).strip()
+    selection = progress_check_output([binary, 'development-launch', '--state', str(state), '--generation', generation, '--runtime-root', str(runtime), '--config-authority', str(authority)], env=runtime_env, text=True).strip()
     selection_file(selection, state)
     validate_generation(generation, state)
     cli = str(Path(generation) / 'cercano-cli')
+    clear_progress()
     os.execve(cli, [cli, '--dev-host', selection, *args], runtime_env)
 
 
@@ -487,6 +560,9 @@ if __name__ == '__main__':
     try:
         main()
     except (OSError, ValueError, KeyError, IndexError, sqlite3.Error, subprocess.CalledProcessError) as error:
-        print('[cercano] launch refused: ' + str(error), file=sys.stderr)
-        print('Absent state is prepared automatically from existing config.yaml. Existing incompatible state requires confirmed upgrade; unverified or surviving writers block migration.', file=sys.stderr)
+        ordinary_output('[cercano] launch refused: ' + str(error), file=sys.stderr)
+        ordinary_output('Absent state is prepared automatically from existing config.yaml. Existing incompatible state requires confirmed upgrade; unverified or surviving writers block migration.', file=sys.stderr)
         sys.exit(78)
+
+    finally:
+        clear_progress()

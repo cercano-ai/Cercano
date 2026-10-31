@@ -103,6 +103,55 @@ class LauncherFeedback(unittest.TestCase):
             self.assertEqual(args[0], '--dev-host')
             self.assertEqual(len(args), 2)
 
+    def test_real_tty_fixture_clears_before_cli_handoff(self):
+        import pty
+        import subprocess
+        safety_spec = importlib.util.spec_from_file_location('safety', SCRIPTS / 'test-launcher-safety.py')
+        safety = importlib.util.module_from_spec(safety_spec)
+        safety_spec.loader.exec_module(safety)
+        with tempfile.TemporaryDirectory() as root, \
+             tempfile.TemporaryDirectory(prefix='cf-', dir='/tmp') as runtime:
+            env = safety.LauncherSafety().fixture(root)
+            env.update(TMPDIR=root, CERCANO_RUNTIME_ROOT=str(Path(runtime).resolve()))
+            master, slave = pty.openpty()
+            try:
+                child = subprocess.Popen(['/bin/bash', str(SCRIPTS / 'cercano-launcher.sh')],
+                                         env=env, stdout=slave, stderr=slave)
+                os.close(slave)
+                slave = None
+                chunks = []
+                import select
+                import time
+                deadline = time.monotonic() + 15
+                while True:
+                    ready, _, _ = select.select([master], [], [], max(0, deadline - time.monotonic()))
+                    if not ready:
+                        child.kill()  # only this disposable fixture child
+                        child.wait()
+                        self.fail('fixture PTY timed out')
+                    try:
+                        chunk = os.read(master, 8192)
+                    except OSError as error:
+                        import errno
+                        if error.errno != errno.EIO:
+                            raise
+                        break
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                self.assertEqual(child.wait(timeout=5), 0)
+                text = b''.join(chunks).decode()
+                self.assertIn('Starting Cercano...', text)
+                self.assertIn('Acquiring development host...', text)
+                # No routine step ended a line, and the final erase precedes
+                # the fixture CLI's first ordinary output.
+                self.assertEqual(text.count('\n'), 1)
+                self.assertIn('\r\x1b[2K["--dev-host",', text)
+            finally:
+                os.close(master)
+                if slave is not None:
+                    os.close(slave)
+
     def test_information_is_unchanged_and_never_locks(self):
         for flag in ('-h', '--h', '-help', '--help', '-version', '--version'):
             with self.subTest(flag=flag):
