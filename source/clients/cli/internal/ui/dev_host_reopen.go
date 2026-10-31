@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 
 	"cercano/source/server/pkg/proto"
 	tea "charm.land/bubbletea/v2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	protobuf "google.golang.org/protobuf/proto"
 )
 
@@ -49,7 +52,8 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 		listing, err := sc.LifecycleList(ctx, &proto.LifecycleControlRequest{Target: source.Identity, Management: true})
 		return source, listing, err
 	})
-	if err != nil {
+	var unavailable *reopenDiscoveryUnavailable
+	if err != nil && !errors.As(err, &unavailable) {
 		return destination, err
 	}
 	if owner != nil {
@@ -79,9 +83,12 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 	}
 	result, err := dc.LifecycleAcquire(ctx, &proto.LifecycleControlRequest{Target: destination.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}})
 	if err != nil {
+		if unavailable != nil {
+			return destination, fmt.Errorf("owner discovery incomplete (%v); authoritative acquisition refused: %w", unavailable, err)
+		}
 		return destination, err
 	}
-	if result.GetOwner().GetEpoch() == "" {
+	if result.GetPending() || !protobuf.Equal(result.GetIdentity(), destination.Identity) || result.GetOwner().GetConversation() != conversation || result.GetOwner().GetHost() != destination.Identity.Host || result.GetOwner().GetEpoch() == "" {
 		return destination, fmt.Errorf("reopen returned no ownership")
 	}
 	destination.Conversation, destination.Epoch = conversation, result.Owner.Epoch
@@ -90,7 +97,14 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 
 // A positive retained owner is authoritative under the store's exclusive ownership
 // contract. Scan all reachable hosts to reject conflicting live claims. With no
-// positive owner, ANY uncertainty forbids acquisition; never infer owner death.
+// positive owner, unavailable listings are not ownership evidence. The destination
+// may still attempt ordinary acquisition: the store lock AND durable owned/reserved
+// record reject takeover. Only new or explicitly released ownership can succeed.
+type reopenDiscoveryUnavailable struct{ cause error }
+
+func (e *reopenDiscoveryUnavailable) Error() string { return e.cause.Error() }
+func (e *reopenDiscoveryUnavailable) Unwrap() error { return e.cause }
+
 func findReopenOwner(paths []string, conversation string, list func(string) (DevHostSelection, *proto.LifecycleControlResponse, error)) (DevHostSelection, *proto.LifecycleOwner, error) {
 	var selected DevHostSelection
 	var found *proto.LifecycleOwner
@@ -98,6 +112,9 @@ func findReopenOwner(paths []string, conversation string, list func(string) (Dev
 	for _, path := range paths {
 		source, listing, err := list(path)
 		if err != nil {
+			if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded && !errors.Is(err, context.DeadlineExceeded) {
+				return selected, nil, err
+			}
 			uncertain = err
 			continue
 		}
@@ -118,7 +135,7 @@ func findReopenOwner(paths []string, conversation string, list func(string) (Dev
 		}
 	}
 	if found == nil && uncertain != nil {
-		return selected, nil, uncertain
+		return selected, nil, &reopenDiscoveryUnavailable{cause: uncertain}
 	}
 	return selected, found, nil
 }

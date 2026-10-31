@@ -10,6 +10,7 @@ var (
 	ErrAdmissionBusy         = errors.New("retained sessions or work prevent transition")
 	ErrAdmissionStale        = errors.New("unknown or stale ownership or ticket")
 	ErrAttachmentEligibility = errors.New("requester is not the sole attachment")
+	ErrTerminalNotAttached   = errors.New("requester terminal is not attached")
 )
 
 // Owner is a durable ownership identity, never a Broker turn generation.
@@ -307,7 +308,7 @@ func (a *Admission) CloseTerminal(o Owner, id string) (*Closure, error) {
 			}
 		}
 		if requester == nil {
-			return nil, ErrAttachmentEligibility
+			return nil, ErrTerminalNotAttached
 		}
 	}
 	return a.closeOwnerLocked(o, requester)
@@ -327,7 +328,7 @@ func (a *Admission) DrainTerminal(o Owner, id string) (*Closure, error) {
 		return nil, ErrAdmissionClosed
 	}
 	if id == "" || s.terminals[id] == 0 {
-		return nil, ErrAttachmentEligibility
+		return nil, ErrTerminalNotAttached
 	}
 	for t := range s.attachments {
 		if t.terminal != id {
@@ -385,7 +386,7 @@ func (a *Admission) ValidateTerminal(o Owner, id string) error {
 		return ErrAdmissionClosed
 	}
 	if id == "" || s.terminals[id] == 0 {
-		return ErrAttachmentEligibility
+		return ErrTerminalNotAttached
 	}
 	return nil
 }

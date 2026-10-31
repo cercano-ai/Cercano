@@ -27,6 +27,11 @@ func TestOrdinaryGenerationStartup(t *testing.T) {
 }
 
 func startOrdinaryGenerationTest(t *testing.T) *server.Server {
+	return startOrdinaryGenerationObserved(t, nil)
+}
+
+// observe exposes only disposable fixture authority to lifecycle integration tests.
+func startOrdinaryGenerationObserved(t *testing.T, observe func(*server.Server, developmentHostOptions, string, func())) *server.Server {
 	t.Helper()
 	o, auth := developmentProductionFixture(t)
 	t.Setenv("HOME", o.State)
@@ -98,6 +103,9 @@ func startOrdinaryGenerationTest(t *testing.T) *server.Server {
 	}
 	if address == "" || !wired || audits != 1 {
 		t.Fatalf("ordinary services missing: %s %v %d", address, wired, audits)
+	}
+	if observe != nil {
+		observe(srv, o, address, func() { cleanup.Request(); <-cleanup.done })
 	}
 	return srv
 }

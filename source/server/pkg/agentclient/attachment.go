@@ -49,6 +49,13 @@ type ConversationUpdate struct {
 // available through ResumeConversation rather than an unbounded client queue.
 func (c *Client) AttachConversation(ctx context.Context, parent string) (<-chan ConversationUpdate, error) {
 	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-c.stopWatch:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	request := &proto.AttachConversationRequest{ConversationId: parent}
 	c.connMu.Lock()
 	agent := c.agent
@@ -58,14 +65,19 @@ func (c *Client) AttachConversation(ctx context.Context, parent string) (<-chan 
 		cancel()
 		return nil, err
 	}
-	out := make(chan ConversationUpdate, 8)
-	go func() {
-		select {
-		case <-c.stopWatch:
+	if c.pinned != nil {
+		// Opening an HTTP/2 stream is not server-side enrollment. Wait for the
+		// explicit acknowledgement so immediate intentional release cannot race it.
+		header, headerErr := stream.Header()
+		if headerErr != nil || len(header.Get("cercano-terminal-attached")) != 1 || header.Get("cercano-terminal-attached")[0] != "true" {
 			cancel()
-		case <-ctx.Done():
+			if headerErr != nil {
+				return nil, headerErr
+			}
+			return nil, errors.New("host did not acknowledge terminal attachment")
 		}
-	}()
+	}
+	out := make(chan ConversationUpdate, 8)
 	go func() {
 		defer close(out)
 		defer cancel()

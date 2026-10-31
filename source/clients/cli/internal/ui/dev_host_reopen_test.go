@@ -3,7 +3,8 @@ package ui
 import (
 	"cercano/source/server/pkg/agentclient"
 	"cercano/source/server/pkg/proto"
-	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"path/filepath"
 	"testing"
 )
@@ -29,12 +30,16 @@ func TestFindReopenOwnerFakeControls(t *testing.T) {
 		{"unreachable possible actual owner", []string{"empty", "stale"}, "", true},
 		{"conflicting live owners", []string{"A", "B"}, "", true},
 		{"known unowned", []string{"empty"}, "", false},
+		{"invalid authentication is fatal", []string{"auth", "A"}, "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source, owner, err := findReopenOwner(tc.paths, "original", func(host string) (DevHostSelection, *proto.LifecycleControlResponse, error) {
 				s := DevHostSelection{Identity: &proto.LifecycleIdentity{Host: host}}
+				if host == "auth" {
+					return s, nil, status.Error(codes.Unauthenticated, "invalid fixture token")
+				}
 				if host == "stale" {
-					return s, nil, fmt.Errorf("unreachable fake control")
+					return s, nil, status.Error(codes.Unavailable, "unreachable fake control")
 				}
 				r := &proto.LifecycleControlResponse{Identity: s.Identity}
 				if host != "empty" {

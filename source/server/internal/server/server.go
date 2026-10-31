@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	grpcstatus "google.golang.org/grpc/status"
 
 	"cercano/source/server/internal/agent"
@@ -3882,6 +3883,10 @@ func (s *Server) AttachConversation(req *proto.AttachConversationRequest, stream
 	}
 	if attachment != nil {
 		defer attachment.Detach()
+		// A pinned observer is enrolled before the caller can release its session.
+		if err := stream.SendHeader(metadata.Pairs("cercano-terminal-attached", "true")); err != nil {
+			return err
+		}
 	}
 	convID := req.GetConversationId()
 	if convID == "" {
