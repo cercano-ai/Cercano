@@ -127,6 +127,16 @@ class OrdinaryUpgrade(unittest.TestCase):
         self.assertFalse(self.backups())
         self.assertFalse(Path(self.env['FAKE_ENV_LOG']).exists())
 
+    def test_noninteractive_refuses_before_backup(self):
+        before = self.snapshot()
+        proc = subprocess.run(['bash', str(SCRIPTS / 'cercano-launcher.sh')],
+                              env=self.env, input='y\n', capture_output=True,
+                              text=True, timeout=40)
+        self.assertEqual(proc.returncode, 78, proc.stderr)
+        self.assertEqual(before, self.snapshot())
+        self.assertFalse(self.backups())
+        self.assertFalse(Path(self.env['FAKE_ENV_LOG']).exists())
+
     def test_only_single_y_confirmation(self):
         for answer in ('', 'n', 'N', 'yes', 'STOPPED', ' y', 'y '):
             before = self.snapshot()

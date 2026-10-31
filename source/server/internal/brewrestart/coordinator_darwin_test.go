@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 	if os.Getenv("CERCANO_CHILD_FIXTURE") == "1" || (os.Getenv("CERCANO_UPGRADE_WORKER") == "1" && len(os.Args) == 2 && os.Args[1] == "worker") {
 		os.Exit(runUpgradeWorker())
 	}
-	if os.Getenv("CERCANO_COORD_FIXTURE") == "1" && len(os.Args) == 2 && (os.Args[1] == "agent" || os.Args[1] == "development-host") {
+	if os.Getenv("CERCANO_COORD_FIXTURE") == "1" && (upgradeArgvRole(os.Args) == "agent" || upgradeArgvRole(os.Args) == "development-host" || upgradeArgvRole(os.Args) == "embedded-mcp") {
 		os.Exit(runRestartFixture())
 	}
 	os.Exit(m.Run())

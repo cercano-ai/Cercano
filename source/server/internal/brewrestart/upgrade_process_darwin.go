@@ -48,10 +48,14 @@ func processRole(id Identity) (string, error) {
 	}
 	buf = bytes.TrimLeft(buf[n+1:], "\x00")
 	args := bytes.Split(buf, []byte{0})
-	if argc < 2 || len(args) < argc {
-		return "", nil
+	if argc < 1 || len(args) < argc {
+		return "", fmt.Errorf("invalid process argc")
 	}
-	return string(args[1]), nil
+	argv := make([]string, argc)
+	for i := range argv {
+		argv[i] = string(args[i])
+	}
+	return upgradeArgvRole(argv), nil
 }
 
 func signalIdentity(id Identity, sig syscall.Signal) error {
@@ -81,5 +85,5 @@ func IsUpgradeUnidentifiedOrNonWriter(pid int) bool {
 		return false
 	}
 	role, err := processRole(id)
-	return err == nil && (role == "model-host" || role == "worker")
+	return err == nil && (role == "model-host" || role == "worker" || role == "mcp-client")
 }

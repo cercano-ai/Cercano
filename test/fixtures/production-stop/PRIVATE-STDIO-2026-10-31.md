@@ -1,3 +1,9 @@
+> Historical evidence, superseded for upgrade acceptance by HOST-ONLY-2026-10-31.md.
+> Descendant death, writer-tool tick cessation, descendant freeze/STOP, and private
+> stdio shutdown are NOT current upgrade requirements. Workers/tools may survive;
+> only independently verified DB-writing hosts are stopped. Independent writer
+> uncertainty still refuses. Historical results below are not current assertions.
+
 # Private stdio child stop — review checkpoint (2026-10-31)
 
 Resumes the quota-exhausted implementation; does not repeat ambient diagnosis.

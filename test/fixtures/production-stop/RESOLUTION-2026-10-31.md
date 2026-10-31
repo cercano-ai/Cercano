@@ -1,3 +1,9 @@
+> Historical evidence, superseded for upgrade acceptance by HOST-ONLY-2026-10-31.md.
+> Descendant death, writer-tool tick cessation, descendant freeze/STOP, and private
+> stdio shutdown are NOT current upgrade requirements. Workers/tools may survive;
+> only independently verified DB-writing hosts are stopped. Independent writer
+> uncertainty still refuses. Historical results below are not current assertions.
+
 # Unresolved-child diagnostics investigation (not release acceptance)
 
 Branch: `fix/upgrade-resolution-diagnostics`, based on `63bb5d6eb19cda49651f35ee6a6bbc5919e8985d`.

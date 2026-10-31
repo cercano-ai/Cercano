@@ -118,7 +118,7 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 	t.Cleanup(func() { _ = signalIdentity(worker, syscall.SIGKILL) })
 	if workerName != "" {
 		role, roleErr := processRole(worker)
-		if roleErr != nil || role != childRole || worker.Executable == hostIdentity.Executable || worker.ParentPID != hostIdentity.PID || worker.UID != hostIdentity.UID {
+		if roleErr != nil || role != upgradeArgvRole([]string{"cercano", childRole}) || worker.Executable == hostIdentity.Executable || worker.ParentPID != hostIdentity.PID || worker.UID != hostIdentity.UID {
 			t.Fatalf("different-image probe: host=%+v worker=%+v role=%q err=%v", hostIdentity, worker, role, roleErr)
 		}
 		t.Logf("verified attached same-user child role=%s with different executable path", safeUpgradeRole(role))
@@ -220,7 +220,7 @@ func TestUpgradeMultipleActiveHosts(t *testing.T) {
 	var pids []int
 	var ids []Identity
 	var endpoints []netip.AddrPort
-	for i := 0; i < 2; i++ {
+	for _, args := range [][]string{{"agent"}, {"--mcp"}, nil, {"--server"}} {
 		root := t.TempDir()
 		exe, err := os.Executable()
 		if err != nil {
@@ -243,7 +243,7 @@ func TestUpgradeMultipleActiveHosts(t *testing.T) {
 		}
 		endpoint := netip.MustParseAddrPort(l.Addr().String())
 		l.Close()
-		host := exec.Command(binary, "agent")
+		host := exec.Command(binary, args...)
 		host.Env = []string{"HOME=" + root, "TMPDIR=" + root, "CERCANO_COORD_FIXTURE=1", "CERCANO_UPGRADE_WORKER=1", "CERCANO_COORD_ROOT=" + root, "CERCANO_COORD_ENDPOINT=" + endpoint.String()}
 		if err := host.Start(); err != nil {
 			t.Fatal(err)
@@ -291,7 +291,8 @@ func TestUpgradeMultipleActiveHosts(t *testing.T) {
 	if err := stopUpgradeHost(ctx, endpoints[0], pids); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []Identity{ids[0], ids[2]} {
+	for i := 0; i < len(ids); i += 2 {
+		id := ids[i]
 		if _, err := Inspect(id.PID); !errors.Is(err, syscall.ESRCH) {
 			t.Fatalf("target %d survived: %v", id.PID, err)
 		}

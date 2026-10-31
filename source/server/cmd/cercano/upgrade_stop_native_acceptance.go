@@ -58,13 +58,13 @@ func acceptanceHostStop(ctx context.Context, endpoint netip.AddrPort) error {
 	if err := brewrestart.StopFixtureUpgradeHost(ctx, endpoint, pids...); err != nil {
 		return err
 	}
-	for _, raw := range strings.Split(os.Getenv("CERCANO_FIXTURE_OWNED_DESCENDANTS"), ",") {
+	for _, raw := range strings.Split(os.Getenv("CERCANO_FIXTURE_OWNED_HOSTS"), ",") {
 		child, err := strconv.Atoi(raw)
 		if err != nil || child <= 0 {
-			return fmt.Errorf("explicit owned descendant required")
+			return fmt.Errorf("explicit owned host required")
 		}
 		if output, _ := exec.Command("/bin/ps", "-p", raw, "-o", "stat=").Output(); len(strings.TrimSpace(string(output))) != 0 && !strings.HasPrefix(strings.TrimSpace(string(output)), "Z") {
-			return fmt.Errorf("owned descendant %d survives before backup", child)
+			return fmt.Errorf("owned host %d survives before backup", child)
 		}
 	}
 	fmt.Fprintln(f, "verified-stop-before-backup")

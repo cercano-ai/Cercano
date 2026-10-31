@@ -241,7 +241,7 @@ func discoverUpgradeTargets(endpoint netip.AddrPort, pids []int, aggregate bool)
 			continue
 		}
 		role, err := processRole(id)
-		if err == nil && role != "agent" && role != "development-host" {
+		if err == nil && role != "agent" && role != "development-host" && role != "embedded-mcp" {
 			continue
 		}
 		var ownEndpoint netip.AddrPort
@@ -283,7 +283,7 @@ func discoverUpgradeTargets(endpoint netip.AddrPort, pids []int, aggregate bool)
 		}
 		// These roles persist through hosts, not directly to the database.
 		// Exclusion grants no signal authority.
-		if role == "model-host" || role == "worker" {
+		if role == "model-host" || role == "worker" || role == "mcp-client" {
 			continue
 		}
 		blocker := fmt.Errorf("upgrade blocker pid=%d: unresolved possible writer role %q", pid, role)
@@ -300,7 +300,7 @@ func discoverUpgradeTargets(endpoint netip.AddrPort, pids []int, aggregate bool)
 
 func safeUpgradeRole(role string) string {
 	switch role {
-	case "worker", "model-host", "agent", "development-host":
+	case "worker", "model-host", "agent", "development-host", "embedded-mcp", "mcp-client":
 		return role
 	case "":
 		return "missing"
