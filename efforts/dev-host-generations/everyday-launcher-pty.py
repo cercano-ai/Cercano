@@ -98,8 +98,9 @@ def run(repo, evidence):
         results.append({'case': 'legacy-state actual entrypoint PTY', 'exit': code,
                         'unchanged_state': True, 'output': output})
         with sqlite3.connect(db) as connection:
-            connection.execute('create table coexistence_metadata (contract text, schema_version integer)')
-            connection.execute('insert into coexistence_metadata values ("cercano-development-owned-v2",2)')
+            # Match the launcher's singleton marker admission before publisher refusal.
+            connection.execute('create table coexistence_metadata (singleton integer, contract text, schema_version integer)')
+            connection.execute('insert into coexistence_metadata values (1,"cercano-development-owned-v2",2)')
             connection.execute('pragma user_version=2')
         # This SQL prerequisite fixture is NOT a prepared production database.
         # It cannot reach any server: publication must fail first.
