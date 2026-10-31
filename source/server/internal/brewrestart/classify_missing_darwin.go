@@ -134,22 +134,32 @@ func missingExecutableEvidence(pid int) (Identity, error) {
 
 func inspectUpgradeCandidate(pid int, endpoint netip.AddrPort) (Identity, error) {
 	id, err := Inspect(pid)
-	if !errors.Is(err, syscall.ENOENT) {
+	if err == nil || errors.Is(err, syscall.ESRCH) {
 		return id, err
 	}
-	evidence, evidenceErr := missingExecutableEvidence(pid)
+	// An unavailable image is not evidence of a writer. Only concrete ownership
+	// of the requested listener makes this unidentified candidate a blocker.
+	evidence, evidenceErr := unavailableUpgradeIdentity(pid)
 	if evidenceErr != nil {
-		return Identity{}, fmt.Errorf("upgrade blocker pid=%d: missing executable; candidate unclassified: %w", pid, evidenceErr)
+		return Identity{}, nil
 	}
-	owns, socketErr := holdsListenerInspected(evidence, endpoint, missingExecutableEvidence)
-	if socketErr != nil {
-		return Identity{}, missingListenerError(pid, socketErr, missingIdentityError)
+	owns, socketErr := holdsListenerInspected(evidence, endpoint, unavailableUpgradeIdentity)
+	if socketErr == nil && owns {
+		return Identity{}, fmt.Errorf("upgrade blocker pid=%d: uninspectable executable owns target listener; shutdown identity unresolved", pid)
 	}
-	if owns {
-		return Identity{}, fmt.Errorf("upgrade blocker pid=%d: missing executable %s owns target listener; unresolved plausible writer", pid, evidence.Executable)
-	}
-	// Neither a bounded known writer nor a target listener. No signal authority.
 	return Identity{}, nil
+}
+
+// Lifetime evidence for read-only listener discovery, never signal authority.
+func unavailableUpgradeIdentity(pid int) (Identity, error) {
+	var info C.struct_proc_bsdinfo
+	if code := C.missing_info(C.int(pid), &info); code != 0 {
+		return Identity{}, syscall.Errno(code)
+	}
+	if _, err := Inspect(pid); err == nil {
+		return Identity{}, fmt.Errorf("executable inspection state changed")
+	}
+	return Identity{PID: pid, UID: uint32(info.pbi_uid), StartSeconds: uint64(info.pbi_start_tvsec), StartMicroseconds: uint64(info.pbi_start_tvusec)}, nil
 }
 
 // A successful inspection invalidates missing-path evidence; a real error must

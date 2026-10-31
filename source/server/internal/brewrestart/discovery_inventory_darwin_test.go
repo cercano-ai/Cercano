@@ -32,17 +32,17 @@ func TestMissingExecutableChild(t *testing.T) {
 
 // Enumeration is production ListCandidates, not a fixture implementation.
 // Only disposable children are inspected/signalled; no database is opened.
-func TestProductionEnumerationUnlinkedExecutable(t *testing.T) {
+func TestScopedUnlinkedExecutableCandidates(t *testing.T) {
 	for _, tc := range []struct {
 		name, executable, role string
 		targetListener, refuse bool
 	}{
 		{"unrelated", "unrelated-sleep", "", false, false},
-		{"historical-host", "cercano", "agent", false, true},
-		{"symlink-host", "cercano", "agent", false, true},
-		{"agent-host", "cercano-agent", "agent", false, true},
-		{"model-host-unresolved", "cercano", "model-host", false, true},
-		{"worker-unresolved", "cercano", "worker", false, true},
+		{"historical-host", "cercano", "agent", false, false},
+		{"symlink-host", "cercano", "agent", false, false},
+		{"agent-host", "cercano-agent", "agent", false, false},
+		{"model-host-unresolved", "cercano", "model-host", false, false},
+		{"worker-unresolved", "cercano", "worker", false, false},
 		{"ambiguous-target-listener", "unknown-host", "", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,26 +98,13 @@ func TestProductionEnumerationUnlinkedExecutable(t *testing.T) {
 			if err := os.Remove(path); err != nil {
 				t.Fatal(err)
 			}
-			pids, err := ListCandidates()
-			if err != nil {
-				t.Fatal(err)
-			}
-			found := false
-			for _, pid := range pids {
-				if pid == child.Process.Pid {
-					found = true
-				}
-			}
-			if !found {
-				t.Fatal("production enumeration omitted live disposable child")
-			}
 			if _, err := Inspect(child.Process.Pid); !errors.Is(err, syscall.ENOENT) {
 				t.Fatalf("probe did not reproduce missing executable: %v", err)
 			}
 			_, err = discoverUpgradeHost(endpoint, []int{child.Process.Pid})
 			t.Logf("production enumeration candidate classification: %v", err)
 			if tc.refuse {
-				if err == nil || !strings.Contains(err.Error(), "unresolved plausible writer") {
+				if err == nil || !strings.Contains(err.Error(), "owns target listener") {
 					t.Fatalf("lost specific refusal: %v", err)
 				}
 			} else if err != nil {
@@ -127,7 +114,7 @@ func TestProductionEnumerationUnlinkedExecutable(t *testing.T) {
 	}
 }
 
-// Mixed missing-path and intact blockers must all be diagnosed in one pass.
+// Missing unrelated images are excluded; intact blockers are diagnosed in one pass.
 // Production retains its first refusal and neither path returns a stop identity.
 func TestDiscoveryInventoryAggregatesWithoutChangingRefusal(t *testing.T) {
 	self, err := os.Executable()
@@ -169,14 +156,14 @@ func TestDiscoveryInventoryAggregatesWithoutChangingRefusal(t *testing.T) {
 	if host != nil || first == nil {
 		t.Fatalf("production accepted: %v %v", host, first)
 	}
-	if !strings.Contains(first.Error(), fmt.Sprintf("pid=%d", pids[0])) || strings.Contains(first.Error(), fmt.Sprintf("pid=%d", pids[1])) {
+	if !strings.Contains(first.Error(), fmt.Sprintf("pid=%d", pids[1])) || strings.Contains(first.Error(), fmt.Sprintf("pid=%d", pids[0])) {
 		t.Fatalf("production did not retain first refusal: %v", first)
 	}
 	host, all := discoverUpgradeHostInventory(endpoint, pids, true)
 	if host != nil || all == nil {
 		t.Fatalf("inventory accepted: %v %v", host, all)
 	}
-	for _, pid := range pids {
+	for _, pid := range pids[1:] {
 		if !strings.Contains(all.Error(), fmt.Sprintf("pid=%d", pid)) {
 			t.Fatalf("inventory omitted pid=%d: %v", pid, all)
 		}

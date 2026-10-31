@@ -5,6 +5,7 @@ package main
 import (
 	"cercano/source/server/internal/brewrestart"
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 func acceptanceHostStop(ctx context.Context, endpoint netip.AddrPort) error {
@@ -32,6 +34,16 @@ func acceptanceHostStop(ctx context.Context, endpoint netip.AddrPort) error {
 		return fmt.Errorf("owned sibling worker required")
 	}
 	pids = append(pids, worker) // candidate only, never a host/descendant
+	if raw := os.Getenv("CERCANO_FIXTURE_UNIDENTIFIED"); raw != "" {
+		unrelated, err := strconv.Atoi(raw)
+		if err != nil || unrelated <= 0 {
+			return fmt.Errorf("explicit unrelated fixture PID required")
+		}
+		if _, err := brewrestart.Inspect(unrelated); !errors.Is(err, syscall.ENOENT) {
+			return fmt.Errorf("fixture image must be unavailable: %v", err)
+		}
+		pids = append(pids, unrelated)
+	}
 	state := os.Getenv("CERCANO_DEVELOPMENT_STATE")
 	backups, err := filepath.Glob(filepath.Join(state, "conversations.before-upgrade-*.db"))
 	if err != nil || len(backups) != 0 {

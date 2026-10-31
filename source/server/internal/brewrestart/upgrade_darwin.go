@@ -15,7 +15,7 @@ import (
 
 // StopUpgradeHost externally terminates verified host listeners and their workers.
 // Names alone never authorize signalling. The caller holds the SDK launch lock across this operation and
-// migration. Unknown candidates remain blockers, not exceptions to detection.
+// migration. Unavailable unrelated images are not evidence of host writers.
 func StopUpgradeHost(ctx context.Context, endpoint netip.AddrPort) error {
 	pids, err := ListCandidates()
 	if err != nil {

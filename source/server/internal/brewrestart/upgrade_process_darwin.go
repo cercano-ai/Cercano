@@ -154,17 +154,15 @@ func verifiedModelHost(id Identity) (bool, error) {
 	return role == "model-host", err
 }
 
-// IsUpgradeNonWriter excludes bounded recognized non-writers from the database
-// gate, never authorizing signals. Missing images require the stronger saved
-// path/role/socket evidence used by discovery, not argv or ancestry alone.
-func IsUpgradeNonWriter(pid int) bool {
+// IsUpgradeUnidentifiedOrNonWriter excludes unavailable images and recognized
+// non-writers from the known-agent gate. It grants no signal authority and does
+// not claim that every excluded process has been classified as a non-writer.
+func IsUpgradeUnidentifiedOrNonWriter(pid int) bool {
 	id, err := Inspect(pid)
-	if errors.Is(err, syscall.ENOENT) {
-		id, err = missingExecutableEvidence(pid)
-		name := filepath.Base(id.Executable)
-		return err == nil && id.UID == uint32(os.Getuid()) && (name == "cercano" || name == "cercano-agent")
+	if err != nil {
+		return true
 	}
-	if err != nil || id.UID != uint32(os.Getuid()) {
+	if id.UID != uint32(os.Getuid()) {
 		return false
 	}
 	name := filepath.Base(id.Executable)

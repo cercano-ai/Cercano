@@ -33,8 +33,8 @@ func knownUpgradeAgents(ctx context.Context) error {
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) > 0 {
-			pid, _ := strconv.Atoi(fields[0])
-			if brewrestart.IsUpgradeNonWriter(pid) {
+			pid, err := strconv.Atoi(fields[0])
+			if err == nil && pid > 0 && brewrestart.IsUpgradeUnidentifiedOrNonWriter(pid) {
 				continue
 			}
 		}

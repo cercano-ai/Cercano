@@ -89,6 +89,7 @@ def snap(name):
   c.close();(root/(name+'.json')).write_text(json.dumps(data,indent=2,default=str))
 log=open(root/'host.log','w');host=sp.Popen([str(base/'cercano'),'agent'],env=env,cwd=root/'work',stdout=log,stderr=sp.STDOUT);track(host.pid)
 sibling=None
+unidentified=None
 result={'source_commit':sp.check_output(['git','rev-parse','HEAD'],cwd=base,text=True).strip()}
 try:
  for _ in range(100):
@@ -126,6 +127,16 @@ try:
    assert result['ticks_after_shutdown']==result['ticks_after_wait'], 'tool continues writing'
    assert result['survivors'] and all(' model-host' in i for i in result['survivors'].values()), 'unexpected survivor or lost shared model host'
  if mode=='combined':
+  # Unrelated unavailable image: no role/socket corroboration and no signal authority.
+  image=root/'cercano'
+  sleeper=root/'unrelated.c'
+  sleeper.write_text('#include <unistd.h>\nint main(void) { sleep(120); return 0; }\n')
+  sp.run(['/usr/bin/cc',str(sleeper),'-o',str(image)],env=env,check=True)
+  unidentified=sp.Popen([str(image),'120'],env=env)
+  time.sleep(.2)
+  assert unidentified.poll() is None
+  image.unlink()
+  result['unidentified_pid']=unidentified.pid
   # A second untagged production writer shares only this disposable store.
   # It has its own listener and active worker; no client-idle prerequisite.
   s=socket.socket();s.bind(('127.0.0.1',0));extra_port=s.getsockname()[1];s.close()
@@ -171,9 +182,11 @@ try:
   # Keep production endpoint authority, but use the compiled synthetic generation backend.
   import shutil
   shutil.copy2(conf/'config.yaml',root/'state/config.yaml')
-  upgrade_env=dict(env,CERCANO_FIXTURE_OWNED_DESCENDANTS=','.join(map(str,[host.pid,*descendants])),CERCANO_FIXTURE_PORT=str(port),CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='owned-worker',CERCANO_FIXTURE_SIBLING_WORKER=str(sibling.pid),CERCANO_FIXTURE_OWNED_HOST=str(host.pid),CERCANO_FIXTURE_ADDITIONAL_HOSTS=str(extra.pid),CERCANO_FIXTURE_STOP_RECORD=str(root/'native-stop.log'),CERCANO_FIXTURE_UPGRADE_HELPER=str(base/'cercano-native-upgrade'))
+  upgrade_env=dict(env,CERCANO_FIXTURE_UNIDENTIFIED=str(unidentified.pid),CERCANO_FIXTURE_OWNED_DESCENDANTS=','.join(map(str,[host.pid,*descendants])),CERCANO_FIXTURE_PORT=str(port),CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='owned-worker',CERCANO_FIXTURE_SIBLING_WORKER=str(sibling.pid),CERCANO_FIXTURE_OWNED_HOST=str(host.pid),CERCANO_FIXTURE_ADDITIONAL_HOSTS=str(extra.pid),CERCANO_FIXTURE_STOP_RECORD=str(root/'native-stop.log'),CERCANO_FIXTURE_UPGRADE_HELPER=str(base/'cercano-native-upgrade'))
   from generation import accept
   accept(base.parents[2],root,upgrade_env,None,result,upgrading=True)
+  assert unidentified.poll() is None, 'unrelated process terminated'
+  result['unidentified_survived_upgrade']=True
   assert sibling.poll() is None and identity(sibling.pid)==result['sibling_worker']['identity']
   with socket.socket(socket.AF_UNIX) as probe: probe.connect(str(root/'sibling.sock'))
   result['sibling_worker']['survived_and_serving_after_generation']=True
@@ -186,6 +199,9 @@ try:
   result['fixture_combined_acceptance']=True
 except Exception as e:result['error']=repr(e)
 finally:
+ if unidentified is not None:
+  unidentified.terminate(); unidentified.wait(timeout=3)
+  result['unidentified_cleanup_exit']=unidentified.returncode
  release.set();capture()
  # Writers self-expire; never signal an unverified shell or its process group.
  time.sleep(13)

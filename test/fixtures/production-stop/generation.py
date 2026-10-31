@@ -17,7 +17,7 @@ def accept(repo, root, env, history, result, upgrading=False):
     tools=root/'tools'; tools.mkdir(); (tools/'python3').symlink_to(sys.executable)
     # Scope only knownUpgradeAgents' ps -U inventory; native /bin/ps checks remain untouched.
     ps=tools/'ps'
-    ps.write_text('#!'+sys.executable+'\nimport os,sys\nif sys.argv[1:]==["-U",str(os.getuid()),"-o","pid=,comm="]:\n with open(os.environ["CERCANO_FIXTURE_STOP_RECORD"]+".checks","a") as f: f.write("real-knownUpgradeAgents worker="+os.environ["CERCANO_FIXTURE_SIBLING_WORKER"]+"\\n")\n print(os.environ["CERCANO_FIXTURE_SIBLING_WORKER"]+" cercano"); sys.exit(0)\nos.execv("/bin/ps",["/bin/ps",*sys.argv[1:]])\n'); ps.chmod(0o700)
+    ps.write_text('#!'+sys.executable+'\nimport os,sys\nif sys.argv[1:]==["-U",str(os.getuid()),"-o","pid=,comm="]:\n with open(os.environ["CERCANO_FIXTURE_STOP_RECORD"]+".checks","a") as f: f.write("real-knownUpgradeAgents worker="+os.environ["CERCANO_FIXTURE_SIBLING_WORKER"]+"\\n")\n print(os.environ["CERCANO_FIXTURE_SIBLING_WORKER"]+" cercano")\n if os.environ.get("CERCANO_FIXTURE_UNIDENTIFIED"): print(os.environ["CERCANO_FIXTURE_UNIDENTIFIED"]+" cercano")\n sys.exit(0)\nos.execv("/bin/ps",["/bin/ps",*sys.argv[1:]])\n'); ps.chmod(0o700)
     go='/opt/homebrew/bin/go'
     wrapper=tools/'go'
     wrapper.write_text('#!'+sys.executable+'\nimport os,sys,shutil\na=sys.argv[1:]\nif a and a[0]=="build" and "cercano-upgrade-" in a[a.index("-o")+1]:\n shutil.copy2(os.environ["CERCANO_FIXTURE_UPGRADE_HELPER"],a[a.index("-o")+1]); sys.exit(0)\nos.environ["GOTOOLCHAIN"]="local"\na=sys.argv[1:]\nif a and a[0]=="build": a.insert(1,"-tags=developmentfixture,cercano_development_acceptance")\nos.execv('+repr(go)+',['+repr(go)+',*a])\n'); wrapper.chmod(0o700)

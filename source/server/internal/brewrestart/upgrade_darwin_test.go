@@ -298,10 +298,10 @@ func TestUpgradeHostWithUnrelatedRecognizedWorker(t *testing.T) {
 			if wid.ParentPID == host.Process.Pid {
 				t.Fatal("worker unexpectedly associated")
 			}
-			if !IsUpgradeNonWriter(worker.Process.Pid) {
+			if !IsUpgradeUnidentifiedOrNonWriter(worker.Process.Pid) {
 				t.Fatal("post-stop gate rejects recognized worker")
 			}
-			if IsUpgradeNonWriter(host.Process.Pid) {
+			if IsUpgradeUnidentifiedOrNonWriter(host.Process.Pid) {
 				t.Fatal("post-stop gate excludes host")
 			}
 			targets, err := discoverUpgradeTargets(netip.MustParseAddrPort("127.0.0.1:1"), []int{host.Process.Pid, worker.Process.Pid}, false)
@@ -318,7 +318,7 @@ func TestUpgradeHostWithUnrelatedRecognizedWorker(t *testing.T) {
 			}
 			// Disposable integrated sequence: only after native verified host exit,
 			// check the surviving worker, save a backup, then migrate the store.
-			if !IsUpgradeNonWriter(worker.Process.Pid) {
+			if !IsUpgradeUnidentifiedOrNonWriter(worker.Process.Pid) {
 				t.Fatal("worker blocks post-stop DB gate")
 			}
 			original, err := os.ReadFile(db)
