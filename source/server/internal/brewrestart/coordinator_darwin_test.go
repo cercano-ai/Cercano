@@ -9,10 +9,12 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -91,6 +93,14 @@ func runRestartFixture() int {
 		defer func() { _ = worker.Process.Kill(); _ = worker.Wait() }()
 		_ = os.WriteFile(filepath.Join(root, "worker-pid"), []byte(strconv.Itoa(worker.Process.Pid)), 0600)
 	}
+	term := make(chan os.Signal, 1)
+	if os.Getenv("CERCANO_TERM_MODE") == "ignore" {
+		signal.Ignore(syscall.SIGTERM)
+	}
+	if os.Getenv("CERCANO_TERM_MODE") == "cooperate" {
+		signal.Notify(term, syscall.SIGTERM)
+		defer signal.Stop(term)
+	}
 	service := &restartFixture{stop: make(chan struct{})}
 	gs := grpc.NewServer()
 	proto.RegisterAgentServer(gs, service)
@@ -98,6 +108,9 @@ func runRestartFixture() int {
 	cwd, _ := os.Getwd()
 	_ = os.WriteFile(filepath.Join(root, version+"-ready"), []byte(fmt.Sprintf("%d\n%s\n%s", os.Getpid(), cwd, os.Getenv("FIXTURE_SETTING"))), 0600)
 	select {
+	case <-term:
+		_ = os.WriteFile(filepath.Join(root, "term-cleanup"), []byte("clean"), 0600)
+		return 0
 	case <-service.stop:
 	case <-time.After(20 * time.Second):
 		return 3

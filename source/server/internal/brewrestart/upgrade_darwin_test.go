@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -25,7 +24,10 @@ func runUpgradeWorker() int {
 		if _, err := os.Stat(filepath.Join(root, "cancel-worker")); err == nil {
 			return 0
 		}
-		if err := os.WriteFile(filepath.Join(root, "worker-progress"), []byte(strconv.Itoa(i)), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "worker-progress.tmp"), []byte(strconv.Itoa(i)), 0600); err != nil {
+			return 2
+		}
+		if err := os.Rename(filepath.Join(root, "worker-progress.tmp"), filepath.Join(root, "worker-progress")); err != nil {
 			return 2
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -33,7 +35,7 @@ func runUpgradeWorker() int {
 }
 
 // Native external shutdown regression; this does not qualify migration acceptance.
-func TestUpgradeStopsRealHostAndActiveWorker(t *testing.T) {
+func TestUpgradeStopsHostLeavesActiveWorker(t *testing.T) {
 	testUpgradeStop(t, false)
 }
 
@@ -41,7 +43,7 @@ func TestUpgradeCancellationAfterTERMFinishesCleanup(t *testing.T) {
 	testUpgradeStop(t, true)
 }
 
-func TestUpgradeStopsDifferentImageWorker(t *testing.T) {
+func TestUpgradeAllowsDifferentImageWorker(t *testing.T) {
 	for _, name := range []string{"cercano", "cercano-agent", "unrecognized-worker"} {
 		t.Run(name, func(t *testing.T) { testUpgradeStopWithWorker(t, false, name) })
 	}
@@ -81,6 +83,9 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 	host := exec.Command(binary, "agent")
 	host.Env = []string{"HOME=" + root, "TMPDIR=" + root, "CERCANO_COORD_FIXTURE=1", "CERCANO_UPGRADE_WORKER=1", "CERCANO_COORD_ROOT=" + root, "CERCANO_COORD_ENDPOINT=" + endpoint.String()}
 	host.Env = append(host.Env, "CERCANO_COORD_CHILD_ROLE="+childRole)
+	if childRole == "cooperate" || childRole == "ignore" {
+		host.Env = append(host.Env, "CERCANO_TERM_MODE="+childRole)
+	}
 	if workerName != "" {
 		workerBinary := filepath.Join(root, "worker-version", workerName)
 		if err := os.MkdirAll(filepath.Dir(workerBinary), 0700); err != nil {
@@ -137,11 +142,7 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 	if progress == string(waitFixtureFile(t, filepath.Join(root, "worker-progress"))) {
 		t.Fatal("already canceled shutdown disturbed worker")
 	}
-	timeout := 5 * time.Second
-	if (workerName == "unrecognized-worker" || childRole != "worker") && childRole != "private-stdio" {
-		timeout = 500 * time.Millisecond
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	// A recognized worker is not a database writer, even without its host.
 	if childRole == "worker" {
@@ -156,9 +157,7 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 	// external signals control both disposable processes, not injected stubs.
 	var afterTERM func()
 	if cancelAfterTERM {
-		// Producers now remain frozen through escalation, including workers.
-		// Observe completed native TERM delivery, not worker exit (which now
-		// occurs during KILL). No signals or exit checks are mocked.
+		// Cancel after native TERM; cleanup must still verify host exit.
 		afterTERM = cancel
 	}
 	candidates := []int{host.Process.Pid}
@@ -167,26 +166,30 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 		unrelated, _ = replacedPathCandidate(t, "unrelated-helper")
 		candidates = append(candidates, unrelated)
 	}
-	err = stopUpgradeHostObserved(ctx, endpoint, candidates, afterTERM)
-	if (workerName == "unrecognized-worker" || childRole != "worker") && childRole != "private-stdio" {
-		t.Logf("probe: child pid=%d role=%s image=%s; stop error=%v", pid, safeUpgradeRole(childRole), workerName, err)
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("unrecognized image must block: %v", err)
-		}
-		for _, fragment := range []string{"pid=" + strconv.Itoa(pid), "role=" + safeUpgradeRole(childRole), "unresolved=1 omitted=0"} {
-			if !strings.Contains(err.Error(), fragment) {
-				t.Fatalf("missing child diagnostic %q: %v", fragment, err)
+	started := time.Now()
+	if childRole == "signal-failure" {
+		calls := 0
+		err := stopVerifiedUpgradeHostWithSignal(ctx, upgradeTarget{hostIdentity, endpoint}, nil, func(id Identity, sig syscall.Signal) error {
+			if !id.SameProcess(hostIdentity) {
+				t.Fatal("signal targeted non-host")
 			}
+			calls++
+			return syscall.EPERM
+		})
+		if !errors.Is(err, syscall.EPERM) || calls < 2 {
+			t.Fatalf("signal failure lost: calls=%d err=%v", calls, err)
 		}
-		if strings.Contains(err.Error(), "fixture-secret") {
-			t.Fatalf("child argument leaked: %v", err)
-		}
-		for _, id := range []Identity{hostIdentity, worker} {
-			if now, err := Inspect(id.PID); err != nil || !now.SameProcess(id) {
-				t.Fatalf("refusal disturbed fixture identity: %v", err)
-			}
+		if now, err := Inspect(hostIdentity.PID); err != nil || !now.SameProcess(hostIdentity) {
+			t.Fatalf("failed termination disturbed host: %v", err)
 		}
 		return
+	}
+	err = stopUpgradeHostObserved(ctx, endpoint, candidates, afterTERM)
+	if childRole == "ignore" && time.Since(started) < 2*time.Second {
+		t.Fatal("ignored TERM did not receive grace interval")
+	}
+	if childRole == "cooperate" {
+		waitFixtureFile(t, filepath.Join(root, "term-cleanup"))
 	}
 	if cancelAfterTERM {
 		if !errors.Is(err, context.Canceled) {
@@ -203,8 +206,8 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 	if _, err := Inspect(host.Process.Pid); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("host exit not confirmed: %v", err)
 	}
-	if _, err := Inspect(pid); !errors.Is(err, syscall.ESRCH) {
-		t.Fatalf("worker exit not confirmed: %v", err)
+	if now, err := Inspect(pid); childRole != "cooperate" && (err != nil || !now.SameProcess(worker)) {
+		t.Fatalf("descendant was disturbed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "cancel-worker")); err == nil {
 		t.Fatal("unexpected historical RPC shutdown")
@@ -288,7 +291,7 @@ func TestUpgradeMultipleActiveHosts(t *testing.T) {
 	if err := stopUpgradeHost(ctx, endpoints[0], pids); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range ids {
+	for _, id := range []Identity{ids[0], ids[2]} {
 		if _, err := Inspect(id.PID); !errors.Is(err, syscall.ESRCH) {
 			t.Fatalf("target %d survived: %v", id.PID, err)
 		}
@@ -414,5 +417,11 @@ func TestUpgradeHostWithUnrelatedRecognizedWorker(t *testing.T) {
 func TestUpgradeUnknownChildRoles(t *testing.T) {
 	for _, role := range []string{"agent", "development-host", "--fixture-secret=credential"} {
 		t.Run(safeUpgradeRole(role), func(t *testing.T) { testUpgradeStopWithWorker(t, false, "cercano", role) })
+	}
+}
+
+func TestUpgradeHostTERMPolicy(t *testing.T) {
+	for _, role := range []string{"cooperate", "ignore", "model-host", "signal-failure"} {
+		t.Run(role, func(t *testing.T) { testUpgradeStopWithWorker(t, false, "cercano", role) })
 	}
 }

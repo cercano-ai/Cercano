@@ -9,13 +9,11 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"syscall"
 	"time"
 )
 
-// StopUpgradeHost externally terminates verified host listeners and their workers.
+// StopUpgradeHost terminates verified DB-writing hosts, including embedded MCP.
 // Names alone never authorize signalling. The caller holds the SDK launch lock across this operation and
 // migration. Unavailable unrelated images are not evidence of host writers.
 func StopUpgradeHost(ctx context.Context, endpoint netip.AddrPort) error {
@@ -62,131 +60,25 @@ type upgradeTarget struct {
 	endpoint netip.AddrPort
 }
 
-func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTERM func()) (retErr error) {
-	host := &target.Identity
-	endpoint := target.endpoint
-	// Stop the producer BEFORE the final child scan. Keep it stopped until KILL:
-	// resuming even to deliver TERM would reopen the historical spawn race.
-	// On refusal/cancellation, resume only this same process, never a reused PID.
-	frozen := true
-	frozenChildren := map[int]stoppedIdentity{}
-	var hostStop stoppedIdentity
-	defer func() {
-		if frozen {
-			for _, id := range frozenChildren {
-				retErr = errors.Join(retErr, resumeUpgradeProcess(id))
-			}
-			retErr = errors.Join(retErr, resumeUpgradeProcess(hostStop))
-		}
-	}()
-	if err := freezeUpgradeHost(ctx, *host, &hostStop); err != nil {
-		return err
-	}
-	owns, err := HoldsListener(*host, endpoint)
-	if err != nil || !owns {
-		return fmt.Errorf("frozen host lost listener: %v", err)
-	}
-	workers := map[int]Identity{}
-	stdioRoots := map[int]*stdioWitness{}
-	// A fork already in flight may still be execing. Wait for its role to settle;
-	// never classify such a child by name or group alone.
-	for {
-		candidates, err := upgradeChildren(host.PID)
-		if err != nil {
-			return err
-		}
-		workers = map[int]Identity{}
-		stdioRoots = map[int]*stdioWitness{}
-		unresolved := childResolutionDiagnostics{}
-		for _, pid := range candidates {
-			id, err := Inspect(pid)
-			if errors.Is(err, syscall.ESRCH) {
-				continue
-			}
-			if err != nil {
-				return fmt.Errorf("host child pid=%d identity inspection failed: %w", pid, err)
-			}
-			if id.ParentPID != host.PID {
-				continue
-			}
-			if id.StartSeconds < host.StartSeconds || (id.StartSeconds == host.StartSeconds && id.StartMicroseconds < host.StartMicroseconds) {
-				return fmt.Errorf("host child pid=%d identity predates host", pid)
-			}
-			shared, sharedErr := verifiedModelHost(id)
-			if sharedErr != nil {
-				return sharedErr
-			}
-			if shared {
-				continue
-			}
-			witness := &stdioWitness{}
-			private, pipeErr := verifiedPrivateStdio(*host, id, witness)
-			if pipeErr == nil && private {
-				workers[pid] = id
-				stdioRoots[pid] = witness
-				continue
-			}
-			role, err := processRole(id)
-			if err != nil {
-				// processRole errors contain only fixed categories and the PID,
-				// never argument values or executable paths.
-				unresolved.add(pid, "role unavailable: "+err.Error())
-				continue
-			}
-			// A host can retain workers from a different executable version.
-			// As with model-host classification, use the kernel image name and
-			// verified role, not equality with the host's current image path.
-			// Attachment, lifetime and UID establish ownership; the tree freeze
-			// and every signal still revalidate the full executable identity.
-			category, reason := upgradeDirectChildCategory(*host, id, role)
-			if category == "worker" {
-				workers[pid] = id
-				continue
-			}
-			unresolved.add(pid, "role="+safeUpgradeRole(role)+" reason="+reason)
-		}
-		if unresolved.total == 0 {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("unresolved host children host_pid=%d %s: %w", host.PID, unresolved.String(), ctx.Err())
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
-	// Historical escalation: TERM, twenty 100ms exit polls, then KILL. The host
-	// and worker tree remain frozen, so TERM stays pending until escalation. No
-	// negative/group PID is ever signalled (workers have independent groups).
-	targets := map[int]Identity{host.PID: *host}
-	for pid, id := range workers {
-		targets[pid] = id
-	}
-	// Workers are producers too: RunCommand owns a separate process group.
-	// Freeze the verified tree before TERM can orphan its tool descendants.
-	checkStdio := func(id Identity) error {
-		if stdioRoots[id.PID] == nil {
-			return nil
-		}
-		ok, err := verifiedPrivateStdio(*host, id, stdioRoots[id.PID])
-		if err != nil || !ok {
-			return fmt.Errorf("private stdio ownership changed pid=%d: %v", id.PID, err)
-		}
-		return nil
-	}
-	if err := freezeUpgradeDescendants(ctx, *host, workers, frozenChildren, checkStdio); err != nil {
-		return err
-	}
-	for pid, id := range frozenChildren {
-		targets[pid] = id.Identity
-	}
+func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTERM func()) error {
+	return stopVerifiedUpgradeHostWithSignal(ctx, target, afterTERM, signalIdentity)
+}
+
+// signal is an error-injection seam for disposable tests, never discovery authority.
+func stopVerifiedUpgradeHostWithSignal(ctx context.Context, target upgradeTarget, afterTERM func(), signal func(Identity, syscall.Signal) error) (retErr error) {
+	// Only independently identified DB-writing hosts are targets. Embedded MCP
+	// runs in the host; descendants need not exit and receive no signals here.
 	if err := ctx.Err(); err != nil {
-		return err // Still reversible: no TERM sent, deferred CONT is safe.
+		return err
 	}
-	// Once TERM may have been delivered, resuming the producer is not rollback:
-	// it can spawn replacement workers or deliver pending host shutdown while
-	// orphaning surviving work. Finish bounded identity-checked cleanup even if
-	// the caller cancels. Preserve the caller error so migration stays refused.
-	frozen = false
+	host := target.Identity
+	owns, err := HoldsListener(host, target.endpoint)
+	if err != nil || !owns {
+		return fmt.Errorf("host lost listener pid=%d: %v", host.PID, err)
+	}
+	targets := map[int]Identity{host.PID: host}
+	// After TERM, finish bounded cleanup on cancellation, but preserve the
+	// failure so the caller cannot proceed to backup or migration.
 	defer func() {
 		if retErr == nil {
 			return
@@ -194,7 +86,7 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		for _, id := range targets {
-			if err := signalIdentity(id, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			if err := signal(id, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 				retErr = errors.Join(retErr, fmt.Errorf("upgrade cleanup pid=%d: %w", id.PID, err))
 			}
 		}
@@ -205,7 +97,7 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 		}
 	}()
 	for _, id := range targets {
-		if err := signalIdentity(id, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		if err := signal(id, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 			return err
 		}
 	}
@@ -231,7 +123,7 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 		}
 	}
 	for _, id := range targets {
-		if err := signalIdentity(id, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		if err := signal(id, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 			return err
 		}
 	}
@@ -240,7 +132,6 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 			return fmt.Errorf("upgrade pid=%d not exited: %w", id.PID, err)
 		}
 	}
-	frozen = false
 	return nil
 }
 
@@ -391,7 +282,7 @@ func discoverUpgradeTargets(endpoint netip.AddrPort, pids []int, aggregate bool)
 			continue
 		}
 		// These roles persist through hosts, not directly to the database.
-		// Exclusion grants no signal authority; child cleanup has its own checks.
+		// Exclusion grants no signal authority.
 		if role == "model-host" || role == "worker" {
 			continue
 		}
@@ -407,32 +298,6 @@ func discoverUpgradeTargets(endpoint netip.AddrPort, pids []int, aggregate bool)
 	return targets, nil
 }
 
-// Only fixed role labels are logged: argv[1] may contain a credential or arbitrary
-// tool input. Keep the lowest eight PIDs for deterministic, bounded diagnostics.
-type childResolutionDiagnostics struct {
-	total   int
-	entries []childResolutionDiagnostic
-}
-type childResolutionDiagnostic struct {
-	pid    int
-	reason string
-}
-
-func (d *childResolutionDiagnostics) add(pid int, reason string) {
-	d.total++
-	d.entries = append(d.entries, childResolutionDiagnostic{pid, reason})
-	sort.Slice(d.entries, func(i, j int) bool { return d.entries[i].pid < d.entries[j].pid })
-	if len(d.entries) > 8 {
-		d.entries = d.entries[:8]
-	}
-}
-func (d childResolutionDiagnostics) String() string {
-	parts := make([]string, 0, len(d.entries))
-	for _, e := range d.entries {
-		parts = append(parts, fmt.Sprintf("pid=%d %s", e.pid, e.reason))
-	}
-	return fmt.Sprintf("unresolved=%d omitted=%d [%s]", d.total, d.total-len(d.entries), strings.Join(parts, "; "))
-}
 func safeUpgradeRole(role string) string {
 	switch role {
 	case "worker", "model-host", "agent", "development-host":
@@ -442,22 +307,4 @@ func safeUpgradeRole(role string) string {
 	default:
 		return "unrecognized"
 	}
-}
-
-// Classify only after identity, attachment, lifetime, role and shared-model-host
-// checks. This is also used by the opt-in read-only observation test.
-// Unknown children are not ours to kill: refuse rather than leave possible
-// work running and authorize migration.
-func upgradeDirectChildCategory(host, id Identity, role string) (string, string) {
-	name := filepath.Base(id.Executable)
-	if id.UID != host.UID {
-		return "unresolved", "UID mismatch"
-	}
-	if name != "cercano" && name != "cercano-agent" {
-		return "unresolved", "unrecognized executable identity"
-	}
-	if role == "worker" {
-		return "worker", "recognized"
-	}
-	return "unresolved", "unsupported role"
 }

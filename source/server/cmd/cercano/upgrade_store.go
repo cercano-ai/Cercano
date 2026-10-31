@@ -72,7 +72,7 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 	fs.SetOutput(out)
 	db := fs.String("database", "", "existing conversation database (absolute path)")
 	checkOnly := fs.Bool("check-only", false, "check known processes without opening the store")
-	stopConfig := fs.String("stop-hosts-config", "", "after consent, stop verified configured host and workers")
+	stopConfig := fs.String("stop-hosts-config", "", "after consent, stop verified DB-writing hosts (not descendants)")
 	interrupted := fs.Bool("interrupt-tasks", false, "recover interrupted tasks after verified writers exit")
 	stopped := fs.Bool("all-legacy-agents-stopped", false, "confirm ALL legacy Cercano agents are stopped and will remain stopped")
 	if err := fs.Parse(args); err != nil {
