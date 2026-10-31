@@ -213,11 +213,18 @@ func PreflightUpgradeHost(endpoint netip.AddrPort) error {
 	if err != nil {
 		return err
 	}
-	_, err = discoverUpgradeHost(endpoint, pids)
+	_, err = discoverUpgradeHostInventory(endpoint, pids, true)
 	return err
 }
 
 func discoverUpgradeHost(endpoint netip.AddrPort, pids []int) (*Identity, error) {
+	return discoverUpgradeHostInventory(endpoint, pids, false)
+}
+
+// Diagnostic mode collects every refusal using production classification. It never
+// returns a host when any blocker exists; shutdown retains first-error refusal.
+func discoverUpgradeHostInventory(endpoint netip.AddrPort, pids []int, aggregate bool) (*Identity, error) {
+	var blockers []error
 	identities := map[int]Identity{}
 	var host *Identity
 	for _, pid := range pids {
@@ -229,7 +236,11 @@ func discoverUpgradeHost(endpoint netip.AddrPort, pids []int) (*Identity, error)
 			continue
 		}
 		if err != nil {
-			return nil, err
+			if !aggregate {
+				return nil, err
+			}
+			blockers = append(blockers, fmt.Errorf("upgrade blocker pid=%d: %w", pid, err))
+			continue
 		}
 		if id.PID == 0 || id.UID != uint32(os.Getuid()) {
 			continue
@@ -238,14 +249,26 @@ func discoverUpgradeHost(endpoint netip.AddrPort, pids []int) (*Identity, error)
 		name := filepath.Base(id.Executable)
 		owns, err := HoldsListener(id, endpoint)
 		if err != nil {
-			return nil, fmt.Errorf("upgrade blocker pid=%d: %w", pid, err)
+			if !aggregate {
+				return nil, fmt.Errorf("upgrade blocker pid=%d: %w", pid, err)
+			}
+			blockers = append(blockers, fmt.Errorf("upgrade blocker pid=%d: %w", pid, err))
+			continue
 		}
 		if owns {
 			if name != "cercano" && name != "cercano-agent" {
-				return nil, fmt.Errorf("upgrade blocker pid=%d executable=%s: custom listener identity is unsupported", pid, id.Executable)
+				if !aggregate {
+					return nil, fmt.Errorf("upgrade blocker pid=%d executable=%s: custom listener identity is unsupported", pid, id.Executable)
+				}
+				blockers = append(blockers, fmt.Errorf("upgrade blocker pid=%d executable=%s: custom listener identity is unsupported", pid, id.Executable))
+				continue
 			}
 			if host != nil {
-				return nil, fmt.Errorf("multiple upgrade listener owners")
+				if !aggregate {
+					return nil, fmt.Errorf("multiple upgrade listener owners")
+				}
+				blockers = append(blockers, fmt.Errorf("multiple upgrade listener owners"))
+				continue
 			}
 			copy := id
 			host = &copy
@@ -253,7 +276,11 @@ func discoverUpgradeHost(endpoint netip.AddrPort, pids []int) (*Identity, error)
 	}
 	// Preflight known agents before disrupting anything. A shared model host is
 	// never a conversation writer and is never signalled, even if it is a child.
-	for pid, id := range identities {
+	for _, pid := range pids {
+		id, exists := identities[pid]
+		if !exists {
+			continue
+		}
 		name := filepath.Base(id.Executable)
 		if name != "cercano" && name != "cercano-agent" {
 			continue
@@ -263,14 +290,25 @@ func discoverUpgradeHost(endpoint netip.AddrPort, pids []int) (*Identity, error)
 		}
 		role, err := processRole(id)
 		if err != nil {
-			return nil, err
+			if !aggregate {
+				return nil, err
+			}
+			blockers = append(blockers, fmt.Errorf("upgrade blocker pid=%d: %w", pid, err))
+			continue
 		}
 		if role == "model-host" {
 			continue
 		}
 		if host == nil || id.ParentPID != host.PID || id.Executable != host.Executable || role != "worker" {
-			return nil, fmt.Errorf("upgrade blocker pid=%d: no verified host/worker association", pid)
+			if !aggregate {
+				return nil, fmt.Errorf("upgrade blocker pid=%d: no verified host/worker association", pid)
+			}
+			blockers = append(blockers, fmt.Errorf("upgrade blocker pid=%d: no verified host/worker association", pid))
+			continue
 		}
+	}
+	if len(blockers) > 0 {
+		return nil, errors.Join(blockers...)
 	}
 	return host, nil
 }

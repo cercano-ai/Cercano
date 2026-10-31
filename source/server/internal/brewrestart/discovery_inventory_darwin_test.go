@@ -126,3 +126,62 @@ func TestProductionEnumerationUnlinkedExecutable(t *testing.T) {
 		})
 	}
 }
+
+// Mixed missing-path and intact blockers must all be diagnosed in one pass.
+// Production retains its first refusal and neither path returns a stop identity.
+func TestDiscoveryInventoryAggregatesWithoutChangingRefusal(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pids []int
+	for i := 0; i < 3; i++ {
+		path := filepath.Join(t.TempDir(), "cercano")
+		if err := os.WriteFile(path, data, 0700); err != nil {
+			t.Fatal(err)
+		}
+		child := exec.Command(path, "-test.run=^TestMissingExecutableChild$", "worker")
+		child.Env = append(os.Environ(), "CERCANO_MISSING_CHILD=1")
+		output, err := child.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := child.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+		if !bufio.NewScanner(output).Scan() {
+			t.Fatal("child not ready")
+		}
+		pids = append(pids, child.Process.Pid)
+		if i == 0 {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	endpoint := netip.MustParseAddrPort("127.0.0.1:1")
+	host, first := discoverUpgradeHost(endpoint, pids)
+	if host != nil || first == nil {
+		t.Fatalf("production accepted: %v %v", host, first)
+	}
+	if !strings.Contains(first.Error(), fmt.Sprintf("pid=%d", pids[0])) || strings.Contains(first.Error(), fmt.Sprintf("pid=%d", pids[1])) {
+		t.Fatalf("production did not retain first refusal: %v", first)
+	}
+	host, all := discoverUpgradeHostInventory(endpoint, pids, true)
+	if host != nil || all == nil {
+		t.Fatalf("inventory accepted: %v %v", host, all)
+	}
+	for _, pid := range pids {
+		if !strings.Contains(all.Error(), fmt.Sprintf("pid=%d", pid)) {
+			t.Fatalf("inventory omitted pid=%d: %v", pid, all)
+		}
+	}
+	if !strings.Contains(all.Error(), first.Error()) || !strings.Contains(all.Error(), "no verified host/worker association") {
+		t.Fatalf("classification lost: %v", all)
+	}
+}

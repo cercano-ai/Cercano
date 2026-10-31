@@ -1,0 +1,4 @@
+=== RUN   TestDiscoveryInventoryAggregatesWithoutChangingRefusal
+--- PASS: TestDiscoveryInventoryAggregatesWithoutChangingRefusal (0.53s)
+PASS
+ok  	cercano/source/server/internal/brewrestart	0.732s

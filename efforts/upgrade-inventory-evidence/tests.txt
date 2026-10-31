@@ -1,0 +1,280 @@
+=== RUN   TestMissingExecutableFinalInspection
+=== RUN   TestMissingExecutableFinalInspection/confirmed_disappearance
+=== RUN   TestMissingExecutableFinalInspection/still_missing
+=== RUN   TestMissingExecutableFinalInspection/successful_inspection
+=== RUN   TestMissingExecutableFinalInspection/permission
+=== RUN   TestMissingExecutableFinalInspection/ambiguous
+--- PASS: TestMissingExecutableFinalInspection (0.00s)
+    --- PASS: TestMissingExecutableFinalInspection/confirmed_disappearance (0.00s)
+    --- PASS: TestMissingExecutableFinalInspection/still_missing (0.00s)
+    --- PASS: TestMissingExecutableFinalInspection/successful_inspection (0.00s)
+    --- PASS: TestMissingExecutableFinalInspection/permission (0.00s)
+    --- PASS: TestMissingExecutableFinalInspection/ambiguous (0.00s)
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=<nil>
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=no_such_file_or_directory
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=resource_temporarily_unavailable
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=operation_not_permitted
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=no_such_process
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=<nil>
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=no_such_file_or_directory
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=resource_temporarily_unavailable
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=operation_not_permitted
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=no_such_process
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=<nil>
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=no_such_file_or_directory
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=resource_temporarily_unavailable
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=operation_not_permitted
+=== RUN   TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=no_such_process
+--- PASS: TestMissingListenerRequiresConfirmedDisappearance (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=<nil> (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=no_such_file_or_directory (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=resource_temporarily_unavailable (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=operation_not_permitted (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=no_such_process/identity=no_such_process (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=<nil> (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=no_such_file_or_directory (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=resource_temporarily_unavailable (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=operation_not_permitted (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=resource_temporarily_unavailable/identity=no_such_process (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=<nil> (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=no_such_file_or_directory (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=resource_temporarily_unavailable (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=operation_not_permitted (0.00s)
+    --- PASS: TestMissingListenerRequiresConfirmedDisappearance/socket=operation_not_permitted/identity=no_such_process (0.00s)
+=== RUN   TestMissingExecutableZeroFDAndConfirmedExit
+--- PASS: TestMissingExecutableZeroFDAndConfirmedExit (0.13s)
+=== RUN   TestNativeCoordinatorRestartsWithoutClients
+--- PASS: TestNativeCoordinatorRestartsWithoutClients (0.81s)
+=== RUN   TestCoordinateRestartOrderingAndFailures
+=== RUN   TestCoordinateRestartOrderingAndFailures/#00
+=== RUN   TestCoordinateRestartOrderingAndFailures/capture
+=== RUN   TestCoordinateRestartOrderingAndFailures/preflight
+=== RUN   TestCoordinateRestartOrderingAndFailures/lock
+=== RUN   TestCoordinateRestartOrderingAndFailures/changed
+=== RUN   TestCoordinateRestartOrderingAndFailures/shutdown
+=== RUN   TestCoordinateRestartOrderingAndFailures/wait-exit
+=== RUN   TestCoordinateRestartOrderingAndFailures/start
+=== RUN   TestCoordinateRestartOrderingAndFailures/ready
+=== RUN   TestCoordinateRestartOrderingAndFailures/absent
+--- PASS: TestCoordinateRestartOrderingAndFailures (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/#00 (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/capture (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/preflight (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/lock (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/changed (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/shutdown (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/wait-exit (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/start (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/ready (0.00s)
+    --- PASS: TestCoordinateRestartOrderingAndFailures/absent (0.00s)
+=== RUN   TestDiscoverIsolatedInstalledListener
+--- PASS: TestDiscoverIsolatedInstalledListener (0.18s)
+=== RUN   TestDiscover
+=== RUN   TestDiscover/absent
+=== RUN   TestDiscover/owner
+=== RUN   TestDiscover/duplicate_enumeration
+=== RUN   TestDiscover/not_listening
+=== RUN   TestDiscover/other_user
+=== RUN   TestDiscover/development_binary
+=== RUN   TestDiscover/ambiguous
+=== RUN   TestDiscover/disappeared
+=== RUN   TestDiscover/disappeared_during_socket_probe
+=== RUN   TestDiscover/unreadable_identity
+=== RUN   TestDiscover/unstable_socket_snapshot
+=== RUN   TestDiscover/list_error
+=== RUN   TestDiscover/mismatched_PID
+--- PASS: TestDiscover (0.00s)
+    --- PASS: TestDiscover/absent (0.00s)
+    --- PASS: TestDiscover/owner (0.00s)
+    --- PASS: TestDiscover/duplicate_enumeration (0.00s)
+    --- PASS: TestDiscover/not_listening (0.00s)
+    --- PASS: TestDiscover/other_user (0.00s)
+    --- PASS: TestDiscover/development_binary (0.00s)
+    --- PASS: TestDiscover/ambiguous (0.00s)
+    --- PASS: TestDiscover/disappeared (0.00s)
+    --- PASS: TestDiscover/disappeared_during_socket_probe (0.00s)
+    --- PASS: TestDiscover/unreadable_identity (0.00s)
+    --- PASS: TestDiscover/unstable_socket_snapshot (0.00s)
+    --- PASS: TestDiscover/list_error (0.00s)
+    --- PASS: TestDiscover/mismatched_PID (0.00s)
+=== RUN   TestMissingExecutableChild
+    discovery_inventory_darwin_test.go:22: child only
+--- SKIP: TestMissingExecutableChild (0.00s)
+=== RUN   TestProductionEnumerationUnlinkedExecutable
+=== RUN   TestProductionEnumerationUnlinkedExecutable/unrelated
+    discovery_inventory_darwin_test.go:118: production enumeration candidate classification: <nil>
+=== RUN   TestProductionEnumerationUnlinkedExecutable/historical-host
+    discovery_inventory_darwin_test.go:118: production enumeration candidate classification: upgrade blocker pid=28799: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+=== RUN   TestProductionEnumerationUnlinkedExecutable/symlink-host
+    discovery_inventory_darwin_test.go:118: production enumeration candidate classification: upgrade blocker pid=28800: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+=== RUN   TestProductionEnumerationUnlinkedExecutable/agent-host
+    discovery_inventory_darwin_test.go:118: production enumeration candidate classification: upgrade blocker pid=28801: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+=== RUN   TestProductionEnumerationUnlinkedExecutable/model-host-unresolved
+    discovery_inventory_darwin_test.go:118: production enumeration candidate classification: upgrade blocker pid=28802: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+=== RUN   TestProductionEnumerationUnlinkedExecutable/worker-unresolved
+    discovery_inventory_darwin_test.go:118: production enumeration candidate classification: upgrade blocker pid=28803: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+=== RUN   TestProductionEnumerationUnlinkedExecutable/ambiguous-target-listener
+    discovery_inventory_darwin_test.go:118: production enumeration candidate classification: upgrade blocker pid=28804: missing executable /var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/TestProductionEnumerationUnlinkedExecutableambiguous-target-lis3967958592/001/unknown-host owns target listener; unresolved plausible writer
+--- PASS: TestProductionEnumerationUnlinkedExecutable (1.29s)
+    --- PASS: TestProductionEnumerationUnlinkedExecutable/unrelated (0.19s)
+    --- PASS: TestProductionEnumerationUnlinkedExecutable/historical-host (0.19s)
+    --- PASS: TestProductionEnumerationUnlinkedExecutable/symlink-host (0.19s)
+    --- PASS: TestProductionEnumerationUnlinkedExecutable/agent-host (0.18s)
+    --- PASS: TestProductionEnumerationUnlinkedExecutable/model-host-unresolved (0.18s)
+    --- PASS: TestProductionEnumerationUnlinkedExecutable/worker-unresolved (0.18s)
+    --- PASS: TestProductionEnumerationUnlinkedExecutable/ambiguous-target-listener (0.18s)
+=== RUN   TestDiscoveryInventoryAggregatesWithoutChangingRefusal
+--- PASS: TestDiscoveryInventoryAggregatesWithoutChangingRefusal (0.56s)
+=== RUN   TestCheckOwned
+=== RUN   TestCheckOwned/old_version
+=== RUN   TestCheckOwned/same_version
+=== RUN   TestCheckOwned/developer
+=== RUN   TestCheckOwned/another_user
+=== RUN   TestCheckOwned/another_prefix
+=== RUN   TestCheckOwned/prefix_collision
+=== RUN   TestCheckOwned/other_binary
+=== RUN   TestCheckOwned/uncanonical
+=== RUN   TestCheckOwned/relative
+=== RUN   TestCheckOwned/prefix_symlink
+--- PASS: TestCheckOwned (0.00s)
+    --- PASS: TestCheckOwned/old_version (0.00s)
+    --- PASS: TestCheckOwned/same_version (0.00s)
+    --- PASS: TestCheckOwned/developer (0.00s)
+    --- PASS: TestCheckOwned/another_user (0.00s)
+    --- PASS: TestCheckOwned/another_prefix (0.00s)
+    --- PASS: TestCheckOwned/prefix_collision (0.00s)
+    --- PASS: TestCheckOwned/other_binary (0.00s)
+    --- PASS: TestCheckOwned/uncanonical (0.00s)
+    --- PASS: TestCheckOwned/relative (0.00s)
+    --- PASS: TestCheckOwned/prefix_symlink (0.00s)
+=== RUN   TestSameProcessDetectsPIDReuse
+--- PASS: TestSameProcessDetectsPIDReuse (0.00s)
+=== RUN   TestInspectIgnoresArgvAndRepointedSymlink
+--- PASS: TestInspectIgnoresArgvAndRepointedSymlink (0.18s)
+=== RUN   TestInspectRejectsInvalidPID
+--- PASS: TestInspectRejectsInvalidPID (0.00s)
+=== RUN   TestIdentityChild
+    inspect_darwin_test.go:105: subprocess only
+--- SKIP: TestIdentityChild (0.00s)
+=== RUN   TestInspectionDisappearanceClassification
+=== RUN   TestInspectionDisappearanceClassification/confirmed_disappearance
+=== RUN   TestInspectionDisappearanceClassification/live_missing_executable
+=== RUN   TestInspectionDisappearanceClassification/permission_on_recheck
+=== RUN   TestInspectionDisappearanceClassification/ambiguous_recheck
+=== RUN   TestInspectionDisappearanceClassification/missing_path_again
+=== RUN   TestInspectionDisappearanceClassification/initial_permission
+=== RUN   TestInspectionDisappearanceClassification/initial_access_denied
+=== RUN   TestInspectionDisappearanceClassification/initial_unstable_identity
+--- PASS: TestInspectionDisappearanceClassification (0.00s)
+    --- PASS: TestInspectionDisappearanceClassification/confirmed_disappearance (0.00s)
+    --- PASS: TestInspectionDisappearanceClassification/live_missing_executable (0.00s)
+    --- PASS: TestInspectionDisappearanceClassification/permission_on_recheck (0.00s)
+    --- PASS: TestInspectionDisappearanceClassification/ambiguous_recheck (0.00s)
+    --- PASS: TestInspectionDisappearanceClassification/missing_path_again (0.00s)
+    --- PASS: TestInspectionDisappearanceClassification/initial_permission (0.00s)
+    --- PASS: TestInspectionDisappearanceClassification/initial_access_denied (0.00s)
+    --- PASS: TestInspectionDisappearanceClassification/initial_unstable_identity (0.00s)
+=== RUN   TestInspectReapedDisposableProcess
+--- PASS: TestInspectReapedDisposableProcess (0.00s)
+=== RUN   TestCaptureLaunchAndListener
+--- PASS: TestCaptureLaunchAndListener (0.01s)
+=== RUN   TestLaunchChild
+    launch_darwin_test.go:112: subprocess only
+--- SKIP: TestLaunchChild (0.00s)
+=== RUN   TestParseProcArgs
+--- PASS: TestParseProcArgs (0.00s)
+=== RUN   TestLaunchStateFormattingRedactsValues
+--- PASS: TestLaunchStateFormattingRedactsValues (0.00s)
+=== RUN   TestCollectPIDs
+=== RUN   TestCollectPIDs/empty
+=== RUN   TestCollectPIDs/sort_filter_deduplicate
+--- PASS: TestCollectPIDs (0.00s)
+    --- PASS: TestCollectPIDs/empty (0.00s)
+    --- PASS: TestCollectPIDs/sort_filter_deduplicate (0.00s)
+=== RUN   TestCollectPIDsRetriesFullBuffer
+--- PASS: TestCollectPIDsRetriesFullBuffer (0.00s)
+=== RUN   TestCollectPIDsFailsClosed
+--- PASS: TestCollectPIDsFailsClosed (0.00s)
+=== RUN   TestRestartPreflightRefusesUnsafeLaunch
+=== RUN   TestRestartPreflightRefusesUnsafeLaunch/valid
+=== RUN   TestRestartPreflightRefusesUnsafeLaunch/worker
+=== RUN   TestRestartPreflightRefusesUnsafeLaunch/relative_temp
+=== RUN   TestRestartPreflightRefusesUnsafeLaunch/missing_cwd
+=== RUN   TestRestartPreflightRefusesUnsafeLaunch/non-executable
+=== RUN   TestRestartPreflightRefusesUnsafeLaunch/symlink_log
+=== RUN   TestRestartPreflightRefusesUnsafeLaunch/FIFO_log
+--- PASS: TestRestartPreflightRefusesUnsafeLaunch (0.01s)
+    --- PASS: TestRestartPreflightRefusesUnsafeLaunch/valid (0.00s)
+    --- PASS: TestRestartPreflightRefusesUnsafeLaunch/worker (0.00s)
+    --- PASS: TestRestartPreflightRefusesUnsafeLaunch/relative_temp (0.00s)
+    --- PASS: TestRestartPreflightRefusesUnsafeLaunch/missing_cwd (0.00s)
+    --- PASS: TestRestartPreflightRefusesUnsafeLaunch/non-executable (0.00s)
+    --- PASS: TestRestartPreflightRefusesUnsafeLaunch/symlink_log (0.00s)
+    --- PASS: TestRestartPreflightRefusesUnsafeLaunch/FIFO_log (0.00s)
+=== RUN   TestRestartInstalledRequiresDeadlineBeforeInspection
+--- PASS: TestRestartInstalledRequiresDeadlineBeforeInspection (0.00s)
+=== RUN   TestProductionWorkerMissingExecutable
+    production_worker_missing_darwin_test.go:49: owned worker 28830 reaped and absent
+--- PASS: TestProductionWorkerMissingExecutable (3.76s)
+=== RUN   TestMissingWorkerRoleEvidence
+=== RUN   TestMissingWorkerRoleEvidence/worker
+=== RUN   TestMissingWorkerRoleEvidence/agent
+=== RUN   TestMissingWorkerRoleEvidence/model-host
+=== RUN   TestMissingWorkerRoleEvidence/ambiguous
+=== RUN   TestMissingWorkerRoleEvidence/relative
+=== RUN   TestMissingWorkerRoleEvidence/extra
+--- PASS: TestMissingWorkerRoleEvidence (0.00s)
+    --- PASS: TestMissingWorkerRoleEvidence/worker (0.00s)
+    --- PASS: TestMissingWorkerRoleEvidence/agent (0.00s)
+    --- PASS: TestMissingWorkerRoleEvidence/model-host (0.00s)
+    --- PASS: TestMissingWorkerRoleEvidence/ambiguous (0.00s)
+    --- PASS: TestMissingWorkerRoleEvidence/relative (0.00s)
+    --- PASS: TestMissingWorkerRoleEvidence/extra (0.00s)
+=== RUN   TestReadinessRetriesTransientSocketSnapshots
+=== RUN   TestReadinessRetriesTransientSocketSnapshots/bad_file_descriptor/probe1
+=== RUN   TestReadinessRetriesTransientSocketSnapshots/bad_file_descriptor/probe2
+=== RUN   TestReadinessRetriesTransientSocketSnapshots/resource_temporarily_unavailable/probe1
+=== RUN   TestReadinessRetriesTransientSocketSnapshots/resource_temporarily_unavailable/probe2
+--- PASS: TestReadinessRetriesTransientSocketSnapshots (0.10s)
+    --- PASS: TestReadinessRetriesTransientSocketSnapshots/bad_file_descriptor/probe1 (0.03s)
+    --- PASS: TestReadinessRetriesTransientSocketSnapshots/bad_file_descriptor/probe2 (0.03s)
+    --- PASS: TestReadinessRetriesTransientSocketSnapshots/resource_temporarily_unavailable/probe1 (0.03s)
+    --- PASS: TestReadinessRetriesTransientSocketSnapshots/resource_temporarily_unavailable/probe2 (0.03s)
+=== RUN   TestReadinessDoesNotRetryPermanentFailures
+--- PASS: TestReadinessDoesNotRetryPermanentFailures (0.00s)
+=== RUN   TestReadinessTransientErrorsRespectDeadline
+--- PASS: TestReadinessTransientErrorsRespectDeadline (0.08s)
+=== RUN   TestSurvivingAliasConcreteWriterRisks
+=== RUN   TestSurvivingAliasConcreteWriterRisks/cercano
+=== RUN   TestSurvivingAliasConcreteWriterRisks/unrelated-helper
+--- PASS: TestSurvivingAliasConcreteWriterRisks (0.42s)
+    --- PASS: TestSurvivingAliasConcreteWriterRisks/cercano (0.23s)
+    --- PASS: TestSurvivingAliasConcreteWriterRisks/unrelated-helper (0.18s)
+=== RUN   TestUpgradeStopsRealHostAndActiveWorker
+[cercano] discovery elapsed=600.834µs
+[cercano] discovery elapsed=466.25µs
+--- PASS: TestUpgradeStopsRealHostAndActiveWorker (2.63s)
+=== RUN   TestUpgradeCancellationAfterTERMFinishesCleanup
+[cercano] discovery elapsed=818.5µs
+[cercano] discovery elapsed=60.792µs
+--- PASS: TestUpgradeCancellationAfterTERMFinishesCleanup (0.43s)
+=== RUN   TestUpgradeExecSTOPRollback
+    upgrade_tree_darwin_test.go:111: exec between inspect and STOP refused; lifetime rollback succeeded; strict identity and prior STOP preserved
+--- PASS: TestUpgradeExecSTOPRollback (0.03s)
+=== RUN   TestUpgradeDifferentVersionModelHostDescendant
+    upgrade_tree_darwin_test.go:187: different executable version model-host excluded from attached descendant freeze
+--- PASS: TestUpgradeDifferentVersionModelHostDescendant (0.02s)
+=== RUN   TestUpgradeInFlightForkObservable
+    upgrade_tree_darwin_test.go:283: published fork child advanced and execed after parent STOP; descendant scan subsequently froze it; no kernel publication-fence claim
+--- PASS: TestUpgradeInFlightForkObservable (0.19s)
+=== RUN   TestWildcardListenerMatchesLoopback
+=== RUN   TestWildcardListenerMatchesLoopback/tcp
+=== RUN   TestWildcardListenerMatchesLoopback/tcp4
+=== RUN   TestWildcardListenerMatchesLoopback/tcp6
+--- PASS: TestWildcardListenerMatchesLoopback (0.03s)
+    --- PASS: TestWildcardListenerMatchesLoopback/tcp (0.01s)
+    --- PASS: TestWildcardListenerMatchesLoopback/tcp4 (0.01s)
+    --- PASS: TestWildcardListenerMatchesLoopback/tcp6 (0.01s)
+PASS
+ok  	cercano/source/server/internal/brewrestart	11.074s

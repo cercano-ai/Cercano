@@ -1,0 +1,167 @@
+[
+  {
+    "pid": 12347,
+    "path": "efforts/dev-host-generations/everyday-launcher-compiled-evidence/compiled.json",
+    "exact_pid_text_match": false,
+    "runtime": "ca-ehwggq0u",
+    "excerpts": [
+      "host -> compiled CLI PTY\",\n  \"steps\": [\n    {\n      \"step\": \"explicit tagged real bootstrap and prepared private state\",\n      \"files\": [\n        \"/private/tmp/ca-ehwggq0u/state/conversations.db\",\n        \"/private/tmp/ca-ehwggq0u/state/config.yaml\"\n      ],\n      \"sqlite\": [\n        [\n          2\n        ]\n      ]\n    },\n    {\n      \"step\": \"A acquired via ordinary launcher\",\n      \"sele",
+      " \"explicit tagged real bootstrap and prepared private state\",\n      \"files\": [\n        \"/private/tmp/ca-ehwggq0u/state/conversations.db\",\n        \"/private/tmp/ca-ehwggq0u/state/config.yaml\"\n      ],\n      \"sqlite\": [\n        [\n          2\n        ]\n      ]\n    },\n    {\n      \"step\": \"A acquired via ordinary launcher\",\n      \"selection\": {\n        \"Endpoint\": \"127.0.0.1:57826\",\n        \"T",
+      "]\n    },\n    {\n      \"step\": \"A acquired via ordinary launcher\",\n      \"selection\": {\n        \"Endpoint\": \"127.0.0.1:57826\",\n        \"TokenFile\": \"/private/tmp/ca-ehwggq0u/state/hosts/b098c7331e6f60498a7ace82bc2cc1e85ed8b96df6fc05f70235dab19b537a8c.token\",\n        \"Identity\": {\n          \"host\": \"fbd5dc2092183b45f5a4e7a0b63ec6e6\",\n          \"build\": \"b18a261b-e659-4886-97ef-4bf8e0e4e086\",",
+      " \"build\": \"b18a261b-e659-4886-97ef-4bf8e0e4e086\",\n          \"contract\": \"cercano-development-owned-v2\",\n          \"schema\": 2,\n          \"store\": \"/private/tmp/ca-ehwggq0u/state/conversations.db\"\n        },\n        \"Conversation\": \"b68fd80fda5b7186e5191813c33882ef\",\n        \"Epoch\": \"65d82f38d7dd1e052ae3927b\",\n        \"Generation\": \"/private/tmp/ca-ehwggq0u/state/generations/b3d880a47e7a9",
+      "ons.db\"\n        },\n        \"Conversation\": \"b68fd80fda5b7186e5191813c33882ef\",\n        \"Epoch\": \"65d82f38d7dd1e052ae3927b\",\n        \"Generation\": \"/private/tmp/ca-ehwggq0u/state/generations/b3d880a47e7a97e276881e79dc65410a0e751589ec5e7e6873092ff0134ffc7b\"\n      }\n    }\n  ],\n  \"passed\": false,\n  \"failure\": \"timeout independent dispatch reached provider barrier\",\n  \"traceback\": \"Traceback ("
+    ]
+  },
+  {
+    "pid": 12347,
+    "path": "efforts/dev-host-generations/everyday-launcher-compiled-evidence/build.jsonl",
+    "exact_pid_text_match": false,
+    "runtime": "ca-ehwggq0u",
+    "excerpts": [
+      "{\"cwd\": \"/private/tmp/ca-ehwggq0u/repo/source/server\", \"args\": [\"build\", \"-tags=developmentfixture,cercano_development_acceptance\", \"-o\", \"/private/tmp/ca-ehwggq0u/bootstrap\", \"./cmd/cercano/\"]}\n{\"cwd\": \"/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700",
+      "{\"cwd\": \"/private/tmp/ca-ehwggq0u/repo/source/server\", \"args\": [\"build\", \"-tags=developmentfixture,cercano_development_acceptance\", \"-o\", \"/private/tmp/ca-ehwggq0u/bootstrap\", \"./cmd/cercano/\"]}\n{\"cwd\": \"/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-build-source-dqrfkcyi/source/server\", \"args\": [\"build\", \"-tags=developmentfixture,cercano_development_acceptance\",",
+      "=developmentfixture,cercano_development_acceptance\", \"-mod=readonly\", \"-buildvcs=false\", \"-ldflags\", \"-X main.version=compiled-acceptance\", \"-o\", \"/private/tmp/ca-ehwggq0u/state/generations/.building-z00p7xk3/cercano\", \"./cmd/cercano/\"]}\n{\"cwd\": \"/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-build-source-dqrfkcyi/source/clients/cli\", \"args\": [\"build\", \"-tags=development",
+      "=developmentfixture,cercano_development_acceptance\", \"-mod=readonly\", \"-buildvcs=false\", \"-ldflags\", \"-X main.version=compiled-acceptance\", \"-o\", \"/private/tmp/ca-ehwggq0u/state/generations/.building-z00p7xk3/cercano-cli\", \".\"]}\n"
+    ]
+  },
+  {
+    "pid": 29024,
+    "path": "efforts/dev-host-generations/everyday-launcher-compiled-after-026cdf9c-transfer/compiled.json",
+    "exact_pid_text_match": false,
+    "runtime": "ca-v_iglp0q",
+    "excerpts": [
+      "      \"step\": \"fresh bootstrap artifact\",\n      \"sha256\": \"b327e9aa6324d9972b745ed39d7ca52ea9bb8094fab6814f3aa673ef3a57fe3e\",\n      \"build_info\": \"/private/tmp/ca-v_iglp0q/bootstrap: go1.26.3\\n\\tpath\\tcercano/source/server/cmd/cercano\\n\\tmod\\tcercano/source/server\\t(devel)\\t\\n\\tdep\\tcloud.google.com/go\\tv0.123.0\\th1:2NAUJwPR47q+E35uaJeYoNhuNEM9kM8SjgRgdeOJUSE=\\n\\tdep\\tcloud.google.com/go/",
+      ":56:49Z\\n\\tbuild\\tvcs.modified=false\\n\"\n    },\n    {\n      \"step\": \"fresh bootstrap preparation\",\n      \"output\": \"Prepared new development store: /private/tmp/ca-v_iglp0q/state\\nNo legacy state imported or changed.\\n\",\n      \"files\": [\n        \"/private/tmp/ca-v_iglp0q/state/conversations.db\"\n      ]\n    },\n    {\n      \"step\": \"explicit tagged real bootstrap and prepared private state\",\n",
+      "     \"output\": \"Prepared new development store: /private/tmp/ca-v_iglp0q/state\\nNo legacy state imported or changed.\\n\",\n      \"files\": [\n        \"/private/tmp/ca-v_iglp0q/state/conversations.db\"\n      ]\n    },\n    {\n      \"step\": \"explicit tagged real bootstrap and prepared private state\",\n      \"files\": [\n        \"/private/tmp/ca-v_iglp0q/state/conversations.db\",\n        \"/private/tmp/c",
+      "/state/conversations.db\"\n      ]\n    },\n    {\n      \"step\": \"explicit tagged real bootstrap and prepared private state\",\n      \"files\": [\n        \"/private/tmp/ca-v_iglp0q/state/conversations.db\",\n        \"/private/tmp/ca-v_iglp0q/state/config.yaml\"\n      ],\n      \"sqlite\": [\n        [\n          2\n        ]\n      ]\n    },\n    {\n      \"step\": \"A acquired via ordinary launcher\",\n      \"sele",
+      " \"explicit tagged real bootstrap and prepared private state\",\n      \"files\": [\n        \"/private/tmp/ca-v_iglp0q/state/conversations.db\",\n        \"/private/tmp/ca-v_iglp0q/state/config.yaml\"\n      ],\n      \"sqlite\": [\n        [\n          2\n        ]\n      ]\n    },\n    {\n      \"step\": \"A acquired via ordinary launcher\",\n      \"selection\": {\n        \"Endpoint\": \"127.0.0.1:49827\",\n        \"T",
+      "]\n    },\n    {\n      \"step\": \"A acquired via ordinary launcher\",\n      \"selection\": {\n        \"Endpoint\": \"127.0.0.1:49827\",\n        \"TokenFile\": \"/private/tmp/ca-v_iglp0q/state/hosts/fbad7824751f8454e50ce1e980ba64358ff036a874ca7b8aa258db08d36ccfc5.token\",\n        \"Identity\": {\n          \"host\": \"184e78a6a2747bda09077ae464c72a9d\",\n          \"build\": \"693569b9-f857-48ca-92d7-4167c2452d92\",",
+      " \"build\": \"693569b9-f857-48ca-92d7-4167c2452d92\",\n          \"contract\": \"cercano-development-owned-v2\",\n          \"schema\": 2,\n          \"store\": \"/private/tmp/ca-v_iglp0q/state/conversations.db\"\n        },\n        \"Conversation\": \"768e61bfc6d62f99137d4d306169d79a\",\n        \"Epoch\": \"d9f87ad9b7ca72ab0b7e4747\",\n        \"Generation\": \"/private/tmp/ca-v_iglp0q/state/generations/573920babb0c4",
+      "ons.db\"\n        },\n        \"Conversation\": \"768e61bfc6d62f99137d4d306169d79a\",\n        \"Epoch\": \"d9f87ad9b7ca72ab0b7e4747\",\n        \"Generation\": \"/private/tmp/ca-v_iglp0q/state/generations/573920babb0c4e8cd011ff54a280d7f10f61a49fc39497e20fa440f533b7b43c\"\n      },\n      \"artifacts\": [\n        {\n          \"path\": \"generations/573920babb0c4e8cd011ff54a280d7f10f61a49fc39497e20fa440f533b7b43c",
+      "p\": \"B distinct after source byte change; A CLI and task alive\",\n      \"selection\": {\n        \"Endpoint\": \"127.0.0.1:49835\",\n        \"TokenFile\": \"/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token\",\n        \"Identity\": {\n          \"host\": \"b6fbc18814565ce61d90d5f4260ee1ab\",\n          \"build\": \"aca3262d-f96a-4dc6-a756-4afef378994f\",",
+      " \"build\": \"aca3262d-f96a-4dc6-a756-4afef378994f\",\n          \"contract\": \"cercano-development-owned-v2\",\n          \"schema\": 2,\n          \"store\": \"/private/tmp/ca-v_iglp0q/state/conversations.db\"\n        },\n        \"Conversation\": \"1d4e0f5e357034363809520f4d90ce17\",\n        \"Epoch\": \"5bd95b5c6c15179aa8bfef07\",\n        \"Generation\": \"/private/tmp/ca-v_iglp0q/state/generations/9f755fbe2a7ab",
+      "ons.db\"\n        },\n        \"Conversation\": \"1d4e0f5e357034363809520f4d90ce17\",\n        \"Epoch\": \"5bd95b5c6c15179aa8bfef07\",\n        \"Generation\": \"/private/tmp/ca-v_iglp0q/state/generations/9f755fbe2a7aba5cfff2daf9d7ac922aff15e431e54d603babfba2947c7c85e7\"\n      },\n      \"tasks\": [\n        [\n          \"task_3bd1e32ce975b57e9a1a182b2d898cd8\",\n          \"running\"\n        ]\n      ]\n    },\n   ",
+      "747bda09077ae464c72a9d\\\",\\\"build\\\":\\\"693569b9-f857-48ca-92d7-4167c2452d92\\\",\\\"contract\\\":\\\"cercano-development-owned-v2\\\",\\\"schema\\\":2,\\\"store\\\":\\\"/private/tmp/ca-v_iglp0q/state/conversations.db\\\"},\\\"retained\\\":[{\\\"conversation\\\":\\\"768e61bfc6d62f99137d4d306169d79a\\\",\\\"host\\\":\\\"184e78a6a2747bda09077ae464c72a9d\\\",\\\"epoch\\\":\\\"d9f87ad9b7ca72ab0b7e4747\\\"},{\\\"conversation\\\":\\\"91d47316474646e49b",
+      "invocations reuse B without rebuild or conflict\",\n      \"selections\": [\n        {\n          \"Endpoint\": \"127.0.0.1:49835\",\n          \"TokenFile\": \"/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token\",\n          \"Identity\": {\n            \"host\": \"b6fbc18814565ce61d90d5f4260ee1ab\",\n            \"build\": \"aca3262d-f96a-4dc6-a756-4afef378",
+      "d\": \"aca3262d-f96a-4dc6-a756-4afef378994f\",\n            \"contract\": \"cercano-development-owned-v2\",\n            \"schema\": 2,\n            \"store\": \"/private/tmp/ca-v_iglp0q/state/conversations.db\"\n          },\n          \"Conversation\": \"5a2ab17e4d7bd376477fb9e5db19214f\",\n          \"Epoch\": \"3b87b3ec9d88e1bfb7e359b3\",\n          \"Generation\": \"/private/tmp/ca-v_iglp0q/state/generations/9f755",
+      "          },\n          \"Conversation\": \"5a2ab17e4d7bd376477fb9e5db19214f\",\n          \"Epoch\": \"3b87b3ec9d88e1bfb7e359b3\",\n          \"Generation\": \"/private/tmp/ca-v_iglp0q/state/generations/9f755fbe2a7aba5cfff2daf9d7ac922aff15e431e54d603babfba2947c7c85e7\"\n        },\n        {\n          \"Endpoint\": \"127.0.0.1:49835\",\n          \"TokenFile\": \"/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb8",
+      "fbe2a7aba5cfff2daf9d7ac922aff15e431e54d603babfba2947c7c85e7\"\n        },\n        {\n          \"Endpoint\": \"127.0.0.1:49835\",\n          \"TokenFile\": \"/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token\",\n          \"Identity\": {\n            \"host\": \"b6fbc18814565ce61d90d5f4260ee1ab\",\n            \"build\": \"aca3262d-f96a-4dc6-a756-4afef378",
+      "d\": \"aca3262d-f96a-4dc6-a756-4afef378994f\",\n            \"contract\": \"cercano-development-owned-v2\",\n            \"schema\": 2,\n            \"store\": \"/private/tmp/ca-v_iglp0q/state/conversations.db\"\n          },\n          \"Conversation\": \"47e6a2736da2e36f728442ce0fc560d4\",\n          \"Epoch\": \"829212703c09ed7b695b96a3\",\n          \"Generation\": \"/private/tmp/ca-v_iglp0q/state/generations/9f755",
+      "          },\n          \"Conversation\": \"47e6a2736da2e36f728442ce0fc560d4\",\n          \"Epoch\": \"829212703c09ed7b695b96a3\",\n          \"Generation\": \"/private/tmp/ca-v_iglp0q/state/generations/9f755fbe2a7aba5cfff2daf9d7ac922aff15e431e54d603babfba2947c7c85e7\"\n        }\n      ]\n    },\n    {\n      \"step\": \"control transfer\",\n      \"exit\": 0,\n      \"output\": \"{\\\"Response\\\":{\\\"identity\\\":{\\\"host\\",
+      "565ce61d90d5f4260ee1ab\\\",\\\"build\\\":\\\"aca3262d-f96a-4dc6-a756-4afef378994f\\\",\\\"contract\\\":\\\"cercano-development-owned-v2\\\",\\\"schema\\\":2,\\\"store\\\":\\\"/private/tmp/ca-v_iglp0q/state/conversations.db\\\"},\\\"owner\\\":{\\\"conversation\\\":\\\"59cfe4e0cc35f8bab99b1fe383f7e246\\\",\\\"host\\\":\\\"b6fbc18814565ce61d90d5f4260ee1ab\\\",\\\"epoch\\\":\\\"d80364ba474220f07c3a302a\\\"}},\\\"Selection\\\":{\\\"Endpoint\\\":\\\"127.0.0.1:4",
+      "st\\\":\\\"b6fbc18814565ce61d90d5f4260ee1ab\\\",\\\"epoch\\\":\\\"d80364ba474220f07c3a302a\\\"}},\\\"Selection\\\":{\\\"Endpoint\\\":\\\"127.0.0.1:49835\\\",\\\"TokenFile\\\":\\\"/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token\\\",\\\"Identity\\\":{\\\"host\\\":\\\"b6fbc18814565ce61d90d5f4260ee1ab\\\",\\\"build\\\":\\\"aca3262d-f96a-4dc6-a756-4afef378994f\\\",\\\"contract\\\":\\\"cercano-",
+      "565ce61d90d5f4260ee1ab\\\",\\\"build\\\":\\\"aca3262d-f96a-4dc6-a756-4afef378994f\\\",\\\"contract\\\":\\\"cercano-development-owned-v2\\\",\\\"schema\\\":2,\\\"store\\\":\\\"/private/tmp/ca-v_iglp0q/state/conversations.db\\\"},\\\"Conversation\\\":\\\"59cfe4e0cc35f8bab99b1fe383f7e246\\\",\\\"Epoch\\\":\\\"d80364ba474220f07c3a302a\\\"}}\\n\"\n    },\n    {\n      \"step\": \"unrelated Y transferred A to B while independent A task running\",\n ",
+      "nrelated Y transferred A to B while independent A task running\",\n      \"selection\": {\n        \"Endpoint\": \"127.0.0.1:49835\",\n        \"TokenFile\": \"/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token\",\n        \"Identity\": {\n          \"host\": \"b6fbc18814565ce61d90d5f4260ee1ab\",\n          \"build\": \"aca3262d-f96a-4dc6-a756-4afef378994f\",",
+      " \"build\": \"aca3262d-f96a-4dc6-a756-4afef378994f\",\n          \"contract\": \"cercano-development-owned-v2\",\n          \"schema\": 2,\n          \"store\": \"/private/tmp/ca-v_iglp0q/state/conversations.db\"\n        },\n        \"Conversation\": \"59cfe4e0cc35f8bab99b1fe383f7e246\",\n        \"Epoch\": \"d80364ba474220f07c3a302a\"\n      }\n    },\n    {\n      \"step\": \"control list\",\n      \"exit\": 0,\n      \"outpu",
+      "565ce61d90d5f4260ee1ab\\\",\\\"build\\\":\\\"aca3262d-f96a-4dc6-a756-4afef378994f\\\",\\\"contract\\\":\\\"cercano-development-owned-v2\\\",\\\"schema\\\":2,\\\"store\\\":\\\"/private/tmp/ca-v_iglp0q/state/conversations.db\\\"},\\\"retained\\\":[{\\\"conversation\\\":\\\"5a2ab17e4d7bd376477fb9e5db19214f\\\",\\\"host\\\":\\\"b6fbc18814565ce61d90d5f4260ee1ab\\\",\\\"epoch\\\":\\\"3b87b3ec9d88e1bfb7e359b3\\\"},{\\\"conversation\\\":\\\"59cfe4e0cc35f8bab9",
+      "565ce61d90d5f4260ee1ab\\\",\\\"build\\\":\\\"aca3262d-f96a-4dc6-a756-4afef378994f\\\",\\\"contract\\\":\\\"cercano-development-owned-v2\\\",\\\"schema\\\":2,\\\"store\\\":\\\"/private/tmp/ca-v_iglp0q/state/conversations.db\\\"},\\\"receipt\\\":\\\"dd1f31de4c40fc0ce82695584c104e4c2a27659a029b567285187a37059c6142\\\",\\\"pending\\\":true},\\\"Selection\\\":null}\\ncercano: rpc error: code = Unknown desc = retained sessions or work preve",
+      "565ce61d90d5f4260ee1ab\\\",\\\"build\\\":\\\"aca3262d-f96a-4dc6-a756-4afef378994f\\\",\\\"contract\\\":\\\"cercano-development-owned-v2\\\",\\\"schema\\\":2,\\\"store\\\":\\\"/private/tmp/ca-v_iglp0q/state/conversations.db\\\"},\\\"retained\\\":[{\\\"conversation\\\":\\\"47e6a2736da2e36f728442ce0fc560d4\\\",\\\"host\\\":\\\"b6fbc18814565ce61d90d5f4260ee1ab\\\",\\\"epoch\\\":\\\"829212703c09ed7b695b96a3\\\"},{\\\"conversation\\\":\\\"5a2ab17e4d7bd37647"
+    ]
+  },
+  {
+    "pid": 29024,
+    "path": "efforts/dev-host-generations/everyday-launcher-compiled-after-026cdf9c-transfer/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.json",
+    "exact_pid_text_match": false,
+    "runtime": "ca-v_iglp0q",
+    "excerpts": [
+      "{\"Endpoint\":\"127.0.0.1:49835\",\"TokenFile\":\"/private/tmp/ca-v_iglp0q/state/hosts/be0d7ec05cb81ba5aae5f3fac67a084ce4eab9b1fd10755d39b03919501e4b95.token\",\"Identity\":{\"host\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"build\":\"aca3262d-f96a-4dc6-a756-4afef378994f\",\"contract\":\"cercano-development-ow",
+      "t\":\"b6fbc18814565ce61d90d5f4260ee1ab\",\"build\":\"aca3262d-f96a-4dc6-a756-4afef378994f\",\"contract\":\"cercano-development-owned-v2\",\"schema\":2,\"store\":\"/private/tmp/ca-v_iglp0q/state/conversations.db\"},\"Conversation\":\"\",\"Epoch\":\"\"}"
+    ]
+  },
+  {
+    "pid": 29024,
+    "path": "efforts/dev-host-generations/everyday-launcher-compiled-after-026cdf9c-transfer/build.jsonl",
+    "exact_pid_text_match": false,
+    "runtime": "ca-v_iglp0q",
+    "excerpts": [
+      "{\"cwd\": \"/private/tmp/ca-v_iglp0q/repo/source/server\", \"args\": [\"build\", \"-tags=developmentfixture,cercano_development_acceptance\", \"-o\", \"/private/tmp/ca-v_iglp0q/bootstrap\", \"./cmd/cercano/\"]}\n{\"cwd\": \"/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700",
+      "{\"cwd\": \"/private/tmp/ca-v_iglp0q/repo/source/server\", \"args\": [\"build\", \"-tags=developmentfixture,cercano_development_acceptance\", \"-o\", \"/private/tmp/ca-v_iglp0q/bootstrap\", \"./cmd/cercano/\"]}\n{\"cwd\": \"/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-build-source-tx3dqhoe/source/server\", \"args\": [\"build\", \"-tags=developmentfixture,cercano_development_acceptance\",",
+      "=developmentfixture,cercano_development_acceptance\", \"-mod=readonly\", \"-buildvcs=false\", \"-ldflags\", \"-X main.version=compiled-acceptance\", \"-o\", \"/private/tmp/ca-v_iglp0q/state/generations/.building-eifqqmnr/cercano\", \"./cmd/cercano/\"]}\n{\"cwd\": \"/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-build-source-tx3dqhoe/source/clients/cli\", \"args\": [\"build\", \"-tags=development",
+      "=developmentfixture,cercano_development_acceptance\", \"-mod=readonly\", \"-buildvcs=false\", \"-ldflags\", \"-X main.version=compiled-acceptance\", \"-o\", \"/private/tmp/ca-v_iglp0q/state/generations/.building-eifqqmnr/cercano-cli\", \".\"]}\n{\"cwd\": \"/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-build-source-504wc4jb/source/server\", \"args\": [\"build\", \"-tags=developmentfixture,cercan",
+      "=developmentfixture,cercano_development_acceptance\", \"-mod=readonly\", \"-buildvcs=false\", \"-ldflags\", \"-X main.version=compiled-acceptance\", \"-o\", \"/private/tmp/ca-v_iglp0q/state/generations/.building-fkxf7u1l/cercano\", \"./cmd/cercano/\"]}\n{\"cwd\": \"/private/var/folders/9h/srsrfxw55fs2x54j3w7syc700000gn/T/cercano-build-source-504wc4jb/source/clients/cli\", \"args\": [\"build\", \"-tags=development",
+      "=developmentfixture,cercano_development_acceptance\", \"-mod=readonly\", \"-buildvcs=false\", \"-ldflags\", \"-X main.version=compiled-acceptance\", \"-o\", \"/private/tmp/ca-v_iglp0q/state/generations/.building-fkxf7u1l/cercano-cli\", \".\"]}\n"
+    ]
+  },
+  {
+    "pid": 29024,
+    "path": "efforts/dev-host-generations/everyday-launcher-compiled-after-026cdf9c-transfer/fbad7824751f8454e50ce1e980ba64358ff036a874ca7b8aa258db08d36ccfc5.json",
+    "exact_pid_text_match": false,
+    "runtime": "ca-v_iglp0q",
+    "excerpts": [
+      "{\"Endpoint\":\"127.0.0.1:49827\",\"TokenFile\":\"/private/tmp/ca-v_iglp0q/state/hosts/fbad7824751f8454e50ce1e980ba64358ff036a874ca7b8aa258db08d36ccfc5.token\",\"Identity\":{\"host\":\"184e78a6a2747bda09077ae464c72a9d\",\"build\":\"693569b9-f857-48ca-92d7-4167c2452d92\",\"contract\":\"cercano-development-ow",
+      "t\":\"184e78a6a2747bda09077ae464c72a9d\",\"build\":\"693569b9-f857-48ca-92d7-4167c2452d92\",\"contract\":\"cercano-development-owned-v2\",\"schema\":2,\"store\":\"/private/tmp/ca-v_iglp0q/state/conversations.db\"},\"Conversation\":\"\",\"Epoch\":\"\"}"
+    ]
+  },
+  {
+    "pid": 37252,
+    "path": "efforts/dev-host-generations/everyday-launcher-final-528a-manifest.json",
+    "exact_pid_text_match": false,
+    "runtime": "ca-suu_tvjs",
+    "excerpts": [
+      "0ed6d1f2551578462fceb1c\",\n  \"fixture_sha256\": \"adc23a32d8158a92fddd916a59befb0a47618db1a62a57f87078a61bb1e40e86\",\n  \"private_artifact_directory\": \"/private/tmp/ca-suu_tvjs\",\n  \"private_evidence_directory\": \"/tmp/launcher-final-528a-PASS\",\n  \"checks\": [\n    {\n      \"step\": \"fresh source provenance\"\n    },\n    {\n      \"step\": \"fresh bootstrap artifact\"\n    },\n    {\n      \"step\": \"fresh boot"
+    ]
+  },
+  {
+    "pid": 37252,
+    "path": "efforts/dev-host-generations/everyday-launcher-acceptance-evidence.md",
+    "exact_pid_text_match": false,
+    "runtime": "ca-suu_tvjs",
+    "excerpts": [
+      "Raw run evidence: `/tmp/launcher-final-528a-PASS` (mode 0700).\n- Preserved source checkout, binaries, private state/database and raw token files: `/private/tmp/ca-suu_tvjs` (mode 0700).\n- Earlier untracked repository diagnostics moved to `/tmp/launcher-final-528a-PASS/prior-untracked`; no raw PTYs, selections, logs or tokens added to this checkpoint.\n- Prior harness retries remain private"
+    ]
+  },
+  {
+    "pid": 37555,
+    "path": "efforts/dev-host-generations/everyday-launcher-final-528a-manifest.json",
+    "exact_pid_text_match": false,
+    "runtime": "ca-suu_tvjs",
+    "excerpts": [
+      "0ed6d1f2551578462fceb1c\",\n  \"fixture_sha256\": \"adc23a32d8158a92fddd916a59befb0a47618db1a62a57f87078a61bb1e40e86\",\n  \"private_artifact_directory\": \"/private/tmp/ca-suu_tvjs\",\n  \"private_evidence_directory\": \"/tmp/launcher-final-528a-PASS\",\n  \"checks\": [\n    {\n      \"step\": \"fresh source provenance\"\n    },\n    {\n      \"step\": \"fresh bootstrap artifact\"\n    },\n    {\n      \"step\": \"fresh boot"
+    ]
+  },
+  {
+    "pid": 37555,
+    "path": "efforts/dev-host-generations/everyday-launcher-acceptance-evidence.md",
+    "exact_pid_text_match": false,
+    "runtime": "ca-suu_tvjs",
+    "excerpts": [
+      "Raw run evidence: `/tmp/launcher-final-528a-PASS` (mode 0700).\n- Preserved source checkout, binaries, private state/database and raw token files: `/private/tmp/ca-suu_tvjs` (mode 0700).\n- Earlier untracked repository diagnostics moved to `/tmp/launcher-final-528a-PASS/prior-untracked`; no raw PTYs, selections, logs or tokens added to this checkpoint.\n- Prior harness retries remain private"
+    ]
+  },
+  {
+    "pid": 60422,
+    "path": "efforts/dev-host-generations/sqlite-contention-landing-evidence.md",
+    "exact_pid_text_match": false,
+    "runtime": "ca-ya1jupfg",
+    "excerpts": [
+      "uncher-gate,post-reciprocal,post-launcher}.log`\nand `pre-compiled/compiled.json`, `post-compiled/compiled.json`.\nHarness artifact roots retained: `/private/tmp/ca-ya1jupfg` and `/private/tmp/ca-8rw3_skh`.\nOnly this sanitized summary is committed, not raw runtime identifiers or transcripts.\n\n## Launcher preservation and safe cleanup\n\nInstalled `/Users/bryancostanich/bin/cercano` SHA-256 ve"
+    ]
+  },
+  {
+    "pid": 60824,
+    "path": "efforts/dev-host-generations/sqlite-contention-landing-evidence.md",
+    "exact_pid_text_match": false,
+    "runtime": "ca-ya1jupfg",
+    "excerpts": [
+      "uncher-gate,post-reciprocal,post-launcher}.log`\nand `pre-compiled/compiled.json`, `post-compiled/compiled.json`.\nHarness artifact roots retained: `/private/tmp/ca-ya1jupfg` and `/private/tmp/ca-8rw3_skh`.\nOnly this sanitized summary is committed, not raw runtime identifiers or transcripts.\n\n## Launcher preservation and safe cleanup\n\nInstalled `/Users/bryancostanich/bin/cercano` SHA-256 ve"
+    ]
+  },
+  {
+    "pid": 61528,
+    "path": "efforts/dev-host-generations/sqlite-contention-landing-evidence.md",
+    "exact_pid_text_match": false,
+    "runtime": "ca-8rw3_skh",
+    "excerpts": [
+      "t-launcher}.log`\nand `pre-compiled/compiled.json`, `post-compiled/compiled.json`.\nHarness artifact roots retained: `/private/tmp/ca-ya1jupfg` and `/private/tmp/ca-8rw3_skh`.\nOnly this sanitized summary is committed, not raw runtime identifiers or transcripts.\n\n## Launcher preservation and safe cleanup\n\nInstalled `/Users/bryancostanich/bin/cercano` SHA-256 verified before and after gates:\n"
+    ]
+  },
+  {
+    "pid": 61926,
+    "path": "efforts/dev-host-generations/sqlite-contention-landing-evidence.md",
+    "exact_pid_text_match": false,
+    "runtime": "ca-8rw3_skh",
+    "excerpts": [
+      "t-launcher}.log`\nand `pre-compiled/compiled.json`, `post-compiled/compiled.json`.\nHarness artifact roots retained: `/private/tmp/ca-ya1jupfg` and `/private/tmp/ca-8rw3_skh`.\nOnly this sanitized summary is committed, not raw runtime identifiers or transcripts.\n\n## Launcher preservation and safe cleanup\n\nInstalled `/Users/bryancostanich/bin/cercano` SHA-256 verified before and after gates:\n"
+    ]
+  }
+]

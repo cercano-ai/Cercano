@@ -1,0 +1,6 @@
+=== RUN   TestDiscoveryInventoryAggregatesWithoutChangingRefusal
+    discovery_inventory_darwin_test.go:181: inventory omitted pid=28720: upgrade blocker pid=28719: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+--- FAIL: TestDiscoveryInventoryAggregatesWithoutChangingRefusal (0.54s)
+FAIL
+FAIL	cercano/source/server/internal/brewrestart	0.831s
+FAIL

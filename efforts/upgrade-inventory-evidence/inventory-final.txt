@@ -1,0 +1,35 @@
+discovery elapsed=27.528208ms
+discovery refused: upgrade blocker pid=7439: upgrade blocker pid=7439: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=12347: upgrade blocker pid=12347: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=24401: upgrade blocker pid=24401: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=27420: upgrade blocker pid=27420: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=27885: upgrade blocker pid=27885: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=28448: upgrade blocker pid=28448: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=29024: upgrade blocker pid=29024: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=98106: upgrade blocker pid=98106: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=98571: upgrade blocker pid=98571: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=99375: upgrade blocker pid=99375: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+upgrade blocker pid=34013: no verified host/worker association
+upgrade blocker pid=35298: no verified host/worker association
+upgrade blocker pid=36021: no verified host/worker association
+upgrade blocker pid=36627: no verified host/worker association
+upgrade blocker pid=36905: no verified host/worker association
+upgrade blocker pid=37252: no verified host/worker association
+upgrade blocker pid=37555: no verified host/worker association
+upgrade blocker pid=38449: no verified host/worker association
+upgrade blocker pid=38845: no verified host/worker association
+upgrade blocker pid=44943: no verified host/worker association
+upgrade blocker pid=45341: no verified host/worker association
+upgrade blocker pid=59320: no verified host/worker association
+upgrade blocker pid=59725: no verified host/worker association
+upgrade blocker pid=60422: no verified host/worker association
+upgrade blocker pid=60824: no verified host/worker association
+upgrade blocker pid=61528: no verified host/worker association
+upgrade blocker pid=61926: no verified host/worker association
+upgrade blocker pid=63130: no verified host/worker association
+upgrade blocker pid=70217: no verified host/worker association
+upgrade blocker pid=70225: no verified host/worker association
+upgrade blocker pid=78630: no verified host/worker association
+upgrade blocker pid=87628: no verified host/worker association
+upgrade blocker pid=87629: no verified host/worker association
+upgrade blocker pid=87630: no verified host/worker association
