@@ -1,0 +1,20 @@
+=== RUN   TestReadOnlyUpgradeChildSnapshot
+    upgrade_snapshot_darwin_test.go:40: racy observation pid=38883 role=agent (not signal authority)
+    upgrade_snapshot_darwin_test.go:46: host pid=38883 target_listener=true listener_inspection_ok=true
+    upgrade_snapshot_darwin_test.go:76: child pid=38888 role=unrecognized category=unresolved reason=unrecognized executable identity revalidated=true
+    upgrade_snapshot_darwin_test.go:76: child pid=38889 role=unrecognized category=unresolved reason=unrecognized executable identity revalidated=true
+    upgrade_snapshot_darwin_test.go:76: child pid=38890 role=missing category=unresolved reason=unrecognized executable identity revalidated=true
+    upgrade_snapshot_darwin_test.go:76: child pid=49097 role=worker category=worker reason=recognized revalidated=true
+    upgrade_snapshot_darwin_test.go:76: child pid=49262 role=unrecognized category=unresolved reason=unrecognized executable identity revalidated=true
+    upgrade_snapshot_darwin_test.go:81: host pid=38883 revalidated=true; entire observation remains racy
+    upgrade_snapshot_darwin_test.go:40: racy observation pid=78630 role=worker (not signal authority)
+    upgrade_snapshot_darwin_test.go:40: racy observation pid=81572 role=model-host (not signal authority)
+    upgrade_snapshot_darwin_test.go:40: racy observation pid=70217 role=development-host (not signal authority)
+    upgrade_snapshot_darwin_test.go:46: host pid=70217 target_listener=false listener_inspection_ok=true
+    upgrade_snapshot_darwin_test.go:81: host pid=70217 revalidated=true; entire observation remains racy
+    upgrade_snapshot_darwin_test.go:40: racy observation pid=70225 role=development-host (not signal authority)
+    upgrade_snapshot_darwin_test.go:46: host pid=70225 target_listener=false listener_inspection_ok=true
+    upgrade_snapshot_darwin_test.go:81: host pid=70225 revalidated=true; entire observation remains racy
+--- PASS: TestReadOnlyUpgradeChildSnapshot (0.00s)
+PASS
+ok  	cercano/source/server/internal/brewrestart	0.366s

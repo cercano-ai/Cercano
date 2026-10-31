@@ -1,0 +1,27 @@
+--- FAIL: TestMissingExecutableZeroFDAndConfirmedExit (0.22s)
+    classify_missing_darwin_test.go:105: live zero-FD candidate must refuse: <nil>
+--- FAIL: TestSurvivingAliasConcreteWriterRisks (0.48s)
+    --- FAIL: TestSurvivingAliasConcreteWriterRisks/cercano (0.27s)
+        replaced_path_darwin_test.go:73: writer risk accepted: <nil>
+    --- FAIL: TestSurvivingAliasConcreteWriterRisks/unrelated-helper (0.21s)
+        replaced_path_darwin_test.go:73: writer risk accepted: upgrade blocker pid=49568: uninspectable executable owns target listener; shutdown identity unresolved
+[cercano] discovery elapsed=951.833µs
+[cercano] discovery elapsed=98.917µs
+[cercano] discovery elapsed=989.584µs
+[cercano] discovery elapsed=61.083µs
+[cercano] discovery elapsed=558.917µs
+[cercano] discovery elapsed=100.666µs
+[cercano] discovery elapsed=673.875µs
+[cercano] discovery elapsed=112.5µs
+[cercano] discovery elapsed=136.583µs
+[cercano] discovery elapsed=99.25µs
+[cercano] discovery elapsed=2.143958ms
+[cercano] discovery elapsed=270.25µs
+[cercano] discovery elapsed=250.667µs
+[cercano] discovery elapsed=95µs
+[cercano] discovery elapsed=100.083µs
+[cercano] discovery elapsed=88.917µs
+[cercano] discovery elapsed=108.708µs
+FAIL
+FAIL	cercano/source/server/internal/brewrestart	35.029s
+FAIL

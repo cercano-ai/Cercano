@@ -1,0 +1,42 @@
+=== RUN   TestUpgradeStopsDifferentImageWorker
+=== RUN   TestUpgradeStopsDifferentImageWorker/cercano
+    upgrade_darwin_test.go:119: verified attached same-user child role=worker with different executable path
+[cercano] discovery elapsed=364.75µs
+[cercano] discovery elapsed=158.292µs
+=== RUN   TestUpgradeStopsDifferentImageWorker/cercano-agent
+    upgrade_darwin_test.go:119: verified attached same-user child role=worker with different executable path
+[cercano] discovery elapsed=850.167µs
+[cercano] discovery elapsed=109.167µs
+=== RUN   TestUpgradeStopsDifferentImageWorker/unrecognized-worker
+    upgrade_darwin_test.go:119: verified attached same-user child role=worker with different executable path
+[cercano] discovery elapsed=160.875µs
+[cercano] discovery elapsed=112.791µs
+    upgrade_darwin_test.go:172: probe: child pid=49392 role=worker image=unrecognized-worker; stop error=unresolved host children host_pid=49391 unresolved=1 omitted=0 [pid=49392 role=worker reason=unrecognized executable identity]: context deadline exceeded
+--- PASS: TestUpgradeStopsDifferentImageWorker (7.01s)
+    --- PASS: TestUpgradeStopsDifferentImageWorker/cercano (2.90s)
+    --- PASS: TestUpgradeStopsDifferentImageWorker/cercano-agent (2.94s)
+    --- PASS: TestUpgradeStopsDifferentImageWorker/unrecognized-worker (1.17s)
+=== RUN   TestUpgradeUnknownChildRoles
+=== RUN   TestUpgradeUnknownChildRoles/agent
+    upgrade_darwin_test.go:119: verified attached same-user child role=agent with different executable path
+[cercano] discovery elapsed=107.084µs
+    upgrade_darwin_test.go:172: probe: child pid=49395 role=agent image=cercano; stop error=unresolved host children host_pid=49394 unresolved=1 omitted=0 [pid=49395 role=agent reason=unsupported role]: context deadline exceeded
+=== RUN   TestUpgradeUnknownChildRoles/development-host
+    upgrade_darwin_test.go:119: verified attached same-user child role=development-host with different executable path
+[cercano] discovery elapsed=92.834µs
+    upgrade_darwin_test.go:172: probe: child pid=49398 role=development-host image=cercano; stop error=unresolved host children host_pid=49397 unresolved=1 omitted=0 [pid=49398 role=development-host reason=unsupported role]: context deadline exceeded
+=== RUN   TestUpgradeUnknownChildRoles/unrecognized
+    upgrade_darwin_test.go:119: verified attached same-user child role=unrecognized with different executable path
+[cercano] discovery elapsed=84.167µs
+    upgrade_darwin_test.go:172: probe: child pid=49401 role=unrecognized image=cercano; stop error=unresolved host children host_pid=49400 unresolved=1 omitted=0 [pid=49401 role=unrecognized reason=unsupported role]: context deadline exceeded
+--- PASS: TestUpgradeUnknownChildRoles (3.47s)
+    --- PASS: TestUpgradeUnknownChildRoles/agent (1.17s)
+    --- PASS: TestUpgradeUnknownChildRoles/development-host (1.15s)
+    --- PASS: TestUpgradeUnknownChildRoles/unrecognized (1.15s)
+=== RUN   TestUpgradeDirectRuntimeHelperRemainsBlocked
+    upgrade_darwin_test.go:119: verified attached same-user child role=unrecognized with different executable path
+[cercano] discovery elapsed=88.416µs
+    upgrade_darwin_test.go:172: probe: child pid=49404 role=unrecognized image=dotnet; stop error=unresolved host children host_pid=49403 unresolved=1 omitted=0 [pid=49404 role=unrecognized reason=unrecognized executable identity]: context deadline exceeded
+--- PASS: TestUpgradeDirectRuntimeHelperRemainsBlocked (1.15s)
+PASS
+ok  	cercano/source/server/internal/brewrestart	11.872s

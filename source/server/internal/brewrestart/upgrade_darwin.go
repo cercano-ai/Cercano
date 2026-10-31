@@ -128,18 +128,10 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 			// verified role, not equality with the host's current image path.
 			// Attachment, lifetime and UID establish ownership; the tree freeze
 			// and every signal still revalidate the full executable identity.
-			name := filepath.Base(id.Executable)
-			if id.UID == host.UID && (name == "cercano" || name == "cercano-agent") && role == "worker" {
+			category, reason := upgradeDirectChildCategory(*host, id, role)
+			if category == "worker" {
 				workers[pid] = id
 				continue
-			}
-			// Unknown children are not ours to kill. Refuse rather than leave possible
-			// work running and authorize migration.
-			reason := "unsupported role"
-			if id.UID != host.UID {
-				reason = "UID mismatch"
-			} else if name != "cercano" && name != "cercano-agent" {
-				reason = "unrecognized executable identity"
 			}
 			unresolved.add(pid, "role="+safeUpgradeRole(role)+" reason="+reason)
 		}
@@ -430,4 +422,22 @@ func safeUpgradeRole(role string) string {
 	default:
 		return "unrecognized"
 	}
+}
+
+// Classify only after identity, attachment, lifetime, role and shared-model-host
+// checks. This is also used by the opt-in read-only observation test.
+// Unknown children are not ours to kill: refuse rather than leave possible
+// work running and authorize migration.
+func upgradeDirectChildCategory(host, id Identity, role string) (string, string) {
+	name := filepath.Base(id.Executable)
+	if id.UID != host.UID {
+		return "unresolved", "UID mismatch"
+	}
+	if name != "cercano" && name != "cercano-agent" {
+		return "unresolved", "unrecognized executable identity"
+	}
+	if role == "worker" {
+		return "worker", "recognized"
+	}
+	return "unresolved", "unsupported role"
 }

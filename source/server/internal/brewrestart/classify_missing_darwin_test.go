@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 )
@@ -101,8 +100,10 @@ int main(void) {
 		t.Fatalf("child not live: %v", err)
 	}
 	endpoint := netip.MustParseAddrPort("127.0.0.1:1")
-	if _, err := discoverUpgradeHost(endpoint, []int{pid}); err == nil || errors.Is(err, syscall.ESRCH) || !strings.Contains(err.Error(), "listener unresolved") {
-		t.Fatalf("live zero-FD candidate must refuse: %v", err)
+	// Discovery policy from bf00a634: unavailable images without concrete
+	// target-listener ownership are irrelevant, not signal-authorized.
+	if host, err := discoverUpgradeHost(endpoint, []int{pid}); err != nil || host != nil {
+		t.Fatalf("unrelated live zero-FD candidate: host=%v err=%v", host, err)
 	}
 	if err := missingListenerError(pid, syscall.ESRCH, missingIdentityError); err == nil || errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("live ambiguous listener must refuse: %v", err)

@@ -68,9 +68,15 @@ func TestSurvivingAliasConcreteWriterRisks(t *testing.T) {
 			if name == "cercano" {
 				endpoint = netip.MustParseAddrPort("127.0.0.1:1")
 			}
-			_, err := discoverUpgradeHost(endpoint, []int{pid})
-			if err == nil || !strings.Contains(err.Error(), "unresolved plausible writer") {
-				t.Fatalf("writer risk accepted: %v", err)
+			host, err := discoverUpgradeHost(endpoint, []int{pid})
+			// bf00a634 deliberately removed basename-only missing-image
+			// blockers; concrete target-listener ownership still refuses.
+			if name == "cercano" {
+				if err != nil || host != nil {
+					t.Fatalf("non-target alias: host=%v err=%v", host, err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "uninspectable executable owns target listener; shutdown identity unresolved") {
+				t.Fatalf("target-listener ambiguity not refused: %v", err)
 			}
 		})
 	}
