@@ -1,0 +1,8 @@
+{
+  "test/fixtures/production-stop/cercano": "0e1187deef782154fb06609b5e18d8cf393395767b53c0abdfe7de128438f63d",
+  "test/fixtures/production-stop/cercano-upgrade": "161fbb0384faaf9f437cdb4ed5733ebcd4ecc74aaa8ca7162c700bf7bf8b3c75",
+  "test/fixtures/production-stop/cercano-native-upgrade": "63eb3f02d9ae87533f61beaebeb05eed6da3028e93dfc052de5dffa9cbe7ba38",
+  "test/fixtures/production-stop/client": "c484d2b416b18aaa4ad7b0d8e6de7662d11efa3f19dc16075a4ba62211ac9acb",
+  "test/fixtures/production-stop/upgrade-fixture": "e7f1a9b3bfacc524ed2f57b3cacc1a480f2f1da0081e6d148f94cb130c856d14",
+  "efforts/final-53780-verification/preflight": "1c9f3864ca5094c3522ec5290cd02abf912ba9f8b79824299f689ab97e95824c"
+}

@@ -88,6 +88,7 @@ def snap(name):
    except sqlite3.Error as e:data[table]=str(e)
   c.close();(root/(name+'.json')).write_text(json.dumps(data,indent=2,default=str))
 log=open(root/'host.log','w');host=sp.Popen([str(base/'cercano'),'agent'],env=env,cwd=root/'work',stdout=log,stderr=sp.STDOUT);track(host.pid)
+sibling=None
 result={'source_commit':sp.check_output(['git','rev-parse','HEAD'],cwd=base,text=True).strip()}
 try:
  for _ in range(100):
@@ -145,6 +146,15 @@ try:
    time.sleep(.1)
   assert extra_workers, 'additional production worker not established'
   result['additional_host']=extra.pid;result['additional_workers']=extra_workers
+  sibling=sp.Popen([str(base/'cercano'),'worker','--socket',str(root/'sibling.sock')],env=env,cwd=root/'work',stdout=open(root/'sibling.log','w'),stderr=sp.STDOUT)
+  track(sibling.pid)
+  for _ in range(100):
+   if (root/'sibling.sock').exists():break
+   assert sibling.poll() is None
+   time.sleep(.1)
+  assert (root/'sibling.sock').exists()
+  result['sibling_worker']={'pid':sibling.pid,'parent':int(sp.check_output(['/bin/ps','-p',str(sibling.pid),'-o','ppid='],text=True)),'identity':identity(sibling.pid)}
+  assert result['sibling_worker']['parent']==os.getpid()
   descendants=[]
   def descend(pid):
    for raw in sp.run(['pgrep','-P',str(pid)],capture_output=True,text=True).stdout.split():
@@ -152,6 +162,7 @@ try:
     if ' model-host' in owned.get(child,''): continue  # Shared model host is not a DB writer.
     descendants.append(child); descend(child)
   descend(host.pid);descend(extra.pid);descendants.append(extra.pid)
+  assert sibling.pid not in descendants
   result['owned_descendants_before_confirmation']=descendants
   assert len(descendants)>=3, 'expected workers plus live work descendant'
   db=root/'state/conversations.db'
@@ -160,9 +171,12 @@ try:
   # Keep production endpoint authority, but use the compiled synthetic generation backend.
   import shutil
   shutil.copy2(conf/'config.yaml',root/'state/config.yaml')
-  upgrade_env=dict(env,CERCANO_FIXTURE_OWNED_DESCENDANTS=','.join(map(str,[host.pid,*descendants])),CERCANO_FIXTURE_PORT=str(port),CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='empty',CERCANO_FIXTURE_OWNED_HOST=str(host.pid),CERCANO_FIXTURE_ADDITIONAL_HOSTS=str(extra.pid),CERCANO_FIXTURE_STOP_RECORD=str(root/'native-stop.log'),CERCANO_FIXTURE_UPGRADE_HELPER=str(base/'cercano-native-upgrade'))
+  upgrade_env=dict(env,CERCANO_FIXTURE_OWNED_DESCENDANTS=','.join(map(str,[host.pid,*descendants])),CERCANO_FIXTURE_PORT=str(port),CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='owned-worker',CERCANO_FIXTURE_SIBLING_WORKER=str(sibling.pid),CERCANO_FIXTURE_OWNED_HOST=str(host.pid),CERCANO_FIXTURE_ADDITIONAL_HOSTS=str(extra.pid),CERCANO_FIXTURE_STOP_RECORD=str(root/'native-stop.log'),CERCANO_FIXTURE_UPGRADE_HELPER=str(base/'cercano-native-upgrade'))
   from generation import accept
   accept(base.parents[2],root,upgrade_env,None,result,upgrading=True)
+  assert sibling.poll() is None and identity(sibling.pid)==result['sibling_worker']['identity']
+  with socket.socket(socket.AF_UNIX) as probe: probe.connect(str(root/'sibling.sock'))
+  result['sibling_worker']['survived_and_serving_after_generation']=True
   result['host_exit']=host.poll()
   assert result['host_exit'] is not None
   result['additional_host_exit']=extra.poll()
@@ -181,6 +195,7 @@ finally:
   try:p.wait(timeout=3)
   except sp.TimeoutExpired:p.kill();p.wait()
  if host.poll() is None:stop(host.pid)
+ if sibling is not None: sibling.wait(timeout=3); result['sibling_cleanup_exit']=sibling.returncode
  result['cleanup_remaining']={str(pid):identity(pid) for pid in owned if identity(pid)}
  result['filesystem']={f.name:f.read_text() for f in (root/'work').glob('*.txt')}
  (root/'requests.json').write_text(json.dumps(events,indent=2));(root/'result.json').write_text(json.dumps(result,indent=2));srv.shutdown();print(json.dumps(result,indent=2),flush=True)

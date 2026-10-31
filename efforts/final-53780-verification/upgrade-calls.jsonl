@@ -1,0 +1,2 @@
+["/private/tmp/cstop-wjp7m1kg/t/cercano-upgrade-q3pcy5ha/cercano", "upgrade-store", "--database", "/private/tmp/cstop-wjp7m1kg/state/conversations.db", "--all-legacy-agents-stopped", "--check-only", "--stop-hosts-config", "/private/tmp/cstop-wjp7m1kg/state/config.yaml"]
+["/private/tmp/cstop-wjp7m1kg/t/cercano-upgrade-q3pcy5ha/cercano", "upgrade-store", "--database", "/private/tmp/cstop-wjp7m1kg/state/conversations.db", "--all-legacy-agents-stopped", "--interrupt-tasks"]

@@ -1,0 +1,8 @@
+{
+ "production_sha":"53780c6b3940d78b8c7d62ba052b1c2dc8a7b202",
+ "computed_before_run":true,
+ "order":["confirmation with no stop or backup yet","native stop of two host targets and owned descendants","verified exits","real production knownUpgradeAgents on owned sibling worker inventory","one backup schema 0","real migration to schema 2 with second production known-agent check","supported generation startup","resume original history and persist fresh user/assistant"],
+ "counts":{"host_targets":2,"unassociated_workers":1,"shutdown_calls":1,"upgrade_store_calls":2,"post_stop_known_agent_checks":2,"backups":1,"migrations":1,"generation_selections":1,"fresh_user_rows":1,"fresh_assistant_rows_min":1,"remaining_owned_processes":0},
+ "history":"exact backup rows preserved; count determined from quiesced backup, not assumed from racing in-flight cancellation",
+ "scope":"disposable synthetic loopback provider, production untagged hosts/worker; acceptance tags only for bounded inventory and synthetic generation; no ambient signals"
+}

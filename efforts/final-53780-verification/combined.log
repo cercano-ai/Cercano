@@ -1,0 +1,153 @@
+ROOT /private/tmp/cstop-wjp7m1kg
+{
+  "source_commit": "53780c6b3940d78b8c7d62ba052b1c2dc8a7b202",
+  "writer_started": true,
+  "existing_pids": [
+    34315,
+    34330,
+    34364
+  ],
+  "provider_hold_reached": true,
+  "owned_before_stop": {
+    "34315": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano agent\nFri Oct 30 21:27:46 2026",
+    "34330": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano model-host\nFri Oct 30 21:27:47 2026",
+    "34364": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano worker --socket /private/tmp/cstop-wjp7m1kg/t/cercano-workers/stop-before-1-11e87bde.sock\nFri Oct 30 21:27:47 2026",
+    "34381": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano worker --socket /private/tmp/cstop-wjp7m1kg/t/cercano-workers/stop-inflight-1-8d8965bf.sock\nFri Oct 30 21:27:47 2026"
+  },
+  "late_workers": [
+    34381
+  ],
+  "ticks_at_stop": 2,
+  "additional_host": 34406,
+  "additional_workers": [
+    34418
+  ],
+  "sibling_worker": {
+    "pid": 34437,
+    "parent": 34314,
+    "identity": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano worker --socket /private/tmp/cstop-wjp7m1kg/sibling.sock\nFri Oct 30 21:27:48 2026",
+    "survived_and_serving_after_generation": true
+  },
+  "owned_descendants_before_confirmation": [
+    34364,
+    34374,
+    34444,
+    34381,
+    34418,
+    34406
+  ],
+  "generation_source": "b82ae41c86f79a7d3eea1fc5d58044991d56e414",
+  "upgrade_calls": [
+    [
+      "/private/tmp/cstop-wjp7m1kg/t/cercano-upgrade-q3pcy5ha/cercano",
+      "upgrade-store",
+      "--database",
+      "/private/tmp/cstop-wjp7m1kg/state/conversations.db",
+      "--all-legacy-agents-stopped",
+      "--check-only",
+      "--stop-hosts-config",
+      "/private/tmp/cstop-wjp7m1kg/state/config.yaml"
+    ],
+    [
+      "/private/tmp/cstop-wjp7m1kg/t/cercano-upgrade-q3pcy5ha/cercano",
+      "upgrade-store",
+      "--database",
+      "/private/tmp/cstop-wjp7m1kg/state/conversations.db",
+      "--all-legacy-agents-stopped",
+      "--interrupt-tasks"
+    ]
+  ],
+  "expected_counts": {
+    "shutdown": 1,
+    "backup": 1,
+    "migration": 1
+  },
+  "backup": "/private/tmp/cstop-wjp7m1kg/state/conversations.before-upgrade-6ml9f3_r.db",
+  "migration_version": [
+    [
+      2
+    ]
+  ],
+  "generation_selection": {
+    "ConfigAuthority": "/private/tmp/cstop-wjp7m1kg/state/config.yaml",
+    "Endpoint": "127.0.0.1:54914",
+    "TokenFile": "/private/tmp/cstop-wjp7m1kg/state/hosts/7fda5cd8a0fb3f430eaee02e5fa7f686d04725d1b913bccb83567d03f056cb33.token",
+    "Identity": {
+      "host": "229ee340e8008136437dcb190e3b16f9",
+      "build": "3cd8a5c6-8cd9-4744-8e2b-35bd3d83e822",
+      "contract": "cercano-development-owned-v2",
+      "schema": 2,
+      "store": "/private/tmp/cstop-wjp7m1kg/state/conversations.db"
+    },
+    "Conversation": "1b5433e624da9d247ba2d72b3560d002",
+    "Epoch": "161abdf22ffce2851c95d659",
+    "Generation": "/private/tmp/cstop-wjp7m1kg/state/generations/3cc9bdbf45e39b7070805fa2ea3055fd35f91f4fabfdb9aafdbe23c3ccd4b563"
+  },
+  "generation_worker_events": [
+    {
+      "event": "worker-startup",
+      "executable": "/private/tmp/cstop-wjp7m1kg/state/generations/3cc9bdbf45e39b7070805fa2ea3055fd35f91f4fabfdb9aafdbe23c3ccd4b563/cercano",
+      "manifest_sha256": "c73b676457d84893470097fb5400e854510fe310e3634fa34c35feccc948c429",
+      "parent_pid": 34696,
+      "pid": 34728,
+      "sha256": "f3f05fa8893a1ee77acf77afe51266f168e27dc1608dd0cbf7a5c1530414ed94",
+      "unix_nano": 1793420888144458000
+    },
+    {
+      "conversation": "stop-before",
+      "event": "worker-turn",
+      "executable": "/private/tmp/cstop-wjp7m1kg/state/generations/3cc9bdbf45e39b7070805fa2ea3055fd35f91f4fabfdb9aafdbe23c3ccd4b563/cercano",
+      "manifest_sha256": "c73b676457d84893470097fb5400e854510fe310e3634fa34c35feccc948c429",
+      "parent_pid": 34696,
+      "pid": 34728,
+      "sha256": "f3f05fa8893a1ee77acf77afe51266f168e27dc1608dd0cbf7a5c1530414ed94",
+      "turn_generation": 1,
+      "unix_nano": 1793420888177959000
+    }
+  ],
+  "fresh_reply": [
+    [
+      "FIXTURE_OK "
+    ]
+  ],
+  "history_rows_preserved": 4,
+  "replacement_started": true,
+  "generation_cleanup": {
+    "identities": [
+      {
+        "pid": 34696,
+        "start": "Fri Oct 30 21:28:05 2026",
+        "command": "/private/tmp/cstop-wjp7m1kg/state/generations/3cc9bdbf45e39b7070805fa2ea3055fd35f91f4fabfdb9aafdbe23c3ccd4b563/cercano development-host --state /private/tmp/cstop-wjp7m1kg/state --generation /private/tmp/cstop-wjp7m1kg/state/generations/3cc9bdbf45e39b7070805fa2ea3055fd35f91f4fabfdb9aafdbe23c3ccd4b563 --host 229ee340e8008136437dcb190e3b16f9 --token-file /private/tmp/cstop-wjp7m1kg/state/hosts/7fda5cd8a0fb3f430eaee02e5fa7f686d04725d1b913bccb83567d03f056cb33.token --record /private/tmp/cstop-wjp7m1kg/state/hosts/7fda5cd8a0fb3f430eaee02e5fa7f686d04725d1b913bccb83567d03f056cb33.json --runtime-root /private/tmp/cstop-wjp7m1kg/run --listen 127.0.0.1:0 --config-authority /private/tmp/cstop-wjp7m1kg/state/config.yaml"
+      },
+      {
+        "pid": 34704,
+        "start": "Fri Oct 30 21:28:05 2026",
+        "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3 /private/tmp/cstop-wjp7m1kg/barrier/mcp-fixture"
+      },
+      {
+        "pid": 34728,
+        "start": "Fri Oct 30 21:28:08 2026",
+        "command": "/private/tmp/cstop-wjp7m1kg/state/generations/3cc9bdbf45e39b7070805fa2ea3055fd35f91f4fabfdb9aafdbe23c3ccd4b563/cercano worker --socket /private/tmp/cstop-wjp7m1kg/run/w-71ddde3c05ed97ed8c89e612/57a1428a894343bec3490fe19082941d.sock --prepared --failure-log /private/tmp/cstop-wjp7m1kg/run/w-71ddde3c05ed97ed8c89e612/failures.jsonl --routing-log /private/tmp/cstop-wjp7m1kg/run/w-71ddde3c05ed97ed8c89e612/turn-routing.jsonl"
+      }
+    ],
+    "actions": [
+      {
+        "pid": 34696,
+        "signal": "SIGTERM"
+      },
+      {
+        "pid": 34728,
+        "signal": "SIGTERM"
+      }
+    ],
+    "remaining": []
+  },
+  "host_exit": -9,
+  "additional_host_exit": -9,
+  "fixture_combined_acceptance": true,
+  "sibling_cleanup_exit": -15,
+  "cleanup_remaining": {},
+  "filesystem": {
+    "ticks.txt": "tick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\n"
+  }
+}

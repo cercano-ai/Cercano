@@ -15,6 +15,8 @@ func upgradeAgentCheck(ctx context.Context) error {
 		return fmt.Errorf("acceptance requires disabled credentials")
 	}
 	switch os.Getenv("CERCANO_ACCEPTANCE_UPGRADE_PROCESSES") {
+	case "owned-worker":
+		return knownUpgradeAgents(ctx) // real production filter; ps inventory is fixture-scoped
 	case "empty":
 		return refuseKnownUpgradeAgents("", os.Getpid())
 	case "second-active":

@@ -27,6 +27,11 @@ func acceptanceHostStop(ctx context.Context, endpoint netip.AddrPort) error {
 		}
 		pids = append(pids, extra)
 	}
+	worker, err := strconv.Atoi(os.Getenv("CERCANO_FIXTURE_SIBLING_WORKER"))
+	if err != nil || worker <= 0 {
+		return fmt.Errorf("owned sibling worker required")
+	}
+	pids = append(pids, worker) // candidate only, never a host/descendant
 	state := os.Getenv("CERCANO_DEVELOPMENT_STATE")
 	backups, err := filepath.Glob(filepath.Join(state, "conversations.before-upgrade-*.db"))
 	if err != nil || len(backups) != 0 {

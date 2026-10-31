@@ -1,0 +1,18 @@
+=== RUN   TestFinalReadOnlyInventoryReport
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=7439: upgrade blocker pid=7439: upgrade blocker pid=7439: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=12347: upgrade blocker pid=12347: upgrade blocker pid=12347: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=24401: upgrade blocker pid=24401: upgrade blocker pid=24401: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=27420: upgrade blocker pid=27420: upgrade blocker pid=27420: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=27885: upgrade blocker pid=27885: upgrade blocker pid=27885: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=28448: upgrade blocker pid=28448: upgrade blocker pid=28448: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=29024: upgrade blocker pid=29024: upgrade blocker pid=29024: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+    final_inventory_acceptance_test.go:21: TARGET (not blocker) pid=38883 executable=/Users/bryancostanich/bin/.cercano-libexec/cercano endpoint=127.0.0.1:50052
+    final_inventory_acceptance_test.go:21: TARGET (not blocker) pid=63130 executable=/Users/bryancostanich/cercano-development-synthetic-78c4769fad/state/generations/23e02f26dc1bcb3677bba9cd69cdd6e5686b6c962e2a35a7c174189f89a6a41d/cercano endpoint=127.0.0.1:61589
+    final_inventory_acceptance_test.go:21: TARGET (not blocker) pid=70217 executable=/Users/bryancostanich/.config/cercano-development/generations/097126075ec98587976096cc61fd006421a8523dab7dacbabcf2f739bb226073/cercano endpoint=127.0.0.1:62427
+    final_inventory_acceptance_test.go:21: TARGET (not blocker) pid=70225 executable=/Users/bryancostanich/.config/cercano-development/generations/6d96e671e1ef46743de87c67a6674c5050c97d8475058ed44bc92a2fef950dfe/cercano endpoint=127.0.0.1:54243
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=98106: upgrade blocker pid=98106: upgrade blocker pid=98106: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=98571: upgrade blocker pid=98571: upgrade blocker pid=98571: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+    final_inventory_acceptance_test.go:20: UNRESOLVED pid=99375: upgrade blocker pid=99375: upgrade blocker pid=99375: missing executable; candidate unclassified: unresolved plausible writer: no corroborated worker role
+--- PASS: TestFinalReadOnlyInventoryReport (0.03s)
+PASS
+ok  	cercano/source/server/internal/brewrestart	0.354s

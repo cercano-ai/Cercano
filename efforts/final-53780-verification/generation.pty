@@ -1,0 +1,73 @@
+[cercano] Starting Cercano...
+[cercano] launch lock acquired elapsed=0.000s
+[cercano] Checking local state and database compatibility...
+[cercano] state preparation lock acquired elapsed=0.000s
+[cercano] inspection started
+[cercano] inspection elapsed=0.002s
+Database upgrade required
+
+This version of Cercano needs to upgrade your existing conversation database. Your saved history will be preserved, and a backup will be created before migration. Read-only compatibility inspection may create or update SQLite SHM coordination; it does not change application data or schema.
+
+Continuing will shut down incompatible agent hosts, disconnect their sessions, and stop any work in progress. Unsaved progress may be lost.
+
+If you have work in progress that you want to finish, choose No and run Cercano again when it is complete.
+
+Stop agents and upgrade now? [y/N]y
+[cercano] helper build started
+[cercano] Building database upgrade helper...
+[cercano] helper build elapsed=0.244s
+[cercano] discovery and verified shutdown started
+[cercano] discovery elapsed=1.4275ms
+[cercano] discovery and verified shutdown elapsed=4.893s
+[cercano] retained backup: /private/tmp/cstop-wjp7m1kg/state/conversations.before-upgrade-6ml9f3_r.db
+[cercano] backup started
+[cercano] backup elapsed=0.002s
+[cercano] migration started
+[cercano] migration elapsed=0.031s
+[cercano] upgrade complete; if startup fails, backup remains at /private/tmp/cstop-wjp7m1kg/state/conversations.before-upgrade-6ml9f3_r.db
+[cercano] Checking source fingerprint...
+[cercano] Preparing binaries (building if needed)...
+/private/tmp/cstop-wjp7m1kg/state/generations/.building-x7z0qy3l/cercano: replacing existing signature
+/private/tmp/cstop-wjp7m1kg/state/generations/.building-x7z0qy3l/cercano-cli: replacing existing signature
+[cercano] Acquiring development host...
+[?2026$p[?2027$p[>4m[=0;1u[?1049h[?5W[?2004h[?1002h[?1006h[>4;2m[=31;1u[?u]11;#1a1a1a[1 q[H[2J[38;5;172m▓▓ CERCANO[38;5;243m v403354f[m[104X[1;124H[38;5;44mo:[38;5;154moffline-fixture[m
+[38;5;238m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+  [38;5;238m╔════════════════════════════════════════════════════════════╗[m
+  [38;5;238m║[m[60X[4;64H[38;5;238m║[m
+  [38;5;238m║[m  [38;5;172m█▀▀ █▀▀ █▀█ █▀▀ █▀█ █▄ █ █▀█[m[30X[5;64H[38;5;238m║[m
+  [38;5;238m║[m  [38;5;172m█▄▄ ██▄ █▀▄ █▄▄ █▀█ █ ▀█ █▄█[m[30X[6;64H[38;5;238m║[m
+  [38;5;238m║[m[60X[7;64H[38;5;238m║[m
+  [38;5;238m║[m  [38;5;154m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[m  [38;5;238m║[m
+  [38;5;238m║[m  [38;5;243m▶ [38;5;172mlocal-first ai coprocessor[38;5;243m     · [38;5;44mv403354f[m[15X[9;64H[38;5;238m║[m
+  [38;5;238m╚════════════════════════════════════════════════════════════╝[m[37d[38;5;154m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+[38;5;154;1m▶ [38;5;243;22mtype a message, /help for commands[m
+[38;5;154m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+[38;5;243mctx not computed yet · /help for cmds[m[38;3H[?25h[?25l[2A[38;5;154m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+  [38;5;154m/resume[38;5;238m   ·   [38;5;243mResume a conversation by id: /resume <id>. No id → opens the picker.[K[m
+[3G[38;5;172m/resume stop-b[m[K[?25h[?25l[H[H[2J[38;5;172m▓▓ CERCANO[38;5;243m v403354f[m[104X[1;124H[38;5;44mo:[38;5;154moffline-fixture[m
+[38;5;238m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+  [38;5;238m╔════════════════════════════════════════════════════════════╗[m
+  [38;5;238m║[m[60X[4;64H[38;5;238m║[m
+  [38;5;238m║[m  [38;5;172m█▀▀ █▀▀ █▀█ █▀▀ █▀█ █▄ █ █▀█[m[30X[5;64H[38;5;238m║[m
+  [38;5;238m║[m  [38;5;172m█▄▄ ██▄ █▀▄ █▄▄ █▀█ █ ▀█ █▄█[m[30X[6;64H[38;5;238m║[m
+  [38;5;238m║[m[60X[7;64H[38;5;238m║[m
+  [38;5;238m║[m  [38;5;154m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[m  [38;5;238m║[m
+  [38;5;238m║[m  [38;5;243m▶ [38;5;172mlocal-first ai coprocessor[38;5;243m     · [38;5;44mv403354f[m[15X[9;64H[38;5;238m║[m
+  [38;5;238m╚════════════════════════════════════════════════════════════╝[m
+
+[38;5;148;48;5;23;1m▶ [38;5;215;22mRun the requested fixture command. Return BEFORE_STOP_REPLY.[76X[m[37d[38;5;154m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+[38;5;154;1m▶ [38;5;243;22mtype a message, /help for commands[m
+[38;5;154m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+[38;5;243mctx [38;5;44m█[38;5;221m██████[38;5;172m█████[38;5;94m░░░░░░░░[38;5;243m [38;5;154m19.6k[38;5;238m/[38;5;243m32.8k 59% · /help for cmds[m[38;3H[?25h[?25l[5;6H[38;5;215m█▀[38;5;208m▀[38;5;172m [m
+[6G[38;5;215m█[38;5;208m▄[38;5;172m▄[m[38;3H[38;5;172mFIXTURE_COM[m[K[?25h[?25l[5;6H[38;5;215m█▀[38;5;208m▀[38;5;172m [m
+[6G[38;5;215m█[38;5;208m▄[38;5;172m▄[m[8B[38;5;148;48;5;23;1m▶ [38;5;215;22mFIXTURE_COMBINED_FRESH_REPLY[108X[m
+
+  [38;5;215m▌[m [38;5;154mt[38;5;191mh[38;5;192mi[38;5;229mn[38;5;231mk[38;5;230mi[38;5;192mn[38;5;191mg[38;5;154m · 0s[m[38;3H[38;5;243mtype to queue[m[3G[?25h[?25l[5;6H[38;5;223m█[38;5;222m▀[38;5;215m▀[38;5;208m █[m
+[6G[38;5;222m█[38;5;215m▄[38;5;208m▄ [m[16;3H[38;5;215m▘[m [38;5;154mth[38;5;191mi[38;5;192mn[38;5;230mk[38;5;231mi[38;5;229mn[38;5;191mg [m[38;3H[?25h[?25l[5;6H[38;5;230m█▀[38;5;222m▀[38;5;215m █[38;5;208m▀[m
+[6G[38;5;230m█[38;5;222m▄[38;5;215m▄ [38;5;208m█[m[16;3H[38;5;215m▘[m [38;5;154mthinking · 0s [38;5;190m·[38;5;191m [38;5;193mo[38;5;231mf[38;5;230mf[38;5;192ml[38;5;191mi[38;5;154mne-fixture (local)[m[38;3H[?25h[?25l[5;6H[38;5;222m█[38;5;224m▀[38;5;231m▀[38;5;223m [38;5;215m█▀[38;5;208m▀[m
+[6G[38;5;224m█[38;5;231m▄[38;5;223m▄[38;5;215m █[38;5;208m█[m[16;3H[38;5;172mFIXTURE_OK[126X[m
+
+  [38;5;215m▘[m [38;5;154mwriting · 0s · 1 t[38;5;191mo[38;5;192mk[38;5;230m↑[38;5;231m [38;5;229m·[38;5;192m [38;5;191mo[38;5;154mffline-fixture (local)[m[40;42H[38;5;243m· cloud:[38;5;77m ok[38;5;243m · /help for cmds[m[38;3H[?25h[?25l[5;6H[38;5;221m█[38;5;223m▀[38;5;231m▀[38;5;223m [38;5;222m█[38;5;215m▀[38;5;208m▀[38;5;172m [m
+[6G[38;5;223m█[38;5;231m▄[38;5;223m▄[38;5;222m [38;5;215m█[38;5;208m█[38;5;172m▄[m[18d[K[36;3H[38;5;154mrecap [38;5;215;3mrecap unavailable — check /config local-runtime[m
+
+[3G[38;5;243mFIXTURE_OK[m[K[40;29H[38;5;154m8k[38;5;238m/[38;5;243m32.8k 60[m[38;3H[?25h

@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "known_agent_checks": 2,
+  "host_exits": [
+    -9,
+    -9
+  ],
+  "history_rows": 4,
+  "worker": {
+    "pid": 34437,
+    "parent": 34314,
+    "identity": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano worker --socket /private/tmp/cstop-wjp7m1kg/sibling.sock\nFri Oct 30 21:27:48 2026",
+    "survived_and_serving_after_generation": true
+  },
+  "remaining": {},
+  "retained_fixture_root": "/private/tmp/cstop-wjp7m1kg"
+}
