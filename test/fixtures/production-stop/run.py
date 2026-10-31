@@ -6,7 +6,7 @@ assert mode in ['host-only','native','combined']
 root=pathlib.Path(tempfile.mkdtemp(prefix='cstop-',dir='/tmp')).resolve()
 print('ROOT',root,flush=True)
 for d in ['h/.config/cercano','t','data','cache','state','run','work']: (root/d).mkdir(parents=True,exist_ok=True)
-conf=root/'h/.config/cercano'; hold=threading.Event(); release=threading.Event(); events=[]; owned={}; children=[]
+conf=root/'h/.config/cercano'; hold=threading.Event(); release=threading.Event(); events=[]; owned={}; children=[]; extra_hosts=[]
 expect={'native':'Before correction native shutdown must refuse on a host-owned RunCommand child, or leave writes running; after correction it must succeed and writes must stop. Tool lifetime is bounded to 12 seconds even on probe failure.', 'before':'Completed reply persisted; an existing idle worker plus second in-flight worker expected.','stop':'TERM then at most 20 0.1s polls, KILL only if host alive, then 0.2s. In-flight reply may be cancelled; no guaranteed post-stop host-bridge persistence.','writes':'Before-stop Write should create before.txt. Held response requests Write after host stop: cancellation may prevent execution; surviving process alone does not prove continuation. DB persistence and file writes checked separately.','isolation':'Untagged production binary, empty environment allowlist, loopback synthetic Ollama, disposable stores.'}
 (root/'work/writer.sh').write_text('trap \"\" TERM\ni=0\nwhile [ $i -lt 120 ]; do echo tick >> \"'+str(root/'work/ticks.txt')+'\"; i=$((i+1)); /bin/sleep 0.1; done\n')
 (root/'expectations.json').write_text(json.dumps(expect,indent=2))
@@ -61,6 +61,8 @@ def capture():
  # Scoped to children of the known, directly spawned host; never global discovery.
  r=sp.run(['pgrep','-P',str(host.pid)],capture_output=True,text=True)
  for p in r.stdout.split(): track(int(p))
+ for extra in extra_hosts:
+  for p in sp.run(['pgrep','-P',str(extra.pid)],capture_output=True,text=True).stdout.split(): track(int(p))
  for f in (root/'h').rglob('modelhost.json'):
   try: track(json.loads(f.read_text())['pid'])
   except (ValueError,KeyError): pass
@@ -123,13 +125,33 @@ try:
    assert result['ticks_after_shutdown']==result['ticks_after_wait'], 'tool continues writing'
    assert result['survivors'] and all(' model-host' in i for i in result['survivors'].values()), 'unexpected survivor or lost shared model host'
  if mode=='combined':
+  # A second untagged production writer shares only this disposable store.
+  # It has its own listener and active worker; no client-idle prerequisite.
+  s=socket.socket();s.bind(('127.0.0.1',0));extra_port=s.getsockname()[1];s.close()
+  extra=sp.Popen([str(base/'cercano'),'agent'],env=dict(env,CERCANO_PORT=str(extra_port)),cwd=root/'work',stdout=open(root/'extra-host.log','w'),stderr=sp.STDOUT)
+  extra_hosts.append(extra);track(extra.pid)
+  for _ in range(100):
+   if extra.poll() is not None: raise RuntimeError('additional host exited')
+   try:
+    with socket.create_connection(('127.0.0.1',extra_port),timeout=.1):break
+   except OSError:time.sleep(.1)
+  extra_client=sp.Popen([str(base/'client'),'127.0.0.1:'+str(extra_port),'HOLD_MARKER additional active writer',str(root/'work'),'extra'],env=env,stdout=open(root/'extra-client.log','w'),stderr=sp.STDOUT)
+  children.append(extra_client)
+  extra_workers=[]
+  for _ in range(100):
+   capture()
+   extra_workers=[int(p) for p in sp.run(['pgrep','-P',str(extra.pid)],capture_output=True,text=True).stdout.split() if ' worker ' in owned.get(int(p),'')]
+   if extra_workers:break
+   time.sleep(.1)
+  assert extra_workers, 'additional production worker not established'
+  result['additional_host']=extra.pid;result['additional_workers']=extra_workers
   descendants=[]
   def descend(pid):
    for raw in sp.run(['pgrep','-P',str(pid)],capture_output=True,text=True).stdout.split():
     child=int(raw)
     if ' model-host' in owned.get(child,''): continue  # Shared model host is not a DB writer.
     descendants.append(child); descend(child)
-  descend(host.pid)
+  descend(host.pid);descend(extra.pid);descendants.append(extra.pid)
   result['owned_descendants_before_confirmation']=descendants
   assert len(descendants)>=3, 'expected workers plus live work descendant'
   db=root/'state/conversations.db'
@@ -138,11 +160,13 @@ try:
   # Keep production endpoint authority, but use the compiled synthetic generation backend.
   import shutil
   shutil.copy2(conf/'config.yaml',root/'state/config.yaml')
-  upgrade_env=dict(env,CERCANO_FIXTURE_OWNED_DESCENDANTS=','.join(map(str,[host.pid,*descendants])),CERCANO_FIXTURE_PORT=str(port),CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='empty',CERCANO_FIXTURE_OWNED_HOST=str(host.pid),CERCANO_FIXTURE_STOP_RECORD=str(root/'native-stop.log'),CERCANO_FIXTURE_UPGRADE_HELPER=str(base/'cercano-native-upgrade'))
+  upgrade_env=dict(env,CERCANO_FIXTURE_OWNED_DESCENDANTS=','.join(map(str,[host.pid,*descendants])),CERCANO_FIXTURE_PORT=str(port),CERCANO_ACCEPTANCE_UPGRADE_PROCESSES='empty',CERCANO_FIXTURE_OWNED_HOST=str(host.pid),CERCANO_FIXTURE_ADDITIONAL_HOSTS=str(extra.pid),CERCANO_FIXTURE_STOP_RECORD=str(root/'native-stop.log'),CERCANO_FIXTURE_UPGRADE_HELPER=str(base/'cercano-native-upgrade'))
   from generation import accept
   accept(base.parents[2],root,upgrade_env,None,result,upgrading=True)
   result['host_exit']=host.poll()
   assert result['host_exit'] is not None
+  result['additional_host_exit']=extra.poll()
+  assert result['additional_host_exit'] is not None
   ticks=(root/'work/ticks.txt').read_text().count('tick');time.sleep(2)
   assert (root/'work/ticks.txt').read_text().count('tick')==ticks
   result['fixture_combined_acceptance']=True

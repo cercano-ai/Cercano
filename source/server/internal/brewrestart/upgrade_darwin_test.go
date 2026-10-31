@@ -150,3 +150,87 @@ func testUpgradeStop(t *testing.T, cancelAfterTERM bool) {
 		t.Fatal("unexpected historical RPC shutdown")
 	}
 }
+
+// Discovery is fixture-PID scoped; executable, sockets, signals and exit checks
+// are native. These are test-binary agents, not production provider acceptance.
+func TestUpgradeMultipleActiveHosts(t *testing.T) {
+	var pids []int
+	var ids []Identity
+	var endpoints []netip.AddrPort
+	for i := 0; i < 2; i++ {
+		root := t.TempDir()
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		binary := filepath.Join(root, "Cellar", "cercano", "1", "bin", "cercano")
+		if err := os.MkdirAll(filepath.Dir(binary), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(binary, data, 0700); err != nil {
+			t.Fatal(err)
+		}
+		l, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		endpoint := netip.MustParseAddrPort(l.Addr().String())
+		l.Close()
+		host := exec.Command(binary, "agent")
+		host.Env = []string{"HOME=" + root, "TMPDIR=" + root, "CERCANO_COORD_FIXTURE=1", "CERCANO_UPGRADE_WORKER=1", "CERCANO_COORD_ROOT=" + root, "CERCANO_COORD_ENDPOINT=" + endpoint.String()}
+		if err := host.Start(); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan struct{})
+		go func() { _ = host.Wait(); close(done) }()
+		id, err := Inspect(host.Process.Pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = signalIdentity(id, syscall.SIGKILL); <-done })
+		waitFixtureFile(t, filepath.Join(root, "1-ready"))
+		pid, err := strconv.Atoi(string(waitFixtureFile(t, filepath.Join(root, "worker-pid"))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		worker, err := Inspect(pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = signalIdentity(worker, syscall.SIGKILL) })
+		before := string(waitFixtureFile(t, filepath.Join(root, "worker-progress")))
+		time.Sleep(80 * time.Millisecond)
+		if before == string(waitFixtureFile(t, filepath.Join(root, "worker-progress"))) {
+			t.Fatal("worker not active")
+		}
+		pids = append(pids, id.PID, worker.PID)
+		ids = append(ids, id, worker)
+		endpoints = append(endpoints, endpoint)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// A stale identity for the additional host must not authorize any signal.
+	unsafe := ids[2]
+	unsafe.StartSeconds++
+	if err := stopVerifiedUpgradeHost(ctx, upgradeTarget{unsafe, endpoints[1]}, nil); err == nil {
+		t.Fatal("unsafe additional host identity accepted")
+	}
+	for _, id := range ids {
+		current, err := Inspect(id.PID)
+		if err != nil || !id.SameProcess(current) {
+			t.Fatalf("unsafe refusal disrupted target %d: %v", id.PID, err)
+		}
+	}
+	if err := stopUpgradeHost(ctx, endpoints[0], pids); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if _, err := Inspect(id.PID); !errors.Is(err, syscall.ESRCH) {
+			t.Fatalf("target %d survived: %v", id.PID, err)
+		}
+	}
+}

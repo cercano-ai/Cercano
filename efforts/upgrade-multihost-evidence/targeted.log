@@ -1,0 +1,91 @@
+['test', './internal/brewrestart', './cmd/cercano', '-run', 'TestUpgrade|TestAutomaticUpgrade|TestOfflineUpgrade', '-count=1', '-v']
+=== RUN   TestUpgradeStopsRealHostAndActiveWorker
+[cercano] discovery elapsed=141.417µs
+[cercano] discovery elapsed=411.583µs
+--- PASS: TestUpgradeStopsRealHostAndActiveWorker (2.64s)
+=== RUN   TestUpgradeCancellationAfterTERMFinishesCleanup
+[cercano] discovery elapsed=739.084µs
+[cercano] discovery elapsed=60.75µs
+--- PASS: TestUpgradeCancellationAfterTERMFinishesCleanup (0.44s)
+=== RUN   TestUpgradeMultipleActiveHosts
+[cercano] discovery elapsed=2.332291ms
+--- PASS: TestUpgradeMultipleActiveHosts (4.71s)
+=== RUN   TestUpgradeExecSTOPRollback
+    upgrade_tree_darwin_test.go:111: exec between inspect and STOP refused; lifetime rollback succeeded; strict identity and prior STOP preserved
+--- PASS: TestUpgradeExecSTOPRollback (0.02s)
+=== RUN   TestUpgradeDifferentVersionModelHostDescendant
+    upgrade_tree_darwin_test.go:187: different executable version model-host excluded from attached descendant freeze
+--- PASS: TestUpgradeDifferentVersionModelHostDescendant (0.02s)
+=== RUN   TestUpgradeInFlightForkObservable
+    upgrade_tree_darwin_test.go:283: published fork child advanced and execed after parent STOP; descendant scan subsequently froze it; no kernel publication-fence claim
+--- PASS: TestUpgradeInFlightForkObservable (0.26s)
+PASS
+ok  	cercano/source/server/internal/brewrestart	8.446s
+=== RUN   TestUpgradeRestartCommand
+=== RUN   TestUpgradeRestartCommand/help
+=== RUN   TestUpgradeRestartCommand/invalid_port
+=== RUN   TestUpgradeRestartCommand/remote_endpoint
+=== RUN   TestUpgradeRestartCommand/unbounded_timeout
+=== RUN   TestUpgradeRestartCommand/extra_arguments
+=== RUN   TestUpgradeRestartCommand/configuration_error
+=== RUN   TestUpgradeRestartCommand/executable_error
+=== RUN   TestUpgradeRestartCommand/absent
+=== RUN   TestUpgradeRestartCommand/restarted
+=== RUN   TestUpgradeRestartCommand/restart_failure
+=== RUN   TestUpgradeRestartCommand/explicit_address_bypasses_config
+--- PASS: TestUpgradeRestartCommand (0.00s)
+    --- PASS: TestUpgradeRestartCommand/help (0.00s)
+    --- PASS: TestUpgradeRestartCommand/invalid_port (0.00s)
+    --- PASS: TestUpgradeRestartCommand/remote_endpoint (0.00s)
+    --- PASS: TestUpgradeRestartCommand/unbounded_timeout (0.00s)
+    --- PASS: TestUpgradeRestartCommand/extra_arguments (0.00s)
+    --- PASS: TestUpgradeRestartCommand/configuration_error (0.00s)
+    --- PASS: TestUpgradeRestartCommand/executable_error (0.00s)
+    --- PASS: TestUpgradeRestartCommand/absent (0.00s)
+    --- PASS: TestUpgradeRestartCommand/restarted (0.00s)
+    --- PASS: TestUpgradeRestartCommand/restart_failure (0.00s)
+    --- PASS: TestUpgradeRestartCommand/explicit_address_bypasses_config (0.00s)
+=== RUN   TestUpgradeRestartRelaunchesModelHostUnderLock
+2026/10/30 20:30:51 model host 31691 serving on 127.0.0.1:53962
+2026/10/30 20:30:51 model host 31691 serving on 127.0.0.1:53964
+--- PASS: TestUpgradeRestartRelaunchesModelHostUnderLock (0.27s)
+=== RUN   TestUpgradeRestartWithoutModelHost
+--- PASS: TestUpgradeRestartWithoutModelHost (0.00s)
+=== RUN   TestUpgradeRestartWithStaleModelHostRecord
+--- PASS: TestUpgradeRestartWithStaleModelHostRecord (0.00s)
+=== RUN   TestUpgradeRestartModelHostFailureKeepsExitCode
+--- PASS: TestUpgradeRestartModelHostFailureKeepsExitCode (0.00s)
+=== RUN   TestUpgradeRestartRelaunchesModelHostWhenNoAgentRunning
+--- PASS: TestUpgradeRestartRelaunchesModelHostWhenNoAgentRunning (0.00s)
+=== RUN   TestUpgradeRestartBoundsWedgedModelHostShutdown
+--- PASS: TestUpgradeRestartBoundsWedgedModelHostShutdown (0.30s)
+=== RUN   TestUpgradeRestartShutdownBudgetIndependentOfRestartDeadline
+--- PASS: TestUpgradeRestartShutdownBudgetIndependentOfRestartDeadline (0.01s)
+=== RUN   TestOfflineUpgradeKnownAgentBeforeChanges
+--- PASS: TestOfflineUpgradeKnownAgentBeforeChanges (0.00s)
+=== RUN   TestOfflineUpgradeDetectionLimits
+--- PASS: TestOfflineUpgradeDetectionLimits (0.00s)
+=== RUN   TestOfflineUpgradeDiscoveryErrorBeforeOpen
+--- PASS: TestOfflineUpgradeDiscoveryErrorBeforeOpen (0.00s)
+=== RUN   TestOfflineUpgradeCheckOnlyNeverOpensStore
+--- PASS: TestOfflineUpgradeCheckOnlyNeverOpensStore (0.00s)
+=== RUN   TestAutomaticUpgradeStopThenCheck
+=== RUN   TestAutomaticUpgradeStopThenCheck/success
+=== RUN   TestAutomaticUpgradeStopThenCheck/missing
+=== RUN   TestAutomaticUpgradeStopThenCheck/invalid
+=== RUN   TestAutomaticUpgradeStopThenCheck/zero
+=== RUN   TestAutomaticUpgradeStopThenCheck/remote
+=== RUN   TestAutomaticUpgradeStopThenCheck/failed-stop
+=== RUN   TestAutomaticUpgradeStopThenCheck/remaining
+=== RUN   TestAutomaticUpgradeStopThenCheck/unknown
+--- PASS: TestAutomaticUpgradeStopThenCheck (0.07s)
+    --- PASS: TestAutomaticUpgradeStopThenCheck/success (0.02s)
+    --- PASS: TestAutomaticUpgradeStopThenCheck/missing (0.00s)
+    --- PASS: TestAutomaticUpgradeStopThenCheck/invalid (0.00s)
+    --- PASS: TestAutomaticUpgradeStopThenCheck/zero (0.01s)
+    --- PASS: TestAutomaticUpgradeStopThenCheck/remote (0.01s)
+    --- PASS: TestAutomaticUpgradeStopThenCheck/failed-stop (0.01s)
+    --- PASS: TestAutomaticUpgradeStopThenCheck/remaining (0.01s)
+    --- PASS: TestAutomaticUpgradeStopThenCheck/unknown (0.01s)
+PASS
+ok  	cercano/source/server/cmd/cercano	1.242s

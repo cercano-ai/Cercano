@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// StopUpgradeHost externally terminates a verified listener and its workers.
+// StopUpgradeHost externally terminates verified host listeners and their workers.
 // Names alone never authorize signalling. The caller holds the SDK launch lock across this operation and
 // migration. Unknown candidates remain blockers, not exceptions to detection.
 func StopUpgradeHost(ctx context.Context, endpoint netip.AddrPort) error {
@@ -42,14 +42,27 @@ func stopUpgradeHostObserved(ctx context.Context, endpoint netip.AddrPort, pids 
 		return fmt.Errorf("upgrade requires explicit loopback listener")
 	}
 	discoveryStarted := time.Now()
-	host, err := discoverUpgradeHost(endpoint, pids)
+	targets, err := discoverUpgradeTargets(endpoint, pids, false)
 	fmt.Fprintf(os.Stderr, "[cercano] discovery elapsed=%s\n", time.Since(discoveryStarted))
 	if err != nil {
 		return err
 	}
-	if host == nil {
-		return nil
+	for _, target := range targets {
+		if err := stopVerifiedUpgradeHost(ctx, target, afterTERM); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+type upgradeTarget struct {
+	Identity
+	endpoint netip.AddrPort
+}
+
+func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTERM func()) (retErr error) {
+	host := &target.Identity
+	endpoint := target.endpoint
 	// Stop the producer BEFORE the final child scan. Keep it stopped until KILL:
 	// resuming even to deliver TERM would reopen the historical spawn race.
 	// On refusal/cancellation, resume only this same process, never a reused PID.
@@ -224,6 +237,24 @@ func discoverUpgradeHost(endpoint netip.AddrPort, pids []int) (*Identity, error)
 // Diagnostic mode collects every refusal using production classification. It never
 // returns a host when any blocker exists; shutdown retains first-error refusal.
 func discoverUpgradeHostInventory(endpoint netip.AddrPort, pids []int, aggregate bool) (*Identity, error) {
+	targets, err := discoverUpgradeTargets(endpoint, pids, aggregate)
+	if err != nil {
+		return nil, err
+	}
+	for _, target := range targets {
+		owns, err := HoldsListener(target.Identity, endpoint)
+		if err != nil {
+			return nil, err
+		}
+		if owns {
+			id := target.Identity
+			return &id, nil
+		}
+	}
+	return nil, nil
+}
+
+func discoverUpgradeTargets(endpoint netip.AddrPort, pids []int, aggregate bool) ([]upgradeTarget, error) {
 	var blockers []error
 	identities := map[int]Identity{}
 	var host *Identity
@@ -274,6 +305,41 @@ func discoverUpgradeHostInventory(endpoint netip.AddrPort, pids []int, aggregate
 			host = &copy
 		}
 	}
+	// Identify each additional host independently, before disrupting any host.
+	targets := []upgradeTarget{}
+	hosts := map[int]Identity{}
+	if host != nil {
+		targets = append(targets, upgradeTarget{*host, endpoint})
+		hosts[host.PID] = *host
+	}
+	for _, pid := range pids {
+		id, exists := identities[pid]
+		if !exists || (host != nil && pid == host.PID) {
+			continue
+		}
+		name := filepath.Base(id.Executable)
+		if name != "cercano" && name != "cercano-agent" {
+			continue
+		}
+		role, err := processRole(id)
+		if err == nil && role != "agent" {
+			continue
+		}
+		var ownEndpoint netip.AddrPort
+		if err == nil {
+			ownEndpoint, err = upgradeListenerEndpoint(id)
+		}
+		if err != nil {
+			blocker := fmt.Errorf("upgrade blocker pid=%d: %w", pid, err)
+			if !aggregate {
+				return nil, blocker
+			}
+			blockers = append(blockers, blocker)
+			continue
+		}
+		hosts[pid] = id
+		targets = append(targets, upgradeTarget{id, ownEndpoint})
+	}
 	// Preflight known agents before disrupting anything. A shared model host is
 	// never a conversation writer and is never signalled, even if it is a child.
 	for _, pid := range pids {
@@ -285,7 +351,7 @@ func discoverUpgradeHostInventory(endpoint netip.AddrPort, pids []int, aggregate
 		if name != "cercano" && name != "cercano-agent" {
 			continue
 		}
-		if host != nil && pid == host.PID {
+		if _, isHost := hosts[pid]; isHost {
 			continue
 		}
 		role, err := processRole(id)
@@ -299,7 +365,8 @@ func discoverUpgradeHostInventory(endpoint netip.AddrPort, pids []int, aggregate
 		if role == "model-host" {
 			continue
 		}
-		if host == nil || id.ParentPID != host.PID || id.Executable != host.Executable || role != "worker" {
+		parent, hasHost := hosts[id.ParentPID]
+		if !hasHost || id.Executable != parent.Executable || role != "worker" {
 			if !aggregate {
 				return nil, fmt.Errorf("upgrade blocker pid=%d: no verified host/worker association", pid)
 			}
@@ -310,5 +377,5 @@ func discoverUpgradeHostInventory(endpoint netip.AddrPort, pids []int, aggregate
 	if len(blockers) > 0 {
 		return nil, errors.Join(blockers...)
 	}
-	return host, nil
+	return targets, nil
 }

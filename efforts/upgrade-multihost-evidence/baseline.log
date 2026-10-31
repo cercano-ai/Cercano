@@ -1,0 +1,8 @@
+['test', './internal/brewrestart', '-run', '^TestUpgradeMultipleActiveHosts$', '-count=1', '-v']
+=== RUN   TestUpgradeMultipleActiveHosts
+[cercano] discovery elapsed=2.011708ms
+    upgrade_darwin_test.go:217: upgrade blocker pid=31145: no verified host/worker association
+--- FAIL: TestUpgradeMultipleActiveHosts (0.64s)
+FAIL
+FAIL	cercano/source/server/internal/brewrestart	0.969s
+FAIL

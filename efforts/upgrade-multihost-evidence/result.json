@@ -1,0 +1,145 @@
+{
+  "source_commit": "2e360beca6dbfe2e40ceb61220b123c7ce96ad06",
+  "writer_started": true,
+  "existing_pids": [
+    32125,
+    32141,
+    32168
+  ],
+  "provider_hold_reached": true,
+  "owned_before_stop": {
+    "32125": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano agent\nFri Oct 30 20:31:53 2026",
+    "32141": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano model-host\nFri Oct 30 20:31:53 2026",
+    "32168": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano worker --socket /private/tmp/cstop-wagkqkw4/t/cercano-workers/stop-before-1-ce55b725.sock\nFri Oct 30 20:31:54 2026",
+    "32195": "/Users/bryancostanich/git_repos/cercano-ai/Cercano-upgrade-fixes/test/fixtures/production-stop/cercano worker --socket /private/tmp/cstop-wagkqkw4/t/cercano-workers/stop-inflight-1-a542cab7.sock\nFri Oct 30 20:31:54 2026"
+  },
+  "late_workers": [
+    32195
+  ],
+  "ticks_at_stop": 3,
+  "additional_host": 32221,
+  "additional_workers": [
+    32232
+  ],
+  "owned_descendants_before_confirmation": [
+    32168,
+    32181,
+    32255,
+    32195,
+    32232,
+    32221
+  ],
+  "generation_source": "014fdfaab2e18cac7e42b94a0953913daf63d580",
+  "upgrade_calls": [
+    [
+      "/private/tmp/cstop-wagkqkw4/t/cercano-upgrade-z1w6vcp6/cercano",
+      "upgrade-store",
+      "--database",
+      "/private/tmp/cstop-wagkqkw4/state/conversations.db",
+      "--all-legacy-agents-stopped",
+      "--check-only",
+      "--stop-hosts-config",
+      "/private/tmp/cstop-wagkqkw4/state/config.yaml"
+    ],
+    [
+      "/private/tmp/cstop-wagkqkw4/t/cercano-upgrade-z1w6vcp6/cercano",
+      "upgrade-store",
+      "--database",
+      "/private/tmp/cstop-wagkqkw4/state/conversations.db",
+      "--all-legacy-agents-stopped",
+      "--interrupt-tasks"
+    ]
+  ],
+  "expected_counts": {
+    "shutdown": 1,
+    "backup": 1,
+    "migration": 1
+  },
+  "backup": "/private/tmp/cstop-wagkqkw4/state/conversations.before-upgrade-s4ywvlnb.db",
+  "migration_version": [
+    [
+      2
+    ]
+  ],
+  "generation_selection": {
+    "ConfigAuthority": "/private/tmp/cstop-wagkqkw4/state/config.yaml",
+    "Endpoint": "127.0.0.1:54030",
+    "TokenFile": "/private/tmp/cstop-wagkqkw4/state/hosts/960d20c98ddc64234ca7e29f8da8c98c4adb0b5a42fdd5d3888fd66b74ef293f.token",
+    "Identity": {
+      "host": "dd89bbca2a8be09015966cdc8c5ec6d7",
+      "build": "c2bca675-477e-44ec-adfb-6d7031c91bb4",
+      "contract": "cercano-development-owned-v2",
+      "schema": 2,
+      "store": "/private/tmp/cstop-wagkqkw4/state/conversations.db"
+    },
+    "Conversation": "28ad2e3ed0a3a051217afb1c21b963d7",
+    "Epoch": "87490bbb5bdd31c82fc17974",
+    "Generation": "/private/tmp/cstop-wagkqkw4/state/generations/952b824106d3fc53d27c6acac0776713f51b67b22b563fa1f2694ca77a20be31"
+  },
+  "generation_worker_events": [
+    {
+      "event": "worker-startup",
+      "executable": "/private/tmp/cstop-wagkqkw4/state/generations/952b824106d3fc53d27c6acac0776713f51b67b22b563fa1f2694ca77a20be31/cercano",
+      "manifest_sha256": "7eb1ce39eac4d76679641637a72ab725792cbde71e67eee027ade282fd239d2f",
+      "parent_pid": 32516,
+      "pid": 32544,
+      "sha256": "0ff68d0fe8077c92743bea3bb6d261e99925272c467eee256dee6b86d40150fb",
+      "unix_nano": 1793417533045529000
+    },
+    {
+      "conversation": "stop-before",
+      "event": "worker-turn",
+      "executable": "/private/tmp/cstop-wagkqkw4/state/generations/952b824106d3fc53d27c6acac0776713f51b67b22b563fa1f2694ca77a20be31/cercano",
+      "manifest_sha256": "7eb1ce39eac4d76679641637a72ab725792cbde71e67eee027ade282fd239d2f",
+      "parent_pid": 32516,
+      "pid": 32544,
+      "sha256": "0ff68d0fe8077c92743bea3bb6d261e99925272c467eee256dee6b86d40150fb",
+      "turn_generation": 1,
+      "unix_nano": 1793417533083847000
+    }
+  ],
+  "fresh_reply": [
+    [
+      "FIXTURE_OK "
+    ]
+  ],
+  "history_rows_preserved": 4,
+  "replacement_started": true,
+  "generation_cleanup": {
+    "identities": [
+      {
+        "pid": 32516,
+        "start": "Fri Oct 30 20:32:09 2026",
+        "command": "/private/tmp/cstop-wagkqkw4/state/generations/952b824106d3fc53d27c6acac0776713f51b67b22b563fa1f2694ca77a20be31/cercano development-host --state /private/tmp/cstop-wagkqkw4/state --generation /private/tmp/cstop-wagkqkw4/state/generations/952b824106d3fc53d27c6acac0776713f51b67b22b563fa1f2694ca77a20be31 --host dd89bbca2a8be09015966cdc8c5ec6d7 --token-file /private/tmp/cstop-wagkqkw4/state/hosts/960d20c98ddc64234ca7e29f8da8c98c4adb0b5a42fdd5d3888fd66b74ef293f.token --record /private/tmp/cstop-wagkqkw4/state/hosts/960d20c98ddc64234ca7e29f8da8c98c4adb0b5a42fdd5d3888fd66b74ef293f.json --runtime-root /private/tmp/cstop-wagkqkw4/run --listen 127.0.0.1:0 --config-authority /private/tmp/cstop-wagkqkw4/state/config.yaml"
+      },
+      {
+        "pid": 32521,
+        "start": "Fri Oct 30 20:32:10 2026",
+        "command": "/opt/homebrew/opt/python@3.14/bin/python3.14 /private/tmp/cstop-wagkqkw4/barrier/mcp-fixture"
+      },
+      {
+        "pid": 32544,
+        "start": "Fri Oct 30 20:32:13 2026",
+        "command": "/private/tmp/cstop-wagkqkw4/state/generations/952b824106d3fc53d27c6acac0776713f51b67b22b563fa1f2694ca77a20be31/cercano worker --socket /private/tmp/cstop-wagkqkw4/run/w-679a59be909c2e1e5c5a411d/ebea96d59887aa27a75a2074d5446fe7.sock --prepared --failure-log /private/tmp/cstop-wagkqkw4/run/w-679a59be909c2e1e5c5a411d/failures.jsonl --routing-log /private/tmp/cstop-wagkqkw4/run/w-679a59be909c2e1e5c5a411d/turn-routing.jsonl"
+      }
+    ],
+    "actions": [
+      {
+        "pid": 32516,
+        "signal": "SIGTERM"
+      },
+      {
+        "pid": 32544,
+        "signal": "SIGTERM"
+      }
+    ],
+    "remaining": []
+  },
+  "host_exit": -9,
+  "additional_host_exit": -9,
+  "fixture_combined_acceptance": true,
+  "cleanup_remaining": {},
+  "filesystem": {
+    "ticks.txt": "tick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\ntick\n"
+  }
+}

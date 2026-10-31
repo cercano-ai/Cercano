@@ -9,6 +9,6 @@ import (
 
 // StopFixtureUpgradeHost substitutes only candidate discovery. Never included in
 // release builds; native identity, listener and termination checks are unchanged.
-func StopFixtureUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pid int) error {
-	return stopUpgradeHost(ctx, endpoint, []int{pid})
+func StopFixtureUpgradeHost(ctx context.Context, endpoint netip.AddrPort, pids ...int) error {
+	return stopUpgradeHost(ctx, endpoint, pids)
 }

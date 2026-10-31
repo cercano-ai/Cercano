@@ -1,0 +1,7 @@
+{
+  "native": "Before correction native shutdown must refuse on a host-owned RunCommand child, or leave writes running; after correction it must succeed and writes must stop. Tool lifetime is bounded to 12 seconds even on probe failure.",
+  "before": "Completed reply persisted; an existing idle worker plus second in-flight worker expected.",
+  "stop": "TERM then at most 20 0.1s polls, KILL only if host alive, then 0.2s. In-flight reply may be cancelled; no guaranteed post-stop host-bridge persistence.",
+  "writes": "Before-stop Write should create before.txt. Held response requests Write after host stop: cancellation may prevent execution; surviving process alone does not prove continuation. DB persistence and file writes checked separately.",
+  "isolation": "Untagged production binary, empty environment allowlist, loopback synthetic Ollama, disposable stores."
+}

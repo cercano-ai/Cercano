@@ -19,6 +19,14 @@ func acceptanceHostStop(ctx context.Context, endpoint netip.AddrPort) error {
 	if err != nil || pid <= 0 || os.Getenv("CERCANO_DISABLE_CREDENTIALS") != "1" {
 		return fmt.Errorf("explicit owned fixture host required")
 	}
+	pids := []int{pid}
+	for _, raw := range strings.Fields(os.Getenv("CERCANO_FIXTURE_ADDITIONAL_HOSTS")) {
+		extra, err := strconv.Atoi(raw)
+		if err != nil || extra <= 0 {
+			return fmt.Errorf("invalid additional fixture host")
+		}
+		pids = append(pids, extra)
+	}
 	state := os.Getenv("CERCANO_DEVELOPMENT_STATE")
 	backups, err := filepath.Glob(filepath.Join(state, "conversations.before-upgrade-*.db"))
 	if err != nil || len(backups) != 0 {
@@ -30,7 +38,7 @@ func acceptanceHostStop(ctx context.Context, endpoint netip.AddrPort) error {
 	}
 	defer f.Close()
 	fmt.Fprintln(f, "stop-start")
-	if err := brewrestart.StopFixtureUpgradeHost(ctx, endpoint, pid); err != nil {
+	if err := brewrestart.StopFixtureUpgradeHost(ctx, endpoint, pids...); err != nil {
 		return err
 	}
 	for _, raw := range strings.Split(os.Getenv("CERCANO_FIXTURE_OWNED_DESCENDANTS"), ",") {
