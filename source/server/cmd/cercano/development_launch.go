@@ -27,16 +27,15 @@ import (
 )
 
 type launchSelection struct {
-	// OrdinaryGeneration enables ordinary UI; absent/legacy selections stay restricted.
-	// This is presentation metadata, never server authorization.
-	OrdinaryGeneration bool
-	ConfigAuthority    string
-	Endpoint           string
-	TokenFile          string
-	Identity           *pb.LifecycleIdentity
-	Conversation       string
-	Epoch              string
-	Generation         string
+	// Fixture restricts synthetic dependency-factory terminals only; never authorization.
+	Fixture         bool `json:",omitempty"`
+	ConfigAuthority string
+	Endpoint        string
+	TokenFile       string
+	Identity        *pb.LifecycleIdentity
+	Conversation    string
+	Epoch           string
+	Generation      string
 }
 
 func launchPrivateDir(path string) error {

@@ -43,7 +43,7 @@ func runOrdinaryGenerationHost(ctx context.Context, o developmentHostOptions, au
 	conn.Close()
 	stopWatch := watchCurrentTarget(ctx, filepath.Dir(o.Identity.Store), o.Identity, a.generation.retire)
 	defer stopWatch()
-	if err := publishDevelopmentRecord(o.Record, developmentHostSelection{OrdinaryGeneration: true, ConfigAuthority: o.ConfigAuthority, Endpoint: address, TokenFile: o.TokenFile, Identity: o.Identity}); err != nil {
+	if err := publishDevelopmentRecord(o.Record, developmentHostSelection{ConfigAuthority: o.ConfigAuthority, Endpoint: address, TokenFile: o.TokenFile, Identity: o.Identity}); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "development-host ready %s build=%s host=%s\n", address, o.Identity.Build, o.Host)

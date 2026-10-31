@@ -18,9 +18,8 @@ import (
 )
 
 type DevHostSelection struct {
-	// OrdinaryGeneration enables ordinary UI; absent/legacy selections stay restricted.
-	// This is presentation metadata, never server authorization.
-	OrdinaryGeneration bool
+	// Fixture restricts synthetic dependency-factory terminals only; never authorization.
+	Fixture bool `json:",omitempty"`
 	// Retain the launcher's explicit authority when emitting updated selections.
 	ConfigAuthority string
 	Endpoint        string
@@ -234,7 +233,7 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// restrictedDevHost separates fixture UI restrictions from lifecycle pinning.
-func (m Model) restrictedDevHost() bool {
-	return m.devHost != nil && !m.devHost.selection.OrdinaryGeneration
+// restrictedFixture separates fixture UI restrictions from lifecycle pinning.
+func (m Model) restrictedFixture() bool {
+	return m.devHost != nil && m.devHost.selection.Fixture
 }

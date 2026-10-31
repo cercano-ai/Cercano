@@ -163,20 +163,20 @@ func TestDevelopmentAuthenticatedIdentityIncludesStore(t *testing.T) {
 	}
 }
 
-// Host publication and launcher read/update/write must retain the UI mode.
-// Legacy/prepared records deliberately keep the zero-value restriction.
-func TestDevelopmentSelectionOrdinaryGeneration(t *testing.T) {
-	for _, ordinary := range []bool{false, true} {
+// Host publication and launcher selection retain only explicit fixture marking.
+// Ordinary and legacy records need no permission flag.
+func TestDevelopmentSelectionExplicitFixture(t *testing.T) {
+	for _, fixture := range []bool{false, true} {
 		path := filepath.Join(t.TempDir(), "host.json")
-		if err := publishDevelopmentRecord(path, developmentHostSelection{OrdinaryGeneration: ordinary}); err != nil {
+		if err := publishDevelopmentRecord(path, developmentHostSelection{Fixture: fixture}); err != nil {
 			t.Fatal(err)
 		}
 		var selected launchSelection
 		if err := launchRead(path, &selected); err != nil {
 			t.Fatal(err)
 		}
-		if selected.OrdinaryGeneration != ordinary {
-			t.Fatal("launcher lost UI mode")
+		if selected.Fixture != fixture {
+			t.Fatal("launcher lost fixture marking")
 		}
 	}
 }

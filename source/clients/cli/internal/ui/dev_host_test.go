@@ -29,10 +29,10 @@ func TestDevHostSelectionPreservesConfigAuthority(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "selection.json")
 	authority := filepath.Join(t.TempDir(), "shared", "config.yaml")
 	input := map[string]any{
-		"ConfigAuthority":    authority,
-		"OrdinaryGeneration": true,
-		"Identity":           map[string]any{"host": "A", "build": "B", "contract": "C", "schema": 2, "store": "/isolated/conversations.db"},
-		"Conversation":       "conversation", "Epoch": "old-epoch",
+		"ConfigAuthority": authority,
+		"Fixture":         true,
+		"Identity":        map[string]any{"host": "A", "build": "B", "contract": "C", "schema": 2, "store": "/isolated/conversations.db"},
+		"Conversation":    "conversation", "Epoch": "old-epoch",
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -54,7 +54,7 @@ func TestDevHostSelectionPreservesConfigAuthority(t *testing.T) {
 	if err := json.Unmarshal(raw, &emitted); err != nil {
 		t.Fatal(err)
 	}
-	if emitted["ConfigAuthority"] != authority || emitted["Epoch"] != "new-epoch" || emitted["OrdinaryGeneration"] != true {
+	if emitted["ConfigAuthority"] != authority || emitted["Epoch"] != "new-epoch" || emitted["Fixture"] != true {
 		t.Fatalf("updated selection lost authority or epoch: %s", raw)
 	}
 }

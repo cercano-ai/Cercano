@@ -28,7 +28,7 @@ func TestOrdinaryGenerationSlashSurfaces(t *testing.T) {
 			t.Run(mode+command, func(t *testing.T) {
 				m := New(devResumeClient(t, filepath.Join(t.TempDir(), "metadata.json")), false)
 				if mode != "unpinned" {
-					m = m.WithDevHost(DevHostSelection{Conversation: "old", OrdinaryGeneration: mode == "ordinary"}, "test")
+					m = m.WithDevHost(DevHostSelection{Conversation: "old", Fixture: mode == "fixture"}, "test")
 				}
 				next, _ := m.runSlash(command) // Only synthetic RPCs; returned asynchronous commands are not executed.
 				m = next.(Model)
@@ -59,6 +59,9 @@ func (s *clearHost) GetDevelopmentHostIdentity(context.Context, *proto.GetDevelo
 	return &proto.GetDevelopmentHostIdentityResponse{HostInstance: s.identity.Host, Build: s.identity.Build, Contract: s.identity.Contract, SchemaVersion: s.identity.Schema}, nil
 }
 func (s *clearHost) CheckRetainedSession(_ context.Context, r *proto.CheckRetainedSessionRequest) (*proto.CheckRetainedSessionResponse, error) {
+	if r.ConversationId == "old" && r.OwnershipEpoch == "old-epoch" {
+		return &proto.CheckRetainedSessionResponse{State: proto.RetainedSessionState_RETAINED_SESSION_STATE_RETAINED}, nil
+	}
 	if r.ConversationId != s.acquired || r.OwnershipEpoch != "new-epoch" {
 		return nil, errors.New("wrong rebind")
 	}
@@ -77,6 +80,7 @@ func TestOrdinaryGenerationClearRebind(t *testing.T) {
 	for _, stale := range []bool{false, true} {
 		t.Run(map[bool]string{false: "success", true: "stale"}[stale], func(t *testing.T) {
 			dir := t.TempDir()
+			addUnrelatedRecord(t, dir)
 			token := filepath.Join(dir, "token")
 			if err := devhostauth.Create(token); err != nil {
 				t.Fatal(err)
@@ -94,8 +98,13 @@ func TestOrdinaryGenerationClearRebind(t *testing.T) {
 			proto.RegisterAgentServer(server, fake)
 			go server.Serve(listener)
 			defer server.Stop()
-			selection := DevHostSelection{OrdinaryGeneration: true, Identity: fake.identity, Endpoint: listener.Addr().String(), TokenFile: token, Conversation: "old", Epoch: "old-epoch"}
-			m := New(nil, false).WithDevHost(selection, "test").SeedAssistantMarkdown("preserve old")
+			selection := DevHostSelection{Identity: fake.identity, Endpoint: listener.Addr().String(), TokenFile: token, Conversation: "old", Epoch: "old-epoch"}
+			oldClient, err := selection.Dial(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer oldClient.Close()
+			m := New(oldClient, false).WithDevHost(selection, "test").SeedAssistantMarkdown("preserve old")
 			m.recap = "old recap"
 			next, cmd := m.runSlash("/clear")
 			m = next.(Model)
@@ -115,11 +124,17 @@ func TestOrdinaryGenerationClearRebind(t *testing.T) {
 				if result.err == nil || m.convID != "old" || m.recap != "old recap" || m.devHost.busy {
 					t.Fatal("failed rebind damaged current session")
 				}
+				if m.agent != oldClient {
+					t.Fatal("old client replaced")
+				}
+				if err := m.agent.ReconnectPinnedSession(context.Background()); err != nil {
+					t.Fatal(err)
+				}
 			} else {
 				if result.err != nil {
 					t.Fatal(result.err)
 				}
-				if m.convID != fake.acquired || m.convRef.id != m.convID || m.devHost.selection.Epoch != "new-epoch" || !m.devHost.selection.OrdinaryGeneration || m.recap != "" {
+				if m.convID != fake.acquired || m.convRef.id != m.convID || m.devHost.selection.Epoch != "new-epoch" || m.recap != "" {
 					t.Fatal("new owned session not rebound")
 				}
 			}
@@ -130,7 +145,7 @@ func TestOrdinaryGenerationClearRebind(t *testing.T) {
 func TestOrdinaryGenerationClearBusyDetached(t *testing.T) {
 	isolateOrdinaryUI(t)
 	for _, detached := range []bool{false, true} {
-		m := New(nil, false).WithDevHost(DevHostSelection{OrdinaryGeneration: true, Conversation: "old"}, "test")
+		m := New(nil, false).WithDevHost(DevHostSelection{Conversation: "old"}, "test")
 		m.devHost.detached, m.devHost.busy = detached, !detached
 		next, cmd := m.runSlash("/clear")
 		if cmd != nil || next.(Model).convID != "old" {

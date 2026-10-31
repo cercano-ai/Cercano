@@ -14,15 +14,20 @@ type shutdownDecisionMsg struct {
 	conversation string
 	generation   uint64
 	text         string
+	pinned       bool
 }
 
 func (m *Model) shutdownOrigin() shutdownDecisionMsg {
-	return shutdownDecisionMsg{client: m.agent, conversation: m.convID, generation: m.taskSubscriptionGeneration}
+	return shutdownDecisionMsg{client: m.agent, conversation: m.convID, generation: m.taskSubscriptionGeneration, pinned: m.devHost != nil}
 }
 
 func dispatchShutdown(origin shutdownDecisionMsg, reason string, config *agentclient.ConfigUpdate) tea.Cmd {
 	return func() tea.Msg {
 		result := origin
+		if origin.pinned {
+			result.text = "Restart unavailable: generation-aware restart is not implemented. The exact host must remain running; runtime changes requiring shutdown were not saved."
+			return result
+		}
 		result.text = "shutdown incomplete: request failed; automatic replacement blocked."
 		if origin.client == nil {
 			result.text = "shutdown request failed: agent is not connected."

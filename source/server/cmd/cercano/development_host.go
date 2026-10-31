@@ -22,15 +22,14 @@ import (
 )
 
 type developmentHostSelection struct {
-	// OrdinaryGeneration enables ordinary UI; absent/legacy selections stay restricted.
-	// This is presentation metadata, never server authorization.
-	OrdinaryGeneration bool
-	ConfigAuthority    string
-	Endpoint           string
-	TokenFile          string
-	Identity           *proto.LifecycleIdentity
-	Conversation       string
-	Epoch              string
+	// Fixture restricts synthetic dependency-factory terminals only; never authorization.
+	Fixture         bool `json:",omitempty"`
+	ConfigAuthority string
+	Endpoint        string
+	TokenFile       string
+	Identity        *proto.LifecycleIdentity
+	Conversation    string
+	Epoch           string
 }
 type developmentHostOptions struct {
 	State, Generation, Host, TokenFile, Record, RuntimeRoot, Listen string
@@ -203,7 +202,7 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 	conn.Close()
 	stopWatch := watchCurrentTarget(ctx, filepath.Dir(o.Identity.Store), o.Identity, srv.RetireCoexistence)
 	defer stopWatch()
-	record := developmentHostSelection{ConfigAuthority: o.ConfigAuthority, Endpoint: endpoint, TokenFile: o.TokenFile, Identity: o.Identity}
+	record := developmentHostSelection{Fixture: true, ConfigAuthority: o.ConfigAuthority, Endpoint: endpoint, TokenFile: o.TokenFile, Identity: o.Identity}
 	if err := publishDevelopmentRecord(o.Record, record); err != nil {
 		return err
 	}

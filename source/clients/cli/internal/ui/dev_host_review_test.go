@@ -70,7 +70,7 @@ func TestDevHostConfigPolicy(t *testing.T) {
 				}
 				m := New(nil, false)
 				if mode != "unpinned" {
-					m = m.WithDevHost(DevHostSelection{Conversation: "same", OrdinaryGeneration: mode == "ordinary"}, "test")
+					m = m.WithDevHost(DevHostSelection{Conversation: "same", Fixture: mode == "fixture"}, "test")
 				}
 				switch entry {
 				case "shortcut":

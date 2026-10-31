@@ -142,3 +142,39 @@ func (m Model) beginDevHostReopen(conversation string) (Model, tea.Cmd) {
 		return r
 	}
 }
+
+// Fresh IDs need no discovery or transfer: acquire only on the exact current host.
+func (m Model) beginDevHostFreshConversation() (Model, tea.Cmd) {
+	if m.devHost.busy || m.devHost.detached {
+		m.errMsg = "Clear unavailable while disconnected or another lifecycle operation is running"
+		return m, nil
+	}
+	m.devHost.busy = true
+	selection := m.devHost.selection
+	conversation := newConvID()
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		r := devHostResult{action: "reopen"}
+		c, err := selection.controls(ctx)
+		if err != nil {
+			r.err = err
+			return r
+		}
+		defer c.Close()
+		response, err := c.LifecycleAcquire(ctx, &proto.LifecycleControlRequest{Target: selection.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}})
+		if err != nil {
+			r.err = err
+			return r
+		}
+		owner := response.GetOwner()
+		if response.GetPending() || owner.GetConversation() != conversation || owner.GetHost() != selection.Identity.Host || owner.GetEpoch() == "" {
+			r.err = fmt.Errorf("fresh acquisition returned invalid ownership")
+			return r
+		}
+		selection.Conversation, selection.Epoch = conversation, owner.Epoch
+		r.selection = &selection
+		r.client, r.err = selection.Dial(ctx)
+		return r
+	}
+}

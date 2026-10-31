@@ -74,7 +74,21 @@ involve inference.
 | `/theme`, `/color <name\|#RRGGBB>` | Open theme settings or change prompt-border color. |
 | `/setup` | Open/resume setup. |
 | `/d [repo-path]` (`/dev`) | Enter Cercano self-development mode. |
-| `/restart-agent [reason]` (`/bounce`) | Request agent restart and reconnect. |
+| `/restart-agent [reason]` (`/bounce`) | Request agent restart and reconnect (unpinned sessions only; see below). |
+
+Generation-pinned terminals expose the ordinary commands, settings, and themes;
+connection identity is not a UI permission mode. Only explicitly marked synthetic
+fixture selections use the restricted fixture UI. Server authorization and
+conversation ownership checks remain authoritative.
+
+On a pinned terminal, `/clear` acquires and validates a fresh conversation on the
+exact current host before switching the UI. It does not discover other hosts;
+failed acquisition or validation leaves the previous session attached.
+
+Generation-aware restart is not implemented. Pinned `/restart-agent` and runtime
+or model changes that require shutdown are therefore refused before saving those
+changes or requesting shutdown, so singleton restart cannot strand the terminal.
+Ordinary settings and non-shutdown changes remain available.
 
 The UI queues confirmations for known write/destructive direct tool calls;
 the unary invocation RPC can still reject operations requiring streaming approval.

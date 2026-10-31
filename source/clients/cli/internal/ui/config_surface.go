@@ -44,7 +44,7 @@ func (m Model) configStripTop() int {
 func (m *Model) openConfigSurface(tab configTab) tea.Cmd {
 	// Restricted fixture terminals must not expose editors for shared local config,
 	// including entry through the runtime-dashboard keyboard shortcut.
-	if m.restrictedDevHost() {
+	if m.restrictedFixture() {
 		return nil
 	}
 	closeMetricsPage(m.content)
