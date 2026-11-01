@@ -22,9 +22,12 @@ func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 	}
 	for _, mode := range []string{"released", "disconnected", "live"} {
 		t.Run(mode, func(t *testing.T) {
-			manifest := filepath.Join(t.TempDir(), "selection.json")
+			root := t.TempDir()
+			t.Setenv("HOME", root)
+			t.Setenv("XDG_CONFIG_HOME", root)
+			manifest := filepath.Join(root, "selection.json")
 			cmd := exec.Command(binary, "-test.run=^TestProductionResumeBridge$", "-test.timeout=45s")
-			cmd.Env = append(os.Environ(), "CERCANO_RESUME_PROBE_MANIFEST="+manifest, "CERCANO_RESUME_PROBE_MODE="+mode)
+			cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + root, "XDG_CONFIG_HOME=" + root, "TMPDIR=" + root, "CERCANO_RESUME_PROBE_MANIFEST=" + manifest, "CERCANO_RESUME_PROBE_MODE=" + mode}
 			input, err := cmd.StdinPipe()
 			if err != nil {
 				t.Fatal(err)
@@ -66,6 +69,7 @@ func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 				if err != nil || selected.Identity.Host == destination.Identity.Host || selected.Epoch == "" {
 					t.Fatalf("resume must select live owner A, not transfer to B: %+v %v", selected, err)
 				}
+				verifyProductionTakeoverConfirmation(t, ctx, selected, destination)
 
 			} else {
 				if err == nil || !strings.Contains(err.Error(), "authoritative acquisition refused") {

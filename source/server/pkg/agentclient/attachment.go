@@ -80,6 +80,12 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 		// explicit acknowledgement so immediate intentional release cannot race it.
 		header, headerErr := stream.Header()
 		if headerErr != nil || len(header.Get("cercano-terminal-attached")) != 1 || header.Get("cercano-terminal-attached")[0] != "true" {
+			if headerErr == nil {
+				// A trailers-only rejection can yield empty headers with no error.
+				// Read its status before canceling so structured conflict details
+				// survive the real HTTP/2 boundary and can offer explicit takeover.
+				_, headerErr = stream.Recv()
+			}
 			cancel()
 			if headerErr != nil {
 				return nil, headerErr
@@ -112,7 +118,10 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 					header, headerErr := stream.Header()
 					err = headerErr
 					if err == nil && (len(header.Get("cercano-terminal-attached")) != 1 || header.Get("cercano-terminal-attached")[0] != "true") {
-						err = errors.New("host did not acknowledge terminal attachment")
+						_, err = stream.Recv()
+						if err == nil {
+							err = errors.New("host did not acknowledge terminal attachment")
+						}
 					}
 				}
 			}
