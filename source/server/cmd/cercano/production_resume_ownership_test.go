@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,9 @@ import (
 	"cercano/source/server/pkg/devhostauth"
 	"cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // Real production wiring and authenticated terminal release; all inference and
@@ -56,7 +59,8 @@ func TestProductionResumeOwnershipAfterClose(t *testing.T) {
 					if err := client.ReleaseSession(ctx, o.Identity); err == nil {
 						t.Fatal("unattached terminal released owner")
 					}
-					if _, err := client.AttachConversation(ctx, "resume-probe"); err != nil {
+					updates, err := client.AttachConversation(ctx, "resume-probe")
+					if err != nil {
 						t.Fatal(err)
 					}
 					if name == "competing-terminal" {
@@ -65,29 +69,59 @@ func TestProductionResumeOwnershipAfterClose(t *testing.T) {
 							t.Fatal(err)
 						}
 						defer other.Close()
-						if _, err = other.AttachConversation(ctx, "resume-probe"); err != nil {
-							t.Fatal(err)
+						// Ordinary attachment must offer an explicit, structured takeover,
+						// not silently enroll a second terminal.
+						rejected, err := other.AttachConversation(ctx, "resume-probe")
+						target := agentclient.TakeoverTarget(err)
+						if status.Code(err) != codes.AlreadyExists || target == "" || rejected != nil {
+							t.Fatalf("competing attachment: updates=%v target=%q err=%v", rejected, target, err)
 						}
-						if err = client.ReleaseSession(ctx, o.Identity); err == nil || !strings.Contains(err.Error(), "not the sole attachment") {
-							t.Fatalf("active terminal refusal: %v", err)
+						if err := other.ReleaseSession(ctx, o.Identity); status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "requester terminal is not attached") {
+							t.Fatalf("unattached competing terminal release refusal: %v", err)
 						}
 						retained, err := conversation.ReadOwnership(ctx, s.GenerationStore(), "resume-probe")
-						if err != nil || retained.State != "owned" || retained.Epoch != epoch {
+						if err != nil || !reflect.DeepEqual(retained, before) {
 							t.Fatalf("refusal mutated owner: %+v %v", retained, err)
 						}
-						other.Close()
-						// Transport close is asynchronous; only the confirmed competing
-						// attachment refusal is retryable while its server stream detaches.
-						for {
-							err = client.ReleaseSession(ctx, o.Identity)
-							if err == nil {
-								break
-							}
-							if !strings.Contains(err.Error(), "not the sole attachment") || ctx.Err() != nil {
-								t.Fatal(err)
-							}
-							time.Sleep(time.Millisecond)
+						// This is the explicit confirmation: use exactly the observed
+						// target. Success waits for the host's attachment acknowledgment.
+						replacement, err := other.TakeoverConversation(ctx, "resume-probe", target)
+						if err != nil || replacement == nil {
+							t.Fatalf("takeover acknowledgment: %v", err)
 						}
+						closeStreams := func() {
+							client.Close()
+							other.Close()
+							for _, stream := range []<-chan agentclient.ConversationUpdate{updates, replacement} {
+								for stream != nil {
+									select {
+									case _, open := <-stream:
+										if !open {
+											stream = nil
+										}
+									case <-ctx.Done():
+										t.Error("attachment stream did not close: ", ctx.Err())
+										return
+									}
+								}
+							}
+						}
+						defer closeStreams()
+						retained, err = conversation.ReadOwnership(ctx, s.GenerationStore(), "resume-probe")
+						if err != nil || !reflect.DeepEqual(retained, before) {
+							t.Fatalf("takeover mutated durable owner or epoch: %+v %v", retained, err)
+						}
+						if err := client.ReleaseSession(ctx, o.Identity); status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "requester terminal is not attached") {
+							t.Fatalf("displaced terminal release refusal: %v", err)
+						}
+						retained, err = conversation.ReadOwnership(ctx, s.GenerationStore(), "resume-probe")
+						if err != nil || !reflect.DeepEqual(retained, before) {
+							t.Fatalf("displaced release mutated owner: %+v %v", retained, err)
+						}
+						if err := other.ReleaseSession(ctx, o.Identity); err != nil {
+							t.Fatalf("replacement release after takeover acknowledgment: %v", err)
+						}
+						closeStreams()
 					} else if err := client.ReleaseSession(ctx, o.Identity); err != nil {
 						t.Fatalf("immediate intentional close after AttachConversation: %v", err)
 					}
