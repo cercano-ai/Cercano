@@ -166,7 +166,7 @@ def assert_new_worker(events, pre_pids, boundary, conversation):
     assert boundary < birth['unix_nano'] < turns[0]['unix_nano'], 'startup must follow B publication and precede first turn'
     return birth, turns
 
-def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordinary_session_close=False,same_conversation_close=False,offline_upgrade=False):
+def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordinary_session_close=False,same_conversation_close=False,offline_upgrade=False,resume_journey=False):
     assert all(os.environ.get(k)==v for k,v in {"CERCANO_DISABLE_CREDENTIALS":"1","GOPROXY":"off","GOSUMDB":"off"}.items()), "required outer offline/credential guards missing"
     evidence.mkdir(parents=True,exist_ok=True)
     report={'scope':'actual shell -> real publisher -> compiled production host -> compiled CLI PTY','steps':[],'passed':False,'worker_delegation_required':worker_delegation}
@@ -384,6 +384,65 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             control(sa,'list') # exact-A reconnect/control is not target selection
             assert current_path.read_bytes()==target_b
             record('B published as new-session target without stopping A',A=A,B=B,pidA=pidA)
+            if resume_journey:
+                # Drive the shipped CLI over a real PTY; only inference is synthetic.
+                conversation=A['Conversation']
+                ownership_sql="select owner,epoch,state from conversation_ownership where conversation_id='"+conversation+"'"
+                before_owner=rows(ownership_sql)
+                title='PTY Resume Acceptance'
+                a.send('/rename '+title+'\r')
+                wait(lambda:rows("select title from conversations where id='"+conversation+"'")==[(title,)],'rename persisted')
+                b.send('/resume '+conversation+'\r')
+                wait(lambda:b'Take over here?' in b.data,'explicit takeover prompt')
+                b.send('n')
+                time.sleep(1); b.pump()
+                assert rows(ownership_sql)==before_owner
+                offset=len(events())
+                a.send('FIXTURE_DECLINE_STILL_A\r')
+                wait(lambda:any('FIXTURE_DECLINE_STILL_A' in json.dumps(e.get('request',{}).get('Messages')) for e in events()[offset:] if e['event']=='call'),'decline preserves A control')
+                before_clear=set(rows('select conversation_id from conversation_ownership'))
+                b.send('/clear\r')
+                wait(lambda:len(set(rows('select conversation_id from conversation_ownership'))-before_clear)==1,'clear acquires fresh conversation')
+                cleared=(set(rows('select conversation_id from conversation_ownership'))-before_clear).pop()[0]
+                assert rows("select owner from conversation_ownership where conversation_id='"+cleared+"'")==[(B['Identity']['host'],)]
+                time.sleep(1); b.pump()
+                b.send('/resume '+conversation+'\r')
+                # Require a fresh prompt, rather than matching retained terminal bytes.
+                previous=len(b.data)
+                wait(lambda:b'Take over here?' in b.data[previous:],'second takeover prompt')
+                b.send('y')
+                time.sleep(2); b.pump()
+                assert rows(ownership_sql)==before_owner
+                assert title.encode() in b.data and b'FIXTURE_ORIGINAL_HISTORY' in b.data
+                offset=len(events())
+                b.send('FIXTURE_RESUMED_ON_A\r')
+                wait(lambda:any('FIXTURE_RESUMED_ON_A' in json.dumps(e.get('request',{}).get('Messages')) for e in events()[offset:] if e['event']=='call'),'resumed inference')
+                resumed=[e for e in events()[offset:] if e['event']=='call' and 'FIXTURE_RESUMED_ON_A' in json.dumps(e['request'].get('Messages'))]
+                assert all(e['pid']==pidA for e in resumed),resumed
+                wait(lambda:any('FIXTURE_OK' in r[0] for r in rows("select content from turns where conversation_id='"+conversation+"' and role='assistant' and rowid > (select rowid from turns where content='FIXTURE_RESUMED_ON_A' and role='user')")),'resumed assistant persisted')
+                assert rows("select status from delegated_tasks where parent_id='"+conversation+"'")==[('running',)]
+                record('PTY live-owner resume, decline, explicit takeover, title/history and inference on A',ownership=rows(ownership_sql),calls=resumed,clear_host=B['Identity']['host'],independent_work='running')
+                # Confirmed Ctrl-C uses the ordinary final-model close hook. The
+                # independent task keeps A alive while its terminal drains.
+                b.send('\x03'); time.sleep(.3); b.pump(); b.send('\x03')
+                deadline=time.monotonic()+20
+                while b.p.poll() is None and time.monotonic()<deadline: b.pump(); time.sleep(.05)
+                assert b.p.poll()==0,b.data.decode(errors='replace')
+                b.stop(); terminals.remove(b)
+                record('PTY confirmed Ctrl-C exits replacement terminal',ownership=rows(ownership_sql))
+                fresh,sfresh,F=launch('B-after-resume-close')
+                assert F['Identity']==B['Identity']
+                offset=len(events())
+                fresh.send('FIXTURE_NEW_ON_B\r')
+                wait(lambda:any('FIXTURE_NEW_ON_B' in json.dumps(e.get('request',{}).get('Messages')) for e in events()[offset:] if e['event']=='call'),'new B inference')
+                calls=[e for e in events()[offset:] if e['event']=='call' and 'FIXTURE_NEW_ON_B' in json.dumps(e['request'].get('Messages'))]
+                assert all(e['pid']!=pidA for e in calls),calls
+                wait(lambda:rows("select conversation_id from turns where role='user' and content='FIXTURE_NEW_ON_B'")==[(F['Conversation'],)],'new B durable turn')
+                wait(lambda:any('FIXTURE_OK' in r[0] for r in rows("select content from turns where conversation_id='"+F['Conversation']+"' and role='assistant' and rowid > (select rowid from turns where content='FIXTURE_NEW_ON_B' and role='user')")),'new B assistant persisted')
+                record('PTY new conversation remains on B',selection=F,calls=calls)
+                report['passed']=True
+                record('PASS PTY resume journey',limitations=['synthetic inference; no native credentials or loaded model','independent task deliberately retained until fixture cleanup','no dead-owner recovery'])
+                return
             fresh,sfresh,F=launch('B-normal-new-session')
             assert F['Identity']==B['Identity'] and F['Conversation']!=B['Conversation']
             if ordinary_closure_probe or ordinary_session_close or same_conversation_close:
@@ -619,8 +678,13 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
                 record('private token hashes only', tokens=[{'name': f.name, 'sha256': hashlib.sha256(f.read_bytes()).hexdigest()} for f in (state/'hosts').glob('*.token')])
                 for h in (state/'hosts').glob('*'):
                     if h.is_file() and h.suffix in ('.log','.json'):shutil.copyfile(h,evidence/h.name)
+            if resume_journey and report['cleanup']['remaining']:
+                report['passed']=False
+                report['failure']='fixture processes remain after bounded cleanup'
             (evidence/'compiled.json').write_text(json.dumps(report,indent=2)+'\n')
+            if resume_journey:
+                assert not report['cleanup']['remaining'], report['cleanup']
     assert report['passed']
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');p.add_argument('--ordinary-closure-probe',action='store_true',help='check ordinary PTY quit and automatic retirement without management release');p.add_argument('--ordinary-session-close',action='store_true',help='close A session via /quit while independent work runs; contrast unexpected disconnect');p.add_argument('--same-conversation-close',action='store_true',help='preserve disconnect/reopen then quit the exact A conversation owning a second independent task');p.add_argument('--offline-upgrade',action='store_true',help='run real UpgradeOffline on private synthetic history/tasks; excludes production discovery');a=p.parse_args();assert not (a.same_conversation_close and (a.worker_delegation or a.ordinary_session_close or a.ordinary_closure_probe));assert not (a.ordinary_closure_probe and a.ordinary_session_close);run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation,a.ordinary_closure_probe,a.ordinary_session_close,a.same_conversation_close,a.offline_upgrade)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');p.add_argument('--ordinary-closure-probe',action='store_true',help='check ordinary PTY quit and automatic retirement without management release');p.add_argument('--ordinary-session-close',action='store_true',help='close A session via /quit while independent work runs; contrast unexpected disconnect');p.add_argument('--same-conversation-close',action='store_true',help='preserve disconnect/reopen then quit the exact A conversation owning a second independent task');p.add_argument('--offline-upgrade',action='store_true',help='run real UpgradeOffline on private synthetic history/tasks; excludes production discovery');p.add_argument('--resume-journey',action='store_true',help='drive live-owner resume and takeover through compiled CLI PTYs');a=p.parse_args();assert not (a.same_conversation_close and (a.worker_delegation or a.ordinary_session_close or a.ordinary_closure_probe));assert not (a.ordinary_closure_probe and a.ordinary_session_close);run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation,a.ordinary_closure_probe,a.ordinary_session_close,a.same_conversation_close,a.offline_upgrade,a.resume_journey)

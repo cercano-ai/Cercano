@@ -6,6 +6,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 	"testing"
 )
 
@@ -31,4 +32,20 @@ func TestTakeoverConfirmationExplicitOnly(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTakeoverPromptSurvivesResumeTail(t *testing.T) {
+	st, _ := status.New(codes.AlreadyExists, "attached").WithDetails(&errdetails.ErrorInfo{Reason: agentclient.TerminalConflictReason, Metadata: map[string]string{"terminal": "old"}})
+	m := New(nil, false)
+	m.applyConversationAttachment(conversationAttachmentMsg{parent: m.convID, generation: m.taskSubscriptionGeneration, update: agentclient.ConversationUpdate{Err: st.Err()}})
+	m, _ = m.applyProgressiveResumeEvent(resumeViewportStreamMsg{gen: m.resumeGen, event: agentclient.ResumeViewportEvent{Kind: agentclient.ResumeViewportEventTail}})
+	if m.pendingConfirm == nil {
+		t.Fatal("confirmation lost")
+	}
+	for _, entry := range m.mainChat().entries {
+		if strings.Contains(entry.Content, "Take over here?") {
+			return
+		}
+	}
+	t.Fatal("pending takeover confirmation invisible after history replaces transcript")
 }

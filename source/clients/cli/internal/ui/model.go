@@ -4298,6 +4298,11 @@ func (m Model) applyProgressiveResumeEvent(msg resumeViewportStreamMsg) (Model, 
 		m.restoreDevMode(msg.event.DevWorkDir)
 		m.resumeTurns = append([]agentclient.PersistedTurn(nil), msg.event.Turns...)
 		m.mainChat().BeginProgressiveLoad(resumeEntries(msg.event.Turns, msg.frozenThrough), msg.event.StartIndex > 0)
+		// Attachment admission races history hydration. Replacing the transcript
+		// must not hide an already-active takeover (or permission) confirmation.
+		if m.pendingConfirm != nil {
+			m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: m.renderConfirmRequest(m.pendingConfirm)})
+		}
 		m.mainChat().PrependBanner(m.splash.Meta, m.splash.Started())
 		m.mainChat().SetEntries(m.mainChat().entries)
 	case agentclient.ResumeViewportEventOlder:
