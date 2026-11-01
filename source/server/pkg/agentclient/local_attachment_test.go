@@ -15,6 +15,10 @@ type localAttachmentPeer struct {
 	release chan struct{}
 }
 
+func (*localAttachmentPeer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}
+
 func foregroundResponse() *proto.StreamProcessResponse {
 	return &proto.StreamProcessResponse{TurnEpoch: "host", TurnGeneration: 1, EventSequence: 1, Payload: &proto.StreamProcessResponse_TokenDelta{TokenDelta: &proto.TokenDelta{Content: "foreground"}}}
 }
