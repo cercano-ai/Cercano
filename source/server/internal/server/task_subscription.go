@@ -49,6 +49,9 @@ func (s *Server) SubscribeTasks(req *proto.SubscribeTasksRequest, stream proto.A
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		if err := s.ValidateTerminalPane(ctx, parent); err != nil {
+			return err
+		}
 		after := ""
 		for {
 			tasks, err := store.TaskSnapshotPage(ctx, parent, after)

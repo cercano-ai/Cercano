@@ -110,10 +110,11 @@ func ControlDevHost(ctx context.Context, s DevHostSelection, action, destination
 }
 
 type devHostState struct {
-	selection DevHostSelection
-	version   string
-	detached  bool
-	busy      bool
+	selection        DevHostSelection
+	defaultSelection DevHostSelection
+	version          string
+	detached         bool
+	busy             bool
 }
 type devHostResult struct {
 	response  *proto.LifecycleControlResponse
@@ -124,7 +125,7 @@ type devHostResult struct {
 }
 
 func (m Model) WithDevHost(s DevHostSelection, version string) Model {
-	m.devHost = &devHostState{selection: s, version: version}
+	m.devHost = &devHostState{selection: s, defaultSelection: s, version: version}
 	m.convID = s.Conversation
 	m.convRef.id = s.Conversation
 	return m
@@ -197,6 +198,7 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 		}
 		// New client-bound slash handlers, same running executable and TUI identity.
 		n := New(r.client, false).WithVersion(m.devHost.version).WithDevHost(m.devHost.selection, m.devHost.version)
+		n.devHost.defaultSelection = m.devHost.defaultSelection
 		// New rebuilds client-bound handlers, but queued subscription messages
 		// and permission results still belong to this TUI's lifetime. Fence
 		// them even before Init's first reducer establishes the replacement

@@ -146,6 +146,7 @@ type Model struct {
 	taskSubscriptionClient     *agentclient.Client
 	taskSubscriptionGeneration uint64
 	taskSubscriptionCancel     context.CancelFunc
+	taskSubscriptionContext    context.Context
 	taskProgressSequences      map[string]int64
 	backgroundTurns            map[string]*observedMainTurn
 	backgroundPrompts          map[string]bool

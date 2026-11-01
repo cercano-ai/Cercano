@@ -16,7 +16,8 @@ func TestTerminalReferences(t *testing.T) {
 	if err := a.ValidateTerminal(o, "pane"); err != ErrTerminalNotAttached {
 		t.Fatal(err)
 	}
-	z, _ := a.AttachTerminal(o, "z")
+	// Anonymous low-level holders still block terminal closure.
+	z, _ := a.AttachOwner(o)
 	if _, err := a.CloseTerminal(o, "x"); err != ErrAttachmentEligibility {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func TestTerminalAttachClosureRace(t *testing.T) {
 		var z *Attachment
 		var attachErr, closeErr error
 		var c *Closure
-		go func() { defer wg.Done(); <-start; z, attachErr = a.AttachTerminal(o, "z") }()
+		go func() { defer wg.Done(); <-start; z, attachErr = a.AttachOwner(o) }()
 		go func() { defer wg.Done(); <-start; c, closeErr = a.CloseTerminal(o, "x") }()
 		close(start)
 		wg.Wait()

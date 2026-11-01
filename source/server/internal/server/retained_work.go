@@ -22,6 +22,11 @@ func (s *Server) BeginRetainedWork(ctx context.Context, owner broker.Owner, kind
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	return s.beginRetainedWorkLocked(ctx, owner, kind, l)
+}
+
+// Caller holds the lifecycle lock, including terminal enrollment/revocation.
+func (s *Server) beginRetainedWorkLocked(ctx context.Context, owner broker.Owner, kind broker.WorkKind, l *coexistenceLifecycle) (context.Context, *broker.WorkTicket, error) {
 	o := l.owners[owner.Conversation]
 	if o == nil || ownerOf(o) != owner {
 		return nil, nil, broker.ErrAdmissionStale

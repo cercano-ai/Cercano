@@ -24,8 +24,17 @@ type observedMainTurn struct {
 }
 
 func attachMainConversationCmd(ctx context.Context, client *agentclient.Client, parent string, generation uint64) tea.Cmd {
+	return attachMainConversationWithTakeoverCmd(ctx, client, parent, generation, "")
+}
+func attachMainConversationWithTakeoverCmd(ctx context.Context, client *agentclient.Client, parent string, generation uint64, expected string) tea.Cmd {
 	return func() tea.Msg {
-		updates, err := client.AttachConversation(ctx, parent)
+		var updates <-chan agentclient.ConversationUpdate
+		var err error
+		if expected == "" {
+			updates, err = client.AttachConversation(ctx, parent)
+		} else {
+			updates, err = client.TakeoverConversation(ctx, parent, expected)
+		}
 		if err != nil {
 			return conversationAttachmentMsg{parent: parent, generation: generation, update: agentclient.ConversationUpdate{Err: err}}
 		}
@@ -65,6 +74,28 @@ func (m *Model) applyConversationAttachment(msg conversationAttachmentMsg) tea.C
 		return nil
 	}
 	if msg.update.Err != nil {
+		if target := agentclient.TakeoverTarget(msg.update.Err); target != "" {
+			client, parent, generation := m.agent, m.convID, m.taskSubscriptionGeneration
+			m.enqueueConfirmation(&confirmRequest{
+				title:   "This conversation is open in another client. Take over here?",
+				details: []string{"The previous client will lose control. Running work will continue on its current host."},
+				hints:   "y: take over · n/esc/enter: cancel",
+				extras:  map[string]func(Model) (Model, tea.Cmd){"enter": func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil }},
+				onYes: func(m Model) (Model, tea.Cmd) {
+					m.pendingConfirm = nil
+					if m.agent != client || m.convID != parent || m.taskSubscriptionGeneration != generation {
+						return m, nil
+					}
+					ctx := m.taskSubscriptionContext
+					if ctx == nil {
+						return m, nil
+					}
+					return m, attachMainConversationWithTakeoverCmd(ctx, client, parent, generation, target)
+				},
+				onNo: func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil },
+			})
+			return nil
+		}
 		m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "Main chat updates disconnected: " + msg.update.Err.Error()})
 		return nil
 	}

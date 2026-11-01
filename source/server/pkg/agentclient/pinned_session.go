@@ -47,7 +47,7 @@ const (
 // or replaces hosts. Explicit reconnect (and ordinary internal retry) retains the
 // same immutable intent and revalidates on a fresh single-use transport.
 func DialPinnedSession(ctx context.Context, intent PinnedSessionIntent) (*Client, error) {
-	if intent.Endpoint == "" || intent.HostInstance == "" || intent.Build == "" || intent.Contract == "" || intent.SchemaVersion <= 0 || intent.ConversationID == "" || intent.OwnershipEpoch == "" {
+	if intent.Endpoint == "" || intent.HostInstance == "" || intent.Contract == "" || intent.SchemaVersion <= 0 || intent.ConversationID == "" || intent.OwnershipEpoch == "" {
 		return nil, fmt.Errorf("%w: incomplete intent", ErrPinnedSession)
 	}
 	var token [16]byte
@@ -115,8 +115,8 @@ func validatePinnedSession(ctx context.Context, agent proto.AgentClient, p Pinne
 	if err != nil {
 		return fmt.Errorf("%w: identity: %w", ErrPinnedSession, err)
 	}
-	if id.GetHostInstance() != p.HostInstance || id.GetBuild() != p.Build || id.GetContract() != p.Contract || id.GetSchemaVersion() != p.SchemaVersion {
-		return fmt.Errorf("%w: host/build/store contract mismatch", ErrPinnedSession)
+	if id.GetHostInstance() != p.HostInstance || id.GetContract() != p.Contract || id.GetSchemaVersion() != p.SchemaVersion {
+		return fmt.Errorf("%w: host/store contract mismatch", ErrPinnedSession)
 	}
 	if id.GetRetired() {
 		return &SessionCheckError{proto.RetainedSessionState_RETAINED_SESSION_STATE_RETIRED}

@@ -9,6 +9,7 @@ import (
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/pkg/proto"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -39,6 +40,12 @@ func (s *Server) CheckRetainedSession(ctx context.Context, req *proto.CheckRetai
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	owner := broker.Owner{Host: req.HostInstance, Conversation: req.ConversationId, Epoch: req.OwnershipEpoch}
+	md, _ := metadata.FromIncomingContext(ctx)
+	if ids := md.Get("cercano-terminal-attachment"); len(ids) == 1 && ids[0] != "" {
+		if err := l.admission.CheckTerminal(owner, ids[0]); errors.Is(err, broker.ErrTerminalRevoked) {
+			return nil, terminalStatus(err)
+		}
+	}
 	retired, retained, open := l.admission.CheckRetained(owner)
 	result := func(state proto.RetainedSessionState) (*proto.CheckRetainedSessionResponse, error) {
 		return &proto.CheckRetainedSessionResponse{State: state}, nil

@@ -68,12 +68,14 @@ func (s *Server) resolvePermission(ctx context.Context, conv, tool string, decis
 	if err != nil {
 		return false, err
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if err = l.admission.ValidateTerminal(owner, id); err != nil {
 		return false, err
 	}
 	// This is retained work, NOT beginForeground: approval must not supersede
 	// the very turn that is blocked waiting for the user's answer.
-	_, ticket, err := s.BeginRetainedWork(ctx, owner, broker.CallbackWork)
+	_, ticket, err := s.beginRetainedWorkLocked(ctx, owner, broker.CallbackWork, l)
 	if err != nil {
 		return false, err
 	}

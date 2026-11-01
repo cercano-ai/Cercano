@@ -35,6 +35,7 @@ func (m *Model) ensureTaskSubscription() tea.Cmd {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.taskSubscriptionCancel = cancel
+	m.taskSubscriptionContext = ctx
 	parent, generation, client := m.convID, m.taskSubscriptionGeneration, m.agent
 	taskCmd := func() tea.Msg {
 		updates, err := client.SubscribeTasks(ctx, parent)

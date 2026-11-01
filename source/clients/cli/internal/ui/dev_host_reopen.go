@@ -4,8 +4,6 @@ package ui
 // connection loss. The lifecycle service remains the authority for busy refusal.
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -57,30 +55,12 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 		return destination, err
 	}
 	if owner != nil {
-		if protobuf.Equal(source.Identity, destination.Identity) {
-			destination.Conversation, destination.Epoch = conversation, owner.Epoch
-			return destination, nil
-		}
-		sc, err := source.controls(ctx)
-		if err != nil {
-			return destination, err
-		}
-		var nonce [16]byte
-		if _, err = rand.Read(nonce[:]); err != nil {
-			sc.Close()
-			return destination, err
-		}
-		result, err := sc.Transfer(ctx, dc, &proto.LifecycleControlRequest{Target: source.Identity, Source: source.Identity, Destination: destination.Identity, DestinationEndpoint: destination.Endpoint, Owner: owner, Management: true, HandoverId: hex.EncodeToString(nonce[:])})
-		sc.Close()
-		if err != nil || result.GetPending() || result.GetOwner() == nil {
-			if result.GetReceipt() != "" {
-				return destination, fmt.Errorf("reopen was not completed; handover needs explicit recovery; no retry scheduled: %v", err)
-			}
-			return destination, fmt.Errorf("conversation remains on its original host; outstanding work or attached clients must finish first. Work is preserved; no transfer is scheduled: %v", err)
-		}
-		destination.Conversation, destination.Epoch = conversation, result.Owner.Epoch
-		return destination, nil
+		// Resume attaches to execution where it already lives. The default host
+		// is only an acquisition destination for new or released conversations.
+		source.Conversation, source.Epoch = conversation, owner.Epoch
+		return source, nil
 	}
+
 	result, err := dc.LifecycleAcquire(ctx, &proto.LifecycleControlRequest{Target: destination.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}})
 	if err != nil {
 		if unavailable != nil {
@@ -167,7 +147,10 @@ func (m Model) beginDevHostFreshConversation() (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.devHost.busy = true
-	selection := m.devHost.selection
+	selection := m.devHost.defaultSelection
+	if selection.Identity == nil {
+		selection = m.devHost.selection
+	}
 	conversation := newConvID()
 	return m, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

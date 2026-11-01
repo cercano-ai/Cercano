@@ -3,6 +3,8 @@ package server
 import (
 	"cercano/source/server/internal/broker"
 	"context"
+	"errors"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -44,19 +46,28 @@ func (s *Server) BeginTerminalStream(ctx context.Context, conversation string, k
 		return nil, nil, nil, err
 	}
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if !l.ready[owner] {
-		l.mu.Unlock()
 		return nil, nil, nil, broker.ErrAdmissionBusy
 	}
-	attachment, err := l.admission.AttachTerminal(owner, id)
-	l.mu.Unlock()
+	var attachment *broker.Attachment
+	md, _ := metadata.FromIncomingContext(ctx)
+	takeover := md.Get("cercano-takeover-terminal")
+	if len(takeover) != 0 {
+		if kind != 0 || len(takeover) != 1 || takeover[0] == "" {
+			return nil, nil, nil, status.Error(codes.InvalidArgument, "invalid takeover request")
+		}
+		attachment, err = l.admission.TakeoverTerminal(owner, id, takeover[0])
+	} else {
+		attachment, err = l.admission.AttachTerminal(owner, id)
+	}
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, terminalStatus(err)
 	}
 	if kind == 0 {
 		return ctx, attachment, nil, nil
 	}
-	workCtx, ticket, err := s.BeginRetainedWork(ctx, owner, kind)
+	workCtx, ticket, err := s.beginRetainedWorkLocked(ctx, owner, kind, l)
 	if err != nil {
 		attachment.Detach()
 		return nil, nil, nil, err
@@ -99,4 +110,18 @@ func (s *Server) CloseTerminalOwner(ctx context.Context, conversation string) (*
 		return nil, broker.ErrAdmissionBusy
 	}
 	return l.admission.CloseTerminal(owner, id)
+}
+
+func terminalStatus(err error) error {
+	var conflict *broker.TerminalConflictError
+	if errors.As(err, &conflict) {
+		st, e := status.New(codes.AlreadyExists, conflict.Error()).WithDetails(&errdetails.ErrorInfo{Reason: "CONVERSATION_CLIENT_ATTACHED", Metadata: map[string]string{"terminal": conflict.Current}})
+		if e == nil {
+			return st.Err()
+		}
+	}
+	if errors.Is(err, broker.ErrTerminalRevoked) {
+		return status.Error(codes.PermissionDenied, err.Error())
+	}
+	return err
 }

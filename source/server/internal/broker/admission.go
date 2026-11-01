@@ -10,6 +10,7 @@ var (
 	ErrAdmissionBusy         = errors.New("retained sessions or work prevent transition")
 	ErrAdmissionStale        = errors.New("unknown or stale ownership or ticket")
 	ErrAttachmentEligibility = errors.New("requester is not the sole attachment")
+	ErrTerminalRevoked       = errors.New("client attachment replaced; reopen explicitly to take over")
 	ErrTerminalNotAttached   = errors.New("requester terminal is not attached")
 )
 
@@ -30,13 +31,15 @@ const (
 func validWork(k WorkKind) bool { return k >= ForegroundWork && k <= PersistenceWork }
 
 type admissionSession struct {
-	owner       Owner
-	closed      bool
-	draining    bool
-	closure     *Closure
-	attachments map[*Attachment]bool
-	terminals   map[string]int
-	work        map[*WorkTicket]bool
+	owner          Owner
+	closed         bool
+	draining       bool
+	closure        *Closure
+	attachments    map[*Attachment]bool
+	terminals      map[string]int
+	activeTerminal string
+	revoked        map[string]bool
+	work           map[*WorkTicket]bool
 }
 
 // Admission is local accounting adjacent to Broker, not an ownership authority.
@@ -85,7 +88,7 @@ func (a *Admission) registerLocked(o Owner) error {
 	if a.sessions[o.Conversation] != nil {
 		return ErrAdmissionBusy
 	}
-	a.sessions[o.Conversation] = &admissionSession{owner: o, terminals: make(map[string]int), attachments: make(map[*Attachment]bool), work: make(map[*WorkTicket]bool)}
+	a.sessions[o.Conversation] = &admissionSession{owner: o, terminals: make(map[string]int), revoked: make(map[string]bool), attachments: make(map[*Attachment]bool), work: make(map[*WorkTicket]bool)}
 	a.seen[o] = true
 	return nil
 }
@@ -112,7 +115,15 @@ type Attachment struct {
 	a        *Admission
 	s        *admissionSession
 	terminal string
+	revoked  chan struct{}
 }
+
+// Revoked closes only on explicit takeover, never on ordinary disconnect.
+func (t *Attachment) Revoked() <-chan struct{} { return t.revoked }
+
+type TerminalConflictError struct{ Current string }
+
+func (e *TerminalConflictError) Error() string { return "conversation is open in another client" }
 
 func (a *Admission) AttachOwner(o Owner) (*Attachment, error) {
 	return a.attachTerminal(o, "")
@@ -128,6 +139,9 @@ func (a *Admission) AttachTerminal(o Owner, id string) (*Attachment, error) {
 func (a *Admission) attachTerminal(o Owner, id string) (*Attachment, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.attachTerminalLocked(o, id)
+}
+func (a *Admission) attachTerminalLocked(o Owner, id string) (*Attachment, error) {
 	s := a.sessionLocked(o)
 	if s == nil {
 		return nil, ErrAdmissionStale
@@ -135,13 +149,68 @@ func (a *Admission) attachTerminal(o Owner, id string) (*Attachment, error) {
 	if a.retired || s.closed {
 		return nil, ErrAdmissionClosed
 	}
-	t := &Attachment{a: a, s: s, terminal: id}
+	if id != "" {
+		if s.revoked[id] {
+			return nil, ErrTerminalRevoked
+		}
+		if s.activeTerminal != "" && s.activeTerminal != id {
+			return nil, &TerminalConflictError{Current: s.activeTerminal}
+		}
+		s.activeTerminal = id
+	}
+	t := &Attachment{a: a, s: s, terminal: id, revoked: make(chan struct{})}
 	if id != "" {
 		s.terminals[id]++
 	}
 	s.attachments[t] = true
 	return t, nil
 }
+
+// TakeoverTerminal replaces exactly the client shown in the confirmation.
+// Work tickets and durable ownership are untouched. Revoked IDs are tombstoned
+// for this ownership epoch, including after all their transport streams close.
+func (a *Admission) TakeoverTerminal(o Owner, id, expected string) (*Attachment, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := a.sessionLocked(o)
+	if s == nil {
+		return nil, ErrAdmissionStale
+	}
+	if s.closed || a.retired {
+		return nil, ErrAdmissionClosed
+	}
+	if id == "" || s.revoked[id] {
+		return nil, ErrTerminalRevoked
+	}
+	if expected == "" || s.activeTerminal != expected || id == expected {
+		return nil, &TerminalConflictError{Current: s.activeTerminal}
+	}
+	s.revoked[expected] = true
+	for t := range s.attachments {
+		if t.terminal == expected {
+			close(t.revoked)
+			delete(s.attachments, t)
+		}
+	}
+	delete(s.terminals, expected)
+	s.activeTerminal = id
+	return a.attachTerminalLocked(o, id)
+}
+
+// CheckTerminal fences reconnect even when there are no remaining stream refs.
+func (a *Admission) CheckTerminal(o Owner, id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := a.sessionLocked(o)
+	if s == nil {
+		return ErrAdmissionStale
+	}
+	if s.revoked[id] {
+		return ErrTerminalRevoked
+	}
+	return nil
+}
+
 func (t *Attachment) Detach() {
 	t.a.mu.Lock()
 	defer t.a.mu.Unlock()
@@ -153,6 +222,9 @@ func (t *Attachment) Detach() {
 		t.s.terminals[t.terminal]--
 		if t.s.terminals[t.terminal] == 0 {
 			delete(t.s.terminals, t.terminal)
+			if t.s.activeTerminal == t.terminal {
+				t.s.activeTerminal = ""
+			}
 		}
 	}
 }

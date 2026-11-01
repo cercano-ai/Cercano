@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cercano/source/server/pkg/proto"
+	"google.golang.org/grpc/metadata"
 )
 
 type turnVersion struct {
@@ -48,6 +49,10 @@ type ConversationUpdate struct {
 // the host's current replay buffer with a cursor; persisted older turns remain
 // available through ResumeConversation rather than an unbounded client queue.
 func (c *Client) AttachConversation(ctx context.Context, parent string) (<-chan ConversationUpdate, error) {
+	return c.attachConversation(ctx, parent, nil)
+}
+
+func (c *Client) attachConversation(ctx context.Context, parent string, firstMetadata metadata.MD) (<-chan ConversationUpdate, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	go func() {
 		select {
@@ -60,7 +65,12 @@ func (c *Client) AttachConversation(ctx context.Context, parent string) (<-chan 
 	c.connMu.Lock()
 	agent := c.agent
 	c.connMu.Unlock()
-	stream, err := agent.AttachConversation(ctx, request)
+	firstCtx := ctx
+	if len(firstMetadata) != 0 {
+		md, _ := metadata.FromOutgoingContext(ctx)
+		firstCtx = metadata.NewOutgoingContext(ctx, metadata.Join(md, firstMetadata))
+	}
+	stream, err := agent.AttachConversation(firstCtx, request)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -98,6 +108,13 @@ func (c *Client) AttachConversation(ctx context.Context, parent string) (<-chan 
 				agent := c.agent
 				c.connMu.Unlock()
 				stream, err = agent.AttachConversation(ctx, request)
+				if err == nil && c.pinned != nil {
+					header, headerErr := stream.Header()
+					err = headerErr
+					if err == nil && (len(header.Get("cercano-terminal-attached")) != 1 || header.Get("cercano-terminal-attached")[0] != "true") {
+						err = errors.New("host did not acknowledge terminal attachment")
+					}
+				}
 			}
 			var response *proto.StreamProcessResponse
 			if err == nil {

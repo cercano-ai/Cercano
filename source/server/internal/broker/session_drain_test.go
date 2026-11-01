@@ -85,7 +85,8 @@ func TestTerminalDrainEligibility(t *testing.T) {
 	if _, err := a.AttachTerminal(o, "one"); err != nil {
 		t.Fatal(err)
 	}
-	other, err := a.AttachTerminal(o, "two")
+	// Low-level anonymous holders remain in eligibility accounting.
+	other, err := a.AttachOwner(o)
 	if err != nil {
 		t.Fatal(err)
 	}

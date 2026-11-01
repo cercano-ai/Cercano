@@ -3888,6 +3888,10 @@ func (s *Server) AttachConversation(req *proto.AttachConversationRequest, stream
 			return err
 		}
 	}
+	var revoked <-chan struct{}
+	if attachment != nil {
+		revoked = attachment.Revoked()
+	}
 	convID := req.GetConversationId()
 	if convID == "" {
 		return grpcstatus.Error(codes.InvalidArgument, "conversation_id is required")
@@ -3914,6 +3918,8 @@ func (s *Server) AttachConversation(req *proto.AttachConversationRequest, stream
 			}
 		}
 		select {
+		case <-revoked:
+			return grpcstatus.Error(codes.PermissionDenied, "client attachment replaced in another terminal")
 		case <-changes:
 		case <-promptChanges:
 			for _, prompt := range s.pendingPrompts.snapshot(convID) {
