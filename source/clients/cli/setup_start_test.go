@@ -45,3 +45,24 @@ func TestFreshSetupWithPreservedConfiguration(t *testing.T) {
 		t.Fatal("startup changed preserved config")
 	}
 }
+
+func TestPinnedSetupAuthority(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CERCANO_WIZARD_STATE", filepath.Join(root, "wizard.yaml"))
+	if needsPinnedSetup(false, "") {
+		t.Fatal("unknown host authority must not probe default config")
+	}
+	if !needsPinnedSetup(true, "") {
+		t.Fatal("explicit setup ignored")
+	}
+	authority := filepath.Join(root, "host.yaml")
+	if !needsPinnedSetup(false, authority) {
+		t.Fatal("host first run ignored")
+	}
+	if err := os.WriteFile(authority, []byte("port: 5555\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if needsPinnedSetup(false, authority) {
+		t.Fatal("host config ignored")
+	}
+}

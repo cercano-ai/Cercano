@@ -78,7 +78,7 @@ func writeDevResumeMetadata(t *testing.T, path, repo string) {
 }
 func TestFreshCLIRehydratesDevModeFromPersistedConversation(t *testing.T) {
 	for _, progressive := range []bool{false, true} {
-		name := "buffered"
+		name := "slash"
 		if progressive {
 			name = "progressive"
 		}
@@ -94,6 +94,10 @@ func TestFreshCLIRehydratesDevModeFromPersistedConversation(t *testing.T) {
 			}
 			if progressive {
 				fresh, _ = fresh.beginProgressiveResume("saved")
+			} else {
+				fresh, _ = fresh.applyResume("saved")
+			}
+			{
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				err := client.StreamResumeConversationViewportFirst(ctx, "saved", 48, 96, func(event agentclient.ResumeViewportEvent) error {
@@ -106,8 +110,6 @@ func TestFreshCLIRehydratesDevModeFromPersistedConversation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			} else {
-				fresh, _ = fresh.applyResume("saved")
 			}
 			if fresh.workDirOverride != repo || fresh.effectiveWorkDir() != repo {
 				t.Fatalf("repository not restored: override=%q effective=%q", fresh.workDirOverride, fresh.effectiveWorkDir())

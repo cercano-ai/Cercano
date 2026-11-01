@@ -66,7 +66,7 @@ func RegisterHistory(r *Registry, c *agentclient.Client, currentConv CurrentConv
 			if err := c.RenameConversation(ctx, convID, title); err != nil {
 				return Result{Kind: ResultText, Text: "rename failed: " + err.Error()}
 			}
-			return Result{Kind: ResultSetSessionTitle, Text: title}
+			return Result{Kind: ResultSetSessionTitle, Text: title, ConversationID: convID}
 		},
 	})
 }

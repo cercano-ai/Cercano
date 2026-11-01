@@ -53,6 +53,7 @@ const (
 
 // Result is what a slash command produces.
 type Result struct {
+	ConversationID string
 	ModelAction    string
 	ModelProfile   string
 	ModelID        string

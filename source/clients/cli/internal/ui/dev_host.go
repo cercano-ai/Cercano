@@ -202,6 +202,14 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 		// them even before Init's first reducer establishes the replacement
 		// subscription, including when a callback reuses the same client.
 		n.taskSubscriptionGeneration = m.taskSubscriptionGeneration + 1
+		n.resumeGen = m.resumeGen + 1
+		n.titleRevision = m.titleRevision
+		if n.convID == m.convID {
+			n.sessionTitle = m.sessionTitle
+		}
+		if n.convID == m.pendingResumeID {
+			n.sessionTitle = m.pendingResumeTitle
+		}
 		n.width, n.height = m.width, m.height
 		return n, tea.Batch(n.Init(), func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} })
 	}

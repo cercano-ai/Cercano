@@ -17,3 +17,12 @@ func needsSetup(explicit bool, configPath string) bool {
 	_, resume := wizard.Load()
 	return resume
 }
+
+// A pinned host's explicit config path is authoritative; never probe the
+// caller's default config when the host did not supply one.
+func needsPinnedSetup(explicit bool, authority string) bool {
+	if authority == "" {
+		return explicit
+	}
+	return needsSetup(explicit, authority)
+}
