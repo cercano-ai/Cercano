@@ -14,12 +14,14 @@ import (
 // Build source/server/cmd/cercano with go test -c and explicitly provide that
 // disposable test binary. The helper runs ordinary production A with synthetic
 // backends, then lifecycle-only B; this does not assert B's UI/history hydration.
+// The live case records the pre-simplification refusal, not the desired resume
+// contract. Replace that expectation when live-owner routing is implemented.
 func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 	binary := os.Getenv("CERCANO_RESUME_PROBE_BINARY")
 	if binary == "" {
 		t.Skip("requires explicit disposable server test binary")
 	}
-	for _, mode := range []string{"released", "disconnected"} {
+	for _, mode := range []string{"released", "disconnected", "live"} {
 		t.Run(mode, func(t *testing.T) {
 			manifest := filepath.Join(t.TempDir(), "selection.json")
 			cmd := exec.Command(binary, "-test.run=^TestProductionResumeBridge$", "-test.timeout=45s")
@@ -61,6 +63,11 @@ func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 				if err != nil || selected.Epoch == "" {
 					t.Fatalf("released production reopen: %+v %v", selected, err)
 				}
+			} else if mode == "live" {
+				if err == nil || !strings.Contains(err.Error(), "conversation remains on its original host") {
+					t.Fatalf("expected existing live-owner cross-host refusal: %v", err)
+				}
+				t.Logf("live owner A, selected host B: %v", err)
 			} else {
 				if err == nil || !strings.Contains(err.Error(), "authoritative acquisition refused") {
 					t.Fatalf("unexpected-disconnect reopen: %v", err)

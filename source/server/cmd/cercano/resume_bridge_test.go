@@ -58,7 +58,10 @@ func TestProductionResumeBridge(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		client.Close()
+		defer client.Close()
+		if mode != "live" {
+			client.Close()
+		}
 		record, err := conversation.ReadOwnership(ctx, s.GenerationStore(), "resume-probe")
 		if err != nil {
 			t.Fatal(err)
@@ -77,7 +80,9 @@ func TestProductionResumeBridge(t *testing.T) {
 			}
 			os.Exit(0) // deliberate test-owned process death, no cleanup/release
 		}
-		stop() // closed listener is NOT a dead process; owned capability remains locked
+		if mode != "live" {
+			stop() // closed listener is NOT a dead process; owned capability remains locked
+		}
 		nextToken := filepath.Join(filepath.Dir(o.State), "next-token")
 		if err = devhostauth.Create(nextToken); err != nil {
 			t.Fatal(err)
@@ -113,6 +118,12 @@ func TestProductionResumeBridge(t *testing.T) {
 		hosts := filepath.Join(filepath.Dir(o.Identity.Store), "hosts")
 		if err = os.MkdirAll(hosts, 0700); err != nil {
 			t.Fatal(err)
+		}
+		if mode == "live" {
+			data, _ := json.Marshal(selection(endpoint, token, o.Identity))
+			if err = os.WriteFile(filepath.Join(hosts, "live.json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
 		}
 		unrelated := &proto.LifecycleIdentity{Host: "unrelated-fixture-host", Build: o.Identity.Build, Contract: o.Identity.Contract, Schema: o.Identity.Schema, Store: o.Identity.Store}
 		stale, _ := json.Marshal(selection(deadEndpoint, token, unrelated))
