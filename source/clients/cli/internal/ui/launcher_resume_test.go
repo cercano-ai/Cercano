@@ -21,7 +21,7 @@ type launcherResumeServer struct {
 
 func (s *launcherResumeServer) LifecycleAcquire(_ context.Context, r *proto.LifecycleControlRequest) (*proto.LifecycleControlResponse, error) {
 	s.requests <- r
-	return &proto.LifecycleControlResponse{Owner: &proto.LifecycleOwner{Conversation: r.Owner.Conversation, Host: r.Target.Host, Epoch: "existing-epoch"}}, nil
+	return &proto.LifecycleControlResponse{Identity: r.Target, Owner: &proto.LifecycleOwner{Conversation: r.Owner.Conversation, Host: r.Target.Host, Epoch: "existing-epoch"}}, nil
 }
 
 // Real authenticated lifecycle transport, disposable token/state, no agent,
