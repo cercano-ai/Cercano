@@ -40,6 +40,7 @@ func (c *Client) IsCurrentConversationEvent(parent string, response *proto.Strea
 }
 
 type ConversationUpdate struct {
+	Local    bool // This turn also arrives on this client's initiating request stream.
 	Response *proto.StreamProcessResponse
 	Message  *StreamMsg
 	Err      error
@@ -152,7 +153,11 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 			if response.EventSequence > 0 && response.TurnEpoch == request.AfterTurnEpoch && response.TurnGeneration == request.AfterTurnGeneration && response.EventSequence <= request.AfterEventSequence {
 				continue
 			}
-			if !send(ConversationUpdate{Response: response, Message: decodeStreamResponse(response)}) {
+			local, ok := c.localConversationEvent(ctx, parent, response)
+			if !ok {
+				return
+			}
+			if !send(ConversationUpdate{Local: local, Response: response, Message: decodeStreamResponse(response)}) {
 				return
 			}
 			if response.EventSequence > 0 {
@@ -163,4 +168,81 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 		}
 	}()
 	return out, nil
+}
+
+// Register before opening the RPC: the observer may receive the first event
+// before the initiating stream does. Wait for that stream's version rather than
+// treating every foreground turn (including an inherited one) as local.
+// Keep the small version identities for the client's lifetime: a completed
+// request can still be replayed after the observation stream reconnects.
+// One request may span multiple continuation generations.
+type localRequest struct {
+	changed  chan struct{}
+	versions map[turnVersion]bool
+	latest   turnVersion
+	ended    bool
+}
+
+func (c *Client) beginLocalRequest(parent string) *localRequest {
+	c.observationMu.Lock()
+	defer c.observationMu.Unlock()
+	if c.localRequests == nil {
+		c.localRequests = make(map[string][]*localRequest)
+	}
+	r := &localRequest{changed: make(chan struct{}), versions: make(map[turnVersion]bool)}
+	c.localRequests[parent] = append(c.localRequests[parent], r)
+	return r
+}
+func (c *Client) resolveLocalRequest(r *localRequest, response *proto.StreamProcessResponse) {
+	c.observationMu.Lock()
+	defer c.observationMu.Unlock()
+	if r.ended {
+		return
+	}
+	if response == nil {
+		r.ended = true
+	} else {
+		version := turnVersion{response.TurnEpoch, response.TurnGeneration}
+		// Permission responses carry the version on the nested payload.
+		if prompt := response.GetPermissionRequired(); version.epoch == "" && prompt != nil {
+			version = turnVersion{prompt.TurnEpoch, prompt.TurnGeneration}
+		}
+		if version.epoch == "" || r.versions[version] {
+			return
+		}
+		r.versions[version] = true
+		r.latest = version
+	}
+	close(r.changed)
+	r.changed = make(chan struct{})
+}
+func (c *Client) localConversationEvent(ctx context.Context, parent string, response *proto.StreamProcessResponse) (bool, bool) {
+	if response.BackgroundTurn || response.TurnEpoch == "" {
+		return false, true
+	}
+	c.observationMu.Lock()
+	requests := append([]*localRequest(nil), c.localRequests[parent]...)
+	c.observationMu.Unlock()
+	version := turnVersion{response.TurnEpoch, response.TurnGeneration}
+	for _, r := range requests {
+		for {
+			c.observationMu.Lock()
+			local := r.versions[version]
+			finished := r.ended || (r.latest.epoch == version.epoch && r.latest.generation > version.generation)
+			changed := r.changed
+			c.observationMu.Unlock()
+			if local {
+				return true, true
+			}
+			if finished {
+				break
+			}
+			select {
+			case <-changed:
+			case <-ctx.Done():
+				return false, false
+			}
+		}
+	}
+	return false, true
 }

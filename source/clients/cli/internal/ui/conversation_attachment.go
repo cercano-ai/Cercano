@@ -9,6 +9,7 @@ import (
 )
 
 type conversationAttachmentMsg struct {
+	attached   bool
 	parent     string
 	generation uint64
 	update     agentclient.ConversationUpdate
@@ -28,6 +29,9 @@ func attachMainConversationCmd(ctx context.Context, client *agentclient.Client, 
 }
 func attachMainConversationWithTakeoverCmd(ctx context.Context, client *agentclient.Client, parent string, generation uint64, expected string) tea.Cmd {
 	return func() tea.Msg {
+		if ctx.Err() != nil {
+			return nil
+		}
 		var updates <-chan agentclient.ConversationUpdate
 		var err error
 		if expected == "" {
@@ -50,7 +54,7 @@ func attachMainConversationWithTakeoverCmd(ctx context.Context, client *agentcli
 				return nil
 			}
 		}
-		return wait()
+		return conversationAttachmentMsg{parent: parent, generation: generation, attached: true, next: wait}
 	}
 }
 
@@ -72,6 +76,9 @@ func (m *Model) mirrorObservedTurn(turn *observedMainTurn) {
 func (m *Model) applyConversationAttachment(msg conversationAttachmentMsg) tea.Cmd {
 	if msg.parent != m.convID || msg.generation != m.taskSubscriptionGeneration {
 		return nil
+	}
+	if msg.attached {
+		return tea.Batch(msg.next, subscribeTasksCmd(m.taskSubscriptionContext, m.agent, msg.parent, msg.generation))
 	}
 	if msg.update.Err != nil {
 		if target := agentclient.TakeoverTarget(msg.update.Err); target != "" {
@@ -117,8 +124,9 @@ func (m *Model) applyConversationAttachment(msg conversationAttachmentMsg) tea.C
 			turn.mirrors = nil
 		}
 	}
-	// Foreground messages already arrive through the initiating request stream.
-	if !response.BackgroundTurn || msg.update.Message == nil {
+	// Only locally initiated foreground messages already arrive through our
+	// request stream. Inherited foreground output and approvals need this observer.
+	if msg.update.Local || msg.update.Message == nil {
 		return msg.next
 	}
 

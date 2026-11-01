@@ -52,6 +52,7 @@ type Client struct {
 
 	observationMu sync.Mutex
 	observedTurns map[string]turnVersion
+	localRequests map[string][]*localRequest
 	connMu        sync.Mutex
 	conn          *grpc.ClientConn
 	agent         proto.AgentClient
@@ -2225,6 +2226,7 @@ func (c *Client) StreamChat(ctx context.Context, conversationID, input, workDir 
 	return c.streamChat(ctx, conversationID, input, workDir, false, images...)
 }
 func (c *Client) streamChat(ctx context.Context, conversationID, input, workDir string, recovery bool, images ...InlineImage) (<-chan StreamMsg, error) {
+	local := c.beginLocalRequest(conversationID)
 	stream, err := c.agent.StreamProcessRequest(ctx, &proto.ProcessRequestRequest{
 		SupportsAuthRecovery: recovery,
 		DebugMode:            debugAdvertisement(ctx),
@@ -2234,12 +2236,14 @@ func (c *Client) streamChat(ctx context.Context, conversationID, input, workDir 
 		Images:               toProtoImages(images),
 	})
 	if err != nil {
+		c.resolveLocalRequest(local, nil)
 		return nil, fmt.Errorf("stream open: %w", err)
 	}
 
 	out := make(chan StreamMsg, 16)
 	go func() {
 		defer close(out)
+		defer c.resolveLocalRequest(local, nil)
 		for {
 			msg, err := stream.Recv()
 			if errors.Is(err, io.EOF) {
@@ -2249,6 +2253,7 @@ func (c *Client) streamChat(ctx context.Context, conversationID, input, workDir 
 				out <- StreamMsg{Type: TypeError, Err: err}
 				return
 			}
+			c.resolveLocalRequest(local, msg)
 			c.observeTurn(conversationID, msg)
 			if decoded := decodeStreamResponse(msg); decoded != nil {
 				select {

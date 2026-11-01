@@ -13,7 +13,7 @@ func TestAutomaticReplyDoesNotDuplicateOrModifyForeground(t *testing.T) {
 	m.convID = "owner"
 	m.ensureTaskSubscription()
 	deliver := func(seq uint64, bg bool, message agentclient.StreamMsg) {
-		m.applyConversationAttachment(conversationAttachmentMsg{parent: "owner", generation: m.taskSubscriptionGeneration, update: agentclient.ConversationUpdate{Response: &proto.StreamProcessResponse{TurnEpoch: "host", TurnGeneration: 1, EventSequence: seq, BackgroundTurn: bg}, Message: &message}})
+		m.applyConversationAttachment(conversationAttachmentMsg{parent: "owner", generation: m.taskSubscriptionGeneration, update: agentclient.ConversationUpdate{Local: !bg, Response: &proto.StreamProcessResponse{TurnEpoch: "host", TurnGeneration: 1, EventSequence: seq, BackgroundTurn: bg}, Message: &message}})
 	}
 	deliver(1, true, agentclient.StreamMsg{Type: agentclient.TypeToken, Token: "automatic "})
 	m.mainChat().Apply(chatAssistantDeltaMsg{token: "foreground"})

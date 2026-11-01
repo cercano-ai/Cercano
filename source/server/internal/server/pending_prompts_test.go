@@ -69,7 +69,15 @@ func TestAttachReplaysPendingApprovalWithoutGrantingIt(t *testing.T) {
 	for attempt := 0; attempt < 2; attempt++ {
 		observerCtx, disconnect := context.WithCancel(ctx)
 		replayed := make(chan string, 1)
-		observer := &immediatePermissionStream{ctx: observerCtx, reply: func(prompt *proto.PermissionRequired) { replayed <- prompt.ToolUseId; disconnect() }}
+		observer := &immediatePermissionStream{ctx: observerCtx, reply: func(prompt *proto.PermissionRequired) {
+			// A retained foreground request does not become background when a
+			// replacement observer attaches. The UI must not filter it out.
+			if prompt.BackgroundTurn || prompt.TurnEpoch == "" || prompt.TurnGeneration == 0 {
+				t.Errorf("replayed foreground prompt lost its identity: %v", prompt)
+			}
+			replayed <- prompt.ToolUseId
+			disconnect()
+		}}
 		err := srv.AttachConversation(&proto.AttachConversationRequest{ConversationId: "owner"}, observer)
 		disconnect()
 		if err != context.Canceled {

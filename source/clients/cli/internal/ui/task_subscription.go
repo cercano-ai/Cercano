@@ -37,7 +37,15 @@ func (m *Model) ensureTaskSubscription() tea.Cmd {
 	m.taskSubscriptionCancel = cancel
 	m.taskSubscriptionContext = ctx
 	parent, generation, client := m.convID, m.taskSubscriptionGeneration, m.agent
-	taskCmd := func() tea.Msg {
+	return attachMainConversationCmd(ctx, client, parent, generation)
+}
+
+// Attachment returns only after the pinned terminal enrollment acknowledgement.
+func subscribeTasksCmd(ctx context.Context, client *agentclient.Client, parent string, generation uint64) tea.Cmd {
+	return func() tea.Msg {
+		if ctx == nil || ctx.Err() != nil {
+			return nil
+		}
 		updates, err := client.SubscribeTasks(ctx, parent)
 		if err != nil {
 			return taskSubscriptionMsg{parent: parent, generation: generation, update: agentclient.TaskUpdate{Err: err}}
@@ -56,7 +64,6 @@ func (m *Model) ensureTaskSubscription() tea.Cmd {
 		}
 		return wait()
 	}
-	return tea.Batch(taskCmd, attachMainConversationCmd(ctx, client, parent, generation))
 }
 func (m *Model) applyTaskSubscription(msg taskSubscriptionMsg) tea.Cmd {
 	if msg.parent != m.convID || msg.generation != m.taskSubscriptionGeneration {
