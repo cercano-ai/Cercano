@@ -13,7 +13,7 @@ func TestTerminalReferences(t *testing.T) {
 	}
 	x, _ := a.AttachTerminal(o, "x")
 	y, _ := a.AttachTerminal(o, "x")
-	if err := a.ValidateTerminal(o, "pane"); err != ErrAttachmentEligibility {
+	if err := a.ValidateTerminal(o, "pane"); err != ErrTerminalNotAttached {
 		t.Fatal(err)
 	}
 	z, _ := a.AttachTerminal(o, "z")
@@ -37,7 +37,7 @@ func TestTerminalReferences(t *testing.T) {
 	if _, retained, open := a.CheckRetained(o); !retained || !open {
 		t.Fatal("detach released ownership")
 	}
-	if _, err := a.CloseTerminal(o, "x"); err != ErrAttachmentEligibility {
+	if _, err := a.CloseTerminal(o, "x"); err != ErrTerminalNotAttached {
 		t.Fatal(err)
 	}
 	c, err = a.CloseTerminal(o, "")
@@ -57,7 +57,7 @@ func TestTerminalReferences(t *testing.T) {
 	if err := a.RegisterOwner(o); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.ValidateTerminal(o, "x"); err != ErrAttachmentEligibility {
+	if err := a.ValidateTerminal(o, "x"); err != ErrTerminalNotAttached {
 		t.Fatal(err)
 	}
 }

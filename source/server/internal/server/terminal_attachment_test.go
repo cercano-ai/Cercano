@@ -76,7 +76,7 @@ func TestTerminalPreparedBinding(t *testing.T) {
 		return metadata.NewIncomingContext(ctx, metadata.Pairs(agentclient.PinnedHostMetadata, o.Host, agentclient.PinnedConversationMetadata, o.Conversation, agentclient.PinnedEpochMetadata, o.Epoch, agentclient.PinnedTerminalMetadata, "terminal"))
 	}
 	exact := binding(owner)
-	if err := s.ValidateTerminalPane(exact, "c"); !errors.Is(err, broker.ErrAttachmentEligibility) {
+	if err := s.ValidateTerminalPane(exact, "c"); !errors.Is(err, broker.ErrTerminalNotAttached) {
 		t.Fatal(err)
 	}
 	for _, bad := range []context.Context{ctx, binding(broker.Owner{Host: "wrong", Conversation: "c", Epoch: owner.Epoch}), binding(broker.Owner{Host: owner.Host, Conversation: "c", Epoch: "old"})} {
@@ -110,7 +110,7 @@ func TestTerminalPreparedBinding(t *testing.T) {
 	}
 	a.Detach()
 	b.Detach()
-	if err := s.ValidateTerminalPane(exact, "c"); !errors.Is(err, broker.ErrAttachmentEligibility) {
+	if err := s.ValidateTerminalPane(exact, "c"); !errors.Is(err, broker.ErrTerminalNotAttached) {
 		t.Fatal(err)
 	}
 	if _, retained, open := s.coexistence.admission.CheckRetained(owner); !retained || !open {

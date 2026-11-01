@@ -90,7 +90,11 @@ func TestTerminalDrainEligibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"", "unknown", "one"} {
-		if _, err = a.DrainTerminal(o, id); !errors.Is(err, ErrAttachmentEligibility) {
+		want := ErrAttachmentEligibility
+		if id != "one" {
+			want = ErrTerminalNotAttached
+		}
+		if _, err = a.DrainTerminal(o, id); !errors.Is(err, want) {
 			t.Fatalf("terminal %q: %v", id, err)
 		}
 	}
