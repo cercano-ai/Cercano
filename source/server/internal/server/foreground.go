@@ -6,6 +6,8 @@ import (
 	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/pkg/proto"
 	"context"
+	"database/sql"
+	"errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -96,6 +98,12 @@ func (s *Server) beginChildVisibility(ctx context.Context, child string) (contex
 	if len(ids) != 1 || child == "" || child == ids[0] {
 		return nil, nil, status.Error(codes.InvalidArgument, "child visibility requires pinned ancestor")
 	}
+	// A terminal task can have failed routing before dispatch created its child
+	// conversation. Restore that normal metadata row, not a second visibility
+	// store. Only an exact durable parent/task relationship may take this path.
+	if _, err := s.persistSvc.Store().Get(ctx, child); errors.Is(err, sql.ErrNoRows) {
+		return s.beginMissingTaskVisibility(ctx, ids[0], child)
+	}
 	// Reject a foreign target before admitting retained work. The store repeats
 	// this check transactionally; this early check is not the write authority.
 	seen := map[string]bool{}
@@ -115,4 +123,39 @@ func (s *Server) beginChildVisibility(ctx context.Context, child string) (contex
 		return nil, nil, err
 	}
 	return conversation.WithChildVisibilityOwner(ctx, ids[0]), work, nil
+}
+
+// Repair only terminal tasks whose execution never acquired the child identity.
+// beginPreparedDispatch refuses existing/released/foreign ownership, so closing
+// a tab cannot adopt an interrupted execution or compete with a running child.
+func (s *Server) beginMissingTaskVisibility(ctx context.Context, parent, child string) (context.Context, *foregroundWork, error) {
+	store := s.persistSvc.Store()
+	tasks, ok := store.(conversation.TaskStore)
+	if !ok {
+		return nil, nil, status.Error(codes.PermissionDenied, "unrelated child")
+	}
+	task, err := tasks.GetTaskByChild(ctx, parent, child)
+	if err != nil {
+		return nil, nil, status.Error(codes.PermissionDenied, "unrelated child")
+	}
+	if !task.Terminal() {
+		return nil, nil, status.Error(codes.FailedPrecondition, "task is still starting; retry closing its tab after startup finishes")
+	}
+	ctx, work, err := s.beginForeground(ctx, parent)
+	if err != nil {
+		return nil, nil, err
+	}
+	scoped, complete, err := s.beginPreparedDispatch(ctx, parent, child)
+	if err != nil {
+		work.finish()
+		return nil, nil, err
+	}
+	err = store.EnsureSubagentConversation(scoped, child, parent, task.WorkDir, "", nil)
+	err = errors.Join(err, complete(err))
+	if err != nil {
+		persistsvc.ReportWriteFailure(ctx, err)
+		work.finish()
+		return nil, nil, err
+	}
+	return conversation.WithChildVisibilityOwner(ctx, parent), work, nil
 }
