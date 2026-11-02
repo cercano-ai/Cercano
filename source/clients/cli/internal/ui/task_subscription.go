@@ -24,6 +24,7 @@ func (m *Model) ensureTaskSubscription() tea.Cmd {
 		m.taskSubscriptionCancel()
 		m.taskSubscriptionCancel = nil
 	}
+	m.taskAttachmentDeclined = false
 	m.taskSubscriptionClient = m.agent
 	m.taskSubscriptionParent = m.convID
 	m.taskSubscriptionGeneration++

@@ -142,6 +142,7 @@ type Model struct {
 	// abort a running prompt. Nil when nothing is streaming. The driver returns
 	// it from Submit; the host stores it here.
 	cancelStream               context.CancelFunc
+	taskAttachmentDeclined     bool // Retried only by an explicit resume, not ordinary updates.
 	taskSubscriptionParent     string
 	taskSubscriptionClient     *agentclient.Client
 	taskSubscriptionGeneration uint64
@@ -4243,6 +4244,12 @@ func (m Model) beginProgressiveResume(conversationID string) (Model, tea.Cmd) {
 		m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "resume failed: agent unavailable"})
 		m.refreshViewport()
 		return m, nil
+	}
+	// A declined attachment is not an active subscription. Keep ordinary updates
+	// idle after declining, but let explicit resume retry normal attachment (and
+	// obtain a fresh takeover target/confirmation if the conflict still exists).
+	if m.taskAttachmentDeclined {
+		m.taskSubscriptionClient = nil
 	}
 	m.resumeGen++
 	m.sessionTitle = ""

@@ -83,11 +83,18 @@ func (m *Model) applyConversationAttachment(msg conversationAttachmentMsg) tea.C
 	if msg.update.Err != nil {
 		if target := agentclient.TakeoverTarget(msg.update.Err); target != "" {
 			client, parent, generation := m.agent, m.convID, m.taskSubscriptionGeneration
+			decline := func(m Model) (Model, tea.Cmd) {
+				m.pendingConfirm = nil
+				if m.agent == client && m.convID == parent && m.taskSubscriptionGeneration == generation {
+					m.taskAttachmentDeclined = true
+				}
+				return m, nil
+			}
 			m.enqueueConfirmation(&confirmRequest{
 				title:   "This conversation is open in another client. Take over here?",
 				details: []string{"The previous client will lose control. Running work will continue on its current host."},
 				hints:   "y: take over · n/esc/enter: cancel",
-				extras:  map[string]func(Model) (Model, tea.Cmd){"enter": func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil }},
+				extras:  map[string]func(Model) (Model, tea.Cmd){"enter": decline},
 				onYes: func(m Model) (Model, tea.Cmd) {
 					m.pendingConfirm = nil
 					if m.agent != client || m.convID != parent || m.taskSubscriptionGeneration != generation {
@@ -99,7 +106,7 @@ func (m *Model) applyConversationAttachment(msg conversationAttachmentMsg) tea.C
 					}
 					return m, attachMainConversationWithTakeoverCmd(ctx, client, parent, generation, target)
 				},
-				onNo: func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil },
+				onNo: decline,
 			})
 			return nil
 		}
