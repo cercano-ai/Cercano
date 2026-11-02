@@ -53,6 +53,7 @@ type coexistenceLifecycle struct {
 	incoming       map[broker.IncomingHandover]*IncomingAcceptance
 	ready          map[broker.Owner]bool
 	closures       map[broker.Owner]*relinquishReservation
+	forced         map[broker.Owner]bool
 }
 
 // NewCoexistenceServer constructs a lifecycle-only server. Do not serve ordinary

@@ -110,6 +110,7 @@ func ControlDevHost(ctx context.Context, s DevHostSelection, action, destination
 }
 
 type devHostState struct {
+	pendingCutover   *forcedResumeOffer
 	selection        DevHostSelection
 	defaultSelection DevHostSelection
 	version          string
@@ -117,11 +118,16 @@ type devHostState struct {
 	busy             bool
 }
 type devHostResult struct {
-	response  *proto.LifecycleControlResponse
-	selection *DevHostSelection
-	client    *agentclient.Client
-	err       error
-	action    string
+	cutover    *forcedResumeOffer
+	fenced     bool
+	origin     *agentclient.Client
+	originID   string
+	generation uint64
+	response   *proto.LifecycleControlResponse
+	selection  *DevHostSelection
+	client     *agentclient.Client
+	err        error
+	action     string
 }
 
 func (m Model) WithDevHost(s DevHostSelection, version string) Model {
@@ -185,7 +191,25 @@ func (m Model) runDevHost(line string) (tea.Model, tea.Cmd) {
 	}
 }
 func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
+	if m.devHost == nil {
+		if r.client != nil {
+			r.client.Close()
+		}
+		return m, nil
+	}
+	if r.fenced && (m.agent != r.origin || m.convID != r.originID || m.taskSubscriptionGeneration != r.generation) {
+		if r.client != nil {
+			r.client.Close()
+		}
+		return m, nil
+	}
 	m.devHost.busy = false
+	if r.cutover != nil {
+		m.devHost.pendingCutover = r.cutover
+	}
+	if offer, ok := r.err.(*forcedResumeOffer); ok {
+		return m.offerForcedResume(offer)
+	}
 	if r.client != nil {
 		if r.selection != nil {
 			m.devHost.selection = *r.selection

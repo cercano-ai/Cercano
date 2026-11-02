@@ -55,8 +55,10 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 		return destination, err
 	}
 	if owner != nil {
-		// Resume attaches to execution where it already lives. The default host
-		// is only an acquisition destination for new or released conversations.
+		// A different live owner requires explicit destructive resumption.
+		if source.Identity.Host != destination.Identity.Host {
+			return destination, &forcedResumeOffer{source: source, destination: destination, owner: owner}
+		}
 		source.Conversation, source.Epoch = conversation, owner.Epoch
 		return source, nil
 	}
@@ -125,13 +127,21 @@ func (m Model) beginDevHostReopen(conversation string) (Model, tea.Cmd) {
 		m.errMsg = "Reopen unavailable while disconnected or another reopen is running"
 		return m, nil
 	}
+	if pending := m.devHost.pendingCutover; pending != nil && pending.owner.Conversation == conversation {
+		next, cmd := m.offerForcedResume(pending)
+		return next.(Model), cmd
+	}
 	m.devHost.busy = true
-	selection := m.devHost.selection
+	selection := m.devHost.defaultSelection
+	if selection.Identity == nil {
+		selection = m.devHost.selection
+	}
+	origin, originID, generation := m.agent, m.convID, m.taskSubscriptionGeneration
 	return m, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		s, err := reopenDevHost(ctx, selection, conversation)
-		r := devHostResult{action: "reopen", err: err}
+		r := devHostResult{action: "reopen", err: err, fenced: true, origin: origin, originID: originID, generation: generation}
 		if err == nil {
 			r.selection = &s
 			r.client, r.err = s.Dial(ctx)

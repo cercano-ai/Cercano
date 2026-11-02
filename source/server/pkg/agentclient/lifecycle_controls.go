@@ -39,8 +39,23 @@ func (c *LifecycleControls) Close() error { return c.conn.Close() }
 // response is retried explicitly with LifecycleClaim and the same receipt, not
 // by acquiring a fresh owner or canceling the reservation.
 func (c *LifecycleControls) Transfer(ctx context.Context, destination *LifecycleControls, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+	return c.transfer(ctx, destination, r, false)
+}
+
+// ForceTransfer cancels source execution before handing ownership to destination.
+// An older host's Unimplemented response is returned without terminal-only fallback.
+func (c *LifecycleControls) ForceTransfer(ctx context.Context, destination *LifecycleControls, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+	return c.transfer(ctx, destination, r, true)
+}
+func (c *LifecycleControls) transfer(ctx context.Context, destination *LifecycleControls, r *pb.LifecycleControlRequest, force bool) (*pb.LifecycleControlResponse, error) {
 	source := proto.Clone(r).(*pb.LifecycleControlRequest)
-	acceptance, err := c.LifecycleRelinquish(ctx, source)
+	var acceptance *pb.LifecycleControlResponse
+	var err error
+	if force {
+		acceptance, err = c.LifecycleForceRelinquish(ctx, source)
+	} else {
+		acceptance, err = c.LifecycleRelinquish(ctx, source)
+	}
 	if err != nil {
 		for _, detail := range status.Convert(err).Details() {
 			if response, ok := detail.(*pb.LifecycleControlResponse); ok {
@@ -61,6 +76,12 @@ func (c *LifecycleControls) Transfer(ctx context.Context, destination *Lifecycle
 	claimed, err := destination.LifecycleClaim(ctx, prepared)
 	if err != nil {
 		return acceptance, err
+	}
+	if force && claimed != nil {
+		// Keep retry authority even when claim succeeded but the subsequent
+		// pinned client dial fails after the old host has retired.
+		claimed = proto.Clone(claimed).(*pb.LifecycleControlResponse)
+		claimed.Receipt = acceptance.Receipt
 	}
 	return claimed, nil
 }

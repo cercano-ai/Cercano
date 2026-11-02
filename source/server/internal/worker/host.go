@@ -688,7 +688,9 @@ func (w *workerRunner) RunTurn(
 		callbacks.Wait()
 		if authority != nil {
 			callbackErrMu.Lock()
-			turnErr = errors.Join(turnErr, callbackErr)
+			if callbackErr != nil {
+				turnErr = errors.Join(turnErr, callbackErr)
+			}
 			callbackErrMu.Unlock()
 		}
 	}()

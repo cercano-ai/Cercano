@@ -4,7 +4,7 @@ import "testing"
 
 func TestLifecycleControlsAdditiveMethods(t *testing.T) {
 	service := File_agent_proto.Services().ByName("Agent")
-	for _, name := range []string{"LifecycleAcquire", "LifecycleRelease", "LifecyclePrepare", "LifecycleValidateReceipt", "LifecycleRelinquish", "LifecycleClaim", "LifecycleList", "LifecycleRetire"} {
+	for _, name := range []string{"LifecycleAcquire", "LifecycleRelease", "LifecyclePrepare", "LifecycleValidateReceipt", "LifecycleRelinquish", "LifecycleForceRelinquish", "LifecycleClaim", "LifecycleList", "LifecycleRetire"} {
 		found := false
 		for i := 0; i < service.Methods().Len(); i++ {
 			m := service.Methods().Get(i)

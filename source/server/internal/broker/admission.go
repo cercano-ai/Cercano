@@ -32,6 +32,7 @@ func validWork(k WorkKind) bool { return k >= ForegroundWork && k <= Persistence
 
 type admissionSession struct {
 	owner          Owner
+	cutover        chan struct{}
 	closed         bool
 	draining       bool
 	closure        *Closure
@@ -88,7 +89,7 @@ func (a *Admission) registerLocked(o Owner) error {
 	if a.sessions[o.Conversation] != nil {
 		return ErrAdmissionBusy
 	}
-	a.sessions[o.Conversation] = &admissionSession{owner: o, terminals: make(map[string]int), revoked: make(map[string]bool), attachments: make(map[*Attachment]bool), work: make(map[*WorkTicket]bool)}
+	a.sessions[o.Conversation] = &admissionSession{owner: o, cutover: make(chan struct{}), terminals: make(map[string]int), revoked: make(map[string]bool), attachments: make(map[*Attachment]bool), work: make(map[*WorkTicket]bool)}
 	a.seen[o] = true
 	return nil
 }
@@ -120,6 +121,9 @@ type Attachment struct {
 
 // Revoked closes only on explicit takeover, never on ordinary disconnect.
 func (t *Attachment) Revoked() <-chan struct{} { return t.revoked }
+
+// Cutover signals destructive server cutover, not non-destructive terminal takeover.
+func (t *Attachment) Cutover() <-chan struct{} { return t.s.cutover }
 
 type TerminalConflictError struct{ Current string }
 

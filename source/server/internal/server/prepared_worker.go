@@ -193,6 +193,13 @@ func (a *preparedWorkerAuthority) Close(err error) {
 		a.closed = true
 		completions := append([]func(error) error(nil), a.completions...)
 		a.mu.Unlock()
+		// Close runs after worker teardown and all host callbacks have joined.
+		// A clean, exact cancellation is execution completion, not an uncertain
+		// database write. Joined callback errors and observed write failures still
+		// retain the persistence fence.
+		if err == context.Canceled || err == context.DeadlineExceeded {
+			err = nil
+		}
 		runErr := errors.Join(err, persistsvc.WriteFailure(a.ctx))
 		var closeErr error
 		for i := len(completions) - 1; i >= 0; i-- {

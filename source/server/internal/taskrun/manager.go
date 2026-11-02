@@ -35,14 +35,17 @@ type execution struct {
 	owner      broker.Owner
 }
 type Manager struct {
-	admission *broker.Admission
-	ownership OwnershipResolver
-	mu        sync.Mutex
-	store     conversation.TaskStore
-	execute   Executor
-	ctx       context.Context
-	cancel    context.CancelFunc
-	active    map[string]*execution
+	admission      *broker.Admission
+	ownership      OwnershipResolver
+	mu             sync.Mutex
+	store          conversation.TaskStore
+	execute        Executor
+	ctx            context.Context
+	cancel         context.CancelFunc
+	active         map[string]*execution
+	cutoverParents map[string]bool
+	cutoverEpoch   map[string]string
+	childParents   map[string]string
 	// waitWake holds one edge-triggered wake channel per registered Wait on a
 	// still-running task, keyed by the waiter's parent conversation. Only a
 	// completion signaled AFTER registration can wake a waiter, so
@@ -161,7 +164,7 @@ func (m *Manager) Launch(ctx context.Context, spec dispatch.Spec) (conversation.
 	// concurrent Close cannot race WaitGroup.Add or leave an accepted task behind.
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.closed.Load() {
+	if m.closed.Load() || m.cutoverLocked(t.ParentID, identity) {
 		if ticket != nil {
 			_ = ticket.Complete()
 		}
@@ -181,6 +184,10 @@ func (m *Manager) Launch(ctx context.Context, spec dispatch.Spec) (conversation.
 	stopHost := context.AfterFunc(m.ctx, cancel)
 	e := &execution{ticket: ticket, owner: identity, parent: t.ParentID, cancel: cancel, done: make(chan struct{})}
 	m.active[t.ID] = e
+	if m.childParents == nil {
+		m.childParents = make(map[string]string)
+	}
+	m.childParents[t.ChildID] = t.ParentID
 	spec.Tools = append([]string(nil), spec.Tools...)
 	spec.SubConversationID = t.ChildID
 	spec.Emit = nil // main-turn callbacks must never escape into independent work
@@ -241,7 +248,7 @@ func (m *Manager) run(ctx context.Context, t conversation.TaskRecord, spec dispa
 	// Commit before invoking host scheduling, but keep the same ticket and
 	// execution entry until the bridge has succeeded. No manager lock may be
 	// held while the callback acquires host lifecycle locks.
-	if e.persistErr == nil && m.notifyOwned != nil {
+	if e.persistErr == nil && m.notifyOwned != nil && !m.cutoverLocked(t.ParentID, e.owner) {
 		_ = e.ticket.Advance(broker.CallbackWork)
 		m.mu.Unlock()
 		err := m.notifyOwned(context.WithoutCancel(ctx), e.owner, t.ParentID)

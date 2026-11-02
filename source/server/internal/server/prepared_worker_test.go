@@ -331,7 +331,9 @@ func TestPreparedTaskrunEngineFailureAndIsolation(t *testing.T) {
 				t.Fatalf("terminal task=%+v err=%v", rec, err)
 			}
 			child := s.coexistence.owners[launched.ChildID]
-			if mode == "provider-panic" || mode == "cancel" {
+			// Panic still has an unproven execution outcome. Cancellation now
+			// finishes bounded terminal writeback before closing the child scope.
+			if mode == "provider-panic" {
 				if child == nil {
 					t.Fatal("panic released child before TaskManager recovery")
 				}
@@ -341,7 +343,13 @@ func TestPreparedTaskrunEngineFailureAndIsolation(t *testing.T) {
 				}
 			} else if child != nil {
 				defer child.Close()
-				t.Fatal("durably recorded returned backend error retained child")
+				t.Fatal("durably recorded returned execution outcome retained child")
+			}
+			if mode == "cancel" {
+				state, readErr := conversation.ReadOwnership(ctx, s.coexistence.store, launched.ChildID)
+				if readErr != nil || state.State != "released" || rec.Status != "interrupted" {
+					t.Fatalf("cancelled execution not durably finalized: %+v %+v %v", state, rec, readErr)
+				}
 			}
 			// A failed dispatch must not poison either a same-parent sibling or a
 			// distinct parent's retained work, even when the failed child stays held.

@@ -14,7 +14,7 @@ import (
 // Build source/server/cmd/cercano with go test -c and explicitly provide that
 // disposable test binary. The helper runs ordinary production A with synthetic
 // backends, then lifecycle-only B; this does not assert B's UI/history hydration.
-// The live case must select A without moving ownership to B.
+// The live case must ask for forced resumption and move to B only on yes.
 func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 	binary := os.Getenv("CERCANO_RESUME_PROBE_BINARY")
 	if binary == "" {
@@ -27,7 +27,7 @@ func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", root)
 			manifest := filepath.Join(root, "selection.json")
 			cmd := exec.Command(binary, "-test.run=^TestProductionResumeBridge$", "-test.timeout=45s")
-			cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + root, "XDG_CONFIG_HOME=" + root, "TMPDIR=" + root, "CERCANO_RESUME_PROBE_MANIFEST=" + manifest, "CERCANO_RESUME_PROBE_MODE=" + mode}
+			cmd.Env = []string{"CERCANO_DISABLE_CREDENTIALS=1", "PATH=/usr/bin:/bin", "HOME=" + root, "XDG_CONFIG_HOME=" + root, "TMPDIR=" + root, "CERCANO_RESUME_PROBE_MANIFEST=" + manifest, "CERCANO_RESUME_PROBE_MODE=" + mode}
 			input, err := cmd.StdinPipe()
 			if err != nil {
 				t.Fatal(err)
@@ -66,10 +66,11 @@ func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 					t.Fatalf("released production reopen: %+v %v", selected, err)
 				}
 			} else if mode == "live" {
-				if err != nil || selected.Identity.Host == destination.Identity.Host || selected.Epoch == "" {
-					t.Fatalf("resume must select live owner A, not transfer to B: %+v %v", selected, err)
+				offer, ok := err.(*forcedResumeOffer)
+				if !ok || selected.Identity.Host != destination.Identity.Host {
+					t.Fatalf("expected explicit forced resumption offer, got %+v %v", selected, err)
 				}
-				verifyProductionTakeoverConfirmation(t, ctx, selected, destination)
+				verifyProductionForcedResume(t, offer)
 
 			} else {
 				if err == nil || !strings.Contains(err.Error(), "authoritative acquisition refused") {

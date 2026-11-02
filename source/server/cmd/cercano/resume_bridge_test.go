@@ -30,6 +30,9 @@ func TestProductionResumeBridge(t *testing.T) {
 	}
 	mode := os.Getenv("CERCANO_RESUME_PROBE_MODE")
 	startOrdinaryGenerationObserved(t, func(s *server.Server, o developmentHostOptions, endpoint string, stop func()) {
+		// Startup above injects an in-memory credential store. Disable credentials
+		// before exposing the bridge to the isolated external CLI test.
+		t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		token := filepath.Join(filepath.Dir(o.State), "token")
@@ -131,6 +134,9 @@ func TestProductionResumeBridge(t *testing.T) {
 			t.Fatal(err)
 		}
 		data, _ := json.Marshal(selection(listener.Addr().String(), nextToken, identity))
+		if err = os.WriteFile(filepath.Join(hosts, "next.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
 		if err = os.WriteFile(manifest, data, 0600); err != nil {
 			t.Fatal(err)
 		}

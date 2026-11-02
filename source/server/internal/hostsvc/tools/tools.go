@@ -707,7 +707,12 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 	if sink != nil && x.dispatchScope != nil {
 		write := sink
 		sink = func(ctx context.Context, ev conversation.DispatchEvent) error {
-			err := write(ctx, ev)
+			// The retained dispatch scope outlives execution cancellation. Commit
+			// terminal evidence under that same capability before releasing it;
+			// cancelling inference must not cancel its own final writeback.
+			writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			err := write(writeCtx, ev)
 			if err != nil {
 				persistsvc.ReportWriteFailure(ctx, err)
 			}

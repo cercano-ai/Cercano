@@ -11,6 +11,9 @@ service Agent {
   rpc LifecyclePrepare (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleValidateReceipt (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  // Explicit confirmed cutover: revoke clients, cancel work, then transfer.
+  // Older hosts reject this method; clients must never fall back to attachment takeover.
+  rpc LifecycleForceRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleClaim (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleList (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleRetire (LifecycleControlRequest) returns (LifecycleControlResponse) {}

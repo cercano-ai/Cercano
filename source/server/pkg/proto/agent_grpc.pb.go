@@ -24,6 +24,7 @@ const (
 	Agent_LifecyclePrepare_FullMethodName                      = "/agent.Agent/LifecyclePrepare"
 	Agent_LifecycleValidateReceipt_FullMethodName              = "/agent.Agent/LifecycleValidateReceipt"
 	Agent_LifecycleRelinquish_FullMethodName                   = "/agent.Agent/LifecycleRelinquish"
+	Agent_LifecycleForceRelinquish_FullMethodName              = "/agent.Agent/LifecycleForceRelinquish"
 	Agent_LifecycleClaim_FullMethodName                        = "/agent.Agent/LifecycleClaim"
 	Agent_LifecycleList_FullMethodName                         = "/agent.Agent/LifecycleList"
 	Agent_LifecycleRetire_FullMethodName                       = "/agent.Agent/LifecycleRetire"
@@ -123,6 +124,9 @@ type AgentClient interface {
 	LifecyclePrepare(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleValidateReceipt(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	// Explicit confirmed cutover: revoke clients, cancel work, then transfer.
+	// Older hosts reject this method; clients must never fall back to attachment takeover.
+	LifecycleForceRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleClaim(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleList(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleRetire(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
@@ -423,6 +427,16 @@ func (c *agentClient) LifecycleRelinquish(ctx context.Context, in *LifecycleCont
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LifecycleControlResponse)
 	err := c.cc.Invoke(ctx, Agent_LifecycleRelinquish_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleForceRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleForceRelinquish_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1417,6 +1431,9 @@ type AgentServer interface {
 	LifecyclePrepare(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleValidateReceipt(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	// Explicit confirmed cutover: revoke clients, cancel work, then transfer.
+	// Older hosts reject this method; clients must never fall back to attachment takeover.
+	LifecycleForceRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleList(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleRetire(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
@@ -1687,6 +1704,9 @@ func (UnimplementedAgentServer) LifecycleValidateReceipt(context.Context, *Lifec
 }
 func (UnimplementedAgentServer) LifecycleRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LifecycleRelinquish not implemented")
+}
+func (UnimplementedAgentServer) LifecycleForceRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleForceRelinquish not implemented")
 }
 func (UnimplementedAgentServer) LifecycleClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LifecycleClaim not implemented")
@@ -2053,6 +2073,24 @@ func _Agent_LifecycleRelinquish_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServer).LifecycleRelinquish(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleForceRelinquish_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleForceRelinquish(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleForceRelinquish_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleForceRelinquish(ctx, req.(*LifecycleControlRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3540,6 +3578,10 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LifecycleRelinquish",
 			Handler:    _Agent_LifecycleRelinquish_Handler,
+		},
+		{
+			MethodName: "LifecycleForceRelinquish",
+			Handler:    _Agent_LifecycleForceRelinquish_Handler,
 		},
 		{
 			MethodName: "LifecycleClaim",

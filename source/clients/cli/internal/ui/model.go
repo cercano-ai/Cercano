@@ -4230,7 +4230,7 @@ func (m *Model) restoreSubAgentTabs(ctx context.Context, conversationID string) 
 }
 
 func (m Model) beginProgressiveResume(conversationID string) (Model, tea.Cmd) {
-	if m.devHost != nil && (m.devHost.detached || conversationID != m.devHost.selection.Conversation) {
+	if m.devHost != nil && (m.devHost.detached || conversationID != m.devHost.selection.Conversation || (m.devHost.defaultSelection.Identity != nil && m.devHost.selection.Identity.Host != m.devHost.defaultSelection.Identity.Host)) {
 		return m.beginDevHostReopen(conversationID)
 	}
 	if m.agent == nil {

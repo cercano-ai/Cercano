@@ -16,6 +16,7 @@ import (
 
 type foregroundKey struct{}
 type foregroundWork struct {
+	cancel     context.CancelFunc
 	owner      broker.Owner
 	attachment *broker.Attachment
 	ticket     *broker.WorkTicket
@@ -33,7 +34,15 @@ func (s *Server) beginForeground(ctx context.Context, conversation string) (cont
 		return nil, nil, err
 	}
 	owner, _, _ := ParseTerminalBinding(ctx, conversation)
-	w := &foregroundWork{owner: owner, attachment: attachment, ticket: ticket}
+	ctx, cancel := context.WithCancel(ctx)
+	w := &foregroundWork{owner: owner, attachment: attachment, ticket: ticket, cancel: cancel}
+	go func(done <-chan struct{}) {
+		select {
+		case <-attachment.Cutover():
+			cancel()
+		case <-done:
+		}
+	}(ctx.Done())
 	ctx = context.WithValue(ctx, foregroundKey{}, w)
 	ctx = persistsvc.WithWriteFailure(ctx, func(error) {
 		w.failed.Store(true)
@@ -51,6 +60,9 @@ func (w *foregroundWork) check() error {
 func (w *foregroundWork) finish() {
 	if w == nil {
 		return
+	}
+	if w.cancel != nil {
+		w.cancel()
 	}
 	defer w.attachment.Detach()
 	_ = w.ticket.Complete()

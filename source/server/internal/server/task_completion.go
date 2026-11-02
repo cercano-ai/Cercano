@@ -43,6 +43,9 @@ type completionTurnStream struct {
 
 func (s *completionTurnStream) Context() context.Context { return s.ctx }
 func (s *completionTurnStream) Send(response *proto.StreamProcessResponse) error {
+	if w, _ := s.ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil && s.ctx.Err() != nil && s.server.forcedCutover(w.owner) {
+		return s.ctx.Err()
+	}
 	if w, _ := s.ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
 		if w.failed.Load() {
 			return broker.ErrAdmissionBusy
@@ -85,6 +88,9 @@ type completionNotice struct {
 // claims prevent duplicate automatic reactions; pending evidence is cleared
 // only after a successful, still-current completion turn.
 func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string) {
+	if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil && s.forcedCutover(w.owner) {
+		return
+	}
 	if s.workFenced.Load() {
 		return
 	}
@@ -94,7 +100,9 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	}
 	if parent == "" || parentCtx.Err() != nil || s.persistSvc == nil || s.persistSvc.Store() == nil {
 		if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
-			w.fail(broker.ErrAdmissionClosed)
+			if !s.forcedCutover(w.owner) {
+				w.fail(broker.ErrAdmissionClosed)
+			}
 		}
 		return
 	}
@@ -105,7 +113,9 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	pending, err := store.PendingTasks(parentCtx, parent)
 	if err != nil {
 		if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
-			w.fail(err)
+			if !s.forcedCutover(w.owner) {
+				w.fail(err)
+			}
 		}
 		log.Printf("task completion lookup %s: %v", parent, err)
 		return
@@ -125,7 +135,9 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	if err != nil || info.Kind == "subagent" {
 		if err != nil {
 			if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
-				w.fail(err)
+				if !s.forcedCutover(w.owner) {
+					w.fail(err)
+				}
 			}
 		}
 		return
@@ -134,7 +146,9 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 		scoped, finish, admissionErr := s.backgroundWorkAdmission(parentCtx)
 		if admissionErr != nil {
 			if w, _ := parentCtx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
-				w.fail(admissionErr)
+				if !s.forcedCutover(w.owner) {
+					w.fail(admissionErr)
+				}
 			}
 			log.Printf("task completion admission %s: %v", parent, admissionErr)
 			return
@@ -170,14 +184,18 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	}
 	if err != nil {
 		if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
-			w.fail(err)
+			if !(ctx.Err() != nil && s.forcedCutover(w.owner)) {
+				w.fail(err)
+			}
 		}
 		log.Printf("task completion turn %s: %v", parent, err)
 		return
 	}
 	if !stream.succeeded || ctx.Err() != nil || !s.turnIsCurrent(parent, gen) {
 		if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
-			w.fail(broker.ErrAdmissionBusy)
+			if !(ctx.Err() != nil && s.forcedCutover(w.owner)) {
+				w.fail(broker.ErrAdmissionBusy)
+			}
 		}
 		return
 	}
@@ -319,6 +337,11 @@ func (s *Server) notifyOwnedTaskChange(ctx context.Context, owner broker.Owner, 
 	if owner.Conversation != parent {
 		return broker.ErrAdmissionStale
 	}
+	// The durable notification remains pending for the destination reload.
+	// Cutover must not start another model turn on the cancelled source.
+	if s.forcedCutover(owner) {
+		return nil
+	}
 	cap, err := s.resolvePreparedTaskOwner(ctx, parent)
 	if err != nil || ownerOf(cap) != owner {
 		return broker.ErrAdmissionStale
@@ -330,6 +353,9 @@ func (s *Server) notifyOwnedTaskChange(ctx context.Context, owner broker.Owner, 
 	}
 	ticket, err := s.coexistence.admission.AdmitWork(owner, broker.CallbackWork)
 	if err != nil {
+		if s.forcedCutover(owner) {
+			return nil
+		}
 		return err
 	}
 	w := &ownedCompletionWake{owner: owner, ticket: ticket}
@@ -362,6 +388,23 @@ func (s *Server) drainOwnedTaskWakes(owner broker.Owner) {
 		s.taskRunMu.Unlock()
 		ctx, cancel := context.WithCancel(w.ctx)
 		stop := context.AfterFunc(shutdown, cancel)
+		signal, signalErr := s.coexistence.admission.CutoverSignal(owner)
+		if signalErr != nil {
+			w.fail(signalErr)
+		} else {
+			select {
+			case <-signal:
+				cancel()
+			default:
+			}
+			go func(done <-chan struct{}) {
+				select {
+				case <-signal:
+					cancel()
+				case <-done:
+				}
+			}(ctx.Done())
+		}
 		// The retained ticket prevents transfer until the broker lease, persistence,
 		// notification acknowledgement and all synchronous callbacks have returned.
 		if _, err := s.resolvePreparedTaskOwner(ctx, owner.Conversation); err == nil {
