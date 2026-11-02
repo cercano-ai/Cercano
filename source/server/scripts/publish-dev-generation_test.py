@@ -236,23 +236,130 @@ output.chmod(0o755)
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / "test-gen").exists())
 
-    @unittest.skipUnless(sys.platform == "darwin", "Darwin signing")
-    def test_signing_adhoc_and_failure(self):
+    def test_signing_not_applicable_never_discovers(self):
+        import importlib.util
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(publisher)
+        with patch.object(publisher.subprocess, "check_output", side_effect=AssertionError("unexpected discovery")):
+            with patch.object(publisher.sys, "platform", "linux"):
+                self.assertEqual(publisher.signing_identity(self.repo, True, {}),
+                                 {"policy": "not-applicable"})
+            with patch.object(publisher.sys, "platform", "darwin"):
+                self.assertEqual(publisher.signing_identity(self.repo, False, {}),
+                                 {"policy": "not-applicable"})
+
+    def signing_tools(self):
+        helper = self.repo / "source/server/scripts/codesign-if-available.sh"
+        helper.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(PUBLISHER.with_name(helper.name), helper)
         tools = self.base / "tools"
         tools.mkdir()
-        signer = tools / "codesign"
-        signer.write_text(f"#!{sys.executable}\n" +
-                          "import os,sys\n" +
-                          "assert '--sign' not in sys.argv or sys.argv[sys.argv.index('--sign')+1] == '-'\n" +
-                          "sys.exit(int(os.environ.get('SIGN_FAIL', '0')))\n")
-        signer.chmod(0o755)
+        self.env["SIGN_LOG"] = str(self.home / "sign-log")
+        self.env["CERT"] = "A" * 40
+        self.env["IDENTITY_NAME"] = "Developer ID Application: Fixture"
+        for name, code in {
+            "security": '''import os
+print('  1) %s "%s"' % (os.environ["CERT"], os.environ["IDENTITY_NAME"]) if os.environ["CERT"] else "0 valid identities found")''',
+            "codesign": 'import os,sys,json\nwith open(os.environ["SIGN_LOG"], "a") as f: f.write(json.dumps(sys.argv[1:])+"\\n")\nsys.exit(7 if os.environ.get("FAIL_PHASE") in sys.argv[1:] else 0)',
+        }.items():
+            tool = tools / name
+            tool.write_text(f"#!{sys.executable}\n" + code + "\n")
+            tool.chmod(0o755)
         self.env["PATH"] = str(tools) + os.pathsep + self.env["PATH"]
-        self.env["SIGN_FAIL"] = "1"
-        self.assertNotEqual(self.publish(extra=["--sign"]).returncode, 0)
-        self.assertFalse((self.root / "test-gen").exists())
-        self.env["SIGN_FAIL"] = "0"
+
+    def signing_calls(self):
+        log = Path(self.env["SIGN_LOG"])
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_existing_build_helper_policy(self):
+        self.signing_tools()
+        helper = self.repo / "source/server/scripts/codesign-if-available.sh"
+        output = self.base / "fixture binary"
+        output.write_bytes(b"fixture never execute")
+        def sign():
+            return subprocess.run(["/bin/bash", str(helper), str(output), "cercano"],
+                                  env=self.env, capture_output=True, text=True)
+        self.assertEqual(sign().returncode, 0)
+        self.assertEqual(self.signing_calls()[-1][2], self.env["IDENTITY_NAME"])
+        self.env["CERCANO_CODESIGN_ID"] = "Explicit Override"
+        self.assertEqual(sign().returncode, 0)
+        self.assertEqual(self.signing_calls()[-1][2], "Explicit Override")
+        before = self.signing_calls()
+        self.env["CERCANO_CODESIGN_ID"] = "none"
+        self.assertEqual(sign().returncode, 0)
+        del self.env["CERCANO_CODESIGN_ID"]
+        self.env["CERT"] = ""
+        self.assertEqual(sign().returncode, 0)
+        self.assertEqual(self.signing_calls(), before)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin signing")
+    def test_signing_stable_identity_and_verification(self):
+        self.signing_tools()
+        self.env["CERCANO_CODESIGN_ID"] = self.env["IDENTITY_NAME"]
         result = self.publish(extra=["--sign"])
         self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.signing_calls()
+        self.assertEqual(len(calls), 4)
+        for i, name in enumerate(("cercano", "cercano-cli")):
+            self.assertEqual(calls[i*2][:-1], ["--force", "--sign", "A"*40, "--identifier", name])
+            self.assertEqual(calls[i*2+1], ["--verify", "--strict", calls[i*2][-1]])
+        manifest = (self.root / "test-gen/manifest.json").read_text()
+        self.assertNotIn(self.env["IDENTITY_NAME"], manifest)
+        self.assertNotIn("A"*40, manifest)
+        # Matching reuse does no signing; certificate renewal with the SAME
+        # display name must not silently reuse the prior signed generation.
+        self.assertEqual(self.publish(extra=["--sign", "--reuse"]).returncode, 0)
+        self.assertEqual(calls, self.signing_calls())
+        self.env["CERT"] = "B" * 40
+        self.assertNotEqual(self.publish(extra=["--sign", "--reuse"]).returncode, 0)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin signing")
+    def test_signing_discovery_and_failures(self):
+        self.signing_tools()
+        for phase in ("--sign", "--verify"):
+            self.env["FAIL_PHASE"] = phase
+            result = self.publish(extra=["--sign"])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((self.root / "test-gen").exists())
+        del self.env["FAIL_PHASE"]
+        result = self.publish(extra=["--sign"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.signing_calls()[0][2], "A"*40)
+        helper = self.repo / "source/server/scripts/codesign-if-available.sh"
+        helper.write_text(helper.read_text() + "\n# changed signing policy\n")
+        self.assertNotEqual(self.publish(extra=["--sign", "--reuse"]).returncode, 0)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin signing")
+    def test_signing_none_and_no_identity_are_noops(self):
+        self.signing_tools()
+        self.env["CERCANO_CODESIGN_ID"] = "none"
+        # none must bypass discovery entirely.
+        (self.base / "tools/security").write_text("#!/bin/sh\nexit 99\n")
+        result = self.publish(extra=["--sign"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.signing_calls(), [])
+        self.root = self.base / "no identity generations"
+        self.env["FAKE_ROOT"] = str(self.root)
+        del self.env["CERCANO_CODESIGN_ID"]
+        (self.base / "tools/security").write_text("#!/bin/sh\necho '0 valid identities found'\n")
+        result = self.publish(extra=["--sign"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.signing_calls(), [])
+        manifest = json.loads((self.root / "test-gen/manifest.json").read_text())
+        self.assertFalse(manifest["build_inputs"]["signing"]["enabled"])
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin signing")
+    def test_signing_hash_override_bypasses_discovery(self):
+        self.signing_tools()
+        self.env["CERCANO_CODESIGN_ID"] = "B" * 40
+        (self.base / "tools/security").write_text("#!/bin/sh\nexit 99\n")
+        result = self.publish(extra=["--sign"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.signing_calls()[0][2], "B"*40)
+        self.env["CERCANO_CODESIGN_ID"] = "none"
+        self.assertNotEqual(self.publish(extra=["--sign", "--reuse"]).returncode, 0)
 
     def test_concurrent_reuse_publishes_one_complete_pair(self):
         fingerprint = self.fingerprint().stdout.strip()
@@ -270,6 +377,8 @@ output.chmod(0o755)
 
     @unittest.skipUnless(sys.platform == "darwin", "Darwin signing")
     def test_requested_signing_unavailable(self):
+        self.signing_tools()
+        self.env["CERCANO_CODESIGN_ID"] = "B" * 40
         tools = self.base / "only git"
         tools.mkdir()
         (tools / "git").symlink_to(shutil.which("git"))

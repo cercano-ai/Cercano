@@ -10,8 +10,13 @@ source/clients/cli . into ONE temporary sibling directory under --root, validate
 both outputs without executing them, writes manifest.json, then atomically
 renames with no replacement (macOS/Linux only; other platforms fail closed).
 --go accepts an absolute build-tool path (also useful for fixture tests).
---sign requires verified ad-hoc codesign on Darwin (no Keychain access); it is
-non-applicable on other platforms. VERSION overrides the Git-derived version.
+--sign uses codesign-if-available.sh on Darwin: stable Developer ID signing,
+CERCANO_CODESIGN_ID override (none disables), or no-op without an identity.
+Applied signatures are strictly verified. Non-applicable on other platforms.
+VERSION overrides the Git-derived version.
+Signing fingerprints include hashed identity/discovery evidence and helper policy;
+no identity names or discovery listings are persisted in manifests. Darwin signing
+may access the Keychain; this tool does not guarantee absence of prompts.
 
 Reuse API (same environment/--repo/--go/--sign for both commands):
   fingerprint [--repo PATH] [--go ABSOLUTE] [--sign]
@@ -212,6 +217,23 @@ def check_replacements(data, path, repo, go, env):
             raise ValueError("local module replacement must stay under repo/source")
 
 
+def signing_identity(repo, requested, env):
+    if not requested or sys.platform != "darwin":
+        return {"policy": "not-applicable"}
+    helper = repo / "source/server/scripts/codesign-if-available.sh"
+    resolution = subprocess.check_output(
+        ["/bin/bash", str(helper), "--resolve-identity"], env=env, text=True)
+    identity = resolution.split("\n", 1)[0].strip()
+    if identity and not shutil.which("codesign", path=env.get("PATH")):
+        raise ValueError("requested Darwin signing unavailable")
+    # Only a digest enters manifests; do not persist identity names or discovery
+    # output. Pin the resolved certificate for both snapshot signing calls.
+    env["CERCANO_CODESIGN_ID"] = identity or "none"
+    return {"policy": "codesign-if-available-v1", "enabled": bool(identity),
+            "identity_sha256": hashlib.sha256(resolution.encode()).hexdigest(),
+            "helper_sha256": hashlib.sha256(helper.read_bytes()).hexdigest()}
+
+
 def inputs(args, snapshot=None):
     repo = Path(args.repo).resolve()
     env, flags = build_environment()
@@ -228,7 +250,8 @@ def inputs(args, snapshot=None):
                 "policy": "native-cgo GOENV=off GOWORK=off GOTOOLCHAIN=local -mod=readonly -buildvcs=false",
                 "go": go, "go_sha256": hashlib.sha256(Path(go).read_bytes()).hexdigest(),
                 "toolchain": subprocess.check_output([go, "version"], env=env, text=True).strip(),
-                "sign": bool(args.sign), "platform": sys.platform, "machine": os.uname().machine,
+                "sign": bool(args.sign), "signing": signing_identity(repo, args.sign, env),
+                "platform": sys.platform, "machine": os.uname().machine,
                 "publisher": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
     digest = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode())
     # Include ignored and untracked source too (embeds, vendored dependencies,
@@ -313,13 +336,12 @@ def publish(args):
                        "-o", str(output), package]
             subprocess.run(command, cwd=snapshot / module, env=env, check=True)
             if args.sign and sys.platform == "darwin":
-                signer = shutil.which("codesign")
-                if not signer:
-                    raise ValueError("requested Darwin signing unavailable")
-                subprocess.run([signer, "--force", "--sign", "-", "--identifier",
-                                name, str(output)], check=True, stdout=sys.stderr)
-                subprocess.run([signer, "--verify", "--strict", str(output)],
-                               check=True, stdout=sys.stderr)
+                helper = snapshot / "source/server/scripts/codesign-if-available.sh"
+                subprocess.run(["/bin/bash", str(helper), str(output), name],
+                               env=env, check=True, stdout=sys.stderr)
+                if metadata["signing"]["enabled"]:
+                    subprocess.run(["codesign", "--verify", "--strict", str(output)],
+                                   env=env, check=True, stdout=sys.stderr)
             manifest["binaries"][name] = {**validate(output), "module": module,
                                             "package": package, "command": command}
         if set(p.name for p in stage.iterdir()) != {t[0] for t in TARGETS}:
@@ -357,7 +379,7 @@ def main():
     command.add_argument("--generation", required=True, help="new immutable directory name")
     command.add_argument("--repo", default=str(Path(__file__).resolve().parents[3]))
     command.add_argument("--go", help="absolute Go build-tool path; defaults to build-time discovery")
-    command.add_argument("--sign", action="store_true", help="require ad-hoc signing on Darwin (no Keychain)")
+    command.add_argument("--sign", action="store_true", help="use optional stable Developer ID signing policy on Darwin")
     command.add_argument("--fingerprint", help="require this fingerprint before building")
     command.add_argument("--reuse", action="store_true", help="validate and reuse matching existing generation")
     command = commands.add_parser("fingerprint", help="print content/build SHA-256; no builds")
