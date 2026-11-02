@@ -119,3 +119,32 @@ func TestOwnedAdmissionsDoNotCoalesceAuthorityOrCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestOwnedInferenceFailureIsAuxiliary(t *testing.T) {
+	owner := broker.Owner{Conversation: "c", Host: "host", Epoch: "epoch"}
+	a := broker.NewAdmission("host")
+	if err := a.RegisterOwner(owner); err != nil {
+		t.Fatal(err)
+	}
+	refused := errors.New("mock memory guard startup refusal")
+	fs := &fakeStore{turns: []conversation.Turn{{Content: "cloud result"}}, updated: make(chan string, 2)}
+	g := New(fs, func(context.Context, string) (string, error) { return "", refused }, 0, 10)
+	defer g.Close(context.Background())
+	work, err := g.ScheduleOwned(context.Background(), owner, func(ctx context.Context, o broker.Owner, k broker.WorkKind) (context.Context, *broker.WorkTicket, error) {
+		ticket, err := a.AdmitWork(o, k)
+		return ctx, ticket, err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-work.Done
+	if work.Err != nil {
+		t.Fatalf("auxiliary inference poisoned completion: %v", work.Err)
+	}
+	if !errors.Is(work.Warning, refused) {
+		t.Fatalf("missing warning: %v", work.Warning)
+	}
+	if _, err := a.CloseOwner(owner, nil); err != nil {
+		t.Fatalf("accounting did not drain: %v", err)
+	}
+}

@@ -19,9 +19,7 @@ import (
 // captured globally. The caller must supply authority-safe callbacks for prepared
 // use; this constructor cannot confer authority on an arbitrary provider.
 type productionSchedulingDependencies struct {
-	recapModel  string
-	recapRunner agent.TurnRunner
-	loop        loopcompact.WiringDeps
+	loop loopcompact.WiringDeps
 }
 
 type productionSchedulingOptions struct {
@@ -57,7 +55,11 @@ func composeProductionScheduling(st conversation.Store, d productionSchedulingDe
 			defer finish()
 			ctx = scoped
 		}
-		resp, err := d.recapRunner.Process(ctx, &agent.Request{Input: prompt, ModelOverride: d.recapModel})
+		ctx, runner, model, tier, err := resolveRecapRoute(ctx, d.loop)
+		if err != nil {
+			return "", err
+		}
+		resp, err := runner.Process(ctx, &agent.Request{Input: prompt, ModelOverride: model, Tier: tier})
 		if err != nil {
 			return "", err
 		}

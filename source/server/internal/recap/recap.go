@@ -17,8 +17,7 @@ import (
 	"cercano/source/server/internal/conversation"
 )
 
-// CompleteFunc runs a single local-model completion. The wiring layer adapts
-// the local provider into this; recap never sees a cloud path.
+// CompleteFunc runs a completion on the configured recap task route.
 type CompleteFunc func(ctx context.Context, prompt string) (string, error)
 
 // Store is the subset of conversation.Store the generator needs.
@@ -27,6 +26,23 @@ type Store interface {
 	GetTurns(ctx context.Context, conversationID string) ([]conversation.Turn, error)
 	UpdateRecap(ctx context.Context, conversationID, recap string) error
 	SetGeneratedTitle(ctx context.Context, conversationID, title string) error
+}
+
+// auxiliaryInferenceFailure is emitted only after inference returned and the
+// persistence observer established that no callback write failed. Successful
+// earlier writes (e.g. recap before title inference) are already acknowledged.
+type auxiliaryInferenceFailure struct{ err error }
+
+func (e *auxiliaryInferenceFailure) Error() string { return e.err.Error() }
+func (e *auxiliaryInferenceFailure) Unwrap() error { return e.err }
+
+func inferenceFailure(ctx context.Context, err error, strict bool) error {
+	if strict {
+		if writeErr := ownedPersistenceOutcome(ctx); writeErr != nil {
+			return errors.Join(err, writeErr)
+		}
+	}
+	return &auxiliaryInferenceFailure{err}
 }
 
 const (
@@ -120,7 +136,7 @@ func (g *Generator) runRecap(parent context.Context, conversationID string, stri
 		// failure (e.g. Ollama unreachable, model refusing the prompt)
 		// can be diagnosed. Debounced retry on next turn.
 		fmt.Fprintf(os.Stderr, "[recap] complete failed for %s: %v\n", conversationID, err)
-		return err
+		return inferenceFailure(ctx, err, strict)
 	}
 	if strict {
 		if err := ownedPersistenceOutcome(ctx); err != nil {
@@ -143,7 +159,7 @@ func (g *Generator) runRecap(parent context.Context, conversationID string, stri
 	// Best-effort: failures leave the existing title untouched.
 	titleOut, err := g.complete(ctx, buildTitlePrompt(line))
 	if err != nil {
-		return err
+		return inferenceFailure(ctx, err, strict)
 	}
 	if strict {
 		if err := ownedPersistenceOutcome(ctx); err != nil {

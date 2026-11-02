@@ -414,13 +414,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 
 	// Routing is resolved live after server construction, exactly as for dispatch.
 	var compactionCandidates func() inference.Tiers
-	recapModel := ""
-	if id, ok := openTierModelOK(cfg, config.TierFastLightText); ok {
-		recapModel = id
-	}
 	producers := composeProductionScheduling(persistentStore, productionSchedulingDependencies{
-		recapModel:  recapModel,
-		recapRunner: openProvider,
 		loop: loopcompact.WiringDeps{
 			BeginWork: enterpriseHost.Begin,
 			Cfg:       cfg,

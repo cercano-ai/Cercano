@@ -61,7 +61,7 @@ func testProductionPreparedSchedulingOwnership(t *testing.T, producer string, ac
 	cfg.Compaction.SegmentTokens = 4000
 	cfg.Compaction.VerbatimRecent = 2
 	cfg.LocusMode = "open_only"
-	cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
+	cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskRecap: {Destination: config.DestinationLocal, Quality: config.CostEconomy}, config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
 	for _, host := range []string{"A", "B"} {
 		var a *agent.Agent
 		entered, resume := make(chan struct{}), make(chan struct{})
@@ -79,10 +79,7 @@ func testProductionPreparedSchedulingOwnership(t *testing.T, producer string, ac
 				a, _, err = composeProductionAgent(routing, st, cfg, productionScheduling{})
 				return a, err
 			},
-		}, routing, nil, engine.NewEngineRegistry(), productionSchedulingDependencies{recapRunner: schedulingRunner(func(c context.Context, _ *agent.Request) (*agent.Response, error) {
-			err := call(c)
-			return &agent.Response{Output: "fixture"}, err
-		}), loop: loopcompact.WiringDeps{Cfg: cfg, ChatModel: "fixture", Candidates: func() inference.Tiers { return inference.Tiers{Open: &schedulingProvider{call: call}} }}}, productionSchedulingOptions{recapDebounce: debounce, compactionDebounce: debounce})
+		}, routing, nil, engine.NewEngineRegistry(), productionSchedulingDependencies{loop: loopcompact.WiringDeps{Cfg: cfg, ChatModel: "fixture", Candidates: func() inference.Tiers { return inference.Tiers{Open: &schedulingProvider{call: call}} }}}, productionSchedulingOptions{recapDebounce: debounce, compactionDebounce: debounce})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +158,7 @@ func testProductionPreparedSchedulingOwnership(t *testing.T, producer string, ac
 			t.Fatal("join did not drain")
 		}
 		err = s.ReleaseRetained(ctx, owner, nil)
-		if active {
+		if active && producer != "recap" {
 			// Failed/cancelled production execution remains unresolved; joining
 			// callbacks is not permission to erase its persistence obligation.
 			if !errors.Is(err, broker.ErrAdmissionBusy) {

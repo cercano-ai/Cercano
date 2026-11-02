@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"cercano/source/server/internal/broker"
@@ -16,9 +17,10 @@ type BeginOwnedWork func(context.Context, broker.Owner, broker.WorkKind) (contex
 // ScheduledWork exposes completion and the retained ticket for explicit durable
 // reconciliation after failure. Cancellation never resolves persistence failure.
 type ScheduledWork struct {
-	Ticket *broker.WorkTicket
-	Done   chan struct{}
-	Err    error // read only after Done closes
+	Ticket  *broker.WorkTicket
+	Done    chan struct{}
+	Err     error // fatal completion error; read only after Done closes
+	Warning error // auxiliary failure, retried on the next schedule; read after Done
 }
 
 type persistenceOutcomeKey struct{}
@@ -96,6 +98,12 @@ func (g *Generator) ScheduleOwned(parent context.Context, owner broker.Owner, be
 		// exists before either the store write or void usage callback can run.
 		err := g.runRecap(ctx, owner.Conversation, true)
 		if err != nil {
+			var auxiliary *auxiliaryInferenceFailure
+			if errors.As(err, &auxiliary) {
+				work.Warning = err
+				fmt.Fprintf(os.Stderr, "[recap] auxiliary inference failed; retry on next schedule for %s: %v\n", owner.Conversation, err)
+				return // inference terminated; all persistence outcomes are known
+			}
 			work.Err = err
 			// An error may follow a partially successful write. Keep the blocker until
 			// an explicit reconciler establishes the durable outcome; never replay it.

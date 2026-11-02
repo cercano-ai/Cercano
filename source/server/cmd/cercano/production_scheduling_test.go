@@ -140,22 +140,12 @@ func TestProductionSchedulingCommonFactory(t *testing.T) {
 					}
 					cfg := config.Defaults()
 					cfg.LocusMode = "open_only"
-					cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
+					cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskRecap: {Destination: config.DestinationLocal, Quality: config.CostEconomy}, config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
 					cfg.Compaction.Enabled = true
 					cfg.Compaction.ActivationFloorTokens = 1000
 					cfg.Compaction.SegmentTokens = 4000
 					cfg.Compaction.VerbatimRecent = 2
 					deps := productionSchedulingDependencies{
-						recapModel: "recap-fixture",
-						recapRunner: schedulingRunner(func(c context.Context, r *agent.Request) (*agent.Response, error) {
-							if r.ModelOverride != "recap-fixture" {
-								return nil, errors.New("recap model lost")
-							}
-							if err := call(c); err != nil {
-								return nil, err
-							}
-							return &agent.Response{Output: "fixture recap"}, nil
-						}),
 						loop: loopcompact.WiringDeps{Cfg: cfg, ChatModel: "fixture", Candidates: func() inference.Tiers { return inference.Tiers{Open: &schedulingProvider{call: call}} },
 							BeginWork: func(c context.Context) (context.Context, func(), error) { return c, func() {}, nil },
 						},
@@ -245,7 +235,7 @@ func TestProductionSchedulingCommonFactory(t *testing.T) {
 							ready := false
 							if producer == "recap" {
 								info, e := st.Get(owned, "c")
-								ready = e == nil && info.Title == "fixture recap"
+								ready = e == nil && info.Title == "GOAL: fixture summary"
 							} else {
 								compact, e := st.GetCompaction(owned, "c")
 								ready = e == nil && compact.SegmentSummariesJSON != ""
@@ -286,16 +276,17 @@ func TestProductionSchedulingCommonFactory(t *testing.T) {
 					}
 					if prepared {
 						_, err := admission.CloseOwner(owner, nil)
-						if shutdown && !errors.Is(err, broker.ErrAdmissionBusy) {
+						if shutdown && producer != "recap" && !errors.Is(err, broker.ErrAdmissionBusy) {
 							t.Fatalf("cancelled write lost blocker: %v", err)
 						}
-						if !shutdown && err != nil {
+						// Mock recap cancellation occurs in inference, before any write.
+						if (!shutdown || producer == "recap") && err != nil {
 							t.Fatal(err)
 						}
 					}
 					if !shutdown && producer == "recap" {
 						info, err := st.Get(owned, "c")
-						if err != nil || info.Recap != "fixture recap" {
+						if err != nil || info.Recap != "GOAL: fixture summary" {
 							t.Fatalf("recap: %+v %v", info, err)
 						}
 					} else if !shutdown {

@@ -256,11 +256,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		return nil, nil, err
 	}
 	schedulingDeps := productionSchedulingDependencies{
-		recapRunner: openRunner,
-		loop:        loopcompact.WiringDeps{Cfg: cfg, ChatModel: openChatModel(cfg), Candidates: func() inference.Tiers { return ownedServer.DispatchCandidates() }},
-	}
-	if id, ok := openTierModelOK(cfg, config.TierFastLightText); ok {
-		schedulingDeps.recapModel = id
+		loop: loopcompact.WiringDeps{Cfg: cfg, ChatModel: openChatModel(cfg), Candidates: func() inference.Tiers { return ownedServer.DispatchCandidates() }},
 	}
 	if local {
 		schedulingDeps.loop.OpenRuntimeContext = llamaengine.NewEngine(manager).RuntimeContext
