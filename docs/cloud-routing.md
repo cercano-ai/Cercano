@@ -13,6 +13,7 @@ A **model tier** (called a `destination` in configuration and APIs) chooses wher
 | --- | --- | --- |
 | Chat | Primary | Premium |
 | Compaction | Secondary | Light |
+| Recap | Secondary | Light |
 | Default dispatch (class omitted) | Secondary | Standard |
 | Reconnaissance | Local | Light |
 | Mechanical development | Local | Standard |
@@ -24,6 +25,8 @@ A **model tier** (called a `destination` in configuration and APIs) chooses wher
 | Watchdog | Local | Standard |
 
 Primary has a preferred account and an ordered list of backup accounts; Secondary keeps its own preferred profile and single optional backup. Secondary is not Primary's backup. Local uses its independently managed runtime and models. Light is the display label for the existing `economy` cost tier.
+
+Recap now has its own configurable task route, newly defaulting to Secondary / Light (`economy`); this is a new default, not a previously documented routing guarantee. Auxiliary recap-provider failure before persistence emits a retry warning without failing successful primary work. Actual or uncertain persistence failures remain fatal and retain their safety blocker.
 
 Secondary can redirect to Primary or Local; Local can redirect to Primary or Secondary. Chains are followed to their final destination; self-loops, cycles and unknown destinations are rejected atomically. **No redirect** clears a redirect. Redirects change effective placement without overwriting saved profile bindings or task destination/quality. They are not failover: only the final destination's profile, model, credentials and backup chain are used.
 
