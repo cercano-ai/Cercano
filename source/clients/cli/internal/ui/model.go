@@ -4179,10 +4179,8 @@ func (m *Model) dismissSubAgentTab(id string) bool {
 	if m.agent == nil || id == mainChatTabID || id == "" {
 		return true
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := m.agent.DismissSubAgent(ctx, id); err != nil {
-		m.errMsg = "tab close not saved: " + err.Error()
+	if err := m.persistTabVisibility(id, false); err != nil {
+		m.errMsg = "tab close " + err.Error()
 		return false
 	}
 	return true
@@ -6188,6 +6186,9 @@ func (m Model) renderHeaderSelection(line string) string {
 }
 
 func (m Model) renderStatus() string {
+	if m.errMsg != "" {
+		return m.styles.Info.Render(m.errMsg)
+	}
 	// The footer stays put during a turn — the live turn status renders inline on
 	// the assistant placeholder, not here.
 	help := m.styles.Muted.Render("/help for cmds")

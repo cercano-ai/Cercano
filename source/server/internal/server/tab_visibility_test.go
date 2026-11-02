@@ -9,6 +9,8 @@ import (
 
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/pkg/agentclient"
+	"cercano/source/server/pkg/proto"
+	"google.golang.org/grpc/metadata"
 )
 
 // Disk SQLite + real gRPC/SDK, with fresh services and client connections on
@@ -107,5 +109,56 @@ func TestExplicitChildReopenPersistsVisibility(t *testing.T) {
 		if err != nil || len(turns) != 1 || turns[0].Content != "retained transcript "+id {
 			t.Fatalf("lost transcript: %s %v %v", id, turns, err)
 		}
+	}
+}
+
+func TestPinnedParentChildVisibilityAdmission(t *testing.T) {
+	s, ctx, owner, _ := preparedWakeFixture(t)
+	childCtx, finish, err := s.beginPreparedDispatch(ctx, "parent", "child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer finish(nil)
+	if err := s.persistSvc.Store().EnsureSubagentConversation(childCtx, "child", "parent", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	incoming := metadata.NewIncomingContext(t.Context(), metadata.Pairs("cercano-host-instance", owner.Host, "cercano-conversation-id", owner.Conversation, "cercano-ownership-epoch", owner.Epoch, "cercano-terminal-attachment", "terminal"))
+	_, hold, _, err := s.BeginTerminalStream(incoming, "parent", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hold.Detach()
+	client := taskObserverClient(t, s)
+	bound := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("cercano-host-instance", owner.Host, "cercano-conversation-id", owner.Conversation, "cercano-ownership-epoch", owner.Epoch, "cercano-terminal-attachment", "terminal"))
+	if err := client.DismissSubAgent(bound, "child"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.ReopenSubAgent(bound, "child"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DismissSubAgent(bound, "unrelated"); err == nil {
+		t.Fatal("unrelated admitted")
+	}
+	wrongHost := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("cercano-host-instance", "foreign-host", "cercano-conversation-id", owner.Conversation, "cercano-ownership-epoch", owner.Epoch, "cercano-terminal-attachment", "terminal"))
+	if err := client.ReopenSubAgent(wrongHost, "child"); err == nil {
+		t.Fatal("wrong host admitted")
+	}
+	wrongTerminal := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("cercano-host-instance", owner.Host, "cercano-conversation-id", owner.Conversation, "cercano-ownership-epoch", owner.Epoch, "cercano-terminal-attachment", "unrelated-terminal"))
+	if err := client.ReopenSubAgent(wrongTerminal, "child"); err == nil {
+		t.Fatal("conflicting terminal admitted")
+	}
+	bad := owner
+	bad.Epoch = "wrong"
+	if _, err := s.DismissSubAgent(foregroundBinding(t.Context(), bad), &proto.DismissSubAgentRequest{ConversationId: "child"}); err == nil {
+		t.Fatal("wrong epoch admitted")
+	}
+	replacement := metadata.NewIncomingContext(t.Context(), metadata.Pairs("cercano-host-instance", owner.Host, "cercano-conversation-id", owner.Conversation, "cercano-ownership-epoch", owner.Epoch, "cercano-terminal-attachment", "replacement", "cercano-takeover-terminal", "terminal"))
+	_, a, _, err := s.BeginTerminalStream(replacement, "parent", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Detach()
+	if err := client.ReopenSubAgent(bound, "child"); err == nil {
+		t.Fatal("revoked caller admitted")
 	}
 }

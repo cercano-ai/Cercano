@@ -432,3 +432,24 @@ func TestOwnershipRelationshipUpdateOldAndNew(t *testing.T) {
 		})
 	}
 }
+
+func TestOwnershipAncestorVisibilityOnly(t *testing.T) {
+	ctx, _, s := ownershipFixture(t)
+	a := take(t, ctx, s, "parent", "A")
+	b := take(t, ctx, s, "child", "B")
+	foreign := take(t, ctx, s, "foreign", "A")
+	mustCoexist(t, s.EnsureConversation(WithOwnership(ctx, a), "parent", "", ""))
+	mustCoexist(t, s.EnsureConversation(WithOwnership(ctx, foreign), "foreign", "", ""))
+	mustCoexist(t, s.EnsureSubagentConversation(WithOwnership(ctx, a, b), "child", "parent", "", "", nil))
+	visibility := WithChildVisibilityOwner(WithOwnership(ctx, a), "parent")
+	mustCoexist(t, s.MarkSubagentDismissed(visibility, "child"))
+	mustCoexist(t, s.MarkSubagentOpen(visibility, "child"))
+	refused(t, s.Rename(visibility, "child", "not authorized"))
+	refused(t, s.Append(visibility, Turn{ConversationID: "child", Role: "assistant", Content: "not authorized"}))
+	refused(t, s.MarkSubagentDismissed(WithChildVisibilityOwner(WithOwnership(ctx, foreign), "foreign"), "child"))
+	// The one-column trigger exception cannot escape its transaction.
+	_, err := s.execOwned(visibility, `UPDATE conversations SET dismissed=1 WHERE id='child'`)
+	refused(t, err)
+	mustCoexist(t, a.Release(ctx))
+	refused(t, s.MarkSubagentDismissed(visibility, "child"))
+}

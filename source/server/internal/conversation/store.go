@@ -1002,7 +1002,11 @@ func (s *sqliteStore) MarkSubagentDismissed(ctx context.Context, conversationID 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.execTarget(ctx, conversationID,
+	target, err := s.childVisibilityTarget(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	_, err = s.execVisibility(ctx, target, conversationID,
 		`UPDATE conversations SET dismissed = 1 WHERE id = ? AND kind = 'subagent'`,
 		conversationID)
 	return err
@@ -1015,7 +1019,11 @@ func (s *sqliteStore) MarkSubagentOpen(ctx context.Context, conversationID strin
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.execTarget(ctx, conversationID,
+	target, err := s.childVisibilityTarget(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	_, err = s.execVisibility(ctx, target, conversationID,
 		`UPDATE conversations SET dismissed = 0 WHERE id = ? AND kind = 'subagent'`, conversationID)
 	return err
 }

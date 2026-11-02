@@ -269,3 +269,73 @@ func ReadOwnership(ctx context.Context, store Store, conversationID string) (Own
 	err = s.db.QueryRowContext(ctx, `SELECT owner,epoch,state,destination,handover FROM conversation_ownership WHERE conversation_id=?`, conversationID).Scan(&state.Owner, &state.Epoch, &state.State, &state.Destination, &state.Handover)
 	return state, err
 }
+
+// WithChildVisibilityOwner scopes only tab visibility mutations to an owning
+// ancestor. It grants no transcript/task authority; the store rechecks the
+// persisted relationship and exact ownership capability on every write.
+func WithChildVisibilityOwner(ctx context.Context, ancestor string) context.Context {
+	return context.WithValue(ctx, childVisibilityOwnerKey{}, ancestor)
+}
+
+type childVisibilityOwnerKey struct{}
+
+// Caller holds the store mutex. Relationship checks cannot race store writes.
+func (s *sqliteStore) childVisibilityTarget(ctx context.Context, child string) (string, error) {
+	ancestor, _ := ctx.Value(childVisibilityOwnerKey{}).(string)
+	if ancestor == "" {
+		return child, nil
+	}
+	seen := map[string]bool{}
+	id := child
+	for id != ancestor {
+		if id == "" || seen[id] {
+			return "", errors.New("child visibility relationship mismatch")
+		}
+		seen[id] = true
+		var parent, kind string
+		if err := s.db.QueryRowContext(ctx, `SELECT parent_id, kind FROM conversations WHERE id = ?`, id).Scan(&parent, &kind); err != nil {
+			return "", err
+		}
+		if kind != "subagent" {
+			return "", errors.New("child visibility requires subagent descendant")
+		}
+		id = parent
+	}
+	if child == ancestor {
+		return "", errors.New("child visibility requires descendant")
+	}
+	return ancestor, nil
+}
+
+// execVisibility is the sole installer of the transaction-scoped one-column
+// exception. The owning ancestor is checked by beginOwned, not trusted metadata.
+func (s *sqliteStore) execVisibility(ctx context.Context, target, child, query string, args ...any) (sql.Result, error) {
+	if target == child || s.coexistencePath == "" {
+		return s.execTarget(ctx, target, query, args...)
+	}
+	tx, err := s.beginOwned(ctx, nil, target)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	// Repeat relationship resolution in the same write transaction.
+	var n int
+	err = tx.QueryRowContext(ctx, `WITH RECURSIVE ancestors(id,parent_id,kind) AS (SELECT id,parent_id,kind FROM conversations WHERE id=? UNION SELECT c.id,c.parent_id,c.kind FROM conversations c JOIN ancestors a ON c.id=a.parent_id WHERE a.kind='subagent') SELECT count(*) FROM ancestors WHERE id=?`, child, target).Scan(&n)
+	if err != nil {
+		return nil, err
+	}
+	if n != 1 {
+		return nil, errors.New("child visibility relationship mismatch")
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO child_visibility VALUES (?)`, child); err != nil {
+		return nil, err
+	}
+	res, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return res, nil
+}

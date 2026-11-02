@@ -230,11 +230,9 @@ func (m *Model) reopenSubAgentTabCmd(id string) tea.Cmd {
 	}
 	// Serialize explicit visibility intent with close on the reducer thread.
 	// Only transcript hydration is asynchronous, and its result is identity-fenced.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	err := m.agent.ReopenSubAgent(ctx, id)
-	cancel()
+	err := m.persistTabVisibility(id, true)
 	if err != nil {
-		m.errMsg = "tab reopen not saved: " + err.Error()
+		m.errMsg = "tab reopen " + err.Error()
 		return nil
 	}
 	delete(m.chatTabs.closed, id)

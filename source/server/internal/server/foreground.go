@@ -2,10 +2,12 @@ package server
 
 import (
 	"cercano/source/server/internal/broker"
+	"cercano/source/server/internal/conversation"
 	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/pkg/proto"
 	"context"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"sync/atomic"
 )
@@ -80,4 +82,37 @@ func (s *Server) foregroundAgentTurn(ctx context.Context, conversation string, w
 			_ = s.notifyOwnedTaskChange(context.WithoutCancel(ctx), w.owner, conversation)
 		}
 	}
+}
+
+// Admit against the exact pinned ancestor, never the requested child identity.
+// The persistence layer validates ancestry again under its write mutex and
+// checks that ancestor's live store-bound capability in the write transaction.
+func (s *Server) beginChildVisibility(ctx context.Context, child string) (context.Context, *foregroundWork, error) {
+	if s.coexistence == nil {
+		return s.beginForeground(ctx, child)
+	}
+	md, _ := metadata.FromIncomingContext(ctx)
+	ids := md.Get("cercano-conversation-id")
+	if len(ids) != 1 || child == "" || child == ids[0] {
+		return nil, nil, status.Error(codes.InvalidArgument, "child visibility requires pinned ancestor")
+	}
+	// Reject a foreign target before admitting retained work. The store repeats
+	// this check transactionally; this early check is not the write authority.
+	seen := map[string]bool{}
+	for id := child; id != ids[0]; {
+		if id == "" || seen[id] {
+			return nil, nil, status.Error(codes.PermissionDenied, "unrelated child")
+		}
+		seen[id] = true
+		info, err := s.persistSvc.Store().Get(ctx, id)
+		if err != nil || info.Kind != "subagent" {
+			return nil, nil, status.Error(codes.PermissionDenied, "unrelated child")
+		}
+		id = info.ParentID
+	}
+	ctx, work, err := s.beginForeground(ctx, ids[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	return conversation.WithChildVisibilityOwner(ctx, ids[0]), work, nil
 }

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -83,9 +84,11 @@ func TestLateHistoryReopenDoesNotUndoClose(t *testing.T) {
 // lifetimes. The server package independently tests the same contract on SQLite.
 type visibilityServer struct {
 	persistedDevResumeServer
-	mu        sync.Mutex
-	statePath string
-	fail      bool
+	mu           sync.Mutex
+	statePath    string
+	fail         bool
+	loseResponse bool
+	unsupported  bool
 }
 
 func (s *visibilityServer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
@@ -111,18 +114,32 @@ func (s *visibilityServer) ListSubAgents(context.Context, *proto.ListSubAgentsRe
 func (s *visibilityServer) DismissSubAgent(context.Context, *proto.DismissSubAgentRequest) (*proto.DismissSubAgentResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.unsupported {
+		return nil, status.Error(codes.Unimplemented, "older host")
+	}
 	if s.fail {
 		return nil, status.Error(codes.Canceled, "injected write cancellation")
 	}
-	return &proto.DismissSubAgentResponse{}, os.WriteFile(s.statePath, []byte("true"), 0600)
+	err := os.WriteFile(s.statePath, []byte("true"), 0600)
+	if s.loseResponse {
+		return nil, status.Error(codes.Canceled, "response lost after commit")
+	}
+	return &proto.DismissSubAgentResponse{}, err
 }
 func (s *visibilityServer) ReopenSubAgent(context.Context, *proto.ReopenSubAgentRequest) (*proto.ReopenSubAgentResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.unsupported {
+		return nil, status.Error(codes.Unimplemented, "older host")
+	}
 	if s.fail {
 		return nil, status.Error(codes.Canceled, "injected write cancellation")
 	}
-	return &proto.ReopenSubAgentResponse{}, os.WriteFile(s.statePath, []byte("false"), 0600)
+	err := os.WriteFile(s.statePath, []byte("false"), 0600)
+	if s.loseResponse {
+		return nil, status.Error(codes.Canceled, "response lost after commit")
+	}
+	return &proto.ReopenSubAgentResponse{}, err
 }
 func TestTabVisibilityAcrossResumeEntryPoints(t *testing.T) {
 	for _, entry := range []string{"picker", "-r", "/resume", "pinned-replacement"} {
@@ -211,6 +228,21 @@ func TestTabVisibilityAcrossResumeEntryPoints(t *testing.T) {
 			m := resume()
 			assertTabs(m, true)
 			fixture.mu.Lock()
+			fixture.unsupported = true
+			fixture.mu.Unlock()
+			if m.closeSubAgentTab("child") || m.chatTabs.tabs["child"] == nil {
+				t.Fatal("unsupported host changed visibility")
+			}
+			m.width = 100
+			m.height = 30
+			if !strings.Contains(m.View().Content, "rejected") {
+				t.Fatal("unsupported failure invisible")
+			}
+			fixture.mu.Lock()
+			fixture.unsupported = false
+			fixture.mu.Unlock()
+
+			fixture.mu.Lock()
 			fixture.fail = true
 			fixture.mu.Unlock()
 			if m.closeSubAgentTab("child") || m.chatTabs.tabs["child"] == nil {
@@ -233,6 +265,18 @@ func TestTabVisibilityAcrossResumeEntryPoints(t *testing.T) {
 			}
 			fixture.mu.Lock()
 			fixture.fail = false
+			fixture.mu.Unlock()
+			fixture.mu.Lock()
+			fixture.loseResponse = true
+			fixture.mu.Unlock()
+			if cmd := m.reopenSubAgentTabCmd("child"); cmd == nil {
+				t.Fatal("committed reopen response loss not reconciled")
+			}
+			if !m.closeSubAgentTab("child") {
+				t.Fatal("committed close response loss not reconciled")
+			}
+			fixture.mu.Lock()
+			fixture.loseResponse = false
 			fixture.mu.Unlock()
 			// Finish old hydration after a close/new explicit reopen: identity fencing
 			// must reject it without clearing the newer tab or its persisted state.
@@ -295,5 +339,58 @@ func TestExplicitHistoryReopenWritesVisibility(t *testing.T) {
 	raw, err := os.ReadFile(fixture.statePath)
 	if err != nil || string(raw) != "false" {
 		t.Fatalf("explicit reopen was not persisted: dismissed=%s err=%v", raw, err)
+	}
+}
+
+func TestTabFailureIsRendered(t *testing.T) {
+	m := New(nil, false)
+	m.width = 100
+	m.height = 30
+	m.errMsg = "tab reopen rejected: unsupported host"
+	if !strings.Contains(m.View().Content, "tab reopen rejected") {
+		t.Fatal("tab failure invisible")
+	}
+}
+
+func TestTabCommittedResponseLoss(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", root)
+	t.Setenv("CERCANO_UI_CONFIG", filepath.Join(root, "ui.yaml"))
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	fixture := &visibilityServer{statePath: filepath.Join(root, "dismissed.json"), loseResponse: true}
+	if err := os.WriteFile(fixture.statePath, []byte("true"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	proto.RegisterAgentServer(server, fixture)
+	go server.Serve(listener)
+	defer server.Stop()
+	client, err := agentclient.DialExisting(t.Context(), listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	m := New(client, false)
+	if cmd := m.reopenSubAgentTabCmd("child"); cmd == nil {
+		t.Fatal("missing transcript hydration command")
+	}
+	// Intentionally do not run hydration: merely reading the transcript is not
+	// what persists visibility, and exit may happen before hydration completes.
+	raw, err := os.ReadFile(fixture.statePath)
+	if err != nil || string(raw) != "false" {
+		t.Fatalf("explicit reopen was not persisted: dismissed=%s err=%v", raw, err)
+	}
+
+	if !m.closeSubAgentTab("child") {
+		t.Fatal("committed close response loss not reconciled")
+	}
+	raw, err = os.ReadFile(fixture.statePath)
+	if err != nil || string(raw) != "true" {
+		t.Fatalf("close state=%s err=%v", raw, err)
 	}
 }

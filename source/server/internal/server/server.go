@@ -2599,7 +2599,7 @@ func (s *Server) ListSubAgents(ctx context.Context, req *proto.ListSubAgentsRequ
 // dismissed so a resumed CLI does not reopen its tab (delegates to the
 // persistence service).
 func (s *Server) DismissSubAgent(ctx context.Context, req *proto.DismissSubAgentRequest) (*proto.DismissSubAgentResponse, error) {
-	ctx, work, err := s.beginForeground(ctx, req.GetConversationId())
+	ctx, work, err := s.beginChildVisibility(ctx, req.GetConversationId())
 	if err != nil {
 		return nil, err
 	}
@@ -2616,7 +2616,7 @@ func (s *Server) DismissSubAgent(ctx context.Context, req *proto.DismissSubAgent
 }
 
 func (s *Server) ReopenSubAgent(ctx context.Context, req *proto.ReopenSubAgentRequest) (*proto.ReopenSubAgentResponse, error) {
-	ctx, work, err := s.beginForeground(ctx, req.GetConversationId())
+	ctx, work, err := s.beginChildVisibility(ctx, req.GetConversationId())
 	if err != nil {
 		return nil, err
 	}

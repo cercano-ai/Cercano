@@ -67,7 +67,7 @@ func (s *sqliteStore) beginOwned(ctx context.Context, opts *sql.TxOptions, targe
 	if err = s.checkOwnershipContract(ctx, tx); err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `CREATE TEMP TABLE IF NOT EXISTS ownership_capabilities (conversation_id TEXT PRIMARY KEY, owner TEXT NOT NULL, epoch TEXT NOT NULL); DELETE FROM ownership_capabilities;`); err != nil {
+	if _, err = tx.ExecContext(ctx, `CREATE TEMP TABLE IF NOT EXISTS ownership_capabilities (conversation_id TEXT PRIMARY KEY, owner TEXT NOT NULL, epoch TEXT NOT NULL); DELETE FROM ownership_capabilities; CREATE TEMP TABLE IF NOT EXISTS child_visibility (id TEXT PRIMARY KEY); DELETE FROM child_visibility;`); err != nil {
 		return nil, err
 	}
 	for _, o := range caps {
@@ -113,6 +113,30 @@ func (s *sqliteStore) beginOwned(ctx context.Context, opts *sql.TxOptions, targe
 						body += check
 					}
 				}
+			}
+			if table == "conversations" && op == "UPDATE" {
+				rows, e := tx.QueryContext(ctx, "PRAGMA main.table_info(conversations)")
+				if e != nil {
+					return nil, e
+				}
+				unchanged := []string{}
+				for rows.Next() {
+					var cid, notnull, pk int
+					var name, typ string
+					var def any
+					if e := rows.Scan(&cid, &name, &typ, &notnull, &def, &pk); e != nil {
+						rows.Close()
+						return nil, e
+					}
+					if name != "dismissed" {
+						unchanged = append(unchanged, fmt.Sprintf(`OLD."%s" IS NEW."%s"`, name, name))
+					}
+				}
+				rows.Close()
+				// Only this exact one-column visibility update can use ancestor
+				// authority; all transcript, task and relationship writes retain
+				// the original per-row fence.
+				body = strings.ReplaceAll(body, "CASE WHEN ", "CASE WHEN NOT (EXISTS (SELECT 1 FROM child_visibility WHERE id=OLD.id) AND "+strings.Join(unchanged, " AND ")+") AND ")
 			}
 			q := fmt.Sprintf(`CREATE TEMP TRIGGER IF NOT EXISTS fence_%s_%s BEFORE %s ON main.%s BEGIN %s END`, table, op, op, table, body)
 			if _, err = tx.ExecContext(ctx, q); err != nil {
