@@ -48,6 +48,7 @@ const (
 	Agent_GetConversation_FullMethodName                       = "/agent.Agent/GetConversation"
 	Agent_ListSubAgents_FullMethodName                         = "/agent.Agent/ListSubAgents"
 	Agent_DismissSubAgent_FullMethodName                       = "/agent.Agent/DismissSubAgent"
+	Agent_ReopenSubAgent_FullMethodName                        = "/agent.Agent/ReopenSubAgent"
 	Agent_GetContextUsage_FullMethodName                       = "/agent.Agent/GetContextUsage"
 	Agent_GetTokenMetrics_FullMethodName                       = "/agent.Agent/GetTokenMetrics"
 	Agent_GetCompactionState_FullMethodName                    = "/agent.Agent/GetCompactionState"
@@ -187,6 +188,8 @@ type AgentClient interface {
 	// swept when its turn finished). Best-effort: the child transcript stays in
 	// the store, it just no longer surfaces as a tab.
 	DismissSubAgent(ctx context.Context, in *DismissSubAgentRequest, opts ...grpc.CallOption) (*DismissSubAgentResponse, error)
+	// Explicit history open; ordinary transcript reads never change visibility.
+	ReopenSubAgent(ctx context.Context, in *ReopenSubAgentRequest, opts ...grpc.CallOption) (*ReopenSubAgentResponse, error)
 	// GetContextUsage reports cumulative token usage vs. the active model's
 	// context window for a conversation. The CLI status bar polls this after
 	// each streamed turn.
@@ -705,6 +708,16 @@ func (c *agentClient) DismissSubAgent(ctx context.Context, in *DismissSubAgentRe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DismissSubAgentResponse)
 	err := c.cc.Invoke(ctx, Agent_DismissSubAgent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) ReopenSubAgent(ctx context.Context, in *ReopenSubAgentRequest, opts ...grpc.CallOption) (*ReopenSubAgentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReopenSubAgentResponse)
+	err := c.cc.Invoke(ctx, Agent_ReopenSubAgent_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1469,6 +1482,8 @@ type AgentServer interface {
 	// swept when its turn finished). Best-effort: the child transcript stays in
 	// the store, it just no longer surfaces as a tab.
 	DismissSubAgent(context.Context, *DismissSubAgentRequest) (*DismissSubAgentResponse, error)
+	// Explicit history open; ordinary transcript reads never change visibility.
+	ReopenSubAgent(context.Context, *ReopenSubAgentRequest) (*ReopenSubAgentResponse, error)
 	// GetContextUsage reports cumulative token usage vs. the active model's
 	// context window for a conversation. The CLI status bar polls this after
 	// each streamed turn.
@@ -1744,6 +1759,9 @@ func (UnimplementedAgentServer) ListSubAgents(context.Context, *ListSubAgentsReq
 }
 func (UnimplementedAgentServer) DismissSubAgent(context.Context, *DismissSubAgentRequest) (*DismissSubAgentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DismissSubAgent not implemented")
+}
+func (UnimplementedAgentServer) ReopenSubAgent(context.Context, *ReopenSubAgentRequest) (*ReopenSubAgentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReopenSubAgent not implemented")
 }
 func (UnimplementedAgentServer) GetContextUsage(context.Context, *GetContextUsageRequest) (*GetContextUsageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetContextUsage not implemented")
@@ -2432,6 +2450,24 @@ func _Agent_DismissSubAgent_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServer).DismissSubAgent(ctx, req.(*DismissSubAgentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_ReopenSubAgent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReopenSubAgentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).ReopenSubAgent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_ReopenSubAgent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).ReopenSubAgent(ctx, req.(*ReopenSubAgentRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3580,6 +3616,10 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DismissSubAgent",
 			Handler:    _Agent_DismissSubAgent_Handler,
+		},
+		{
+			MethodName: "ReopenSubAgent",
+			Handler:    _Agent_ReopenSubAgent_Handler,
 		},
 		{
 			MethodName: "GetContextUsage",

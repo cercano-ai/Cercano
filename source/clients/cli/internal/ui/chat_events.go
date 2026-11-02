@@ -93,6 +93,7 @@ type chatDoneMsg struct {
 type chatErrorMsg struct{ err error }
 
 type subAgentReopenMsg struct {
+	tab   *chatTab // discard hydration after close/reopen, resume, or model replacement
 	id    string
 	turns []agentclient.PersistedTurn
 	err   error

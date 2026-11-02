@@ -1582,3 +1582,7 @@ func (m *mockAgentClient) GetCredentialPolicy(context.Context, *proto.GetCredent
 }
 
 var _ proto.AgentClient = (*mockAgentClient)(nil)
+
+func (m *mockAgentClient) ReopenSubAgent(ctx context.Context, in *proto.ReopenSubAgentRequest, opts ...grpc.CallOption) (*proto.ReopenSubAgentResponse, error) {
+	return &proto.ReopenSubAgentResponse{}, nil
+}

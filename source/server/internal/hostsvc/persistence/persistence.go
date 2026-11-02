@@ -127,6 +127,7 @@ type Service interface {
 	GetConversationTurns(ctx context.Context, req *proto.GetConversationTurnsRequest) (*proto.GetConversationTurnsResponse, error)
 	ListSubAgents(ctx context.Context, req *proto.ListSubAgentsRequest) (*proto.ListSubAgentsResponse, error)
 	DismissSubAgent(ctx context.Context, req *proto.DismissSubAgentRequest) (*proto.DismissSubAgentResponse, error)
+	ReopenSubAgent(ctx context.Context, req *proto.ReopenSubAgentRequest) (*proto.ReopenSubAgentResponse, error)
 	GetContextUsage(ctx context.Context, req *proto.GetContextUsageRequest) (*proto.GetContextUsageResponse, error)
 	GetCompactionState(ctx context.Context, req *proto.GetCompactionStateRequest) (*proto.GetCompactionStateResponse, error)
 	ExportContext(ctx context.Context, req *proto.ExportContextRequest) (*proto.ExportContextResponse, error)
@@ -1616,4 +1617,15 @@ type ownedSchedulingAgent interface {
 	HasOwnedScheduling() bool
 	SchedulePersistedAssistant(context.Context, string) error
 	ScheduleCompactionContext(context.Context, string) error
+}
+
+// ReopenSubAgent is explicit visibility intent, never a side effect of reading.
+func (x *svc) ReopenSubAgent(ctx context.Context, req *proto.ReopenSubAgentRequest) (*proto.ReopenSubAgentResponse, error) {
+	if x.convAgent == nil || x.convAgent.PersistentStore() == nil || req.GetConversationId() == "" {
+		return nil, fmt.Errorf("cannot persist child-tab reopen without store and conversation ID")
+	}
+	if err := x.convAgent.PersistentStore().MarkSubagentOpen(ctx, req.GetConversationId()); err != nil {
+		return nil, fmt.Errorf("mark subagent open: %w", err)
+	}
+	return &proto.ReopenSubAgentResponse{}, nil
 }

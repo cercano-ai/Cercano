@@ -215,25 +215,42 @@ func (m *Model) reopenSubAgentTabCmd(id string) tea.Cmd {
 	if id == "" {
 		return nil
 	}
-	delete(m.chatTabs.closed, id)
 	m.ensureChatTabs()
-	if _, ok := m.chatTabs.tabs[id]; ok {
-		m.switchChatTab(id)
-		return nil
-	}
 	if m.agent == nil {
+		delete(m.chatTabs.closed, id)
+		if _, ok := m.chatTabs.tabs[id]; ok {
+			m.switchChatTab(id)
+			return nil
+		}
 		view := m.ensureSubAgentTab(id, "", "", nil)
 		view.AppendEntry(&Entry{Role: RoleSystem, Content: "reopened sub-agent tab"})
 		view.rebuild()
 		m.switchChatTab(id)
 		return nil
 	}
+	// Serialize explicit visibility intent with close on the reducer thread.
+	// Only transcript hydration is asynchronous, and its result is identity-fenced.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err := m.agent.ReopenSubAgent(ctx, id)
+	cancel()
+	if err != nil {
+		m.errMsg = "tab reopen not saved: " + err.Error()
+		return nil
+	}
+	delete(m.chatTabs.closed, id)
+	if _, ok := m.chatTabs.tabs[id]; ok {
+		m.switchChatTab(id)
+		return nil
+	}
+	m.ensureSubAgentTab(id, "", "", nil)
+	tab := m.chatTabs.tabs[id]
+	tab.restored = true
 	agent := m.agent
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		turns, err := agent.ResumeConversation(ctx, id)
-		return subAgentReopenMsg{id: id, turns: turns, err: err}
+		return subAgentReopenMsg{id: id, tab: tab, turns: turns, err: err}
 	}
 }
 
@@ -241,7 +258,10 @@ func (m *Model) applySubAgentReopen(msg subAgentReopenMsg) {
 	if msg.id == "" {
 		return
 	}
-	delete(m.chatTabs.closed, msg.id)
+	m.ensureChatTabs()
+	if m.chatTabs.closed[msg.id] || (msg.tab != nil && m.chatTabs.tabs[msg.id] != msg.tab) {
+		return
+	}
 	if tab := m.chatTabs.tabs[msg.id]; tab != nil && msg.err == nil && len(msg.turns) == 0 {
 		m.switchChatTab(msg.id)
 		return
@@ -278,6 +298,9 @@ func (m *Model) closeSubAgentTab(id string) bool {
 	if _, ok := m.chatTabs.tabs[id]; !ok {
 		return false
 	}
+	if !m.dismissSubAgentTab(id) {
+		return false
+	}
 	fallback := mainChatTabID
 	order := make([]string, 0, len(m.chatTabs.order))
 	for i, oid := range m.chatTabs.order {
@@ -292,7 +315,6 @@ func (m *Model) closeSubAgentTab(id string) bool {
 	m.chatTabs.order = order
 	delete(m.chatTabs.tabs, id)
 	m.chatTabs.closed[id] = true
-	m.dismissSubAgentTab(id) // persist the close so a resume doesn't reopen it
 	if m.chatTabs.active == id {
 		m.chatTabs.active = fallback
 	}
@@ -346,8 +368,11 @@ func (m *Model) cleanupFinishedSubAgentTabs() {
 			order = append(order, id)
 			continue
 		}
+		if !m.dismissSubAgentTab(id) {
+			order = append(order, id)
+			continue
+		}
 		delete(m.chatTabs.tabs, id)
-		m.dismissSubAgentTab(id) // persist the sweep so a resume doesn't reopen it
 	}
 	m.chatTabs.order = order
 	if _, ok := m.chatTabs.tabs[m.chatTabs.active]; !ok {
@@ -367,6 +392,9 @@ func (m *Model) retireFinishedSubAgentTab(id string) {
 	if tab == nil || tab.restored {
 		return
 	}
+	if !m.dismissSubAgentTab(id) {
+		return
+	}
 	fallback := mainChatTabID
 	order := make([]string, 0, len(m.chatTabs.order))
 	for i, oid := range m.chatTabs.order {
@@ -380,7 +408,6 @@ func (m *Model) retireFinishedSubAgentTab(id string) {
 	}
 	m.chatTabs.order = order
 	delete(m.chatTabs.tabs, id)
-	m.dismissSubAgentTab(id) // persist the sweep so a resume doesn't reopen it
 	if m.chatTabs.active == id {
 		m.chatTabs.active = fallback
 	}

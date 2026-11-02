@@ -4171,30 +4171,25 @@ func resumeInputHistory(turns []agentclient.PersistedTurn) []string {
 	return hist
 }
 
-// restoreSubAgentTabs reopens the sub-agent chat tabs for a resumed
-// conversation from their persisted transcripts. Each child dispatch loop was
-// saved as a hidden "subagent" conversation linked to this parent (see the
-// dispatch tool's persistence path); ListSubAgents returns them in spawn order
-// so a nested child is always processed after its parent, letting
-// nextSubAgentTitle recompute "sub 1" / "sub 1.1"-style labels from the
-// parent/child relationships. Best-effort: any RPC failure leaves the main
-// resume intact and simply skips (or partially fills) tab restore.
-// dismissSubAgentTab best-effort tells the server to stop reopening this
-// sub-agent's tab on future resumes. Fire-and-forget: if it fails, the tab may
-// reappear after a restart, and the next close/sweep re-dismisses it. Skips the
-// main tab and no-ops when there's no agent client (tests).
-func (m *Model) dismissSubAgentTab(id string) {
+// dismissSubAgentTab waits for the durable visibility write before publishing a
+// close. This deliberately does not use the task/turn cancellation context:
+// closing a tab must not cancel work, and exit/resume cannot overtake the write.
+// On failure keep the tab so the user can retry rather than claiming it closed.
+func (m *Model) dismissSubAgentTab(id string) bool {
 	if m.agent == nil || id == mainChatTabID || id == "" {
-		return
+		return true
 	}
-	agent := m.agent
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = agent.DismissSubAgent(ctx, id)
-	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.agent.DismissSubAgent(ctx, id); err != nil {
+		m.errMsg = "tab close not saved: " + err.Error()
+		return false
+	}
+	return true
 }
 
+// restoreSubAgentTabs hydrates all persisted visible children, including finished
+// undismissed tasks. Transcript hydration must not change persisted visibility.
 func (m *Model) restoreSubAgentTabs(ctx context.Context, conversationID string) {
 	children, err := m.agent.ListSubAgents(ctx, conversationID)
 	if err != nil || len(children) == 0 {

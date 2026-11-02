@@ -872,6 +872,13 @@ func (c *Client) DismissSubAgent(ctx context.Context, conversationID string) err
 	return err
 }
 
+// ReopenSubAgent persists explicit history-open intent. Transcript reads alone
+// deliberately do not change visibility. Reject servers predating this contract.
+func (c *Client) ReopenSubAgent(ctx context.Context, conversationID string) error {
+	_, err := c.agent.ReopenSubAgent(ctx, &proto.ReopenSubAgentRequest{ConversationId: conversationID})
+	return err
+}
+
 // DeleteConversation removes a persisted conversation.
 func (c *Client) DeleteConversation(ctx context.Context, conversationID string) error {
 	_, err := c.agent.DeleteConversation(ctx, &proto.DeleteConversationRequest{ConversationId: conversationID})

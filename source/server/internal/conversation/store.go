@@ -254,6 +254,7 @@ type Store interface {
 	// sub-agent tab or it's swept on turn completion, so a resumed CLI does not
 	// reopen it. The transcript stays in the store; only the tab is hidden.
 	MarkSubagentDismissed(ctx context.Context, conversationID string) error
+	MarkSubagentOpen(ctx context.Context, conversationID string) error
 
 	// Append records one turn. Updates the conversation's last_turn_at. If
 	// this is the first user turn and the conversation has no title, derives
@@ -1004,6 +1005,18 @@ func (s *sqliteStore) MarkSubagentDismissed(ctx context.Context, conversationID 
 	_, err := s.execTarget(ctx, conversationID,
 		`UPDATE conversations SET dismissed = 1 WHERE id = ? AND kind = 'subagent'`,
 		conversationID)
+	return err
+}
+
+// MarkSubagentOpen persists an explicit history reopen without changing task state.
+func (s *sqliteStore) MarkSubagentOpen(ctx context.Context, conversationID string) error {
+	if conversationID == "" {
+		return errors.New("conversation id required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.execTarget(ctx, conversationID,
+		`UPDATE conversations SET dismissed = 0 WHERE id = ? AND kind = 'subagent'`, conversationID)
 	return err
 }
 

@@ -92,6 +92,8 @@ service Agent {
   // swept when its turn finished). Best-effort: the child transcript stays in
   // the store, it just no longer surfaces as a tab.
   rpc DismissSubAgent (DismissSubAgentRequest) returns (DismissSubAgentResponse) {}
+  // Explicit history open; ordinary transcript reads never change visibility.
+  rpc ReopenSubAgent (ReopenSubAgentRequest) returns (ReopenSubAgentResponse) {}
 
   // GetContextUsage reports cumulative token usage vs. the active model's
   // context window for a conversation. The CLI status bar polls this after
@@ -2788,3 +2790,9 @@ message ConversationHistoryResponse {
   bytes entries_json = 2;
   string error = 3;
 }
+
+// Explicit history open changes visibility, unlike transcript hydration.
+message ReopenSubAgentRequest {
+  string conversation_id = 1;
+}
+message ReopenSubAgentResponse {}

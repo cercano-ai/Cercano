@@ -2615,6 +2615,23 @@ func (s *Server) DismissSubAgent(ctx context.Context, req *proto.DismissSubAgent
 	return resp, nil
 }
 
+func (s *Server) ReopenSubAgent(ctx context.Context, req *proto.ReopenSubAgentRequest) (*proto.ReopenSubAgentResponse, error) {
+	ctx, work, err := s.beginForeground(ctx, req.GetConversationId())
+	if err != nil {
+		return nil, err
+	}
+	defer work.finish()
+	resp, err := s.persistSvc.ReopenSubAgent(ctx, req)
+	persistsvc.ReportWriteFailure(ctx, err)
+	if err != nil {
+		return nil, err
+	}
+	if err := work.check(); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 // ListTools implements proto.AgentServer — enumerates the agent's tool
 // registry for the CLI's /tools listing. Returns an empty list when no
 // registry was wired (e.g. tests that don't need tools).
