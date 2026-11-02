@@ -94,9 +94,9 @@ func TestProductionRecapTaskCompletion(t *testing.T) {
 			cfg.CloudProfiles = []config.CloudProfile{{Name: "mock-account", Provider: "mock-vendor"}}
 			cfg.ActiveCloudProfile = "mock-account"
 			cfg.ModelProfiles.Cloud.Providers = map[string]config.VendorCostTiers{"mock-vendor": {Economy: config.CostTierModel{Model: "mock-primary-model"}}}
-			// Deliberately override Recap's new secondary default: this must reach the
+			// Recap shares the configured Compaction route: this must reach the
 			// local mock while Dispatch reaches cloud primary through the same live graph.
-			cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskRecap: {Destination: config.DestinationLocal, Quality: config.CostEconomy}, config.TaskDispatch: {Destination: config.DestinationPrimary, Quality: config.CostEconomy}}
+			cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}, config.TaskDispatch: {Destination: config.DestinationPrimary, Quality: config.CostEconomy}}
 			routing := composeProductionRouting(productionRoutingDependencies{open: agent.AbsentCloud("fixture"), cloud: agent.AbsentCloud("fixture"), classificationDisabled: true})
 			var a *agent.Agent
 			var loader *projectctx.Loader

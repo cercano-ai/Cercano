@@ -61,7 +61,7 @@ func testProductionPreparedSchedulingOwnership(t *testing.T, producer string, ac
 	cfg.Compaction.SegmentTokens = 4000
 	cfg.Compaction.VerbatimRecent = 2
 	cfg.LocusMode = "open_only"
-	cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskRecap: {Destination: config.DestinationLocal, Quality: config.CostEconomy}, config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
+	cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
 	for _, host := range []string{"A", "B"} {
 		var a *agent.Agent
 		entered, resume := make(chan struct{}), make(chan struct{})

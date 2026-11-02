@@ -17,7 +17,7 @@ import (
 	"cercano/source/server/internal/conversation"
 )
 
-// CompleteFunc runs a completion on the configured recap task route.
+// CompleteFunc runs a completion on the configured Compaction task route.
 type CompleteFunc func(ctx context.Context, prompt string) (string, error)
 
 // Store is the subset of conversation.Store the generator needs.

@@ -12,7 +12,10 @@ import (
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/locus"
 	"cercano/source/server/internal/loopcompact"
+	"cercano/source/server/internal/managedsettings"
+	"cercano/source/server/internal/managedsettings/settingstest"
 	"cercano/source/server/pkg/config"
+	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
 )
 
 func TestRecapRoutePrecedence(t *testing.T) {
@@ -31,7 +34,7 @@ func TestRecapRoutePrecedence(t *testing.T) {
 			dest := config.DestinationSecondary
 			if tc.override {
 				dest = config.DestinationPrimary
-				cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskRecap: {Destination: dest, Quality: config.CostEconomy}}
+				cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskCompaction: {Destination: dest, Quality: config.CostEconomy}}
 			}
 			cloud := &schedulingProvider{}
 			tiers := inference.Tiers{Mode: locus.CloudOnly, Cloud: cloud, Destinations: map[config.Destination]inference.Candidate{
@@ -40,7 +43,7 @@ func TestRecapRoutePrecedence(t *testing.T) {
 			if tc.graph {
 				dest = config.DestinationSecondary
 				graph := config.Defaults()
-				graph.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskRecap: {Destination: dest, Quality: config.CostEconomy}}
+				graph.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskCompaction: {Destination: dest, Quality: config.CostEconomy}}
 				tiers.DeveloperConfig = &graph
 				tiers.TaskFor = graph.TaskAssignment
 			}
@@ -89,6 +92,9 @@ func TestRecapRequestUsesCurrentRoute(t *testing.T) {
 	}
 	cfg := config.Defaults()
 	cfg.LocusMode = "cloud_only"
+	cfg.TaskAssignments = map[config.Task]config.TaskAssignment{
+		config.Task("recap"): {Destination: config.DestinationLocal, Quality: config.CostEconomy},
+	}
 	dest := config.DestinationSecondary
 	var called []config.Destination
 	makeProvider := func(d config.Destination) *schedulingProvider {
@@ -97,7 +103,11 @@ func TestRecapRequestUsesCurrentRoute(t *testing.T) {
 	secondary, primary := makeProvider(config.DestinationSecondary), makeProvider(config.DestinationPrimary)
 	p := composeProductionScheduling(st, productionSchedulingDependencies{loop: loopcompact.WiringDeps{Cfg: cfg, Candidates: func() inference.Tiers {
 		pinned := dest
-		return inference.Tiers{Mode: locus.CloudOnly, Cloud: primary, Destinations: map[config.Destination]inference.Candidate{config.DestinationSecondary: {Provider: secondary, Profile: "secondary", IsCloud: true}}, TaskFor: func(config.Task) config.TaskAssignment {
+		return inference.Tiers{Mode: locus.CloudOnly, Cloud: primary, Destinations: map[config.Destination]inference.Candidate{config.DestinationSecondary: {Provider: secondary, Profile: "secondary", IsCloud: true}}, Open: &schedulingProvider{call: func(context.Context) error { t.Error("unexpected local inference"); return nil }}, TaskFor: func(task config.Task) config.TaskAssignment {
+			if task != config.TaskCompaction {
+				t.Errorf("selected task=%s, want compaction", task)
+				return cfg.TaskAssignment(task)
+			}
 			return config.TaskAssignment{Destination: pinned, Quality: config.CostEconomy}
 		}, ModelFor: func(inference.Selection, config.Tier) string { return "cloud-fixture" }}
 	}}}, productionSchedulingOptions{})
@@ -148,10 +158,60 @@ func TestRecapCloudOnlyRejectsLocal(t *testing.T) {
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	cfg := config.Defaults()
 	cfg.LocusMode = "cloud_only"
-	cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskRecap: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
+	cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
 	local := &schedulingProvider{call: func(context.Context) error { t.Fatal("local inference must not run"); return nil }}
 	_, runner, _, _, err := resolveRecapRoute(context.Background(), loopcompact.WiringDeps{Cfg: cfg, Candidates: func() inference.Tiers { return inference.Tiers{Mode: locus.CloudOnly, Open: local} }})
 	if err == nil || runner != nil {
 		t.Fatalf("cloud-only local selection: runner=%v err=%v", runner, err)
+	}
+}
+
+// A legacy Recap assignment must not override the configured Compaction route.
+func TestRecapUsesCompactionAssignment(t *testing.T) {
+	for _, graph := range []bool{false, true} {
+		t.Run(map[bool]string{false: "config", true: "graph"}[graph], func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.LocusMode = "cloud_only"
+			cfg.TaskAssignments = map[config.Task]config.TaskAssignment{
+				config.Task("recap"):  {Destination: config.DestinationLocal, Quality: config.CostEconomy},
+				config.TaskCompaction: {Destination: config.DestinationPrimary, Quality: config.CostPremium},
+			}
+			cloud := &schedulingProvider{}
+			tiers := inference.Tiers{Mode: locus.CloudOnly, Cloud: cloud, Open: &schedulingProvider{}, ModelFor: func(s inference.Selection, tier config.Tier) string {
+				if !s.IsCloud || s.PolicyDestination != config.DestinationPrimary || tier != config.TierMostCapable {
+					t.Errorf("selection=%+v tier=%s", s, tier)
+				}
+				return "compaction-premium"
+			}}
+			if graph {
+				tiers.TaskFor = cfg.TaskAssignment
+				tiers.DeveloperConfig = &cfg
+			}
+			_, runner, model, tier, err := resolveRecapRoute(context.Background(), loopcompact.WiringDeps{Cfg: cfg, Candidates: func() inference.Tiers { return tiers }})
+			if err != nil || runner == nil || model != "compaction-premium" || tier != string(config.TierMostCapable) {
+				t.Fatalf("runner=%v model=%q tier=%q err=%v", runner, model, tier, err)
+			}
+		})
+	}
+}
+
+func TestRecapUsesManagedCompactionRoute(t *testing.T) {
+	snapshot := settingstest.Snapshot("fixture", "1", "fixture")
+	snapshot.Policy.AllowedRoutes = append(snapshot.Policy.AllowedRoutes, v1.Route{ID: "recap", Provider: "openai", Endpoint: "https://recap.example/v1", Model: "wrong-recap", Placement: "external"})
+	snapshot.Policy.TaskDefaults = []v1.TaskDefault{
+		{Task: "compaction", Destination: "secondary", Quality: "premium", RouteID: "approved"},
+		{Task: "recap", Destination: "primary", Quality: "economy", RouteID: "recap"},
+	}
+	ctx := managedsettings.WithSnapshot(context.Background(), snapshot)
+	cfg := config.Defaults()
+	tiers := inference.Tiers{Mode: locus.CloudOnly, ManagedRoute: func(_ context.Context, route v1.Route, dest config.Destination) (inference.Candidate, error) {
+		if route.ID != "approved" || dest != config.DestinationSecondary {
+			t.Errorf("route=%s destination=%s", route.ID, dest)
+		}
+		return inference.Candidate{Provider: &schedulingProvider{}, Profile: route.ID, IsCloud: true}, nil
+	}, Open: &schedulingProvider{call: func(context.Context) error { t.Fatal("unexpected local inference"); return nil }}}
+	_, runner, model, tier, err := resolveRecapRoute(ctx, loopcompact.WiringDeps{Cfg: cfg, Candidates: func() inference.Tiers { return tiers }})
+	if err != nil || runner == nil || model != "approved" || tier != string(config.TierMostCapable) {
+		t.Fatalf("runner=%v model=%q tier=%q err=%v", runner, model, tier, err)
 	}
 }

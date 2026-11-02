@@ -140,7 +140,7 @@ func TestProductionSchedulingCommonFactory(t *testing.T) {
 					}
 					cfg := config.Defaults()
 					cfg.LocusMode = "open_only"
-					cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskRecap: {Destination: config.DestinationLocal, Quality: config.CostEconomy}, config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
+					cfg.TaskAssignments = map[config.Task]config.TaskAssignment{config.TaskCompaction: {Destination: config.DestinationLocal, Quality: config.CostEconomy}}
 					cfg.Compaction.Enabled = true
 					cfg.Compaction.ActivationFloorTokens = 1000
 					cfg.Compaction.SegmentTokens = 4000
