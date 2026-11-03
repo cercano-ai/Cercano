@@ -14,7 +14,7 @@ import (
 // Build source/server/cmd/cercano with go test -c and explicitly provide that
 // disposable test binary. The helper runs ordinary production A with synthetic
 // backends, then lifecycle-only B; this does not assert B's UI/history hydration.
-// The live case must ask for forced resumption and move to B only on yes.
+// Live/unknown sources must remain blocked on B, without dialing A.
 func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 	binary := os.Getenv("CERCANO_RESUME_PROBE_BINARY")
 	if binary == "" {
@@ -27,7 +27,7 @@ func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", root)
 			manifest := filepath.Join(root, "selection.json")
 			cmd := exec.Command(binary, "-test.run=^TestProductionResumeBridge$", "-test.timeout=45s")
-			cmd.Env = []string{"CERCANO_DISABLE_CREDENTIALS=1", "PATH=/usr/bin:/bin", "HOME=" + root, "XDG_CONFIG_HOME=" + root, "TMPDIR=" + root, "CERCANO_RESUME_PROBE_MANIFEST=" + manifest, "CERCANO_RESUME_PROBE_MODE=" + mode}
+			cmd.Env = []string{"CERCANO_DISABLE_CREDENTIALS=1", "PATH=/usr/bin:/bin", "HOME=" + root, "XDG_CONFIG_HOME=" + root, "TMPDIR=/tmp", "CERCANO_RESUME_PROBE_MANIFEST=" + manifest, "CERCANO_RESUME_PROBE_MODE=" + mode}
 			input, err := cmd.StdinPipe()
 			if err != nil {
 				t.Fatal(err)
@@ -65,17 +65,11 @@ func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 				if err != nil || selected.Epoch == "" {
 					t.Fatalf("released production reopen: %+v %v", selected, err)
 				}
-			} else if mode == "live" {
-				offer, ok := err.(*forcedResumeOffer)
-				if !ok || selected.Identity.Host != destination.Identity.Host {
-					t.Fatalf("expected explicit forced resumption offer, got %+v %v", selected, err)
-				}
-				verifyProductionForcedResume(t, offer)
-
 			} else {
-				if err == nil || !strings.Contains(err.Error(), "authoritative acquisition refused") {
-					t.Fatalf("unexpected-disconnect reopen: %v", err)
+				if err == nil || !strings.Contains(err.Error(), "destination recovery blocked") || selected.Identity.Host != destination.Identity.Host {
+					t.Fatalf("live/unknown source must stay on destination with blocker: %+v %v", selected, err)
 				}
+
 			}
 		})
 	}

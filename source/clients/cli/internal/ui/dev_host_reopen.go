@@ -4,10 +4,7 @@ package ui
 // connection loss. The lifecycle service remains the authority for busy refusal.
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"cercano/source/server/pkg/proto"
@@ -23,120 +20,27 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 		return destination, err
 	}
 	defer dc.Close()
-	// Ask the authenticated destination to inspect durable ownership first.
-	// A verified-dead owner needs no RPC to its old endpoint (and must not
-	// exhaust the reopen budget scanning unreachable historical endpoints).
-	probe, recoveryErr := dc.LifecycleRecover(ctx, &proto.LifecycleRecoverRequest{Target: destination.Identity, Conversation: conversation})
-	if recoveryErr == nil && protobuf.Equal(probe.GetIdentity(), destination.Identity) && probe.GetOwner().GetConversation() == conversation && probe.GetOwner().GetHost() != "" && probe.GetOwner().GetHost() != destination.Identity.Host && probe.GetOwner().GetEpoch() != "" {
-		return destination, &forcedResumeOffer{destination: destination, owner: probe.Owner, dead: true}
-	}
-	if status.Code(recoveryErr) == codes.Unauthenticated || status.Code(recoveryErr) == codes.PermissionDenied {
-		return destination, recoveryErr
-	}
-	paths, err := filepath.Glob(filepath.Join(filepath.Dir(destination.Identity.Store), "hosts", "*.json"))
-	if err != nil {
-		return destination, err
-	}
-	source, owner, err := findReopenOwner(paths, conversation, func(path string) (DevHostSelection, *proto.LifecycleControlResponse, error) {
-		// A dead unrelated endpoint must not exhaust the whole reopen budget.
-		ctx, cancel := context.WithTimeout(ctx, time.Second)
-		defer cancel()
-		st, err := os.Lstat(path)
-		if err != nil || !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 {
-			return DevHostSelection{}, nil, fmt.Errorf("cannot read private host record")
+	// Only the selected destination is authoritative. Never discover or dial a
+	// historical owner: endpoint availability is neither ownership nor death proof.
+	result, acquireErr := dc.LifecycleAcquire(ctx, &proto.LifecycleControlRequest{Target: destination.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}})
+	if acquireErr != nil {
+		if status.Code(acquireErr) == codes.Unauthenticated || status.Code(acquireErr) == codes.PermissionDenied {
+			return destination, acquireErr
 		}
-		source, err := ReadDevHostSelection(path)
-		if err != nil {
-			return source, nil, err
-		}
-		if source.Identity.Store != destination.Identity.Store || source.Identity.Contract != destination.Identity.Contract || source.Identity.Schema != destination.Identity.Schema {
-			return source, nil, fmt.Errorf("incompatible host record")
-		}
-		sc, err := source.controls(ctx)
-		if err != nil {
-			return source, nil, err
-		}
-		defer sc.Close()
-		listing, err := sc.LifecycleList(ctx, &proto.LifecycleControlRequest{Target: source.Identity, Management: true})
-		return source, listing, err
-	})
-	var unavailable *reopenDiscoveryUnavailable
-	if err != nil && !errors.As(err, &unavailable) {
-		return destination, err
-	}
-	if owner != nil {
-		// A different live owner requires explicit destructive resumption.
-		if source.Identity.Host != destination.Identity.Host {
-			return destination, &forcedResumeOffer{source: source, destination: destination, owner: owner}
-		}
-		source.Conversation, source.Epoch = conversation, owner.Epoch
-		return source, nil
-	}
-
-	result, err := dc.LifecycleAcquire(ctx, &proto.LifecycleControlRequest{Target: destination.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}})
-	if err != nil {
 		probe, recoveryErr := dc.LifecycleRecover(ctx, &proto.LifecycleRecoverRequest{Target: destination.Identity, Conversation: conversation})
-		if recoveryErr == nil && protobuf.Equal(probe.GetIdentity(), destination.Identity) && probe.GetOwner().GetConversation() == conversation && probe.GetOwner().GetHost() != "" && probe.GetOwner().GetHost() != destination.Identity.Host && probe.GetOwner().GetEpoch() != "" {
-			return destination, &forcedResumeOffer{destination: destination, owner: probe.Owner, dead: true}
+		if recoveryErr != nil {
+			return destination, fmt.Errorf("destination acquisition refused (%v); destination recovery blocked: %w", acquireErr, recoveryErr)
 		}
-		if recoveryErr != nil && status.Code(recoveryErr) != codes.Unimplemented {
-			return destination, fmt.Errorf("acquisition refused (%v); dead-owner recovery refused: %w", err, recoveryErr)
+		if !protobuf.Equal(probe.GetIdentity(), destination.Identity) || probe.GetOwner().GetConversation() != conversation || probe.GetOwner().GetHost() == "" || probe.GetOwner().GetHost() == destination.Identity.Host || probe.GetOwner().GetEpoch() == "" {
+			return destination, fmt.Errorf("destination recovery inspection returned invalid ownership")
 		}
-		if unavailable != nil {
-			return destination, fmt.Errorf("owner discovery incomplete (%v); authoritative acquisition refused: %w", unavailable, err)
-		}
-		return destination, err
+		return destination, &forcedResumeOffer{destination: destination, owner: probe.Owner, dead: true}
 	}
 	if result.GetPending() || !protobuf.Equal(result.GetIdentity(), destination.Identity) || result.GetOwner().GetConversation() != conversation || result.GetOwner().GetHost() != destination.Identity.Host || result.GetOwner().GetEpoch() == "" {
 		return destination, fmt.Errorf("reopen returned no ownership")
 	}
 	destination.Conversation, destination.Epoch = conversation, result.Owner.Epoch
 	return destination, nil
-}
-
-// A positive retained owner is authoritative under the store's exclusive ownership
-// contract. Scan all reachable hosts to reject conflicting live claims. With no
-// positive owner, unavailable listings are not ownership evidence. The destination
-// may still attempt ordinary acquisition: the store lock AND durable owned/reserved
-// record reject takeover. Only new or explicitly released ownership can succeed.
-type reopenDiscoveryUnavailable struct{ cause error }
-
-func (e *reopenDiscoveryUnavailable) Error() string { return e.cause.Error() }
-func (e *reopenDiscoveryUnavailable) Unwrap() error { return e.cause }
-
-func findReopenOwner(paths []string, conversation string, list func(string) (DevHostSelection, *proto.LifecycleControlResponse, error)) (DevHostSelection, *proto.LifecycleOwner, error) {
-	var selected DevHostSelection
-	var found *proto.LifecycleOwner
-	var uncertain error
-	for _, path := range paths {
-		source, listing, err := list(path)
-		if err != nil {
-			if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded && !errors.Is(err, context.DeadlineExceeded) {
-				return selected, nil, err
-			}
-			uncertain = err
-			continue
-		}
-		if listing == nil || !protobuf.Equal(listing.Identity, source.Identity) {
-			return selected, nil, fmt.Errorf("host identity mismatch")
-		}
-		for _, owner := range listing.Retained {
-			if owner.Conversation != conversation {
-				continue
-			}
-			if owner.Host != source.Identity.Host || owner.Epoch == "" {
-				return selected, nil, fmt.Errorf("invalid retained owner")
-			}
-			if found != nil {
-				return selected, nil, fmt.Errorf("ambiguous retained ownership")
-			}
-			selected, found = source, owner
-		}
-	}
-	if found == nil && uncertain != nil {
-		return selected, nil, &reopenDiscoveryUnavailable{cause: uncertain}
-	}
-	return selected, found, nil
 }
 
 func (m Model) beginDevHostReopen(conversation string) (Model, tea.Cmd) {

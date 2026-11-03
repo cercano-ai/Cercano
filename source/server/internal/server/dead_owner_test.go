@@ -95,6 +95,12 @@ func TestDeadOwnerRecoveryRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer bound.Close()
+	// Lost CLI binding/response must not mint another epoch or fail merely
+	// because an attachment already exists on the ready destination owner.
+	reopened, err := client.LifecycleAcquire(ctx, &pb.LifecycleControlRequest{Target: r.Target, Owner: &pb.LifecycleOwner{Conversation: "dead"}})
+	if err != nil || reopened.GetOwner().GetEpoch() != got.Owner.Epoch {
+		t.Fatalf("ready owner reopen: %+v %v", reopened, err)
+	}
 	if err = bound.ReconnectPinnedSession(ctx); err != nil {
 		t.Fatal(err)
 	}

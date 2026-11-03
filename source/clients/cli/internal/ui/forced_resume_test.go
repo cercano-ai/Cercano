@@ -8,10 +8,9 @@ import (
 func TestForcedResumeConfirmationAndStaleCallbacks(t *testing.T) {
 	for _, key := range []string{"enter", "n", "esc", "y"} {
 		t.Run(key, func(t *testing.T) {
-			a := DevHostSelection{Identity: &proto.LifecycleIdentity{Host: "A"}, Conversation: "history", Epoch: "old"}
 			b := DevHostSelection{Identity: &proto.LifecycleIdentity{Host: "B"}, Conversation: "current", Epoch: "new"}
 			m := New(nil, false).WithDevHost(b, "test")
-			offered, cmd := m.offerForcedResume(&forcedResumeOffer{source: a, destination: b, owner: &proto.LifecycleOwner{Conversation: "history", Host: "A", Epoch: "old"}})
+			offered, cmd := m.offerForcedResume(&forcedResumeOffer{destination: b, owner: &proto.LifecycleOwner{Conversation: "history", Host: "A", Epoch: "old"}})
 			m = offered.(Model)
 			if cmd != nil || m.pendingConfirm == nil {
 				t.Fatal("offer mutated without confirmation")
@@ -26,7 +25,7 @@ func TestForcedResumeConfirmationAndStaleCallbacks(t *testing.T) {
 		})
 	}
 	m := New(nil, false).WithDevHost(DevHostSelection{Identity: &proto.LifecycleIdentity{Host: "B"}}, "test")
-	offered, _ := m.offerForcedResume(&forcedResumeOffer{source: DevHostSelection{}, destination: m.devHost.selection, owner: &proto.LifecycleOwner{Conversation: "history", Host: "A", Epoch: "old"}})
+	offered, _ := m.offerForcedResume(&forcedResumeOffer{destination: m.devHost.selection, owner: &proto.LifecycleOwner{Conversation: "history", Host: "A", Epoch: "old"}})
 	m = offered.(Model)
 	callback := m.pendingConfirm.onYes
 	m.taskSubscriptionGeneration++

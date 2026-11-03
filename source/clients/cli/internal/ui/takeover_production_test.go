@@ -91,10 +91,10 @@ func verifyProductionTakeoverConfirmation(t *testing.T, ctx context.Context, own
 			t.Fatal("attachment command did not stop")
 		}
 	}
-	// Selection remains on A and default-new-conversation authority remains B.
+	// Ordinary resume must not route back to A, even though A remains live.
 	selected, err := reopenDevHost(ctx, destination, owner.Conversation)
-	if err != nil || selected.Identity.Host != owner.Identity.Host || selected.Epoch != owner.Epoch {
-		t.Fatalf("takeover moved durable ownership: %+v %v", selected, err)
+	if err == nil || selected.Identity.Host != destination.Identity.Host {
+		t.Fatalf("live owner resume escaped destination: %+v %v", selected, err)
 	}
 	if m.devHost.defaultSelection.Identity.Host != destination.Identity.Host {
 		t.Fatal("resume changed default host")

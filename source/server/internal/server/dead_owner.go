@@ -57,7 +57,7 @@ func (s *Server) LifecycleRecover(ctx context.Context, r *pb.LifecycleRecoverReq
 		var e error
 		release, e = l.options.RecoveryGuard(ctx, v.Owner)
 		if e != nil {
-			return status.Errorf(codes.FailedPrecondition, "source death not verified: %v", e)
+			return status.Errorf(codes.FailedPrecondition, "source %q death not verified; safe live-owner fencing unavailable (no source RPC attempted): %v", v.Owner, e)
 		}
 		if release == nil {
 			return fmt.Errorf("recovery guard omitted exclusion")
