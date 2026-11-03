@@ -2772,6 +2772,10 @@ message LifecycleControlRequest {
  LifecycleIdentity requester = 10;
  // Opaque verified process snapshot, bound to the durable resume operation.
  string legacy_process_identity = 11;
+ // New-launch-only receipt protocol on LifecycleAcquire; never generic release.
+ string launch_operation = 12;
+ // acquire, deliver, or abort. Journal-only states are never client commands.
+ string launch_action = 13;
 }
 message LifecycleControlResponse {
  LifecycleIdentity identity = 1;

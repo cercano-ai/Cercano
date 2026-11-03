@@ -131,6 +131,33 @@ def selection_file(path, state):
     return p
 
 
+def handoff_development_selection(binary, generation, selection, state, args, runtime_env):
+    # No signal/timeout/EOF cleanup: only synchronous pre-exec exceptions prove
+    # this launcher did not deliver to the CLI. Host observation still wins.
+    operation = None
+    try:
+        path = selection_file(selection, state)
+        details = json.loads(path.read_text())
+        candidate = Path(details['OperationFile'])
+        operation_id = details['LaunchOperation']
+        if (not operation_id or candidate != state / 'launch-operations' / (operation_id + '.json')
+                or candidate.resolve() != candidate):
+            raise ValueError('exact launch operation required')
+        operation = str(candidate)
+        validate_generation(generation, state)
+        cli = str(Path(generation) / 'cercano-cli')
+        clear_progress()
+        os.execve(cli, [cli, '--dev-host', selection, *args], runtime_env)
+    except (OSError, ValueError, KeyError) as cause:
+        if operation is not None:
+            command = [binary, 'development-launch-receipt', '--operation-file', operation, '--action', 'abort']
+            try:
+                subprocess.run(command, env=runtime_env, check=True, stdout=subprocess.DEVNULL)
+            except (OSError, subprocess.CalledProcessError) as cleanup:
+                raise ValueError(f'{cause}; cleanup unresolved ({cleanup}); retry: {command!r}') from cause
+        raise
+
+
 def parse_args(args):
     """Normalize Go's one/two-dash and equals spellings before any work.
 
@@ -551,12 +578,8 @@ def launch_main():
     validate_generation(generation, state)
     binary = str(Path(generation) / 'cercano')
     feedback('Acquiring development host...')
-    selection = progress_check_output([binary, 'development-launch', '--state', str(state), '--generation', generation, '--runtime-root', str(runtime), '--config-authority', str(authority)], env=runtime_env, text=True).strip()
-    selection_file(selection, state)
-    validate_generation(generation, state)
-    cli = str(Path(generation) / 'cercano-cli')
-    clear_progress()
-    os.execve(cli, [cli, '--dev-host', selection, *args], runtime_env)
+    selection = progress_check_output([binary, 'development-launch', '--launch-handoff', '--state', str(state), '--generation', generation, '--runtime-root', str(runtime), '--config-authority', str(authority)], env=runtime_env, text=True).strip()
+    handoff_development_selection(binary, generation, selection, state, args, runtime_env)
 
 
 if __name__ == '__main__':

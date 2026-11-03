@@ -1,6 +1,27 @@
-# Failed-launch ownership: reproduced, implementation decision outstanding
+# Failed-launch ownership: receipt implementation awaiting independent review
 
-Status: **not fixed**. This checkpoint contains fixture characterization only, not a production compensation implementation.
+Status (2026-11-03): **implemented on the review branch, not landed** following the user's explicit approval of the narrow receipt addition. The reproduction and decision discussion below describe the original checkpoint, not current implementation status.
+
+## Implementation and isolated verification
+
+New launches journal an operation before acquisition. Host receipt transitions bind operation, target, conversation and exact epoch; observation/delivery consumes compensation authority under the lifecycle mutex. Only pending, definitively failed launches can abort. Ambiguous acquisition/output retains ownership and an explicit same-operation recovery command. Direct Go output claims delivery before exposing details; Python handoff leaves delivery to CLI acknowledgment and compensates synchronous pre-exec failures. Artifact rollback is operation-bound under the publication lock. Existing-session and disconnect lifecycle semantics are unchanged.
+
+Converted the original leak assertions to compensation regressions. Added fake-host/Python exec-failure and CLI delivery-boundary coverage, abort/attachment races, durable duplicate abort, failed cleanup retry, exact epoch fencing (including later ordinary reacquisition), observation/detach retention, existing-conversation rejection and ambiguous acquisition/output cases.
+
+Passed in this worktree:
+
+- Server: `go test -race ./internal/server -run 'LaunchReceipt|LifecycleControl|Retained' -count=1`
+- Server: `go test ./internal/server ./internal/broker ./pkg/agentclient -count=1`
+- Server: `go test -race ./cmd/cercano -run DevelopmentLaunch -count=1`
+- CLI: `go test -race ./internal/ui -run 'DevHost|LaunchDelivery' -count=1`
+- Both affected Go executable builds, writing only temporary binaries.
+- Python compatibility (3), progress (9), arguments (4), feedback (5), safety (22) tests.
+
+Limits: scoped isolated gates, not full repository/system acceptance. The previously reported PTY baseline was not rerun or independently established by these gates. Python exec-failure integration stubs generation validation to isolate handoff; generation safety is covered separately by launcher safety fixtures. No production runtime, deployment, push or land. Independent review remains required.
+
+## Original checkpoint (historical)
+
+At this checkpoint the issue was **not fixed**; it contained fixture characterization only.
 
 ## Reproduction
 

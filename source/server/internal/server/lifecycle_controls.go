@@ -57,12 +57,19 @@ func (s *Server) LifecycleAcquire(ctx context.Context, r *pb.LifecycleControlReq
 	if e != nil {
 		return nil, e
 	}
+	if r.LaunchOperation != "" || r.LaunchAction != "" {
+		return s.launchControl(ctx, l, r)
+	}
 	// Reconnect may repeat acquisition after a response or client is lost. Only
 	// expose an already ready local capability, never an unresolved acquisition.
 	l.mu.Lock()
 	if capability := l.owners[r.GetOwner().GetConversation()]; capability != nil {
 		owner := ownerOf(capability)
 		if l.ready[owner] {
+			if e := l.observeLaunchLocked(owner); e != nil {
+				l.mu.Unlock()
+				return nil, e
+			}
 			l.mu.Unlock()
 			return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: wireOwner(owner)}, nil
 		}
@@ -257,6 +264,9 @@ func (s *Server) LifecycleList(ctx context.Context, r *pb.LifecycleControlReques
 	out := &pb.LifecycleControlResponse{Identity: l.controlIdentity()}
 	for _, cap := range l.owners {
 		o := ownerOf(cap)
+		if err := l.observeLaunchLocked(o); err != nil {
+			return nil, err
+		}
 		out.Retained = append(out.Retained, wireOwner(o))
 		_, retained, open := l.admission.CheckRetained(o)
 		if retained && open {

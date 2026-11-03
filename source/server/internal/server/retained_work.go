@@ -31,6 +31,9 @@ func (s *Server) beginRetainedWorkLocked(ctx context.Context, owner broker.Owner
 	if o == nil || ownerOf(o) != owner {
 		return nil, nil, broker.ErrAdmissionStale
 	}
+	if err := l.observeLaunchLocked(owner); err != nil {
+		return nil, nil, err
+	}
 	if !l.ready[owner] {
 		return nil, nil, broker.ErrAdmissionBusy
 	}

@@ -49,6 +49,7 @@ type CoexistenceOptions struct {
 }
 
 type coexistenceLifecycle struct {
+	launches       map[string]*pb.LifecycleControlRequest
 	mu             sync.Mutex
 	resumeMu       sync.Mutex // serialize operation journal updates, never held by peer callbacks
 	retireMu       sync.Mutex
@@ -203,6 +204,9 @@ func (s *Server) ListRetained() ([]broker.Owner, error) {
 	defer l.mu.Unlock()
 	out := make([]broker.Owner, 0, len(l.owners))
 	for _, o := range l.owners {
+		if err := l.observeLaunchLocked(ownerOf(o)); err != nil {
+			return nil, err
+		}
 		out = append(out, ownerOf(o))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Conversation < out[j].Conversation })
@@ -221,6 +225,9 @@ func (s *Server) AttachRetained(o broker.Owner) (*broker.Attachment, error) {
 	if !l.ready[o] {
 		return nil, broker.ErrAdmissionBusy
 	}
+	if e := l.observeLaunchLocked(o); e != nil {
+		return nil, e
+	}
 	return l.admission.AttachOwner(o)
 }
 func (s *Server) AdmitRetainedWork(o broker.Owner, k broker.WorkKind) (*broker.WorkTicket, error) {
@@ -232,6 +239,9 @@ func (s *Server) AdmitRetainedWork(o broker.Owner, k broker.WorkKind) (*broker.W
 	defer l.mu.Unlock()
 	if !l.ready[o] {
 		return nil, broker.ErrAdmissionBusy
+	}
+	if e := l.observeLaunchLocked(o); e != nil {
+		return nil, e
 	}
 	return l.admission.AdmitWork(o, k)
 }

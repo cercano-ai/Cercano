@@ -32,8 +32,10 @@ type launchTestHost struct {
 	pb.UnimplementedAgentServer
 	identity         *pb.LifecycleIdentity
 	reject           atomic.Bool
+	lostAcquire      atomic.Bool
 	entered          chan struct{}
 	ready            chan struct{}
+	operations       sync.Map
 	acquired         sync.Map // Fixture ownership, including acquisitions never delivered.
 	releases         atomic.Int64
 	selectionFailure atomic.Value // Optional fixture-only exclusive-create collision directory.
@@ -63,6 +65,24 @@ func (h *launchTestHost) LifecycleAcquire(ctx context.Context, r *pb.LifecycleCo
 	if !proto.Equal(r.Target, h.identity) {
 		return nil, fmt.Errorf("wrong target")
 	}
+	if r.LaunchAction == "deliver" || r.LaunchAction == "abort" {
+		value, ok := h.operations.Load(r.LaunchOperation)
+		if !ok {
+			return nil, fmt.Errorf("missing receipt")
+		}
+		original := value.(*pb.LifecycleControlRequest)
+		owner := &pb.LifecycleOwner{Conversation: original.Owner.Conversation, Host: h.identity.Host, Epoch: "fresh-" + original.Owner.Conversation}
+		if !proto.Equal(r.Owner, owner) {
+			return nil, fmt.Errorf("wrong owner")
+		}
+		if r.LaunchAction == "abort" {
+			if _, err := h.LifecycleRelease(ctx, r); err != nil {
+				return nil, err
+			}
+		}
+		return &pb.LifecycleControlResponse{Identity: h.identity, Owner: owner, Receipt: r.LaunchOperation}, nil
+	}
+	h.operations.Store(r.LaunchOperation, proto.Clone(r))
 	owner := &pb.LifecycleOwner{Conversation: r.Owner.Conversation, Host: h.identity.Host, Epoch: "fresh-" + r.Owner.Conversation}
 	h.acquired.Store(owner.Conversation, owner)
 	if dir, _ := h.selectionFailure.Load().(string); dir != "" {
@@ -70,7 +90,10 @@ func (h *launchTestHost) LifecycleAcquire(ctx context.Context, r *pb.LifecycleCo
 			return nil, err
 		}
 	}
-	return &pb.LifecycleControlResponse{Identity: h.identity, Owner: owner}, nil
+	if h.lostAcquire.Load() {
+		return nil, fmt.Errorf("fixture lost response")
+	}
+	return &pb.LifecycleControlResponse{Identity: h.identity, Owner: owner, Receipt: r.LaunchOperation, Pending: true}, nil
 }
 func (h *launchTestHost) LifecycleRelease(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	if !proto.Equal(r.Target, h.identity) {
@@ -84,15 +107,42 @@ func (h *launchTestHost) LifecycleRelease(ctx context.Context, r *pb.LifecycleCo
 	h.releases.Add(1)
 	return &pb.LifecycleControlResponse{Identity: h.identity}, nil
 }
+
+type launchFailWriter struct{ partial bool }
+
+func (w launchFailWriter) Write(p []byte) (int, error) {
+	if w.partial {
+		return 1, io.ErrClosedPipe
+	}
+	return 0, io.ErrClosedPipe
+}
 func TestDevelopmentLaunchChild(t *testing.T) {
 	if os.Getenv("CERCANO_LAUNCH_TEST_CHILD") != "1" {
 		return
+	}
+	if os.Getenv("CERCANO_RECEIPT_TEST_CHILD") == "1" {
+		start := 0
+		for i, arg := range os.Args {
+			if arg == "--" {
+				start = i + 2
+				break
+			}
+		}
+		if err := runDevelopmentLaunchReceipt(context.Background(), os.Args[start:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(19)
+		}
+		os.Exit(0)
 	}
 	var args []string
 	if e := json.Unmarshal([]byte(os.Getenv("CERCANO_LAUNCH_TEST_ARGS")), &args); e != nil {
 		panic(e)
 	}
-	if e := runDevelopmentLaunchWithRecovery(context.Background(), args, os.Stdout, func(_ context.Context, _, _, _ string, _ launchSelection, cause error) error {
+	var out io.Writer = os.Stdout
+	if mode := os.Getenv("CERCANO_TEST_OUTPUT_FAILURE"); mode != "" {
+		out = launchFailWriter{partial: mode == "partial"}
+	}
+	if e := runDevelopmentLaunchWithRecovery(context.Background(), args, out, func(_ context.Context, _, _, _ string, _ launchSelection, cause error) error {
 		return fmt.Errorf("fixture host uncertain; refusing replacement: %w", cause)
 	}); e != nil {
 		fmt.Fprintln(os.Stderr, e)
@@ -218,10 +268,9 @@ func TestDevelopmentLaunchAuthenticatedConcurrentReuse(t *testing.T) {
 	if !proto.Equal(current.Identity, id) || current.Generation != generation || current.Conversation != "" || current.Epoch != "" {
 		t.Fatalf("invalid current target: %+v", current)
 	}
-	// Characterization only: record the leak before choosing a safe delivery
-	// protocol. These assertions intentionally describe the unfixed behavior.
+	// Definitively failed, undelivered launches must compensate exact ownership.
 	for _, boundary := range []string{"selection-write", "target-publication"} {
-		t.Run("ReproduceUndeliveredOwnershipLeak/"+boundary, func(t *testing.T) {
+		t.Run("CompensateUndelivered/"+boundary, func(t *testing.T) {
 			count := func() int {
 				n := 0
 				host.acquired.Range(func(_, _ any) bool { n++; return true })
@@ -252,12 +301,106 @@ func TestDevelopmentLaunchAuthenticatedConcurrentReuse(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected fixture launch failure, got %s", output)
 			}
-			if count() != beforeCount+1 || host.releases.Load() != beforeReleases {
-				t.Fatalf("baseline changed: owners %d -> %d; releases %d -> %d", beforeCount, count(), beforeReleases, host.releases.Load())
+			if count() != beforeCount || host.releases.Load() != beforeReleases+1 {
+				t.Fatalf("compensation missing: owners %d -> %d; releases %d -> %d", beforeCount, count(), beforeReleases, host.releases.Load())
 			}
-			t.Logf("REPRODUCED: %s failed, exact acquired ownership remains, no release RPC: %s", boundary, output)
+			t.Logf("compensated %s: %s", boundary, output)
 		})
 	}
+
+	t.Run("PythonExecFailure", func(t *testing.T) {
+		launchArgs := []string{"--state", state, "--generation", generation, "--runtime-root", runtime, "--launch-handoff"}
+		encoded, _ := json.Marshal(launchArgs)
+		launchCmd := exec.Command(filepath.Join(generation, "cercano"), "-test.run=^TestDevelopmentLaunchChild$")
+		launchCmd.Env = append(os.Environ(), "CERCANO_LAUNCH_TEST_CHILD=1", "CERCANO_LAUNCH_TEST_ARGS="+string(encoded))
+		output, err := launchCmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("handoff launch: %v %s", err, output)
+		}
+		selection := strings.TrimSpace(string(output))
+		var pending launchSelection
+		if err := launchRead(selection, &pending); err != nil {
+			t.Fatal(err)
+		}
+		// A later same-host winner must survive rollback of this earlier operation.
+		winner := pending
+		winner.LaunchOperation = "unrelated-winner"
+		if err := publishCurrentTarget(state, winner); err != nil {
+			t.Fatal(err)
+		}
+		wrapper := filepath.Join(root, "receipt-wrapper")
+		script := fmt.Sprintf("#!/bin/sh\nexport CERCANO_LAUNCH_TEST_CHILD=1 CERCANO_RECEIPT_TEST_CHILD=1\nexec %q -test.run=^TestDevelopmentLaunchChild$ -- \"$@\"\n", exe)
+		if err := os.WriteFile(wrapper, []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+		python, _ := filepath.Abs("../../scripts/cercano-launcher.py")
+		code := `import importlib.util,sys,os
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("launcher",sys.argv[1]); m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+m.validate_generation=lambda generation,state: None # fixture generation, no production publisher
+try:
+ m.handoff_development_selection(sys.argv[2],sys.argv[3],sys.argv[4],Path(sys.argv[5]),[],dict(os.environ))
+except OSError:
+ pass
+else:
+ raise AssertionError("exec should fail")
+`
+		cmd := exec.Command("python3", "-c", code, python, wrapper, generation, selection, state)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("Python handoff: %v %s", err, out)
+		}
+		if _, ok := host.acquired.Load(pending.Conversation); ok {
+			t.Fatal("exec failure leaked owner")
+		}
+		if _, err := os.Stat(selection); !os.IsNotExist(err) {
+			t.Fatalf("selection retained: %v", err)
+		}
+		var current launchSelection
+		if err := launchRead(filepath.Join(state, "current-target.json"), &current); err != nil || current.LaunchOperation != "unrelated-winner" {
+			t.Fatalf("winner lost: %v %v", current, err)
+		}
+	})
+
+	for _, tc := range []struct {
+		name, mode       string
+		handoff, cleanup bool
+	}{
+		{"HandoffZeroOutput", "zero", true, true}, {"HandoffPartialOutput", "partial", true, false}, {"DirectOutputDelivered", "zero", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, releases := countFixtureOwners(host), host.releases.Load()
+			childArgs := []string{"--state", state, "--generation", generation, "--runtime-root", runtime}
+			if tc.handoff {
+				childArgs = append(childArgs, "--launch-handoff")
+			}
+			raw, _ := json.Marshal(childArgs)
+			cmd := exec.Command(filepath.Join(generation, "cercano"), "-test.run=^TestDevelopmentLaunchChild$")
+			cmd.Env = append(os.Environ(), "CERCANO_LAUNCH_TEST_CHILD=1", "CERCANO_LAUNCH_TEST_ARGS="+string(raw), "CERCANO_TEST_OUTPUT_FAILURE="+tc.mode)
+			if out, err := cmd.CombinedOutput(); err == nil {
+				t.Fatalf("output failure succeeded: %s", out)
+			}
+			delta := 1
+			if tc.cleanup {
+				delta = 0
+				releases++
+			}
+			if countFixtureOwners(host) != before+delta || host.releases.Load() != releases {
+				t.Fatal("incorrect output failure compensation")
+			}
+		})
+	}
+	t.Run("AmbiguousAcquisition", func(t *testing.T) {
+		before, releases := countFixtureOwners(host), host.releases.Load()
+		host.lostAcquire.Store(true)
+		defer host.lostAcquire.Store(false)
+		out, err := invoke()
+		if err == nil || !strings.Contains(out, "ambiguous launch acquisition") {
+			t.Fatalf("unexpected result: %v %s", err, out)
+		}
+		if countFixtureOwners(host) != before+1 || host.releases.Load() != releases {
+			t.Fatal("ambiguous acquire reclaimed")
+		}
+	})
 	targetBefore, _ := os.ReadFile(filepath.Join(state, "current-target.json"))
 	before, _ := os.ReadFile(paths[0])
 	server.Stop()
@@ -460,4 +603,10 @@ func TestDevelopmentLaunchRecoveryChild(t *testing.T) {
 		t.Fatal("old live source ownership seized")
 	}
 
+}
+
+func countFixtureOwners(h *launchTestHost) int {
+	n := 0
+	h.acquired.Range(func(_, _ any) bool { n++; return true })
+	return n
 }

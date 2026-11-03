@@ -27,6 +27,8 @@ import (
 )
 
 type launchSelection struct {
+	LaunchOperation string `json:",omitempty"`
+	OperationFile   string `json:",omitempty"`
 	// Fixture restricts synthetic dependency-factory terminals only; never authorization.
 	Fixture         bool `json:",omitempty"`
 	ConfigAuthority string
@@ -128,6 +130,7 @@ type developmentLaunchCommand func(string, string, string, string, string, strin
 func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Writer, recoverBlocked developmentBlockedRecovery, hostCommand developmentLaunchCommand) error {
 	fs := flag.NewFlagSet("development-launch", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	handoff := fs.Bool("launch-handoff", false, "pending handoff to CLI; caller must explicitly abort definitive pre-exec failures")
 	authority := fs.String("config-authority", "", "absolute isolated config authority shared across generations")
 	state := fs.String("state", "", "prepared private state")
 	generation := fs.String("generation", "", "exact published generation")
@@ -204,7 +207,7 @@ func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Wr
 	}
 	hosts := filepath.Join(*state, "hosts")
 	selections := filepath.Join(*state, "selections")
-	for _, p := range []string{hosts, selections} {
+	for _, p := range []string{hosts, selections, filepath.Join(*state, "launch-operations")} {
 		if e = os.Mkdir(p, 0700); e != nil && !os.IsExist(e) {
 			return e
 		}
@@ -358,38 +361,58 @@ func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Wr
 		if e != nil {
 			return e
 		}
-		acquired, e := controls.LifecycleAcquire(ready, &pb.LifecycleControlRequest{Target: expected, Owner: &pb.LifecycleOwner{Conversation: id}})
+		operation, e := launchID()
 		if e != nil {
-			controls.Close()
-			cancel()
-			if replaced {
-				return fmt.Errorf("replacement host unavailable; intent retained: %w", e)
-			}
-			if e = recoverBlocked(ctx, base, *generation, configAuthority, s, e); e != nil {
-				return e
-			}
-			base, freshHost, e = developmentNewInstance(generationBase, *generation, configAuthority)
-			if e != nil {
-				return e
-			}
-			replaced = true
-			continue
+			return e
 		}
-		if !proto.Equal(acquired.Identity, expected) || acquired.GetOwner().GetConversation() != id || acquired.GetOwner().GetHost() != expected.Host || acquired.GetOwner().GetEpoch() == "" {
-			return fmt.Errorf("acquire identity mismatch")
+		s.Conversation, s.Generation, s.LaunchOperation = id, *generation, operation
+		s.OperationFile = filepath.Join(*state, "launch-operations", operation+".json")
+		if e = launchExclusive(s.OperationFile, s); e != nil {
+			return e
 		}
-		s.Conversation = id
+		// Sync before acquisition: lost responses must have a recoverable ID.
+		if e = replaceLaunchRecord(s.OperationFile, s); e != nil {
+			return e
+		}
+		acquired, e := controls.LifecycleAcquire(ready, &pb.LifecycleControlRequest{Target: expected, Owner: &pb.LifecycleOwner{Conversation: id}, LaunchOperation: operation, LaunchAction: "acquire"})
+		if e != nil {
+			return fmt.Errorf("ambiguous launch acquisition; do not release or replace host; retry development-launch-receipt --operation-file %s --action acquire: %w", s.OperationFile, e)
+		}
+		if acquired == nil || !proto.Equal(acquired.Identity, expected) || acquired.GetOwner().GetConversation() != id || acquired.GetOwner().GetHost() != expected.Host || acquired.GetOwner().GetEpoch() == "" || acquired.Receipt != operation {
+			return fmt.Errorf("ambiguous acquire identity/receipt; preserve %s; retry same operation acquire", s.OperationFile)
+		}
 		s.Epoch = acquired.Owner.Epoch
-		s.Generation = *generation
+		compensate := func(cause error) error {
+			if err := abortLaunch(*state, s); err != nil {
+				return fmt.Errorf("%w; cleanup unresolved: %v; retry development-launch-receipt --operation-file %s --action abort (first --action acquire if epoch was not saved)", cause, err, s.OperationFile)
+			}
+			return cause
+		}
+		if e = replaceLaunchRecord(s.OperationFile, s); e != nil {
+			return compensate(e)
+		}
 		selection := filepath.Join(selections, id+".json")
 		if e = launchExclusive(selection, s); e != nil {
-			return e
+			return compensate(e)
 		}
 		if e = publishCurrentTarget(*state, s); e != nil {
-			return e
+			return compensate(e)
 		}
-		_, e = fmt.Fprintln(out, selection)
-		return e
+		if !*handoff {
+			// Direct output is a delivery, not permission to cancel later. Claim
+			// before exposing details; a partial/lost output must retain ownership.
+			if e = launchReceipt(ready, controls, s, "deliver"); e != nil {
+				return fmt.Errorf("delivery ambiguous; preserve %s; do not abort: %w", s.OperationFile, e)
+			}
+		}
+		n, e := fmt.Fprintln(out, selection)
+		if e != nil && *handoff && n == 0 {
+			return compensate(e)
+		}
+		if e != nil {
+			return fmt.Errorf("output ambiguous or already delivered; retain %s, do not abort: %w", s.OperationFile, e)
+		}
+		return nil
 	}
 }
 
