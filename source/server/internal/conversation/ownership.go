@@ -27,6 +27,7 @@ type Ownership struct {
 	conversation, owner, epoch string
 	usable                     atomic.Bool
 	lock                       *os.File
+	recoveryLocks              []*os.File
 }
 
 func (o *Ownership) ConversationID() string { return o.conversation }
@@ -217,6 +218,10 @@ func (o *Ownership) relinquish(ctx context.Context, state, destination, handover
 		return fmt.Errorf("relinquishment commit uncertain; lock retained; inspect durable state: %w", err)
 	}
 	o.usable.Store(false)
+	for _, f := range o.recoveryLocks {
+		f.Close()
+	}
+	o.recoveryLocks = nil
 	err = o.lock.Close()
 	o.lock = nil
 	return err
@@ -231,6 +236,10 @@ func (o *Ownership) Close() error {
 		return nil
 	}
 	o.usable.Store(false)
+	for _, f := range o.recoveryLocks {
+		f.Close()
+	}
+	o.recoveryLocks = nil
 	err := o.lock.Close()
 	o.lock = nil
 	return err

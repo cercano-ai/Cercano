@@ -23,7 +23,10 @@ import (
 type CoexistenceOptions struct {
 	StorePath, Build, Host string
 	// Controls remain disabled unless startup explicitly supplies authenticated authorization and peer dialing.
-	ControlAuthorize   func(context.Context) error
+	ControlAuthorize func(context.Context) error
+	// RecoveryGuard proves the exact historical host absent and excludes relaunch
+	// until its returned release function is called. Nil disables recovery.
+	RecoveryGuard      func(context.Context, string) (func(), error)
 	ControlDial        func(context.Context, string) (*grpc.ClientConn, error)
 	Contract           conversation.CoexistenceDeclaration
 	CloseParticipation func(context.Context) error
@@ -100,6 +103,10 @@ func (l *coexistenceLifecycle) acquire(ctx context.Context, id string, accepted 
 // initialize creates a fresh owned row before reload; rollover needs its linked
 // row and handoff in one transaction rather than the default empty row.
 func (l *coexistenceLifecycle) acquireInitialized(ctx context.Context, id string, accepted *IncomingAcceptance, initialize func(context.Context, *conversation.Ownership) error) (broker.Owner, error) {
+	return l.acquireUsing(ctx, id, accepted, initialize, nil)
+}
+
+func (l *coexistenceLifecycle) acquireUsing(ctx context.Context, id string, accepted *IncomingAcceptance, initialize func(context.Context, *conversation.Ownership) error, recover func() (*conversation.Ownership, error)) (broker.Owner, error) {
 	if l.owners[id] != nil {
 		return broker.Owner{}, broker.ErrAdmissionBusy
 	}
@@ -108,7 +115,9 @@ func (l *coexistenceLifecycle) acquireInitialized(ctx context.Context, id string
 		return broker.Owner{}, e
 	}
 	var o *conversation.Ownership
-	if accepted == nil {
+	if recover != nil {
+		o, e = recover()
+	} else if accepted == nil {
 		o, e = conversation.AcquireOwnership(ctx, l.store, id, l.options.Host)
 	} else {
 		o, e = conversation.ClaimHandover(ctx, l.store, id, l.options.Host, accepted.h.HandoverID)

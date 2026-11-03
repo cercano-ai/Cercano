@@ -17,6 +17,7 @@ type forcedResumeOffer struct {
 	source, destination DevHostSelection
 	owner               *proto.LifecycleOwner
 	receipt             string
+	dead                bool
 }
 
 func (o *forcedResumeOffer) Error() string {
@@ -29,18 +30,28 @@ func (o *forcedResumeOffer) request() *proto.LifecycleControlRequest {
 func (m Model) offerForcedResume(offer *forcedResumeOffer) (tea.Model, tea.Cmd) {
 	client, parent, gen := m.agent, m.convID, m.taskSubscriptionGeneration
 	decline := func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil }
+	title := "Force resume on the new server?"
+	details := []string{fmt.Sprintf("Move conversation %s from server %s to %s.", offer.owner.Conversation, offer.owner.Host, offer.destination.Identity.Host), "This revokes the old clients and cancels unfinished work. External actions already performed cannot be undone. The old server will not be used as a fallback."}
+	hints := "y: cancel work and move · n/esc/enter: cancel"
+	if offer.dead {
+		title = "Recover conversation from the exited server?"
+		details = []string{fmt.Sprintf("Server %s has been verified absent. Recover conversation %s on %s?", offer.owner.Host, offer.owner.Conversation, offer.destination.Identity.Host), "Unfinished tasks will be marked interrupted, not replayed. External effects may remain uncertain. Other conversations are not changed."}
+		hints = "y: recover · n/esc/enter: cancel"
+	}
 	m.enqueueConfirmation(&confirmRequest{
-		title:   "Force resume on the new server?",
-		details: []string{fmt.Sprintf("Move conversation %s from server %s to %s.", offer.owner.Conversation, offer.owner.Host, offer.destination.Identity.Host), "This revokes the old clients and cancels unfinished work. External actions already performed cannot be undone. The old server will not be used as a fallback."},
-		hints:   "y: cancel work and move · n/esc/enter: cancel",
-		extras:  map[string]func(Model) (Model, tea.Cmd){"enter": decline}, onNo: decline,
+		title: title, details: details, hints: hints,
+		extras: map[string]func(Model) (Model, tea.Cmd){"enter": decline}, onNo: decline,
 		onYes: func(m Model) (Model, tea.Cmd) {
 			m.pendingConfirm = nil
 			if m.agent != client || m.convID != parent || m.taskSubscriptionGeneration != gen || m.devHost == nil || m.devHost.busy {
 				return m, nil
 			}
 			m.devHost.busy = true
-			m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: "Forced resumption: cancelling old execution and transferring to the new server…"})
+			notice := "Forced resumption: cancelling old execution and transferring to the new server…"
+			if offer.dead {
+				notice = "Recovering from the exited server: rechecking absence and reconciling interrupted work…"
+			}
+			m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: notice})
 			m.refreshViewport()
 			return m, func() tea.Msg {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -54,7 +65,9 @@ func (m Model) offerForcedResume(offer *forcedResumeOffer) (tea.Model, tea.Cmd) 
 				}
 				defer dc.Close()
 				var response *proto.LifecycleControlResponse
-				if pending.receipt != "" {
+				if offer.dead {
+					response, err = dc.LifecycleRecover(ctx, &proto.LifecycleRecoverRequest{Target: offer.destination.Identity, Conversation: offer.owner.Conversation, ExpectedOwner: offer.owner, Confirm: true})
+				} else if pending.receipt != "" {
 					request := pending.request()
 					request.Target = request.Destination
 					response, err = dc.LifecycleClaim(ctx, request)

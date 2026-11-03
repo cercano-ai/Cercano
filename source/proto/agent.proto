@@ -13,6 +13,7 @@ service Agent {
   rpc LifecycleRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   // Explicit confirmed cutover: revoke clients, cancel work, then transfer.
   // Older hosts reject this method; clients must never fall back to attachment takeover.
+  rpc LifecycleRecover(LifecycleRecoverRequest) returns (LifecycleControlResponse);
   rpc LifecycleForceRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleClaim (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleList (LifecycleControlRequest) returns (LifecycleControlResponse) {}
@@ -2799,3 +2800,11 @@ message ReopenSubAgentRequest {
   string conversation_id = 1;
 }
 message ReopenSubAgentResponse {}
+
+// Dead-owner recovery is destination-authorized, not a source RPC.
+message LifecycleRecoverRequest {
+ LifecycleIdentity target = 1;
+ string conversation = 2;
+ LifecycleOwner expected_owner = 3;
+ bool confirm = 4;
+}

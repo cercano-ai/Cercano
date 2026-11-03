@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -179,5 +180,27 @@ func TestProductionResumeDeadOwner(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "crash recovery unsupported") {
 		t.Fatalf("expected durable refusal AFTER child exit, not OS lock contention: %v", err)
 	}
-	t.Logf("process exited; durable owner %+v; acquisition refused: %v", record, err)
+	t.Logf("process exited; durable owner %+v; ordinary acquisition refused: %v", record, err)
+	// Explicit recovery is distinct from ordinary acquisition. Actual child exit
+	// is the proof here; production uses the locked registry/kernel guard.
+	recovered, err := conversation.RecoverDeadOwner(ctx, next.GenerationStore(), "resume-probe", record, "after-process-death", func(context.Context) error {
+		if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+			return fmt.Errorf("source process not exited")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer recovered.Close()
+	if recovered.Epoch() == record.Epoch {
+		t.Fatal("reused dead epoch")
+	}
+	if err = next.GenerationStore().Append(conversation.WithOwnership(ctx, recovered), conversation.Turn{ConversationID: "resume-probe", Role: "assistant", Content: "continued after actual source exit"}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := conversation.ReadOwnership(ctx, next.GenerationStore(), "resume-probe")
+	if err != nil || after.Owner != "after-process-death" {
+		t.Fatalf("recovery %+v %v", after, err)
+	}
 }

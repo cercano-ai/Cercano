@@ -34,10 +34,12 @@ to use B. Same-server terminal takeover remains a separate operation.
 Both participating server builds must implement the relevant protocol. An older
 source that lacks the new RPC returns `Unimplemented`; the new client explicitly
 reports that limitation and never falls back to terminal replacement on A.
-Consequently this change does **not** retrofit a running historical executable
-or recover a conversation whose owner has died. It also does not clear already
-unresolved persistence tickets without reconciliation evidence. Restarting the
-CLI is not deployment of this server change.
+Consequently the live-source RPC does **not** retrofit a running historical
+executable. Dead-owner recovery is now a separate destination-side operation;
+see [dead-owner-recovery.md](dead-owner-recovery.md). It requires verified source
+absence, exclusive locks and transactional reconciliation, not cooperation
+from the dead server. Live unresolved persistence tickets are not cleared by
+this path. Restarting the CLI is not deployment of this server change.
 
 A confirmed cancellation is irreversible: a failed destination preparation may
 leave the source fenced and work cancelled. The exact operation can be retried;

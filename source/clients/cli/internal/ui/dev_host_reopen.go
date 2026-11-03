@@ -23,6 +23,16 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 		return destination, err
 	}
 	defer dc.Close()
+	// Ask the authenticated destination to inspect durable ownership first.
+	// A verified-dead owner needs no RPC to its old endpoint (and must not
+	// exhaust the reopen budget scanning unreachable historical endpoints).
+	probe, recoveryErr := dc.LifecycleRecover(ctx, &proto.LifecycleRecoverRequest{Target: destination.Identity, Conversation: conversation})
+	if recoveryErr == nil && protobuf.Equal(probe.GetIdentity(), destination.Identity) && probe.GetOwner().GetConversation() == conversation && probe.GetOwner().GetHost() != "" && probe.GetOwner().GetHost() != destination.Identity.Host && probe.GetOwner().GetEpoch() != "" {
+		return destination, &forcedResumeOffer{destination: destination, owner: probe.Owner, dead: true}
+	}
+	if status.Code(recoveryErr) == codes.Unauthenticated || status.Code(recoveryErr) == codes.PermissionDenied {
+		return destination, recoveryErr
+	}
 	paths, err := filepath.Glob(filepath.Join(filepath.Dir(destination.Identity.Store), "hosts", "*.json"))
 	if err != nil {
 		return destination, err
@@ -65,6 +75,13 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 
 	result, err := dc.LifecycleAcquire(ctx, &proto.LifecycleControlRequest{Target: destination.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}})
 	if err != nil {
+		probe, recoveryErr := dc.LifecycleRecover(ctx, &proto.LifecycleRecoverRequest{Target: destination.Identity, Conversation: conversation})
+		if recoveryErr == nil && protobuf.Equal(probe.GetIdentity(), destination.Identity) && probe.GetOwner().GetConversation() == conversation && probe.GetOwner().GetHost() != "" && probe.GetOwner().GetHost() != destination.Identity.Host && probe.GetOwner().GetEpoch() != "" {
+			return destination, &forcedResumeOffer{destination: destination, owner: probe.Owner, dead: true}
+		}
+		if recoveryErr != nil && status.Code(recoveryErr) != codes.Unimplemented {
+			return destination, fmt.Errorf("acquisition refused (%v); dead-owner recovery refused: %w", err, recoveryErr)
+		}
 		if unavailable != nil {
 			return destination, fmt.Errorf("owner discovery incomplete (%v); authoritative acquisition refused: %w", unavailable, err)
 		}

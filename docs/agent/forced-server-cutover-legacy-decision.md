@@ -1,5 +1,10 @@
 # Historical forced-cutover decision boundary
 
+> Historical investigation of a **live** legacy source. Its whole-host maintenance
+> question does not apply when the source has exited. The subsequent
+> [dead-owner recovery implementation](dead-owner-recovery.md) handles that case
+> without shutdown or source RPCs. The report below is retained as history.
+
 2026-11-02. Investigated from `fix/forced-server-cutover` at
 `8af13b38ca86947bccfa2898c3a37a878463df6a`; historical source inspected at its
 parent `5116c0f2`. **The product requirement remains incomplete.** No legacy
