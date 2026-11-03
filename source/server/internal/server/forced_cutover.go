@@ -40,6 +40,7 @@ func (s *Server) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleCo
 
 	key := proto.Clone(r).(*pb.LifecycleControlRequest)
 	key.Receipt = ""
+	key.DestinationEndpoint = "" // authenticated identity, not a transient route, binds retries
 	l.mu.Lock()
 	existing := l.closures[o]
 	if existing != nil && (existing.control == nil || !proto.Equal(existing.control.request, key) || !l.forced[o]) {

@@ -6,6 +6,8 @@ option go_package = "cercano/source/server/pkg/proto";
 
 // The Agent service definition.
 service Agent {
+  // Destination-selected authenticated acquire, live handoff, or verified recovery.
+  rpc LifecycleResume (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleAcquire (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleRelease (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecyclePrepare (LifecycleControlRequest) returns (LifecycleControlResponse) {}
@@ -2778,6 +2780,11 @@ message LifecycleControlResponse {
  // Per-owner admission readiness, not global retirement permission.
  repeated LifecycleOwner open_owners = 7;
  uint32 pending_incoming = 8;
+ // Resume never stops a legacy host. CLI confirmation must use this exact selection.
+ bool confirmation_required = 9;
+ LifecycleIdentity source = 10;
+ string operation_id = 11;
+ string blocked_reason = 12;
 }
 
 // Read-only text history in the active RunTurn conversation only. The host

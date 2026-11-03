@@ -168,6 +168,7 @@ func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRe
 		l.mu.Lock()
 		key := proto.Clone(r).(*pb.LifecycleControlRequest)
 		key.Receipt = ""
+		key.DestinationEndpoint = "" // authenticated identity, not a transient route, binds retries
 		reserved = l.closures[o]
 		if reserved != nil {
 			state := reserved.control

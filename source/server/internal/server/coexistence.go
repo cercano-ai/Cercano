@@ -14,6 +14,7 @@ import (
 
 	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
+	pb "cercano/source/server/pkg/proto"
 )
 
 // CoexistenceOptions enables only the lifecycle control surface, not normal RPC
@@ -26,7 +27,9 @@ type CoexistenceOptions struct {
 	ControlAuthorize func(context.Context) error
 	// RecoveryGuard proves the exact historical host absent and excludes relaunch
 	// until its returned release function is called. Nil disables recovery.
-	RecoveryGuard      func(context.Context, string) (func(), error)
+	RecoveryGuard func(context.Context, string) (func(), error)
+	// ResolveSource selects only the exact owner from trusted local records; ControlDial authenticates it.
+	ResolveSource      func(context.Context, string) (*pb.LifecycleIdentity, string, error)
 	ControlDial        func(context.Context, string) (*grpc.ClientConn, error)
 	Contract           conversation.CoexistenceDeclaration
 	CloseParticipation func(context.Context) error
@@ -43,6 +46,7 @@ type CoexistenceOptions struct {
 
 type coexistenceLifecycle struct {
 	mu             sync.Mutex
+	resumeMu       sync.Mutex // serialize operation journal updates, never held by peer callbacks
 	retireMu       sync.Mutex
 	retireDone     chan struct{}
 	retired        chan struct{}

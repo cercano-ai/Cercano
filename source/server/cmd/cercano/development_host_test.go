@@ -180,3 +180,47 @@ func TestDevelopmentSelectionExplicitFixture(t *testing.T) {
 		}
 	}
 }
+
+func TestDevelopmentSourceResolverExactPrivateRecord(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "hosts")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	own := &proto.LifecycleIdentity{Host: "destination", Build: "new", Contract: "contract", Schema: 2, Store: "/private/store"}
+	source := gproto.Clone(own).(*proto.LifecycleIdentity)
+	source.Host, source.Build = "source", "old"
+	record := developmentHostSelection{Identity: source, Endpoint: "127.0.0.1:1234"}
+	if err := publishDevelopmentRecord(filepath.Join(dir, "source.json"), record); err != nil {
+		t.Fatal(err)
+	}
+	resolver := developmentSourceResolver(root, own)
+	got, endpoint, err := resolver(context.Background(), "source")
+	if err != nil || !gproto.Equal(got, source) || endpoint != record.Endpoint {
+		t.Fatalf("wrong source: %v %s %v", got, endpoint, err)
+	}
+	if _, _, err := resolver(context.Background(), "absent"); err == nil {
+		t.Fatal("resolved absent source")
+	}
+	if err := publishDevelopmentRecord(filepath.Join(dir, "duplicate.json"), record); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := resolver(context.Background(), "source"); err == nil {
+		t.Fatal("accepted ambiguous source")
+	}
+	if err := os.Remove(filepath.Join(dir, "duplicate.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "source.json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := resolver(context.Background(), "source"); err == nil {
+		t.Fatal("accepted public source record")
+	}
+}

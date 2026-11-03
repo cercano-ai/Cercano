@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Agent_LifecycleResume_FullMethodName                       = "/agent.Agent/LifecycleResume"
 	Agent_LifecycleAcquire_FullMethodName                      = "/agent.Agent/LifecycleAcquire"
 	Agent_LifecycleRelease_FullMethodName                      = "/agent.Agent/LifecycleRelease"
 	Agent_LifecyclePrepare_FullMethodName                      = "/agent.Agent/LifecyclePrepare"
@@ -120,6 +121,8 @@ const (
 //
 // The Agent service definition.
 type AgentClient interface {
+	// Destination-selected authenticated acquire, live handoff, or verified recovery.
+	LifecycleResume(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleAcquire(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleRelease(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecyclePrepare(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
@@ -383,6 +386,16 @@ type agentClient struct {
 
 func NewAgentClient(cc grpc.ClientConnInterface) AgentClient {
 	return &agentClient{cc}
+}
+
+func (c *agentClient) LifecycleResume(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleResume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *agentClient) LifecycleAcquire(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
@@ -1438,6 +1451,8 @@ func (c *agentClient) ExportImage(ctx context.Context, in *ExportImageRequest, o
 //
 // The Agent service definition.
 type AgentServer interface {
+	// Destination-selected authenticated acquire, live handoff, or verified recovery.
+	LifecycleResume(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleAcquire(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleRelease(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecyclePrepare(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
@@ -1703,6 +1718,9 @@ type AgentServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAgentServer struct{}
 
+func (UnimplementedAgentServer) LifecycleResume(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleResume not implemented")
+}
 func (UnimplementedAgentServer) LifecycleAcquire(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LifecycleAcquire not implemented")
 }
@@ -2001,6 +2019,24 @@ func RegisterAgentServer(s grpc.ServiceRegistrar, srv AgentServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Agent_ServiceDesc, srv)
+}
+
+func _Agent_LifecycleResume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleResume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleResume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleResume(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Agent_LifecycleAcquire_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -3593,6 +3629,10 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "agent.Agent",
 	HandlerType: (*AgentServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "LifecycleResume",
+			Handler:    _Agent_LifecycleResume_Handler,
+		},
 		{
 			MethodName: "LifecycleAcquire",
 			Handler:    _Agent_LifecycleAcquire_Handler,

@@ -267,53 +267,72 @@ func developmentDialIdentity(ctx context.Context, endpoint string, auth *devhost
 	}
 	return conn, nil
 }
-func developmentPeerDial(state string, own *proto.LifecycleIdentity) func(context.Context, string) (*grpc.ClientConn, error) {
-	return func(ctx context.Context, endpoint string) (*grpc.ClientConn, error) {
-		if own == nil {
-			return nil, fmt.Errorf("local lifecycle identity required")
-		}
-		dir := filepath.Join(state, "hosts")
-		if err := developmentPrivatePath(dir, true); err != nil {
+
+// selectDevelopmentPeer is shared by dialing and exact-owner resolution. It never
+// consults the launcher's current/default target.
+func selectDevelopmentPeer(state string, own *proto.LifecycleIdentity, endpoint, host string) (*developmentHostSelection, error) {
+	if own == nil {
+		return nil, fmt.Errorf("local lifecycle identity required")
+	}
+	dir := filepath.Join(state, "hosts")
+	if err := developmentPrivatePath(dir, true); err != nil {
+		return nil, err
+	}
+	files, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	var selected *developmentHostSelection
+	for _, p := range files {
+		if err := developmentPrivatePath(p, false); err != nil {
 			return nil, err
 		}
-		files, err := filepath.Glob(filepath.Join(dir, "*.json"))
+		var r developmentHostSelection
+		if err := readDevJSON(p, &r); err != nil {
+			return nil, err
+		}
+		if (endpoint != "" && r.Endpoint == endpoint) || (host != "" && r.Identity != nil && r.Identity.Host == host) {
+			if selected != nil {
+				return nil, fmt.Errorf("ambiguous peer record")
+			}
+			selected = &r
+		}
+	}
+	if selected == nil || selected.Identity == nil {
+		return nil, fmt.Errorf("peer absent from private host records")
+	}
+	id := selected.Identity
+	if id.Host == own.Host || id.Store != own.Store || id.Contract != own.Contract || id.Schema != own.Schema || !devLoopback(selected.Endpoint) {
+		return nil, fmt.Errorf("incompatible peer record")
+	}
+	return selected, nil
+}
+func developmentSourceResolver(state string, own *proto.LifecycleIdentity) func(context.Context, string) (*proto.LifecycleIdentity, string, error) {
+	return func(ctx context.Context, host string) (*proto.LifecycleIdentity, string, error) {
+		r, err := selectDevelopmentPeer(state, own, "", host)
+		if err != nil {
+			return nil, "", err
+		}
+		return r.Identity, r.Endpoint, nil // authenticated by ControlDial before any source mutation
+	}
+}
+func developmentPeerDial(state string, own *proto.LifecycleIdentity) func(context.Context, string) (*grpc.ClientConn, error) {
+	return func(ctx context.Context, endpoint string) (*grpc.ClientConn, error) {
+		selected, err := selectDevelopmentPeer(state, own, endpoint, "")
 		if err != nil {
 			return nil, err
 		}
-		var selected *developmentHostSelection
-		for _, p := range files {
-			if err := developmentPrivatePath(p, false); err != nil {
-				return nil, err
-			}
-			var r developmentHostSelection
-			if err := readDevJSON(p, &r); err != nil {
-				return nil, err
-			}
-			if r.Endpoint == endpoint {
-				if selected != nil {
-					return nil, fmt.Errorf("ambiguous peer endpoint")
-				}
-				selected = &r
-			}
-		}
-		if selected == nil || selected.Identity == nil {
-			return nil, fmt.Errorf("peer absent from private host records")
-		}
-		id := selected.Identity
-		if id.Host == own.Host || id.Store != own.Store || id.Contract != own.Contract || id.Schema != own.Schema {
-			return nil, fmt.Errorf("incompatible peer record")
-		}
-		// Tokens are selected by trusted records, never from the control request.
+		// Tokens come only from private records, never a control request.
 		if err := developmentPrivatePath(selected.TokenFile, false); err != nil {
 			return nil, err
 		}
-		auth, err := devhostauth.Load(id.Host, selected.TokenFile)
+		auth, err := devhostauth.Load(selected.Identity.Host, selected.TokenFile)
 		if err != nil {
 			return nil, err
 		}
 		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		return developmentDialIdentity(probe, endpoint, auth, id)
+		return developmentDialIdentity(probe, endpoint, auth, selected.Identity)
 	}
 }
 func publishDevelopmentRecord(path string, record developmentHostSelection) error {
