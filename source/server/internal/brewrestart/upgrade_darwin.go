@@ -66,6 +66,10 @@ func stopVerifiedUpgradeHost(ctx context.Context, target upgradeTarget, afterTER
 
 // signal is an error-injection seam for disposable tests, never discovery authority.
 func stopVerifiedUpgradeHostWithSignal(ctx context.Context, target upgradeTarget, afterTERM func(), signal func(Identity, syscall.Signal) error) (retErr error) {
+	return stopVerifiedUpgradeHostValidated(ctx, target, afterTERM, signal, nil)
+}
+
+func stopVerifiedUpgradeHostValidated(ctx context.Context, target upgradeTarget, afterTERM func(), signal func(Identity, syscall.Signal) error, validate func() error) (retErr error) {
 	// Only independently identified DB-writing hosts are targets. Embedded MCP
 	// runs in the host; descendants need not exit and receive no signals here.
 	if err := ctx.Err(); err != nil {
@@ -75,6 +79,12 @@ func stopVerifiedUpgradeHostWithSignal(ctx context.Context, target upgradeTarget
 	owns, err := HoldsListener(host, target.endpoint)
 	if err != nil || !owns {
 		return fmt.Errorf("host lost listener pid=%d: %v", host.PID, err)
+	}
+	// Approval failure must not install cleanup signal authority.
+	if validate != nil {
+		if err := validate(); err != nil {
+			return err
+		}
 	}
 	targets := map[int]Identity{host.PID: host}
 	// After TERM, finish bounded cleanup on cancellation, but preserve the

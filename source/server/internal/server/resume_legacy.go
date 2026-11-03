@@ -18,7 +18,7 @@ import (
 // the source launch exclusion, revalidate that complete snapshot, call validate
 // immediately before any signal, verify death, and fail closed on ambiguity or
 // unsupported platforms. RecoveryGuard independently proves absence afterward.
-// There is deliberately no default implementation using kill(pid) or pkill.
+// Production reuses the launcher single-target verified shutdown machinery.
 type LegacyProcessStop interface {
 	Prepare(context.Context, *pb.LifecycleIdentity) (string, error)
 	Stop(context.Context, *pb.LifecycleIdentity, string, func() error) error
@@ -34,7 +34,7 @@ func validateLegacyApproval(l *coexistenceLifecycle, r *pb.LifecycleControlReque
 		return nil, status.Error(codes.FailedPrecondition, "invalid durable legacy operation")
 	}
 	// An offer without a verified process snapshot grants no stop authority.
-	// This is the normal production refusal until a safe platform adapter exists.
+	// Unsupported platforms retain this fail-closed refusal.
 	if op.LegacyProcessIdentity == "" {
 		return nil, status.Error(codes.FailedPrecondition, "safe legacy process stop unavailable; no signal sent")
 	}

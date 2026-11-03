@@ -16,6 +16,7 @@ type resumeProcessFixture struct {
 	dead         bool
 	onStop       func()
 	lostResponse bool
+	remainAlive  bool
 }
 
 func (p *resumeProcessFixture) Prepare(context.Context, *pb.LifecycleIdentity) (string, error) {
@@ -29,7 +30,7 @@ func (p *resumeProcessFixture) Stop(ctx context.Context, source *pb.LifecycleIde
 		return err
 	}
 	p.stops++
-	p.dead = true
+	p.dead = !p.remainAlive
 	if p.onStop != nil {
 		p.onStop()
 	}
@@ -39,7 +40,7 @@ func (p *resumeProcessFixture) Stop(ctx context.Context, source *pb.LifecycleIde
 	return nil
 }
 func TestDestinationResumeConfirmedLegacyStop(t *testing.T) {
-	for _, mode := range []string{"accept", "unconfirmed", "stale-process", "stale-epoch", "stale-operation", "stale-source", "stale-requester", "requester", "unsupported", "unsupported-initial", "restart", "lost-stop-response"} {
+	for _, mode := range []string{"accept", "unconfirmed", "stale-process", "stale-epoch", "stale-operation", "stale-source", "stale-requester", "requester", "unsupported", "unsupported-initial", "restart", "lost-stop-response", "still-alive"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
 			a, b, _ := lifecycleFixture(t)
@@ -72,6 +73,8 @@ func TestDestinationResumeConfirmedLegacyStop(t *testing.T) {
 			}
 			r := &pb.LifecycleControlRequest{Target: b.coexistence.controlIdentity(), Source: offer.Source, Owner: offer.Owner, HandoverId: offer.OperationId, DestinationEndpoint: endpoint, ConfirmLegacyStop: true, LegacyProcessIdentity: offer.LegacyProcessIdentity, Requester: b.coexistence.controlIdentity()}
 			switch mode {
+			case "still-alive":
+				process.remainAlive = true
 			case "lost-stop-response":
 				process.lostResponse = true
 			case "unconfirmed":
@@ -110,6 +113,12 @@ func TestDestinationResumeConfirmedLegacyStop(t *testing.T) {
 				r.DestinationEndpoint = endpoint
 				got, err = bc.LifecycleResume(ctx, r)
 			}
+			if mode == "still-alive" {
+				if status.Code(err) != codes.FailedPrecondition || process.stops != 1 || got.GetReady() {
+					t.Fatalf("recovered without verified death: %v %v stops=%d", got, err, process.stops)
+				}
+				return
+			}
 			accepted := mode == "accept" || mode == "restart" || mode == "lost-stop-response"
 			if accepted {
 				if err != nil || !got.GetReady() || got.GetOwner().GetHost() != "B" || process.stops != 1 {
@@ -125,5 +134,40 @@ func TestDestinationResumeConfirmedLegacyStop(t *testing.T) {
 				t.Fatalf("expected refusal: %v", got)
 			}
 		})
+	}
+}
+
+func TestLegacyOfferRefreshesStaleProcess(t *testing.T) {
+	ctx := context.Background()
+	a, b, _ := lifecycleFixture(t)
+	serveCutoverFixture(t, a)
+	bc, endpoint := serveCutoverFixture(t, b)
+	if _, err := a.Retain(ctx, "chat"); err != nil {
+		t.Fatal(err)
+	}
+	setResumeSource(b, a, serveResumeSource(t, &resumeSource{Server: a, legacy: true, blocked: true}))
+	p := &resumeProcessFixture{identity: "first"}
+	b.coexistence.options.LegacyStop = p
+	r := resumeRequest(b, endpoint)
+	r.Requester = b.coexistence.controlIdentity()
+	first, err := bc.LifecycleResume(ctx, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.identity = "replacement"
+	second, err := bc.LifecycleResume(ctx, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.LegacyProcessIdentity != "replacement" || first.LegacyProcessIdentity == second.LegacyProcessIdentity {
+		t.Fatalf("stale offer: %v", second)
+	}
+	r.ConfirmLegacyStop = true
+	r.Source = first.Source
+	r.Owner = first.Owner
+	r.HandoverId = first.OperationId
+	r.LegacyProcessIdentity = first.LegacyProcessIdentity
+	if _, err = bc.LifecycleResume(ctx, r); err == nil || p.stops != 0 {
+		t.Fatalf("old approval accepted: %v", err)
 	}
 }

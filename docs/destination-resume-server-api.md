@@ -47,19 +47,49 @@ and verify death. Recovery independently repeats the established absence guard b
 exact-epoch recovery. A lost stop response can finish through guarded recovery without
 a second stop; approval is not inferred from a prior confirmation-required response.
 
-### Remaining platform blocker (production stops disabled)
+### Production source-only shutdown
 
-No production `LegacyProcessStop` is wired. Existing Darwin upgrade primitives verify
-kernel executable/start identity and listener ownership for upgrade targets; they do
-not establish the exact historical development-host attribution under that host's
-launch-record exclusion. `VerifyHostAbsent` proves absence under exclusion, not signal
-authority. PID/argv matching alone is not sufficient. Unsupported platforms also fail
-closed. Thus capable force transfer, dead recovery, CLI confirmation and injected
-confirmed continuation work, but accepted legacy interruption in production returns
-an explicit safe-stop-unavailable refusal, with no signal. Completing that platform
-adapter is required for end-to-end legacy interruption; this is not full completion.
+Darwin/cgo production wiring now supplies `developmentLegacyStop`. Preparation binds
+one exact private host record and its `.starting` generation to the source lifecycle
+identity, generation executable, same-user kernel PID/start identity, exact host
+argument and loopback listener. Preparation and stop use the existing per-generation
+launch exclusion. Stop rechecks the approved record and process, then delegates to
+the launcher's existing single-target TERM/wait/KILL/verified-exit helper with durable
+approval/epoch revalidation immediately before signal authority. It never invokes
+upgrade-wide `StopUpgradeHost`, enumerates additional stop targets, or changes latest
+host selection. Shutdown has a ten-second deadline plus the helper's existing bounded
+cancellation cleanup. Ownership recovery independently verifies absence under launch
+exclusion before changing the exact owner epoch.
 
-## Verification (2026-11-03)
+Missing, ambiguous or changed source records/processes and unsupported platforms
+fail closed. Destination and requester hosts are excluded. An offer without a verified
+process snapshot produces no actionable CLI confirmation. Repeated offers replace
+stale process metadata; the old approval cannot authorize the replacement. Whole-host
+impact remains explicit: sibling inventory is incomplete, so all source conversations
+and running tasks may be interrupted, not merely the requested conversation.
+
+## Production adapter verification (2026-11-03)
+
+The stale-offer and CLI no-adapter regressions were reproduced before their fixes.
+Production-adapter fixtures exercise private source records, generation binding,
+launch exclusion, source-only shutdown, changed process/record/generation, decline,
+and rejected approval without controlling live hosts. Existing disposable launcher
+workers cover TERM cooperation, KILL escalation, verified exit and cancellation;
+server fixtures separately reject ownership recovery while the source remains alive.
+
+Final checks passed:
+
+- Server: `go test ./... -count=1 -skip '^(TestDevHostTerminalPTY|TestEverydayLauncherEntrypointRefusalsPTY)$'`
+  (includes integration tests; only the two established baseline failures below excluded).
+- Server: `go test -race ./internal/server ./internal/brewrestart ./cmd/cercano -run 'Test.*(DestinationResume|Legacy|DevelopmentRecovery|UpgradeHostTERMPolicy|UpgradeHostCancellation)' -count=1`.
+- CLI: `go test ./... -count=1` and `go test -race ./internal/ui -run 'Test.*(Legacy|DestinationResume|ForcedResume)' -count=1`.
+- Server and CLI entrypoint builds to `/tmp/cercano-resume-legacy-{server,cli}-20261103c`.
+- `git diff --check`.
+
+No live hosts were stopped and nothing was deployed. Unsupported platforms remain
+fail-closed; Darwin/cgo is the production stop implementation.
+
+## Earlier verification (2026-11-03)
 
 Only isolated loopback test peers, temporary stores and injected process adapters
 were used; no live host stop, production mutation, deploy or restart was performed.

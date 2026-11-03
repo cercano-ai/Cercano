@@ -32,6 +32,9 @@ func reopenDevHostFrom(ctx context.Context, destination DevHostSelection, conver
 		return destination, fmt.Errorf("resume returned different destination")
 	}
 	if result.GetConfirmationRequired() {
+		if result.GetLegacyProcessIdentity() == "" {
+			return destination, fmt.Errorf("safe legacy stop unavailable: %s", result.GetBlockedReason())
+		}
 		if result.GetOwner().GetConversation() != conversation || result.GetOwner().GetEpoch() == "" || result.GetSource().GetHost() != result.GetOwner().GetHost() || result.GetSource().GetHost() == "" || result.GetSource().GetHost() == destination.Identity.Host || result.GetOperationId() == "" {
 			return destination, fmt.Errorf("resume returned invalid legacy selection")
 		}

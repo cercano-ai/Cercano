@@ -34,6 +34,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -99,4 +100,33 @@ func recoveryArgv(buf []byte) ([]string, error) {
 		out[i] = string(parts[i])
 	}
 	return out, nil
+}
+
+// Arguments bind the already kernel-verified listener to the trusted host record;
+// they never grant process authority alone.
+func verifyLegacyHostArg(id Identity, host string) error {
+	buf := make([]byte, 1<<20)
+	size := C.size_t(len(buf))
+	code := syscall.Errno(C.recovery_args(C.int(id.PID), (*C.char)(unsafe.Pointer(&buf[0])), &size))
+	if code != 0 {
+		return fmt.Errorf("source arguments unavailable: %w", code)
+	}
+	argv, err := recoveryArgv(buf[:int(size)])
+	if err != nil {
+		return err
+	}
+	count, matches := 0, 0
+	for i, arg := range argv {
+		if arg == "--host" || strings.HasPrefix(arg, "--host=") {
+			count++
+			if arg == "--host="+host || (arg == "--host" && i+1 < len(argv) && argv[i+1] == host) {
+				matches++
+			}
+		}
+	}
+	now, err := Inspect(id.PID)
+	if err != nil || !now.SameProcess(id) || count != 1 || matches != 1 {
+		return fmt.Errorf("source host/process attribution changed")
+	}
+	return nil
 }

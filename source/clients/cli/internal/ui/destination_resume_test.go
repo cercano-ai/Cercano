@@ -13,17 +13,22 @@ import (
 
 type destinationResumeFixture struct {
 	pb.UnimplementedAgentServer
-	identity *pb.LifecycleIdentity
-	calls    int
-	request  *pb.LifecycleControlRequest
-	legacy   bool
+	identity  *pb.LifecycleIdentity
+	calls     int
+	request   *pb.LifecycleControlRequest
+	legacy    bool
+	noAdapter bool
 }
 
 func (s *destinationResumeFixture) LifecycleResume(_ context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	s.calls++
 	s.request = r
 	if s.legacy && !r.ConfirmLegacyStop {
-		return &pb.LifecycleControlResponse{Identity: s.identity, Source: &pb.LifecycleIdentity{Host: "A", Build: "old", Store: s.identity.Store}, Owner: &pb.LifecycleOwner{Conversation: r.Owner.Conversation, Host: "A", Epoch: "old"}, OperationId: "stable", LegacyProcessIdentity: "fixture-process", ConfirmationRequired: true, BlockedReason: "busy"}, nil
+		identity := "fixture-process"
+		if s.noAdapter {
+			identity = ""
+		}
+		return &pb.LifecycleControlResponse{Identity: s.identity, Source: &pb.LifecycleIdentity{Host: "A", Build: "old", Store: s.identity.Store}, Owner: &pb.LifecycleOwner{Conversation: r.Owner.Conversation, Host: "A", Epoch: "old"}, OperationId: "stable", LegacyProcessIdentity: identity, ConfirmationRequired: true, BlockedReason: "busy"}, nil
 	}
 	return &pb.LifecycleControlResponse{Identity: s.identity, Owner: &pb.LifecycleOwner{Conversation: r.Owner.Conversation, Host: s.identity.Host, Epoch: "new"}, Ready: true}, nil
 }
@@ -97,5 +102,14 @@ func TestLegacyResumePromptAndBoundAcceptance(t *testing.T) {
 	verifyProductionForcedResume(t, offer)
 	if f.calls != 2 || !f.request.ConfirmLegacyStop || f.request.Source.Host != "A" || f.request.Owner.Epoch != "old" || f.request.HandoverId != "stable" || f.request.LegacyProcessIdentity != "fixture-process" || f.request.Target.Host != "B" || f.request.Requester.Host != "B" {
 		t.Fatalf("unbound approval: %v calls=%d", f.request, f.calls)
+	}
+}
+
+func TestLegacyNoAdapterHasNoActionableOffer(t *testing.T) {
+	dest, f := resumeFixture(t, true)
+	f.noAdapter = true
+	_, err := reopenDevHost(context.Background(), dest, "history")
+	if _, ok := err.(*forcedResumeOffer); ok || err == nil {
+		t.Fatalf("unsafe actionable offer: %v", err)
 	}
 }

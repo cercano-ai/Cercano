@@ -286,7 +286,8 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			}
 			if status.Code(err) == codes.Unknown || status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.Unimplemented {
 				reason := err.Error()
-				if l.options.LegacyStop != nil && op.LegacyProcessIdentity == "" {
+				op.LegacyProcessIdentity = "" // Every new offer requires a fresh process snapshot.
+				if l.options.LegacyStop != nil {
 					identity, inspectErr := l.options.LegacyStop.Prepare(ctx, op.Source)
 					if inspectErr != nil {
 						reason += "; safe stop unavailable: " + inspectErr.Error()
@@ -301,6 +302,9 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 							return nil, err
 						}
 					}
+				}
+				if err := saveResume(path, op); err != nil {
+					return nil, err
 				}
 				if op.LegacyProcessIdentity == "" {
 					reason += "; verified platform process stop unavailable; no stop authorized"

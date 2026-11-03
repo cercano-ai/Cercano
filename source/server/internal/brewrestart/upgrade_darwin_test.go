@@ -166,6 +166,17 @@ func testUpgradeStopWithWorker(t *testing.T, cancelAfterTERM bool, workerName st
 		unrelated, _ = replacedPathCandidate(t, "unrelated-helper")
 		candidates = append(candidates, unrelated)
 	}
+	// Legacy resume enters this same single-target helper with durable approval
+	// validation. Rejection must grant neither TERM nor deferred cleanup authority.
+	approvalErr := errors.New("stale legacy approval")
+	signals := 0
+	err = stopVerifiedUpgradeHostValidated(ctx, upgradeTarget{hostIdentity, endpoint}, nil, func(Identity, syscall.Signal) error {
+		signals++
+		return nil
+	}, func() error { return approvalErr })
+	if !errors.Is(err, approvalErr) || signals != 0 {
+		t.Fatalf("rejected approval signalled target: signals=%d err=%v", signals, err)
+	}
 	started := time.Now()
 	if childRole == "signal-failure" {
 		calls := 0
