@@ -89,20 +89,70 @@ From `source/clients/cli`:
 
 ### Command-package failures: baseline vs regression
 
-Ran `go test ./cmd/cercano -run '^(TestDevHostTerminalPTY|TestEverydayLauncherEntrypointRefusalsPTY)$' -count=1`
-on both the working tree and an isolated archive of server commit
-`9418eea799d9947282ab9e91814cf8d9efef6dbb`. Verified all 3,357 archived tracked
-blobs against that commit with `git hash-object` (zero mismatches).
-**Both tests fail identically on both**:
+The earlier comparison used `9418eea799d9947282ab9e91814cf8d9efef6dbb`.
+That commit **already includes the first server resume changes** and was not a
+valid pre-feature baseline. Its actual parent is
+`a4d5604933e61091bad246c68c036bdcbcaf3295`.
 
-- `TestDevHostTerminalPTY`: missing durable fixture history after reconnect; captured
-  context-meter warnings include `coexistence write requires explicit ownership capability`.
-- `TestEverydayLauncherEntrypointRefusalsPTY`: exit 78, `config authority must be
+Reran from `source/server` on the repaired working tree and a fresh `git archive`
+of that parent (no git worktree registration or switching):
+
+```
+go test ./cmd/cercano -run '^(TestDevHostTerminalPTY|TestEverydayLauncherEntrypointRefusalsPTY)$' -count=1 -v
+```
+
+Verified all 3,353 archived tracked blobs against the parent tree (zero mismatches).
+**Both tests fail with the same failure signatures on the actual pre-feature
+parent and repaired tree**:
+
+- `TestDevHostTerminalPTY`: `dev_host_terminal_test.go:401`, PTY ended before
+  release, exit 1, missing durable fixture history after reconnect; context-meter
+  warnings include `coexistence write requires explicit ownership capability`.
+- `TestEverydayLauncherEntrypointRefusalsPTY`:
+  `everyday_launcher_acceptance_test.go:55`, exit 78, `config authority must be
   canonical and inside isolated prepared state`, before the expected injected
   publication failure.
 
-Logs: `/tmp/resume-9418eea-pty-baseline.log` and `/tmp/resume-working-pty.log`.
-These are established pre-existing failures, not introduced by this change. They
-remain unresolved; the command package/full server suite is not green and no full
-suite sign-off is claimed. The archived baseline is retained in `.resume-baseline/`
-(untracked, not part of the implementation commit) for reproduction.
+Thus these two observed failures predate the first server feature commit; the
+comparison with `9418eea` alone did not establish this. They remain unresolved;
+the command package/full server suite is not green and no full-suite sign-off is
+claimed. Logs: `/tmp/resume-a4d5604-pty-base.log` and
+`/tmp/resume-review-pty-current.log`. The pre-feature archive is retained at
+`.resume-review-base/` (untracked). The older `.resume-baseline/` and its logs are
+historical comparison artifacts, not the pre-feature baseline.
+
+### Review fixes: publication and guarded-recovery retirement
+
+Both retirement defects were reproduced before fixes (see
+`/tmp/resume-review-red.log`), and independently rerun against an isolated archive
+of original combined HEAD `161b3bbed2db028d2ac5b54898c8d5ba97cb7581`
+(`/tmp/resume-review-before.log`, archive `.resume-review-before/`).
+Definitive publication failure left one unjournaled participation; retry and release
+still failed retirement. Blocked legacy confirmation followed by source death and
+guarded recovery likewise left participation blocking retirement in-process.
+The restart variant was already passing and remains covered.
+
+The destination now removes only the exact unpublished acceptance when journal
+publication definitively fails before rename. After rename, directory-sync/open
+failure is treated as uncertain: retain receipt and operation identity, and
+reaffirm journal durability on retry before any source mutation. Successful
+guarded exact-epoch recovery reconciles only the matching journal participation;
+other handovers, even for that same conversation/source epoch, remain fenced.
+No production legacy stop adapter was changed.
+
+New tests cover both original failures through retirement after release,
+uncertain publication with repeated failing sync and zero source calls,
+same-process/restart identity-preserving retry, recovery across restart, and
+preservation of unrelated participation. Scoped checks passed:
+
+```
+go test ./internal/server -run '^TestDestinationResume' -count=1 -v
+go test ./internal/server ./internal/broker ./internal/conversation ./pkg/proto -count=1
+go test -race ./internal/server ./internal/broker ./internal/conversation -count=1
+```
+
+Logs: `/tmp/resume-review-regressions.log`, `/tmp/resume-review-scoped.log`,
+`/tmp/resume-review-race.log`. An initial scoped invocation included nonexistent
+`./internal/devhost`; it was corrected to the package list above.
+These runs use isolated test fixtures only; no live-service RPC, production store,
+deployment, landing, or push was performed.

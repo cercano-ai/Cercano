@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"google.golang.org/grpc"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc"
 
 	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
@@ -63,6 +65,9 @@ type coexistenceLifecycle struct {
 	ready          map[broker.Owner]bool
 	closures       map[broker.Owner]*relinquishReservation
 	forced         map[broker.Owner]bool
+
+	// nil uses directory Sync; testable publication boundary.
+	resumeJournalSync func(*os.File) error
 }
 
 // NewCoexistenceServer constructs a lifecycle-only server. Do not serve ordinary

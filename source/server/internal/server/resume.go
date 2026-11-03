@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +24,16 @@ import (
 func resumeJournal(l *coexistenceLifecycle, id string) string {
 	return filepath.Join(l.options.StorePath+".resume-operations", fmt.Sprintf("%x.json", sha256.Sum256([]byte(l.options.Host+"\x00"+id))))
 }
+
+// resumePublicationUncertain means rename succeeded but directory durability is
+// unknown. The visible journal must remain recoverable; never discard acceptance.
+type resumePublicationUncertain struct{ error }
+
 func saveResume(path string, r *pb.LifecycleControlRequest) error {
+	return saveResumeWithSync(path, r, nil)
+}
+
+func saveResumeWithSync(path string, r *pb.LifecycleControlRequest, syncDirectory func(*os.File) error) error {
 	b, err := json.Marshal(r)
 	if err != nil {
 		return err
@@ -66,10 +76,16 @@ func saveResume(path string, r *pb.LifecycleControlRequest) error {
 	}
 	d, err := os.Open(filepath.Dir(path))
 	if err != nil {
-		return err
+		return &resumePublicationUncertain{err}
 	}
 	defer d.Close()
-	return d.Sync()
+	if syncDirectory == nil {
+		syncDirectory = (*os.File).Sync
+	}
+	if err = syncDirectory(d); err != nil {
+		return &resumePublicationUncertain{err}
+	}
+	return nil
 }
 
 // LifecycleResume runs only on the launcher-selected destination. It never
@@ -118,7 +134,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		// without signalling again. Never retry a signal against a changed PID.
 		if l.options.RecoveryGuard != nil {
 			if inspected, e := s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id}); e == nil && proto.Equal(inspected.Owner, approved.Owner) {
-				return s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: approved.Owner, Confirm: true})
+				return s.resumeRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: approved.Owner, Confirm: true})
 			}
 		}
 		return s.resumeConfirmedLegacy(ctx, r, approved)
@@ -127,7 +143,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	if v.State == "owned" && v.Owner != l.options.Host && l.options.RecoveryGuard != nil {
 		inspected, e := s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id})
 		if e == nil {
-			return s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: inspected.Owner, Confirm: true})
+			return s.resumeRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: inspected.Owner, Confirm: true})
 		}
 	}
 	if !controlLoopback(r.DestinationEndpoint) {
@@ -144,11 +160,11 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			return nil, status.Error(codes.FailedPrecondition, "resume journal selection mismatch")
 		}
 		// Routing can change on restart; the exact authenticated identity cannot.
-		if op.DestinationEndpoint != r.DestinationEndpoint {
-			op.DestinationEndpoint = r.DestinationEndpoint
-			if err = saveResume(path, op); err != nil {
-				return nil, err
-			}
+		op.DestinationEndpoint = r.DestinationEndpoint
+		// Reaffirm durability before source mutation, including a retry after
+		// rename succeeded but the previous directory sync was uncertain.
+		if err = saveResumeWithSync(path, op, l.resumeJournalSync); err != nil {
+			return nil, err
 		}
 		// A completed historical operation may be replaced for a new foreign
 		// epoch. An incomplete operation is never silently abandoned.
@@ -186,7 +202,17 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			return nil, e
 		}
 		op.Receipt = a.receipt
-		if err = saveResume(path, op); err != nil {
+		if err = saveResumeWithSync(path, op, l.resumeJournalSync); err != nil {
+			var uncertain *resumePublicationUncertain
+			if !errors.As(err, &uncertain) {
+				// No source mutation or published receipt is possible on this path.
+				l.mu.Lock()
+				cleanupErr := l.resolveResumeAcceptanceLocked(a)
+				l.mu.Unlock()
+				if cleanupErr != nil {
+					return nil, fmt.Errorf("%w; acceptance cleanup: %v", err, cleanupErr)
+				}
+			}
 			return nil, err
 		}
 		// Resolve again below and require the same authenticated exact identity.
@@ -310,4 +336,52 @@ func (s *Server) resumeClaim(ctx context.Context, r *pb.LifecycleControlRequest)
 		response.OperationId = r.HandoverId
 	}
 	return response, err
+}
+
+// resolveResumeAcceptanceLocked removes only the supplied exact in-process proof.
+// Callers must prove publication never happened or its source epoch is superseded.
+func (l *coexistenceLifecycle) resolveResumeAcceptanceLocked(a *IncomingAcceptance) error {
+	if a == nil || l.incoming[a.h] != a {
+		return nil
+	}
+	if err := l.admission.ResolveIncomingDurably(a.h); err != nil {
+		return err
+	}
+	delete(l.incoming, a.h)
+	return nil
+}
+
+// resumeRecover is called under resumeMu: no negotiation for this journal can be
+// in flight. A successful guarded exact-epoch recovery fences every late source
+// reservation for that epoch. Resolve only this journal's exact acceptance, not
+// unrelated participation (including other handovers for the same conversation).
+func (s *Server) resumeRecover(ctx context.Context, r *pb.LifecycleRecoverRequest) (*pb.LifecycleControlResponse, error) {
+	l := s.coexistence
+	var op pb.LifecycleControlRequest
+	b, err := os.ReadFile(resumeJournal(l, r.Conversation))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err == nil {
+		if err = json.Unmarshal(b, &op); err != nil {
+			return nil, err
+		}
+	}
+	got, err := s.LifecycleRecover(ctx, r)
+	if err != nil || !got.GetReady() {
+		return got, err
+	}
+	if !proto.Equal(op.Destination, l.controlIdentity()) || !proto.Equal(op.Owner, r.ExpectedOwner) || op.HandoverId == "" || op.Receipt == "" || op.Source == nil || op.Source.Host != r.ExpectedOwner.GetHost() {
+		return got, nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for h, a := range l.incoming {
+		if h.Conversation == op.Owner.Conversation && h.SourceHost == op.Owner.Host && h.SourceEpoch == op.Owner.Epoch && h.HandoverID == op.HandoverId && h.DestinationHost == l.options.Host && a.receipt == op.Receipt && a.sourceBuild == op.Source.Build {
+			if err = l.resolveResumeAcceptanceLocked(a); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return got, nil
 }

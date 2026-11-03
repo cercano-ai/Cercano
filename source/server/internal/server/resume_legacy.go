@@ -83,5 +83,5 @@ func (s *Server) resumeConfirmedLegacy(ctx context.Context, r, op *pb.LifecycleC
 	}
 	// Do not equate a successful stop call with death. The existing guard must
 	// verify absence under launch exclusion before exact-epoch recovery.
-	return s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: op.Owner.Conversation, ExpectedOwner: op.Owner, Confirm: true})
+	return s.resumeRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: op.Owner.Conversation, ExpectedOwner: op.Owner, Confirm: true})
 }
