@@ -1,6 +1,6 @@
-# Failed-launch ownership: receipt implementation awaiting independent review
+# Failed-launch ownership: receipt implementation in main
 
-Status (2026-11-03): **implemented on the review branch, not landed** following the user's explicit approval of the narrow receipt addition. The reproduction and decision discussion below describe the original checkpoint, not current implementation status.
+Status (2026-11-03): **receipt implementation is in main**, through `681cfde9` and the receipt-consumption follow-up `d7cbdeb2`. The original isolated verification below is historical, not a current full-suite signoff. The rolling-readiness follow-up is a separate review branch and is not landed; see [rolling readiness verification](rolling-readiness-verification.md). The reproduction and decision discussion below describe the original checkpoint, not current implementation status.
 
 ## Implementation and isolated verification
 
@@ -8,7 +8,7 @@ New launches journal an operation before acquisition. Host receipt transitions b
 
 Converted the original leak assertions to compensation regressions. Added fake-host/Python exec-failure and CLI delivery-boundary coverage, abort/attachment races, durable duplicate abort, failed cleanup retry, exact epoch fencing (including later ordinary reacquisition), observation/detach retention, existing-conversation rejection and ambiguous acquisition/output cases.
 
-Passed in this worktree:
+Recorded by the original implementation worktree (historical):
 
 - Server: `go test -race ./internal/server -run 'LaunchReceipt|LifecycleControl|Retained' -count=1`
 - Server: `go test ./internal/server ./internal/broker ./pkg/agentclient -count=1`
@@ -17,7 +17,7 @@ Passed in this worktree:
 - Both affected Go executable builds, writing only temporary binaries.
 - Python compatibility (3), progress (9), arguments (4), feedback (5), safety (22) tests.
 
-Limits: scoped isolated gates, not full repository/system acceptance. The previously reported PTY baseline was not rerun or independently established by these gates. Python exec-failure integration stubs generation validation to isolate handoff; generation safety is covered separately by launcher safety fixtures. No production runtime, deployment, push or land. Independent review remains required.
+Limits: scoped isolated gates, not full repository/system acceptance. The previously reported PTY baseline was not rerun or independently established by these gates. Python exec-failure integration stubs generation validation to isolate handoff; generation safety is covered separately by launcher safety fixtures. Those isolated checks did not exercise a production runtime or deployment. The implementation subsequently entered main as noted above.
 
 ## Original checkpoint (historical)
 

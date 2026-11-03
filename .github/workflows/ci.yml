@@ -18,10 +18,31 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: source/server/go.mod
-          cache-dependency-path: source/server/go.sum
+          cache-dependency-path: |
+            source/server/go.sum
+            source/clients/cli/go.sum
+
+      - name: Download CLI fixture build dependencies
+        working-directory: source/clients/cli
+        run: go mod download
 
       - name: Run tests
         run: go test ./...
+
+      - name: Launcher fixture suites
+        run: |
+          python3 scripts/test_launcher_compatibility.py
+          python3 scripts/test_launcher_progress.py
+          python3 scripts/test-launcher-arguments.py
+          python3 scripts/test-launcher-feedback.py
+          bash scripts/cercano-launcher_test.sh
+          bash scripts/install-launcher_test.sh
+
+      - name: Bounded ordinary launcher history smoke
+        timeout-minutes: 10
+        env:
+          CERCANO_RUN_LAUNCHER_HISTORY_SMOKE: "1"
+        run: go test ./cmd/cercano -run '^TestEverydayLauncherHistorySmoke$' -count=1 -timeout=9m
 
       - name: Build binary
         run: go build -ldflags "-X main.version=ci-${{ github.sha }}" -o bin/cercano ./cmd/cercano
@@ -49,6 +70,10 @@ jobs:
 
       - name: Build cercano and cercano-cli
         run: ./scripts/build.sh
+
+      - name: CLI unit tests
+        working-directory: source/clients/cli
+        run: go test ./... -count=1
 
       - name: Install tui-test
         run: npm ci
