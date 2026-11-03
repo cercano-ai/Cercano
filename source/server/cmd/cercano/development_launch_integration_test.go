@@ -258,6 +258,10 @@ func TestDevelopmentLaunchRecoveryChild(t *testing.T) {
 		return strings.TrimSpace(string(b)), e
 	}
 
+	// Missing credentials must reach the same conservative recovery decision.
+	if err := os.Remove(record.TokenFile); err != nil {
+		t.Fatal(err)
+	}
 	oldRecord, _ := os.ReadFile(base + ".json")
 	var launchArgs []string
 	json.Unmarshal(args, &launchArgs)
@@ -298,8 +302,46 @@ func TestDevelopmentLaunchRecoveryChild(t *testing.T) {
 			return developmentReplaceBlockedWith(ctx, base, gen, authority, s, cause, func(string) bool { return yes }, uncertain)
 		}
 	}
+	verifiedButUnauthenticated := func(ctx context.Context, base, gen, authority string, s launchSelection, cause error) error {
+		ops := uncertain
+		ops.prepare = func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error) {
+			return brewrestart.Identity{}, nil
+		}
+		return developmentReplaceBlockedWith(ctx, base, gen, authority, s, cause, func(string) bool { return false }, ops)
+	}
 	var selected bytes.Buffer
-	if err := runDevelopmentLaunchWithHooks(context.Background(), launchArgs, &selected, recoverWith(false), command); err == nil || spawned != 0 {
+	if err := runDevelopmentLaunchWithHooks(context.Background(), launchArgs, &selected, verifiedButUnauthenticated, command); err == nil || !strings.Contains(err.Error(), "force launch declined") || spawned != 0 {
+		t.Fatalf("missing token granted stop authority: %v", err)
+	}
+	// Independent verified absence is sufficient, without consent or process stop.
+	absenceChecked := false
+	safeRecovery := func(ctx context.Context, base, gen, authority string, s launchSelection, cause error) error {
+		ops := uncertain
+		ops.absent = func(context.Context, string) error { absenceChecked = true; return nil }
+		ops.prepare = func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error) {
+			t.Fatal("absence attempted process inspection")
+			return brewrestart.Identity{}, nil
+		}
+		err := developmentReplaceBlockedWith(ctx, base, gen, authority, s, cause, func(string) bool { t.Fatal("absence prompted"); return false }, ops)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Errorf("fixture verified absence; stop before spawn")
+	}
+	if err := runDevelopmentLaunchWithHooks(context.Background(), launchArgs, &selected, safeRecovery, command); err == nil || !absenceChecked || spawned != 0 {
+		t.Fatalf("missing token bypassed safe recovery: %v", err)
+	}
+	// An unusable credential is also uncertainty, never proof of death.
+	if err := os.WriteFile(record.TokenFile, []byte("unusable"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runDevelopmentLaunchWithHooks(context.Background(), launchArgs, &selected, verifiedButUnauthenticated, command); err == nil || !strings.Contains(err.Error(), "force launch declined") || spawned != 0 {
+		t.Fatalf("unusable token bypassed consent: %v", err)
+	}
+	if err := os.Remove(record.TokenFile); err != nil {
+		t.Fatal(err)
+	}
+	if err := runDevelopmentLaunchWithHooks(context.Background(), launchArgs, &selected, recoverWith(false), command); err == nil || !strings.Contains(err.Error(), "force launch declined") || spawned != 0 {
 		t.Fatalf("declined force spawned host: %v %d", err, spawned)
 	}
 	if err := runDevelopmentLaunchWithHooks(context.Background(), launchArgs, &selected, recoverWith(true), command); err != nil {

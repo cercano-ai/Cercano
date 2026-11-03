@@ -25,7 +25,7 @@ func (s *Server) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleCo
 	}
 	// Authenticate the exact destination before revoking anything. This read-only
 	// preflight grants no ownership and cannot publish a new default target.
-	conn, err := l.options.ControlDial(ctx, r.DestinationEndpoint)
+	conn, err := l.options.ControlDial(ctx, r.DestinationEndpoint, r.Destination)
 	if err != nil {
 		return nil, err
 	}

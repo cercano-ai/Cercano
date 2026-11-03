@@ -32,9 +32,9 @@ type CoexistenceOptions struct {
 	RecoveryGuard func(context.Context, string) (func(), error)
 	// LegacyStop is optional: absent a verified platform implementation, fail closed.
 	LegacyStop LegacyProcessStop
-	// ResolveSource selects only the exact owner from trusted local records; ControlDial authenticates it.
+	// ResolveSource selects only the exact owner from trusted local records; ControlDial authenticates that exact identity, not merely its endpoint.
 	ResolveSource      func(context.Context, string) (*pb.LifecycleIdentity, string, error)
-	ControlDial        func(context.Context, string) (*grpc.ClientConn, error)
+	ControlDial        func(context.Context, string, *pb.LifecycleIdentity) (*grpc.ClientConn, error)
 	Contract           conversation.CoexistenceDeclaration
 	CloseParticipation func(context.Context) error
 	// Reload is a read-only legacy reload hook, called under the lifecycle lock

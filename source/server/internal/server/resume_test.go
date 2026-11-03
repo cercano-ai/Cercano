@@ -165,7 +165,7 @@ func TestDestinationResumeInterruptedRetries(t *testing.T) {
 			setResumeSource(b, a, sourceEndpoint)
 			realDial := b.coexistence.options.ControlDial
 			if point == "before-source" {
-				b.coexistence.options.ControlDial = func(context.Context, string) (*grpc.ClientConn, error) {
+				b.coexistence.options.ControlDial = func(context.Context, string, *pb.LifecycleIdentity) (*grpc.ClientConn, error) {
 					return nil, errors.New("interrupted before dial")
 				}
 			}

@@ -256,7 +256,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	if !proto.Equal(source, op.Source) {
 		return nil, status.Error(codes.FailedPrecondition, "source identity changed")
 	}
-	conn, err := l.options.ControlDial(ctx, endpoint)
+	conn, err := l.options.ControlDial(ctx, endpoint, source)
 	if err != nil {
 		return nil, err
 	}

@@ -328,13 +328,15 @@ func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Wr
 		ready, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		controls, e := launchControls(ready, s)
-		if e != nil {
-			return e
+		var check *pb.LifecycleControlResponse
+		if e == nil {
+			defer controls.Close()
+			check, e = controls.LifecycleList(ready, &pb.LifecycleControlRequest{Target: expected, Management: true})
 		}
-		defer controls.Close()
-		check, e := controls.LifecycleList(ready, &pb.LifecycleControlRequest{Target: expected, Management: true})
 		if e != nil {
-			controls.Close()
+			if controls != nil {
+				controls.Close()
+			}
 			cancel()
 			if replaced {
 				return fmt.Errorf("replacement host unavailable; intent retained: %w", e)

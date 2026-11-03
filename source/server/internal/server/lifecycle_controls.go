@@ -197,7 +197,7 @@ func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRe
 			return nil, e
 		}
 		defer func() { l.mu.Lock(); reserved.control.active = false; l.mu.Unlock() }()
-		conn, err := l.options.ControlDial(ctx, r.DestinationEndpoint)
+		conn, err := l.options.ControlDial(ctx, r.DestinationEndpoint, r.Destination)
 		if err != nil {
 			return nil, err
 		}
