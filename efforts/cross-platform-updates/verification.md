@@ -150,3 +150,77 @@ Introduce narrow installed-runtime publication before host/session admission: re
 Existing development publication is not sufficient: `source/server/scripts/publish-dev-generation.py:282-288` permits exactly manifest.json plus cercano and cercano-cli, hashing the binary entries. Worker policy validates and pins only its executable and manifest. A two-binary manifest cannot establish the A-only resource (or library/backend) closure shown missing here. Extend explicit member inventory/digests and safe relative-path validation for required assets before integrating installed discovery/admission; do not merely copy two binaries and call the bundle complete. Platform dynamic-library closure still needs native artifact inspection.
 
 Next acceptance assertions should replace this characterization only when real runtime retention exists; extend through installed discovery, host/session binding, reconnect and interrupted publication. Native Homebrew/APT/Chocolatey acceptance, Windows locked/Unicode paths and automatic retirement remain deferred. No security or shared-data policy changed.
+
+## Bounded Phase 2 retention primitive + worker fixture — 2026-11-03
+
+Implemented `internal/runtimebundle` as an additive, caller-inventoried copy and
+validation primitive, not package delivery or installed launch integration.
+Required members carry safe slash-relative paths, expected SHA-256 bytes and an
+executable flag. Fresh private slots use `.staging`, validate all required copied
+members, then atomically rename to `bundle`. No current pointer or existing
+bundle is modified. No automatic cleanup occurs, including failed stages.
+`os.Root` confines source opens; symlink components/nonregular members, traversal,
+duplicate paths and overlapping source/retention roots are refused. The existing
+Python publisher and worker-private safety code informed stage/validate/rename
+and file/digest checks; they could not directly implement the additive asset
+inventory without changing their contracts. No existing manifest changed.
+
+`TestInstalledRetainedBundleWorker` exercises real `Publish` followed by the
+existing `NewSpawnPolicy`, `workerBinary` and `workerCommandWithPolicy` seams.
+Retained A executes A/A-only asset after the fake manager switches to B, after
+A's source asset disappears, and after removal of manager A. B still executes
+B/B-only asset. Republishing with A's required asset missing fails. The original
+`TestInstalledRetentionCharacterization` remains a separate nonretained failure
+case. All copies/removals remain inside temporary fixtures; no live install,
+shared data, package manager, remote CLI, permissions policy or security policy
+was modified. No helper starts an agent/model.
+
+### Commands and observed outcomes
+
+Executed in `source/server` through Go on PATH on Darwin, Go timeout 60 seconds
+and tool bound 90 seconds:
+
+- Initial combined focused run: worker characterization and retained success both
+  passed; package preservation assertions failed because macOS `/var` TempDir
+  aliases were compared against canonical `/private/var` publication paths.
+  Canonicalized the package fixture roots; no production relaxation was needed.
+- `go test ./internal/runtimebundle -count=1 -v -timeout=60s` — PASS (0.432s).
+  Covers missing/tampered files, pre-cancellation and deterministic mid-copy
+  cancellation with abandoned ineligible staging, symlink files/parents,
+  nonregular members, unsafe/duplicate paths, overlapping roots, unlisted-file
+  exclusion, executable/private modes, retained tampering and four concurrent
+  independent publications surviving source deletion.
+- `go test ./internal/worker -run '^(TestInstalledRetentionCharacterization|TestInstalledRetainedBundleWorker|TestDevHostWorkerGenerationReplacementRejected|TestPinnedPolicySelectionAndNamespaces)$' -count=1 -v -timeout=60s`
+  — PASS (2.722s); retained helper marker sequence A, B, A, A, A, B.
+- `go test ./internal/runtimebundle -race -count=1 -timeout=60s` — PASS (1.437s).
+- `go test ./internal/worker -race -run '^(TestInstalledRetentionCharacterization|TestInstalledRetainedBundleWorker|TestDevHostWorkerGenerationReplacementRejected|TestPinnedPolicySelectionAndNamespaces)$' -count=1 -timeout=60s`
+  — PASS (15.379s).
+
+### Honest completion boundary
+
+This bounded primitive/fixture unit is complete. The broad Phase 2 retention and
+interrupted-publication tasks remain **in progress**, not done: production
+admission/selection is unconnected. No installed session/reconnect or native
+upgrade acceptance is claimed. Whole repository tests, hard-process-kill and
+power-loss recovery, disk/permission fault injection, native Windows locks/ACLs,
+and Homebrew/APT/Chocolatey acceptance were not run.
+
+Inventory contract and limitations are recorded in
+`source/server/internal/runtimebundle/README.md`. An asset omitted from the
+caller-provided inventory cannot be detected; a required inventoried asset
+missing from the source fails. Existing manifests are opaque bytes. There is no
+persisted inventory/recovery schema, symlink/metadata preservation, loader
+relocation or full dynamic-library closure. Worker production validation remains
+binary/manifest-only; the fixture succeeds by retaining its explicitly known
+resource, not by connecting installed discovery or solving general resource
+lookup. Private root ownership remains a caller precondition, not a new security
+policy or native ACL claim.
+
+Exact remaining seam: resolve the installed selection in
+`pkg/agentclient/client.go`, produce a trustworthy complete platform inventory,
+call retention before `cmd/cercano` host/session compatibility admission, and pass
+the returned canonical generation and manifest to `SpawnOptions`. Bind production
+resource lookup, reconnects and later workers to that same authority, retain
+inventory for recovery/revalidation, then prove native package cleanup behavior.
+No cleanup, package database, downloads, rollback or shared-data migration is
+included. Native acceptance remains deferred.

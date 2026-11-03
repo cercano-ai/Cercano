@@ -24,8 +24,8 @@ Objective: identify the smallest safe integration points and reproduce existing 
 Objective: bridge native installed files into complete retained runtime bundles without taking ownership of package delivery. Files: source/server/cmd/cercano/{development_launch.go,development_current.go,ordinary_generation_host.go}, source/server/pkg/agentclient/{client.go,pinned_session.go,development_identity.go,reconnect.go}, source/server/internal/worker/{host.go,pool.go,spawn.go}, and narrowly scoped runtime-generation support as needed. Existing source/server/scripts/{publish-dev-generation.py,cercano-launcher.py} are reference/reuse candidates, not assumed portable production installers. Tests: installed discovery/reuse, pinned-session, generation replacement, launch integration and retirement tests, plus fixture bundles and concurrent-process integration tests.
 
 - [~] Add failing installed-flow fixtures proving which package removal/replacement events currently break later runtime use
-- [ ] Implement complete runtime-bundle retention and validation before admission, independent of replaceable manager-owned files
-- [ ] Make interrupted publication or incomplete resources ineligible; preserve the prior valid runtime selection
+- [~] Implement complete runtime-bundle retention and validation before admission, independent of replaceable manager-owned files
+- [~] Make interrupted publication or incomplete resources ineligible; preserve the prior valid runtime selection
 - [ ] Integrate installed discovery and launch with retained-generation selection while preserving remote-only CLI operation
 - [ ] Keep active and reconnected sessions bound to their admitted generation and route their later workers to the same retained dependencies
 - [ ] Admit new sessions to eligible newer generations without redirecting existing sessions
@@ -34,6 +34,7 @@ Objective: bridge native installed files into complete retained runtime bundles 
 - [ ] Test simultaneous launches, interrupted publication, missing assets, package-file removal, disk/permission failures and crash recovery
 - [ ] Verify Windows-compatible retention and launch behavior with locked files and Unicode/space-containing paths
 - [ ] Checkpoint runtime continuity with focused and cross-component integration evidence
+  Bounded slice (2026-11-03): caller-inventoried runtimebundle publication and retained worker-policy fixture completed with focused and race tests. Retention/publication tasks remain in progress: installed discovery/admission, complete platform dependency inventory, recovery, and native acceptance are not connected or complete. See the latest verification section and runtimebundle/README.md; no cleanup or package delivery implemented.
 
 ## Phase 3 — Defer incompatible runtime and data activation
 

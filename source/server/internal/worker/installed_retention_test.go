@@ -2,6 +2,10 @@ package worker
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+
+	"cercano/source/server/internal/runtimebundle"
 	"errors"
 	"fmt"
 	"io"
@@ -47,6 +51,15 @@ func init() {
 // session admission. The fake manager alias models selection only; no retention
 // is implemented by this fixture and no real package manager is invoked.
 func TestInstalledRetentionCharacterization(t *testing.T) {
+	installedRetentionFixture(t, false)
+}
+
+// This is retention plus worker-policy integration, NOT installed launch admission.
+func TestInstalledRetainedBundleWorker(t *testing.T) {
+	installedRetentionFixture(t, true)
+}
+
+func installedRetentionFixture(t *testing.T, retain bool) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix manager alias fixture; native Windows acceptance deferred")
 	}
@@ -98,10 +111,31 @@ func TestInstalledRetentionCharacterization(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	retainedRoot := filepath.Join(root, "retained")
+	if err := os.Mkdir(retainedRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	inventories := map[string][]runtimebundle.Member{}
+	for _, dir := range []string{a, b} {
+		marker := filepath.Base(dir)
+		for _, name := range []string{cercanoBinaryName, "manifest.json", "generation", marker + "-only.resource"} {
+			data, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			inventories[dir] = append(inventories[dir], runtimebundle.Member{Path: name, SHA256: sha256.Sum256(data), Executable: name == cercanoBinaryName})
+		}
+	}
 	admit := func(host string) SpawnPolicy {
 		dir, err := filepath.EvalSymlinks(selected)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if retain {
+			dir, err = runtimebundle.Publish(context.Background(), dir, retainedRoot, inventories[dir])
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 		p, err := NewSpawnPolicy(SpawnOptions{GenerationDir: dir, ManifestPath: filepath.Join(dir, "manifest.json"), HostInstance: host, ResourceRoot: resourceRoot})
 		if err != nil {
@@ -144,6 +178,18 @@ func TestInstalledRetentionCharacterization(t *testing.T) {
 	// A-only asset loss is not checked by the executable/manifest digests.
 	if err := os.Remove(filepath.Join(a, "A-only.resource")); err != nil {
 		t.Fatal(err)
+	}
+	if retain {
+		if dir, err := runtimebundle.Publish(context.Background(), a, retainedRoot, inventories[a]); err == nil || dir != "" {
+			t.Fatalf("omitted required asset published: %q, %v", dir, err)
+		}
+		requireMarker(pinnedA, "A")
+		if err := os.RemoveAll(a); err != nil {
+			t.Fatal(err)
+		}
+		requireMarker(pinnedA, "A")
+		requireMarker(pinnedB, "B")
+		return
 	}
 	if _, err := pinnedA.workerBinary(); err != nil {
 		t.Fatalf("unexpected asset validation: %v", err)
