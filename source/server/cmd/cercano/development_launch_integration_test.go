@@ -30,10 +30,13 @@ import (
 
 type launchTestHost struct {
 	pb.UnimplementedAgentServer
-	identity *pb.LifecycleIdentity
-	reject   atomic.Bool
-	entered  chan struct{}
-	ready    chan struct{}
+	identity         *pb.LifecycleIdentity
+	reject           atomic.Bool
+	entered          chan struct{}
+	ready            chan struct{}
+	acquired         sync.Map // Fixture ownership, including acquisitions never delivered.
+	releases         atomic.Int64
+	selectionFailure atomic.Value // Optional fixture-only exclusive-create collision directory.
 }
 
 func (h *launchTestHost) LifecycleList(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
@@ -60,7 +63,26 @@ func (h *launchTestHost) LifecycleAcquire(ctx context.Context, r *pb.LifecycleCo
 	if !proto.Equal(r.Target, h.identity) {
 		return nil, fmt.Errorf("wrong target")
 	}
-	return &pb.LifecycleControlResponse{Identity: h.identity, Owner: &pb.LifecycleOwner{Conversation: r.Owner.Conversation, Host: h.identity.Host, Epoch: "fresh-" + r.Owner.Conversation}}, nil
+	owner := &pb.LifecycleOwner{Conversation: r.Owner.Conversation, Host: h.identity.Host, Epoch: "fresh-" + r.Owner.Conversation}
+	h.acquired.Store(owner.Conversation, owner)
+	if dir, _ := h.selectionFailure.Load().(string); dir != "" {
+		if err := os.Mkdir(filepath.Join(dir, owner.Conversation+".json"), 0700); err != nil {
+			return nil, err
+		}
+	}
+	return &pb.LifecycleControlResponse{Identity: h.identity, Owner: owner}, nil
+}
+func (h *launchTestHost) LifecycleRelease(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+	if !proto.Equal(r.Target, h.identity) {
+		return nil, fmt.Errorf("wrong target")
+	}
+	owner, ok := h.acquired.Load(r.GetOwner().GetConversation())
+	if !ok || !proto.Equal(owner.(*pb.LifecycleOwner), r.Owner) {
+		return nil, fmt.Errorf("wrong exact owner")
+	}
+	h.acquired.Delete(r.Owner.Conversation)
+	h.releases.Add(1)
+	return &pb.LifecycleControlResponse{Identity: h.identity}, nil
 }
 func TestDevelopmentLaunchChild(t *testing.T) {
 	if os.Getenv("CERCANO_LAUNCH_TEST_CHILD") != "1" {
@@ -195,6 +217,46 @@ func TestDevelopmentLaunchAuthenticatedConcurrentReuse(t *testing.T) {
 	}
 	if !proto.Equal(current.Identity, id) || current.Generation != generation || current.Conversation != "" || current.Epoch != "" {
 		t.Fatalf("invalid current target: %+v", current)
+	}
+	// Characterization only: record the leak before choosing a safe delivery
+	// protocol. These assertions intentionally describe the unfixed behavior.
+	for _, boundary := range []string{"selection-write", "target-publication"} {
+		t.Run("ReproduceUndeliveredOwnershipLeak/"+boundary, func(t *testing.T) {
+			count := func() int {
+				n := 0
+				host.acquired.Range(func(_, _ any) bool { n++; return true })
+				return n
+			}
+			beforeCount, beforeReleases := count(), host.releases.Load()
+			target := filepath.Join(state, "current-target.json")
+			if boundary == "selection-write" {
+				host.selectionFailure.Store(filepath.Join(state, "selections"))
+				defer host.selectionFailure.Store("")
+			} else {
+				if err := os.Rename(target, target+".fixture-backup"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(target, 0700); err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if err := os.Remove(target); err != nil {
+						t.Error(err)
+					}
+					if err := os.Rename(target+".fixture-backup", target); err != nil {
+						t.Error(err)
+					}
+				}()
+			}
+			output, err := invoke()
+			if err == nil {
+				t.Fatalf("expected fixture launch failure, got %s", output)
+			}
+			if count() != beforeCount+1 || host.releases.Load() != beforeReleases {
+				t.Fatalf("baseline changed: owners %d -> %d; releases %d -> %d", beforeCount, count(), beforeReleases, host.releases.Load())
+			}
+			t.Logf("REPRODUCED: %s failed, exact acquired ownership remains, no release RPC: %s", boundary, output)
+		})
 	}
 	targetBefore, _ := os.ReadFile(filepath.Join(state, "current-target.json"))
 	before, _ := os.ReadFile(paths[0])
