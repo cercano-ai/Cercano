@@ -45,8 +45,7 @@ func (m Model) offerForcedResume(offer *forcedResumeOffer) (tea.Model, tea.Cmd) 
 			return m, func() tea.Msg {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				pending := *offer
-				r := devHostResult{action: "reopen", fenced: true, origin: client, originID: parent, generation: gen, cutover: &pending}
+				r := devHostResult{action: "reopen", fenced: true, origin: client, originID: parent, generation: gen}
 				dc, err := offer.destination.controls(ctx)
 				if err != nil {
 					r.err = err

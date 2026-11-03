@@ -110,7 +110,6 @@ func ControlDevHost(ctx context.Context, s DevHostSelection, action, destination
 }
 
 type devHostState struct {
-	pendingCutover   *forcedResumeOffer
 	selection        DevHostSelection
 	defaultSelection DevHostSelection
 	version          string
@@ -118,7 +117,6 @@ type devHostState struct {
 	busy             bool
 }
 type devHostResult struct {
-	cutover    *forcedResumeOffer
 	fenced     bool
 	origin     *agentclient.Client
 	originID   string
@@ -204,9 +202,6 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.devHost.busy = false
-	if r.cutover != nil {
-		m.devHost.pendingCutover = r.cutover
-	}
 	if offer, ok := r.err.(*forcedResumeOffer); ok {
 		return m.offerForcedResume(offer)
 	}

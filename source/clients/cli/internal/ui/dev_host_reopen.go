@@ -52,10 +52,8 @@ func (m Model) beginDevHostReopen(conversation string) (Model, tea.Cmd) {
 		m.errMsg = "Reopen unavailable while disconnected or another reopen is running"
 		return m, nil
 	}
-	if pending := m.devHost.pendingCutover; pending != nil && pending.owner.Conversation == conversation {
-		next, cmd := m.offerForcedResume(pending)
-		return next.(Model), cmd
-	}
+	// Each reopen queries the destination afresh. A failed confirmed attempt
+	// invalidates its offer; it must never become approval for a later retry.
 	m.devHost.busy = true
 	selection := m.devHost.defaultSelection
 	if selection.Identity == nil {
