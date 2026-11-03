@@ -19,9 +19,9 @@ type launcherResumeServer struct {
 	requests chan *proto.LifecycleControlRequest
 }
 
-func (s *launcherResumeServer) LifecycleAcquire(_ context.Context, r *proto.LifecycleControlRequest) (*proto.LifecycleControlResponse, error) {
+func (s *launcherResumeServer) LifecycleResume(_ context.Context, r *proto.LifecycleControlRequest) (*proto.LifecycleControlResponse, error) {
 	s.requests <- r
-	return &proto.LifecycleControlResponse{Identity: r.Target, Owner: &proto.LifecycleOwner{Conversation: r.Owner.Conversation, Host: r.Target.Host, Epoch: "existing-epoch"}}, nil
+	return &proto.LifecycleControlResponse{Identity: r.Target, Owner: &proto.LifecycleOwner{Conversation: r.Owner.Conversation, Host: r.Target.Host, Epoch: "existing-epoch"}, Ready: true}, nil
 }
 
 // Real authenticated lifecycle transport, disposable token/state, no agent,

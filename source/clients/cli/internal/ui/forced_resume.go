@@ -11,20 +11,25 @@ import (
 )
 
 type forcedResumeOffer struct {
-	destination DevHostSelection
-	owner       *proto.LifecycleOwner
-	dead        bool
+	destination     DevHostSelection
+	owner           *proto.LifecycleOwner
+	dead            bool // retained for old fixture helpers; normal recovery is automatic
+	source          *proto.LifecycleIdentity
+	requester       *proto.LifecycleIdentity
+	operation       string
+	processIdentity string
+	blocked         string
 }
 
 func (o *forcedResumeOffer) Error() string {
-	return "conversation belongs to an exited server; recovery requires confirmation"
+	return "legacy source requires explicit whole-host interruption confirmation"
 }
 func (m Model) offerForcedResume(offer *forcedResumeOffer) (tea.Model, tea.Cmd) {
 	client, parent, gen := m.agent, m.convID, m.taskSubscriptionGeneration
 	decline := func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil }
-	title := "Recover conversation from the exited server?"
-	details := []string{fmt.Sprintf("Server %s has been verified absent. Recover conversation %s on %s?", offer.owner.Host, offer.owner.Conversation, offer.destination.Identity.Host), "Unfinished tasks will be marked interrupted, not replayed. External effects may remain uncertain. Other conversations are not changed."}
-	hints := "y: recover · n/esc/enter: cancel"
+	title := "Interrupt the entire legacy source host?"
+	details := []string{fmt.Sprintf("Stop source host %s (build %s, store %s) to resume conversation %s on %s?", offer.owner.Host, offer.source.GetBuild(), offer.source.GetStore(), offer.owner.Conversation, offer.destination.Identity.Host), "Sibling conversation and task inventory is incomplete. ALL conversations and running tasks on this source host may be interrupted, not just the selected conversation. External effects may remain uncertain.", "The server will revalidate the exact source process, owner epoch, destination and operation before any stop. " + offer.blocked}
+	hints := "y: interrupt whole source host · n/esc/enter: cancel"
 	m.enqueueConfirmation(&confirmRequest{
 		title: title, details: details, hints: hints,
 		extras: map[string]func(Model) (Model, tea.Cmd){"enter": decline}, onNo: decline,
@@ -34,7 +39,7 @@ func (m Model) offerForcedResume(offer *forcedResumeOffer) (tea.Model, tea.Cmd) 
 				return m, nil
 			}
 			m.devHost.busy = true
-			notice := "Recovering from the exited server: rechecking absence and reconciling interrupted work…"
+			notice := "Rechecking confirmed legacy host identity before whole-host interruption…"
 			m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: notice})
 			m.refreshViewport()
 			return m, func() tea.Msg {
@@ -48,13 +53,13 @@ func (m Model) offerForcedResume(offer *forcedResumeOffer) (tea.Model, tea.Cmd) 
 					return r
 				}
 				defer dc.Close()
-				response, err := dc.LifecycleRecover(ctx, &proto.LifecycleRecoverRequest{Target: offer.destination.Identity, Conversation: offer.owner.Conversation, ExpectedOwner: offer.owner, Confirm: true})
+				response, err := dc.LifecycleResume(ctx, &proto.LifecycleControlRequest{Target: offer.destination.Identity, Source: offer.source, Owner: offer.owner, HandoverId: offer.operation, DestinationEndpoint: offer.destination.Endpoint, Requester: offer.requester, ConfirmLegacyStop: true, LegacyProcessIdentity: offer.processIdentity})
 				if err != nil {
 					r.err = err
 					return r
 				}
 				owner := response.GetOwner()
-				if response.GetPending() || !protobuf.Equal(response.GetIdentity(), offer.destination.Identity) || owner.GetConversation() != offer.owner.Conversation || owner.GetHost() != offer.destination.Identity.Host || owner.GetEpoch() == "" || owner.GetEpoch() == offer.owner.Epoch {
+				if !response.GetReady() || response.GetConfirmationRequired() || response.GetPending() || !protobuf.Equal(response.GetIdentity(), offer.destination.Identity) || owner.GetConversation() != offer.owner.Conversation || owner.GetHost() != offer.destination.Identity.Host || owner.GetEpoch() == "" || owner.GetEpoch() == offer.owner.Epoch {
 					r.err = fmt.Errorf("cutover did not return validated new-server ownership")
 					return r
 				}

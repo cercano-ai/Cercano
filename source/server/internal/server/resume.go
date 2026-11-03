@@ -73,7 +73,8 @@ func saveResume(path string, r *pb.LifecycleControlRequest) error {
 }
 
 // LifecycleResume runs only on the launcher-selected destination. It never
-// discovers a destination, stops a host, or treats an unavailable RPC as death.
+// discovers a destination or treats an unavailable RPC as death. Legacy stops
+// require a durable, exact approval and a trusted platform adapter.
 func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	l, err := s.control(ctx, r)
 	if err != nil {
@@ -85,6 +86,13 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	}
 	l.resumeMu.Lock()
 	defer l.resumeMu.Unlock()
+	var approved *pb.LifecycleControlRequest
+	if r.ConfirmLegacyStop {
+		approved, err = validateLegacyApproval(l, r)
+		if err != nil {
+			return nil, err
+		}
+	}
 	acquired, acquireErr := s.LifecycleAcquire(ctx, r)
 	if acquireErr == nil {
 		acquired.Ready = true
@@ -104,6 +112,16 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	v, err := conversation.ReadOwnership(ctx, l.store, id)
 	if err != nil {
 		return nil, err
+	}
+	if approved != nil {
+		// If a response was lost after the stop, guarded recovery can finish
+		// without signalling again. Never retry a signal against a changed PID.
+		if l.options.RecoveryGuard != nil {
+			if inspected, e := s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id}); e == nil && proto.Equal(inspected.Owner, approved.Owner) {
+				return s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: approved.Owner, Confirm: true})
+			}
+		}
+		return s.resumeConfirmedLegacy(ctx, r, approved)
 	}
 	// Recovery repeats both the guarded death check and exact owner/epoch check.
 	if v.State == "owned" && v.Owner != l.options.Host && l.options.RecoveryGuard != nil {
@@ -241,7 +259,27 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 				return nil, status.Error(codes.FailedPrecondition, "resume owner changed before legacy confirmation; refusing stale source")
 			}
 			if status.Code(err) == codes.Unknown || status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.Unimplemented {
-				return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: op.Owner, Source: op.Source, OperationId: op.HandoverId, ConfirmationRequired: true, BlockedReason: err.Error()}, nil
+				reason := err.Error()
+				if l.options.LegacyStop != nil && op.LegacyProcessIdentity == "" {
+					identity, inspectErr := l.options.LegacyStop.Prepare(ctx, op.Source)
+					if inspectErr != nil {
+						reason += "; safe stop unavailable: " + inspectErr.Error()
+					} else if identity != "" {
+						op.LegacyProcessIdentity = identity
+						// Bind the requester shown when approval was offered too; a
+						// later UI cannot substitute a host to bypass self-protection.
+						if r.Requester != nil {
+							op.Requester = proto.Clone(r.Requester).(*pb.LifecycleIdentity)
+						}
+						if err := saveResume(path, op); err != nil {
+							return nil, err
+						}
+					}
+				}
+				if op.LegacyProcessIdentity == "" {
+					reason += "; verified platform process stop unavailable; no stop authorized"
+				}
+				return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: op.Owner, Source: op.Source, OperationId: op.HandoverId, LegacyProcessIdentity: op.LegacyProcessIdentity, ConfirmationRequired: true, BlockedReason: reason}, nil
 			}
 		}
 	}

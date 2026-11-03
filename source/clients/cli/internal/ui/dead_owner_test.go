@@ -4,7 +4,6 @@ import (
 	"cercano/source/server/pkg/devhostauth"
 	pb "cercano/source/server/pkg/proto"
 	"context"
-	"errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,6 +20,10 @@ type deadOwnerFixture struct {
 	inspect  atomic.Int64
 }
 
+func (s *deadOwnerFixture) LifecycleResume(_ context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+	s.confirm.Add(1)
+	return &pb.LifecycleControlResponse{Identity: s.identity, Owner: &pb.LifecycleOwner{Conversation: r.Owner.Conversation, Host: s.identity.Host, Epoch: "recovered"}, Ready: true}, nil
+}
 func (s *deadOwnerFixture) LifecycleAcquire(context.Context, *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	return nil, status.Error(codes.FailedPrecondition, "owned by exited A")
 }
@@ -47,7 +50,7 @@ func (s *deadOwnerFixture) CheckRetainedSession(context.Context, *pb.CheckRetain
 func (s *deadOwnerFixture) GetCredentialPolicy(context.Context, *pb.GetCredentialPolicyRequest) (*pb.GetCredentialPolicyResponse, error) {
 	return &pb.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
 }
-func TestDeadOwnerResumeAuthenticatedConfirmation(t *testing.T) {
+func TestDeadOwnerResumeAutomaticallyRecovers(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CERCANO_UI_CONFIG", filepath.Join(root, "ui.yaml"))
 	token := filepath.Join(root, "token")
@@ -69,16 +72,11 @@ func TestDeadOwnerResumeAuthenticatedConfirmation(t *testing.T) {
 	pb.RegisterAgentServer(g, fixture)
 	go g.Serve(lis)
 	dest := DevHostSelection{Identity: id, Endpoint: lis.Addr().String(), TokenFile: token, Conversation: "current", Epoch: "current-epoch"}
-	_, err = reopenDevHost(context.Background(), dest, "history")
-	var offer *forcedResumeOffer
-	if !errors.As(err, &offer) || !offer.dead {
-		t.Fatalf("missing recovery offer: %v", err)
+	selected, err := reopenDevHost(context.Background(), dest, "history")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if fixture.confirm.Load() != 0 || fixture.inspect.Load() != 1 {
-		t.Fatal("discovery mutated")
-	}
-	verifyProductionForcedResume(t, offer)
-	if fixture.confirm.Load() != 1 {
-		t.Fatal("confirmation count", fixture.confirm.Load())
+	if selected.Identity.Host != "B" || selected.Epoch != "recovered" || fixture.confirm.Load() != 1 {
+		t.Fatalf("recovery=%v confirmations=%d", selected, fixture.confirm.Load())
 	}
 }

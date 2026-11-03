@@ -2767,6 +2767,11 @@ message LifecycleControlRequest {
  LifecycleIdentity destination = 6;
  string receipt = 7;
  bool management = 8;
+ // Only an explicit affirmative whole-host confirmation sets this flag.
+ bool confirm_legacy_stop = 9;
+ LifecycleIdentity requester = 10;
+ // Opaque verified process snapshot, bound to the durable resume operation.
+ string legacy_process_identity = 11;
 }
 message LifecycleControlResponse {
  LifecycleIdentity identity = 1;
@@ -2780,11 +2785,12 @@ message LifecycleControlResponse {
  // Per-owner admission readiness, not global retirement permission.
  repeated LifecycleOwner open_owners = 7;
  uint32 pending_incoming = 8;
- // Resume never stops a legacy host. CLI confirmation must use this exact selection.
+ // No stop authority by itself. Continuation requires an explicit bound approval.
  bool confirmation_required = 9;
  LifecycleIdentity source = 10;
  string operation_id = 11;
  string blocked_reason = 12;
+ string legacy_process_identity = 13;
 }
 
 // Read-only text history in the active RunTurn conversation only. The host

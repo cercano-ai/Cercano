@@ -9,12 +9,14 @@ import (
 
 	"cercano/source/server/pkg/proto"
 	tea "charm.land/bubbletea/v2"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	protobuf "google.golang.org/protobuf/proto"
 )
 
 func reopenDevHost(ctx context.Context, destination DevHostSelection, conversation string) (DevHostSelection, error) {
+	return reopenDevHostFrom(ctx, destination, conversation, destination.Identity)
+}
+
+func reopenDevHostFrom(ctx context.Context, destination DevHostSelection, conversation string, requester *proto.LifecycleIdentity) (DevHostSelection, error) {
 	dc, err := destination.controls(ctx)
 	if err != nil {
 		return destination, err
@@ -22,21 +24,20 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 	defer dc.Close()
 	// Only the selected destination is authoritative. Never discover or dial a
 	// historical owner: endpoint availability is neither ownership nor death proof.
-	result, acquireErr := dc.LifecycleAcquire(ctx, &proto.LifecycleControlRequest{Target: destination.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}})
-	if acquireErr != nil {
-		if status.Code(acquireErr) == codes.Unauthenticated || status.Code(acquireErr) == codes.PermissionDenied {
-			return destination, acquireErr
-		}
-		probe, recoveryErr := dc.LifecycleRecover(ctx, &proto.LifecycleRecoverRequest{Target: destination.Identity, Conversation: conversation})
-		if recoveryErr != nil {
-			return destination, fmt.Errorf("destination acquisition refused (%v); destination recovery blocked: %w", acquireErr, recoveryErr)
-		}
-		if !protobuf.Equal(probe.GetIdentity(), destination.Identity) || probe.GetOwner().GetConversation() != conversation || probe.GetOwner().GetHost() == "" || probe.GetOwner().GetHost() == destination.Identity.Host || probe.GetOwner().GetEpoch() == "" {
-			return destination, fmt.Errorf("destination recovery inspection returned invalid ownership")
-		}
-		return destination, &forcedResumeOffer{destination: destination, owner: probe.Owner, dead: true}
+	result, err := dc.LifecycleResume(ctx, &proto.LifecycleControlRequest{Target: destination.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}, DestinationEndpoint: destination.Endpoint, Requester: requester})
+	if err != nil {
+		return destination, err
 	}
-	if result.GetPending() || !protobuf.Equal(result.GetIdentity(), destination.Identity) || result.GetOwner().GetConversation() != conversation || result.GetOwner().GetHost() != destination.Identity.Host || result.GetOwner().GetEpoch() == "" {
+	if !protobuf.Equal(result.GetIdentity(), destination.Identity) {
+		return destination, fmt.Errorf("resume returned different destination")
+	}
+	if result.GetConfirmationRequired() {
+		if result.GetOwner().GetConversation() != conversation || result.GetOwner().GetEpoch() == "" || result.GetSource().GetHost() != result.GetOwner().GetHost() || result.GetSource().GetHost() == "" || result.GetSource().GetHost() == destination.Identity.Host || result.GetOperationId() == "" {
+			return destination, fmt.Errorf("resume returned invalid legacy selection")
+		}
+		return destination, &forcedResumeOffer{destination: destination, owner: result.Owner, source: result.Source, operation: result.OperationId, processIdentity: result.LegacyProcessIdentity, requester: requester, blocked: result.BlockedReason}
+	}
+	if !result.GetReady() || result.GetPending() || result.GetOwner().GetConversation() != conversation || result.GetOwner().GetHost() != destination.Identity.Host || result.GetOwner().GetEpoch() == "" {
 		return destination, fmt.Errorf("reopen returned no ownership")
 	}
 	destination.Conversation, destination.Epoch = conversation, result.Owner.Epoch
@@ -58,10 +59,11 @@ func (m Model) beginDevHostReopen(conversation string) (Model, tea.Cmd) {
 		selection = m.devHost.selection
 	}
 	origin, originID, generation := m.agent, m.convID, m.taskSubscriptionGeneration
+	requester := m.devHost.selection.Identity
 	return m, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		s, err := reopenDevHost(ctx, selection, conversation)
+		s, err := reopenDevHostFrom(ctx, selection, conversation, requester)
 		r := devHostResult{action: "reopen", err: err, fenced: true, origin: origin, originID: originID, generation: generation}
 		if err == nil {
 			r.selection = &s
