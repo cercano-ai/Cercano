@@ -51,7 +51,7 @@ func retireIfNotCurrent(ctx context.Context, state string, identity *pb.Lifecycl
 		return
 	}
 	target := current.Identity
-	if target == nil || target.Host == "" || target.Host == identity.Host || target.Host == startupTarget || target.Store != identity.Store || target.Contract != identity.Contract || target.Schema != identity.Schema {
+	if target == nil || target.Host == "" || target.Host == identity.Host || (target.Build != "" && target.Build == identity.Build) || target.Host == startupTarget || target.Store != identity.Store || target.Contract != identity.Contract || target.Schema != identity.Schema {
 		return
 	}
 	_ = retire(ctx) // Busy/incomplete/failed cleanup stays owned by existing retirement accounting.

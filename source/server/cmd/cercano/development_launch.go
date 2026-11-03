@@ -110,7 +110,22 @@ func launchRead(path string, value interface{}) error {
 	}
 	return json.Unmarshal(b, value)
 }
+
+type developmentBlockedRecovery func(context.Context, string, string, string, launchSelection, error) error
+
 func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) error {
+	return runDevelopmentLaunchWithRecovery(ctx, args, out, func(ctx context.Context, base, generation, authority string, s launchSelection, cause error) error {
+		return developmentReplaceBlocked(ctx, base, generation, authority, s, cause, developmentConfirm)
+	})
+}
+
+func runDevelopmentLaunchWithRecovery(ctx context.Context, args []string, out io.Writer, recoverBlocked developmentBlockedRecovery) error {
+	return runDevelopmentLaunchWithHooks(ctx, args, out, recoverBlocked, developmentHostCommand)
+}
+
+type developmentLaunchCommand func(string, string, string, string, string, string, string, io.Writer, ...string) *exec.Cmd
+
+func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Writer, recoverBlocked developmentBlockedRecovery, hostCommand developmentLaunchCommand) error {
 	fs := flag.NewFlagSet("development-launch", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	authority := fs.String("config-authority", "", "absolute isolated config authority shared across generations")
@@ -218,98 +233,162 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 		return e
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	record := base + ".json"
-	var s launchSelection
-	e = launchRead(record, &s)
-	if os.IsNotExist(e) {
-		host, err := launchID()
-		if err != nil {
-			return err
+	generationBase := base
+	base, e = developmentInstanceBase(generationBase)
+	if e != nil {
+		return e
+	}
+	freshHost := ""
+	replaced := false
+	for {
+		var instanceLock *os.File
+		if base != generationBase {
+			instanceLock, e = developmentInstanceLock(base)
+			if e != nil {
+				return e
+			}
+			defer instanceLock.Close()
 		}
-		// Never delete this intent automatically, even if spawning or readiness fails.
-		if e = launchExclusive(base+".starting", map[string]string{"host": host, "generation": *generation, "config_authority": configAuthority}); e != nil {
-			return fmt.Errorf("prior start intent exists; explicit verified retirement required: %w", e)
-		}
-		token := base + ".token"
-		if e = devhostauth.Create(token); e != nil {
+		record := base + ".json"
+		var s launchSelection
+		e = launchRead(record, &s)
+		if os.IsNotExist(e) {
+			host := freshHost
+			if host == "" {
+				var intent map[string]string
+				intentErr := launchRead(base+".starting", &intent)
+				if intentErr == nil {
+					if replaced {
+						return fmt.Errorf("replacement attempt did not become ready; intent retained")
+					}
+					if e = recoverBlocked(ctx, base, *generation, configAuthority, s, fmt.Errorf("prior start intent exists")); e != nil {
+						return e
+					}
+					base, freshHost, e = developmentNewInstance(generationBase, *generation, configAuthority)
+					if e != nil {
+						return e
+					}
+					replaced = true
+					continue
+				}
+				if !os.IsNotExist(intentErr) {
+					return intentErr
+				}
+				host, e = launchID()
+				if e != nil {
+					return e
+				}
+				if e = launchExclusive(base+".starting", map[string]string{"host": host, "generation": *generation, "config_authority": configAuthority}); e != nil {
+					return e
+				}
+			}
+			token := base + ".token"
+			if e = devhostauth.Create(token); e != nil {
+				return e
+			}
+			log, e := os.OpenFile(base+".log", os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
+			if e != nil {
+				return e
+			}
+			cmd := hostCommand(binary, *state, *generation, host, token, record, *runtime, log, configAuthority)
+			e = cmd.Start()
+			log.Close()
+			if e != nil {
+				return e
+			}
+			_ = cmd.Process.Release()
+			deadline := time.Now().Add(30 * time.Second)
+			for {
+				e = launchRead(record, &s)
+				if e == nil {
+					break
+				}
+				if !os.IsNotExist(e) || time.Now().After(deadline) {
+					return fmt.Errorf("host not ready; start intent retained, no replacement: %w", e)
+				}
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(100 * time.Millisecond):
+				}
+			}
+			if s.Identity == nil || s.Identity.Host != host || s.TokenFile != token {
+				return fmt.Errorf("spawned host identity mismatch")
+			}
+		} else if e != nil {
 			return e
 		}
-		log, e := os.OpenFile(base+".log", os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
+		expected := &pb.LifecycleIdentity{Host: s.Identity.GetHost(), Build: manifest.Build, Contract: contract.Contract, Schema: int32(contract.SchemaVersion), Store: store}
+		if e := s.validateConfigAuthority(configAuthority); e != nil {
+			return e
+		}
+		if expected.Host == "" || !proto.Equal(s.Identity, expected) || s.Conversation != "" || s.Epoch != "" || s.TokenFile != base+".token" {
+			return fmt.Errorf("host record identity mismatch")
+		}
+		ready, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		controls, e := launchControls(ready, s)
 		if e != nil {
 			return e
 		}
-		cmd := developmentHostCommand(binary, *state, *generation, host, token, record, *runtime, log, configAuthority)
-		e = cmd.Start()
-		log.Close()
+		defer controls.Close()
+		check, e := controls.LifecycleList(ready, &pb.LifecycleControlRequest{Target: expected, Management: true})
+		if e != nil {
+			controls.Close()
+			cancel()
+			if replaced {
+				return fmt.Errorf("replacement host unavailable; intent retained: %w", e)
+			}
+			if e = recoverBlocked(ctx, base, *generation, configAuthority, s, e); e != nil {
+				return e
+			}
+			base, freshHost, e = developmentNewInstance(generationBase, *generation, configAuthority)
+			if e != nil {
+				return e
+			}
+			replaced = true
+			continue
+		}
+		if !proto.Equal(check.Identity, expected) {
+			return fmt.Errorf("authenticated readiness identity mismatch")
+		}
+		id, e := launchID()
 		if e != nil {
 			return e
 		}
-		_ = cmd.Process.Release()
-		deadline := time.Now().Add(30 * time.Second)
-		for {
-			e = launchRead(record, &s)
-			if e == nil {
-				break
+		acquired, e := controls.LifecycleAcquire(ready, &pb.LifecycleControlRequest{Target: expected, Owner: &pb.LifecycleOwner{Conversation: id}})
+		if e != nil {
+			controls.Close()
+			cancel()
+			if replaced {
+				return fmt.Errorf("replacement host unavailable; intent retained: %w", e)
 			}
-			if !os.IsNotExist(e) || time.Now().After(deadline) {
-				return fmt.Errorf("host not ready; start intent retained, no replacement: %w", e)
+			if e = recoverBlocked(ctx, base, *generation, configAuthority, s, e); e != nil {
+				return e
 			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(100 * time.Millisecond):
+			base, freshHost, e = developmentNewInstance(generationBase, *generation, configAuthority)
+			if e != nil {
+				return e
 			}
+			replaced = true
+			continue
 		}
-		if s.Identity == nil || s.Identity.Host != host || s.TokenFile != token {
-			return fmt.Errorf("spawned host identity mismatch")
+		if !proto.Equal(acquired.Identity, expected) || acquired.GetOwner().GetConversation() != id || acquired.GetOwner().GetHost() != expected.Host || acquired.GetOwner().GetEpoch() == "" {
+			return fmt.Errorf("acquire identity mismatch")
 		}
-	} else if e != nil {
+		s.Conversation = id
+		s.Epoch = acquired.Owner.Epoch
+		s.Generation = *generation
+		selection := filepath.Join(selections, id+".json")
+		if e = launchExclusive(selection, s); e != nil {
+			return e
+		}
+		if e = publishCurrentTarget(*state, s); e != nil {
+			return e
+		}
+		_, e = fmt.Fprintln(out, selection)
 		return e
 	}
-	expected := &pb.LifecycleIdentity{Host: s.Identity.GetHost(), Build: manifest.Build, Contract: contract.Contract, Schema: int32(contract.SchemaVersion), Store: store}
-	if e := s.validateConfigAuthority(configAuthority); e != nil {
-		return e
-	}
-	if expected.Host == "" || !proto.Equal(s.Identity, expected) || s.Conversation != "" || s.Epoch != "" || s.TokenFile != base+".token" {
-		return fmt.Errorf("host record identity mismatch")
-	}
-	ready, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	controls, e := launchControls(ready, s)
-	if e != nil {
-		return e
-	}
-	defer controls.Close()
-	check, e := controls.LifecycleList(ready, &pb.LifecycleControlRequest{Target: expected, Management: true})
-	if e != nil {
-		return fmt.Errorf("recorded host unreachable or unavailable; refusing replacement: %w", e)
-	}
-	if !proto.Equal(check.Identity, expected) {
-		return fmt.Errorf("authenticated readiness identity mismatch")
-	}
-	id, e := launchID()
-	if e != nil {
-		return e
-	}
-	acquired, e := controls.LifecycleAcquire(ready, &pb.LifecycleControlRequest{Target: expected, Owner: &pb.LifecycleOwner{Conversation: id}})
-	if e != nil {
-		return e
-	}
-	if !proto.Equal(acquired.Identity, expected) || acquired.GetOwner().GetConversation() != id || acquired.GetOwner().GetHost() != expected.Host || acquired.GetOwner().GetEpoch() == "" {
-		return fmt.Errorf("acquire identity mismatch")
-	}
-	s.Conversation = id
-	s.Epoch = acquired.Owner.Epoch
-	s.Generation = *generation
-	selection := filepath.Join(selections, id+".json")
-	if e = launchExclusive(selection, s); e != nil {
-		return e
-	}
-	if e = publishCurrentTarget(*state, s); e != nil {
-		return e
-	}
-	_, e = fmt.Fprintln(out, selection)
-	return e
 }
 
 // developmentHostCommand is the runtime spawn boundary, after launch validation.

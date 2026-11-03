@@ -127,3 +127,13 @@ func TestCurrentTargetDoesNotRetireStartupCandidate(t *testing.T) {
 		t.Fatal("B did not retire after next forward launch")
 	}
 }
+
+func TestCurrentTargetSameBuildDoesNotRetireOldInstance(t *testing.T) {
+	state := t.TempDir()
+	old := &pb.LifecycleIdentity{Host: "old", Build: "same-build", Store: "store", Contract: "c", Schema: 1}
+	next := &pb.LifecycleIdentity{Host: "new", Build: "same-build", Store: "store", Contract: "c", Schema: 1}
+	if err := publishCurrentTarget(state, launchSelection{Identity: next}); err != nil {
+		t.Fatal(err)
+	}
+	retireIfNotCurrent(t.Context(), state, old, "", func(context.Context) error { t.Fatal("force launch retired old same-build host"); return nil })
+}
