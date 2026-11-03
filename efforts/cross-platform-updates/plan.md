@@ -16,7 +16,7 @@ Objective: identify the smallest safe integration points and reproduce existing 
 - [~] Trace runtime replacement callers and shared-store/configuration admission; identify unsafe replacement or migration paths
 - [~] Run and record focused baseline tests; for observed defects, capture the smallest failing probe before fixing
 - [-] Establish disposable native test environments and list missing resources in efforts/cross-platform-updates/verification.md
-- [~] Record concrete reuse boundaries; do not merge the old custom-updater branch wholesale
+- [x] Record concrete reuse boundaries; do not merge the old custom-updater branch wholesale
 
 ## Phase 2 — Retain installed runtime generations and preserve session binding
 
