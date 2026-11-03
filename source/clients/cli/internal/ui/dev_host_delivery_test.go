@@ -48,11 +48,12 @@ func TestDevHostLaunchDeliveryBoundary(t *testing.T) {
 	// Server replies are serialized by this RPC; change the fixture only after return.
 	server.Stop()
 	// Incomplete new selections must fail before opening a usable client.
+	s.LaunchOperation, s.OperationFile = "operation", "retry.json"
 	s.Epoch = ""
 	if _, err := s.Dial(context.Background()); err == nil {
 		t.Fatal("incomplete receipt accepted")
 	}
-	if err := (DevHostSelection{}).AcceptLaunchDelivery(context.Background()); err != nil {
+	if err := (&DevHostSelection{}).AcceptLaunchDelivery(context.Background()); err != nil {
 		t.Fatal("legacy selection changed", err)
 	}
 }

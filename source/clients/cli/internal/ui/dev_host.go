@@ -50,7 +50,7 @@ func ReadDevHostSelection(path string) (DevHostSelection, error) {
 
 // AcceptLaunchDelivery is required before NEW selections become usable. Legacy
 // selections and resumed owners have no launch receipt and keep their lifecycle.
-func (s DevHostSelection) AcceptLaunchDelivery(ctx context.Context) error {
+func (s *DevHostSelection) AcceptLaunchDelivery(ctx context.Context) error {
 	if s.LaunchOperation == "" {
 		return nil
 	}
@@ -70,9 +70,11 @@ func (s DevHostSelection) AcceptLaunchDelivery(ctx context.Context) error {
 	if response == nil || !gproto.Equal(response.Identity, s.Identity) || !gproto.Equal(response.Owner, r.Owner) || response.Receipt != s.LaunchOperation || response.Pending {
 		return fmt.Errorf("ambiguous launch delivery; preserve %s; do not abort", s.OperationFile)
 	}
+	// Only an exact, acknowledged delivery consumes initial-launch metadata.
+	s.LaunchOperation, s.OperationFile = "", ""
 	return nil
 }
-func (s DevHostSelection) Dial(ctx context.Context) (*agentclient.Client, error) {
+func (s *DevHostSelection) Dial(ctx context.Context) (*agentclient.Client, error) {
 	if err := s.AcceptLaunchDelivery(ctx); err != nil {
 		return nil, err
 	}
@@ -218,6 +220,7 @@ func (m Model) runDevHost(line string) (tea.Model, tea.Cmd) {
 		result := devHostResult{action: action}
 		if action == "reconnect" {
 			result.client, result.err = s.Dial(ctx)
+			result.selection = &s
 		} else {
 			result.response, result.selection, result.err = ControlDevHost(ctx, s, action, destination, handover, receipt)
 		}
@@ -242,6 +245,11 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 		return m.offerForcedResume(offer)
 	}
 	if r.client != nil {
+		// Reopen/reconnect acknowledged the original launch before changing owners.
+		// Retire the template copy too, so later history selections never replay it.
+		if r.action == "reopen" || r.action == "reconnect" {
+			m.devHost.defaultSelection.LaunchOperation, m.devHost.defaultSelection.OperationFile = "", ""
+		}
 		if r.selection != nil {
 			m.devHost.selection = *r.selection
 		}

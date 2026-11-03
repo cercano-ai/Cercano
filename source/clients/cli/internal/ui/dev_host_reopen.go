@@ -17,6 +17,9 @@ func reopenDevHost(ctx context.Context, destination DevHostSelection, conversati
 }
 
 func reopenDevHostFrom(ctx context.Context, destination DevHostSelection, conversation string, requester *proto.LifecycleIdentity) (DevHostSelection, error) {
+	if err := destination.AcceptLaunchDelivery(ctx); err != nil {
+		return destination, err
+	}
 	dc, err := destination.controls(ctx)
 	if err != nil {
 		return destination, err
@@ -43,6 +46,7 @@ func reopenDevHostFrom(ctx context.Context, destination DevHostSelection, conver
 	if !result.GetReady() || result.GetPending() || result.GetOwner().GetConversation() != conversation || result.GetOwner().GetHost() != destination.Identity.Host || result.GetOwner().GetEpoch() == "" {
 		return destination, fmt.Errorf("reopen returned no ownership")
 	}
+	destination.LaunchOperation, destination.OperationFile = "", ""
 	destination.Conversation, destination.Epoch = conversation, result.Owner.Epoch
 	return destination, nil
 }
@@ -90,6 +94,10 @@ func (m Model) beginDevHostFreshConversation() (Model, tea.Cmd) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		r := devHostResult{action: "reopen"}
+		if err := selection.AcceptLaunchDelivery(ctx); err != nil {
+			r.err = err
+			return r
+		}
 		c, err := selection.controls(ctx)
 		if err != nil {
 			r.err = err
@@ -106,6 +114,7 @@ func (m Model) beginDevHostFreshConversation() (Model, tea.Cmd) {
 			r.err = fmt.Errorf("fresh acquisition returned invalid ownership")
 			return r
 		}
+		selection.LaunchOperation, selection.OperationFile = "", ""
 		selection.Conversation, selection.Epoch = conversation, owner.Epoch
 		r.selection = &selection
 		r.client, r.err = selection.Dial(ctx)
