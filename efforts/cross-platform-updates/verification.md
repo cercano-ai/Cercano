@@ -126,3 +126,27 @@ Caller/admission tracing is complete for the identified local production paths a
 4. Required fixture inventory: two copied helper executables, distinct A/B resource bytes and manifests, fake manager-owned roots/prefix link, independent retained root, short private worker-resource root, fake RPC/modelhost endpoints, isolated home/config/script directory, and explicit test-owned process cleanup. Missing manifest/resource and interrupted publish must leave prior A selection intact. Library closure is a later native-artifact case, not simulated proof of dylib/DLL correctness.
 
 Native Homebrew/APT/Chocolatey install/upgrade/cleanup, Windows locks and Unicode paths, signing/publication, and exhaustive shipped dependency closure remain deferred. No platform support or automatic safe retirement is claimed.
+
+## First Phase 2 test-only slice — 2026-11-03
+
+Added `source/server/internal/worker/installed_retention_test.go`. The first Phase 2 task is in progress, not complete: this is a worker-policy characterization, not installed host/session admission or native upgrade acceptance. No production retention code was added.
+
+### Observed red probe, then passing characterization
+
+Executed through Go on PATH from `source/server`, with 60-second tool bounds and Go `-timeout=40s`:
+
+1. `go test ./internal/worker -run '^TestInstalledRetentionCharacterization$' -count=1 -v -timeout=40s` initially **failed** (exit 1, package 1.367s). With the desired final assertion that A must still run, the actual result was `worker A: worker policy: lstat <TempDir>/manager/A: no such file or directory`, output empty. No production fix preceded this probe.
+2. Replaced that desired-success assertion with explicit missing-dependency expectations, preserving suite health without claiming acceptance. `go test ./internal/worker -run '^(TestInstalledRetentionCharacterization|TestDevHostWorkerGenerationReplacementRejected|TestPinnedPolicySelectionAndNamespaces)$' -count=1 -v -timeout=40s` **passed** (package 1.382s).
+3. `go test ./internal/worker -run '^TestInstalledRetentionCharacterization$' -race -count=1 -timeout=40s` **passed** (package 7.107s). Full suite not run. An initial tool call with relative cwd failed before execution (`/bin/bash: no such file or directory`); absolute worktree cwd resolved it.
+
+Actual marker sequence: A/A asset, B/B asset, A/A asset after alias replacement; removing only A's resource still passed `workerBinary()` validation but the child exited 93 with `open <TempDir>/manager/A/A-only.resource: no such file or directory`. Removing the remaining A package caused policy validation to refuse before launching a later A worker. B continued to execute B/B asset. Thus pinning prevents redirection to B but does not retain A, and binary/manifest validation does not validate asset closure.
+
+The fixture resolves a fake manager alias and admits policies with `NewSpawnPolicy`, then runs copied test executables via `workerBinary` and `workerCommandWithPolicy`. This is deliberately below installed discovery/session admission: there is no RPC/session acceptance claim. Helpers check sibling generation markers and generation-specific resources and exit without agents/models. All helper binaries/resources and package deletion are in `t.TempDir`; only short private socket namespace allocation uses the existing `shortPinnedFixtureRoot` seam. Children receive explicit private HOME/TMPDIR and fixture-only PATH and have a ten-second kill bound; no live config, credentials, packages, agents, models or stores are accessed by the helper. No fake retained copy is constructed.
+
+### Minimal viable next implementation seam
+
+Introduce narrow installed-runtime publication before host/session admission: resolve the selected manager package, inventory and validate required executable/resource members, copy into an independently owned staging generation, validate copied bytes and completeness, then atomically publish an immutable eligible bundle. Pass that canonical retained path into existing `SpawnOptions` / `NewSpawnPolicy`; later A worker launches must derive both executable and asset authority from A's retained bundle, not the manager alias or PATH. Keep mutable worker socket/log ResourceRoot separate from retained package resources. Interrupted or incomplete publication must not replace prior eligibility. This is retention, not package acquisition/installation or rollback.
+
+Existing development publication is not sufficient: `source/server/scripts/publish-dev-generation.py:282-288` permits exactly manifest.json plus cercano and cercano-cli, hashing the binary entries. Worker policy validates and pins only its executable and manifest. A two-binary manifest cannot establish the A-only resource (or library/backend) closure shown missing here. Extend explicit member inventory/digests and safe relative-path validation for required assets before integrating installed discovery/admission; do not merely copy two binaries and call the bundle complete. Platform dynamic-library closure still needs native artifact inspection.
+
+Next acceptance assertions should replace this characterization only when real runtime retention exists; extend through installed discovery, host/session binding, reconnect and interrupted publication. Native Homebrew/APT/Chocolatey acceptance, Windows locked/Unicode paths and automatic retirement remain deferred. No security or shared-data policy changed.

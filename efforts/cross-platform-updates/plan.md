@@ -17,14 +17,13 @@ Objective: identify the smallest safe integration points and reproduce existing 
 - [x] Run and record focused baseline tests; for observed defects, capture the smallest failing probe before fixing
 - [-] Establish disposable native test environments and list missing resources in efforts/cross-platform-updates/verification.md
 - [x] Record concrete reuse boundaries; do not merge the old custom-updater branch wholesale
-
-Local baseline closeout (2026-11-03): focused Go tests now pass via PATH with isolated fixture state; package ownership and replacement/config-admission tracing are recorded in verification.md. The discovery/dependency task remains in progress only for complete per-platform shipped library/resource closure; the source-level inventory and concrete first Phase 2 fixture are recorded. Native environments/acceptance remain blocked/deferred. No source implementation or native upgrade acceptance is implied by these completions.
+  Local baseline closeout (2026-11-03): focused Go tests now pass via PATH with isolated fixture state; package ownership and replacement/config-admission tracing are recorded in verification.md. The discovery/dependency task remains in progress only for complete per-platform shipped library/resource closure; the source-level inventory and concrete first Phase 2 fixture are recorded. Native environments/acceptance remain blocked/deferred. No source implementation or native upgrade acceptance is implied by these completions.
 
 ## Phase 2 — Retain installed runtime generations and preserve session binding
 
 Objective: bridge native installed files into complete retained runtime bundles without taking ownership of package delivery. Files: source/server/cmd/cercano/{development_launch.go,development_current.go,ordinary_generation_host.go}, source/server/pkg/agentclient/{client.go,pinned_session.go,development_identity.go,reconnect.go}, source/server/internal/worker/{host.go,pool.go,spawn.go}, and narrowly scoped runtime-generation support as needed. Existing source/server/scripts/{publish-dev-generation.py,cercano-launcher.py} are reference/reuse candidates, not assumed portable production installers. Tests: installed discovery/reuse, pinned-session, generation replacement, launch integration and retirement tests, plus fixture bundles and concurrent-process integration tests.
 
-- [ ] Add failing installed-flow fixtures proving which package removal/replacement events currently break later runtime use
+- [~] Add failing installed-flow fixtures proving which package removal/replacement events currently break later runtime use
 - [ ] Implement complete runtime-bundle retention and validation before admission, independent of replaceable manager-owned files
 - [ ] Make interrupted publication or incomplete resources ineligible; preserve the prior valid runtime selection
 - [ ] Integrate installed discovery and launch with retained-generation selection while preserving remote-only CLI operation
