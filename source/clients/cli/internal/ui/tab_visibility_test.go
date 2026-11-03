@@ -182,7 +182,7 @@ func TestTabVisibilityAcrossResumeEntryPoints(t *testing.T) {
 					next, _ := old.applyDevHost(devHostResult{action: "reopen", client: c})
 					m = next.(Model)
 					batch := m.Init()().(tea.BatchMsg)
-					msg := batch[len(batch)-1]().(resumeRequestedMsg)
+					msg := batch[len(batch)-1]().(devHostHydrateMsg)
 					next, cmd := m.Update(msg)
 					m = next.(Model)
 					command = cmd
