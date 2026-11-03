@@ -12,11 +12,13 @@ Objective: identify the smallest safe integration points and reproduce existing 
 
 - [x] Create the isolated worktree from the approved planning checkpoint and record branch/base identity
 - [~] Trace installed executable discovery through host admission, reconnect and later worker starts; identify every required binary, library and resource
-- [~] Record current package file ownership and everyday command resolution, including standalone CLI remote-agent use
-- [~] Trace runtime replacement callers and shared-store/configuration admission; identify unsafe replacement or migration paths
-- [~] Run and record focused baseline tests; for observed defects, capture the smallest failing probe before fixing
+- [x] Record current package file ownership and everyday command resolution, including standalone CLI remote-agent use
+- [x] Trace runtime replacement callers and shared-store/configuration admission; identify unsafe replacement or migration paths
+- [x] Run and record focused baseline tests; for observed defects, capture the smallest failing probe before fixing
 - [-] Establish disposable native test environments and list missing resources in efforts/cross-platform-updates/verification.md
 - [x] Record concrete reuse boundaries; do not merge the old custom-updater branch wholesale
+
+Local baseline closeout (2026-11-03): focused Go tests now pass via PATH with isolated fixture state; package ownership and replacement/config-admission tracing are recorded in verification.md. The discovery/dependency task remains in progress only for complete per-platform shipped library/resource closure; the source-level inventory and concrete first Phase 2 fixture are recorded. Native environments/acceptance remain blocked/deferred. No source implementation or native upgrade acceptance is implied by these completions.
 
 ## Phase 2 — Retain installed runtime generations and preserve session binding
 
