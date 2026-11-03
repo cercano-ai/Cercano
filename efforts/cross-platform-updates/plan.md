@@ -10,13 +10,13 @@ Use an isolated feature worktree inheriting the approved planning commit. Delega
 
 Objective: identify the smallest safe integration points and reproduce existing behavior before changes. Files: docs/agent/self-dev.md, docs/agent/development-generations.md, release/homebrew/, source/server/pkg/agentclient/, source/server/cmd/cercano/, source/server/internal/worker/, source/server/internal/modelhost/, source/server/pkg/update/, and effort verification notes. Tests: focused existing installed-discovery, pinned-session, worker-generation, modelhost nonreplacement and formula-rendering tests. The inspected development-generation code does not establish installed-package retention or automatic safe retirement.
 
-- [ ] Create the isolated worktree from the approved planning checkpoint and record branch/base identity
-- [ ] Trace installed executable discovery through host admission, reconnect and later worker starts; identify every required binary, library and resource
-- [ ] Record current package file ownership and everyday command resolution, including standalone CLI remote-agent use
-- [ ] Trace runtime replacement callers and shared-store/configuration admission; identify unsafe replacement or migration paths
-- [ ] Run and record focused baseline tests; for observed defects, capture the smallest failing probe before fixing
-- [ ] Establish disposable native test environments and list missing resources in efforts/cross-platform-updates/verification.md
-- [ ] Record concrete reuse boundaries; do not merge the old custom-updater branch wholesale
+- [x] Create the isolated worktree from the approved planning checkpoint and record branch/base identity
+- [~] Trace installed executable discovery through host admission, reconnect and later worker starts; identify every required binary, library and resource
+- [~] Record current package file ownership and everyday command resolution, including standalone CLI remote-agent use
+- [~] Trace runtime replacement callers and shared-store/configuration admission; identify unsafe replacement or migration paths
+- [~] Run and record focused baseline tests; for observed defects, capture the smallest failing probe before fixing
+- [-] Establish disposable native test environments and list missing resources in efforts/cross-platform-updates/verification.md
+- [~] Record concrete reuse boundaries; do not merge the old custom-updater branch wholesale
 
 ## Phase 2 — Retain installed runtime generations and preserve session binding
 
