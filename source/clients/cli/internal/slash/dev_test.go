@@ -149,3 +149,27 @@ func TestDevKickoffNamesTheDocs(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveDevRepoTilde(t *testing.T) {
+	repo := makeRepo(t)
+	for _, tc := range []struct{ name, home, path string }{
+		{"home", repo, "~"},
+		{"child", filepath.Dir(repo), "~/" + filepath.Base(repo)},
+		{"trailing slash", repo, "~/"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", tc.home)
+			t.Setenv("USERPROFILE", tc.home)
+			for _, explicit := range []bool{true, false} {
+				arg, env := "", tc.path
+				if explicit {
+					arg, env = tc.path, ""
+				}
+				got, err := ResolveDevRepo(arg, t.TempDir(), env)
+				if err != nil || got != repo {
+					t.Errorf("explicit=%v: got %q, %v; want %q", explicit, got, err, repo)
+				}
+			}
+		})
+	}
+}

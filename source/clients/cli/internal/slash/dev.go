@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // RegisterDev wires /d (alias /dev) — development mode: point the session's
@@ -43,12 +44,12 @@ func IsCercanoRepo(dir string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
-// ResolveDevRepo resolves the Cercano repo root. A pure function of its
-// inputs so tests don't have to manipulate the process cwd or environment:
-// the handler passes os.Getwd() and os.Getenv("CERCANO_REPO").
+// ResolveDevRepo resolves the Cercano repo root. Explicit and environment paths
+// support ~ and ~/ relative to the current user's home directory.
+// The handler passes os.Getwd() and os.Getenv("CERCANO_REPO").
 func ResolveDevRepo(explicit, cwd, env string) (string, error) {
 	if explicit != "" {
-		p, err := filepath.Abs(explicit)
+		p, err := absoluteDevPath(explicit)
 		if err == nil && IsCercanoRepo(p) {
 			return p, nil
 		}
@@ -66,7 +67,7 @@ func ResolveDevRepo(explicit, cwd, env string) (string, error) {
 		dir = parent
 	}
 	if env != "" {
-		if absEnv, err := filepath.Abs(env); err == nil {
+		if absEnv, err := absoluteDevPath(env); err == nil {
 			env = absEnv
 		}
 		if IsCercanoRepo(env) {
@@ -74,6 +75,18 @@ func ResolveDevRepo(explicit, cwd, env string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("could not find the Cercano repo — run from inside the repo, pass /d <path>, or set CERCANO_REPO (the generated launcher sets it for you)")
+}
+
+// absoluteDevPath expands only the current user's tilde, not ~otheruser.
+func absoluteDevPath(path string) (string, error) {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
+	}
+	return filepath.Abs(path)
 }
 
 // DevKickoff returns the canned first prompt sent on entering dev mode. The

@@ -34,6 +34,7 @@ class LauncherSafety(unittest.TestCase):
         (scripts / 'publish-dev-generation.py').write_text('''import sys, pathlib, os, fcntl, json, hashlib
 with open(os.environ['FAKE_ENV_LOG'], 'a') as log:
  log.write(json.dumps([sys.argv[1], os.environ.get('CERCANO_DISABLE_CREDENTIALS')])+'\\n')
+assert os.environ.get('CERCANO_REPO') == os.environ.get('FAKE_EXPECT_REPO', os.environ.get('CERCANO_REPO'))
 assert os.environ['CERCANO_DISABLE_CREDENTIALS']=='1'
 assert '--sign' in sys.argv
 state=pathlib.Path(os.environ['CERCANO_DEVELOPMENT_STATE'])
@@ -59,6 +60,7 @@ print(gen)
 ''')
         (state / 'cercano').write_text('''#!/usr/bin/env python3
 import sys, os, pathlib, tempfile, json, sqlite3, time
+assert os.environ.get('CERCANO_REPO') == os.environ.get('FAKE_EXPECT_REPO', os.environ.get('CERCANO_REPO'))
 if sys.argv[1]=='prepare-development':
  assert os.environ['CERCANO_DISABLE_CREDENTIALS']=='1'
  state=pathlib.Path(sys.argv[sys.argv.index('--new-state')+1])
@@ -88,6 +90,7 @@ print(path)
 ''')
         (state / 'cercano-cli').write_text('''#!/usr/bin/env python3
 import sys, json, os
+assert os.environ.get('CERCANO_REPO') == os.environ.get('FAKE_EXPECT_REPO', os.environ.get('CERCANO_REPO'))
 assert os.environ['CERCANO_LAUNCHED_DEVELOPMENT']=='1'
 with open(os.environ['FAKE_ENV_LOG'], 'a') as log:
  log.write(json.dumps(['cli', os.environ.get('CERCANO_DISABLE_CREDENTIALS')])+'\\n')
@@ -110,6 +113,26 @@ print(json.dumps(sys.argv[1:]))
                 self.assertEqual(forwarded[2:], list(args))
                 # Exact reconnect retains the same immutable selection.
                 result = self.source_launch(env, '--dev-host', forwarded[1], *args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), forwarded)
+
+    def test_resolved_repo_exported_without_inherited_repo(self):
+        for absent in (False, True):
+            with self.subTest(absent=absent), tempfile.TemporaryDirectory() as root:
+                env = self.absent_fixture(root)[0] if absent else self.fixture(root)
+                repo = Path(env.pop('CERCANO_REPO')).resolve()
+                env['FAKE_EXPECT_REPO'] = str(repo)
+                # Relative symlink --repo from outside the checkout must become
+                # the canonical root in publisher, preparation, host, and CLI.
+                alias = Path(root) / 'repo-alias'
+                alias.symlink_to(repo, target_is_directory=True)
+                command = ['python3', str(repo / 'source/server/scripts/cercano-launcher.py'),
+                           '--repo', 'repo-alias']
+                result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                forwarded = json.loads(result.stdout)
+                result = subprocess.run(command + forwarded, cwd=root, env=env,
+                                        capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout), forwarded)
 

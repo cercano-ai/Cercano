@@ -463,6 +463,9 @@ def launch_main():
     feedback('Checking local state and database compatibility...')
     runtime_env = dict(os.environ, CERCANO_LAUNCHED_DEVELOPMENT='1')
     repo = Path(sys.argv[2]).resolve()
+    # All children, including exact reconnects, must see the selected checkout
+    # even when launched from outside it without an inherited CERCANO_REPO.
+    runtime_env['CERCANO_REPO'] = str(repo)
     state = Path(os.environ.get('CERCANO_DEVELOPMENT_STATE') or str(Path.home() / '.config/cercano'))
     runtime_env['CERCANO_DEVELOPMENT_STATE'] = str(state)
     # Development host acquisition binds the database to this exact state path.
