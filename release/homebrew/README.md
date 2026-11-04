@@ -43,17 +43,26 @@ The existing `--output .../cercano.rb` entry point and returned path are retaine
 it now also creates sibling `cercano-agent.rb` and `cercano-cli.rb`. A custom
 `--template` must have matching sibling component templates. All inputs/templates
 are validated before writing. Existing outputs (including dangling symlinks)
-are refused; exclusive creation protects against races. Write failures roll back
-newly created files. This is not a crash-atomic multi-file transaction: after a
-hard interruption discard the entire private output directory and rerender into
-a fresh directory. Never treat an incomplete directory as a releasable set.
+are refused; exclusive creation does not clobber files arriving after preflight.
+Use a private output directory controlled by the caller, with no untrusted
+concurrent writers. On write failure, rollback compares device/inode identity
+against retained open descriptors, skips missing or replaced paths, and attempts
+all independent owned outputs even if one cleanup fails. Cleanup errors are
+reported alongside the original write failure. This bounded check is not hostile
+concurrency safety: checking identity and unlinking are not atomic, and in-place
+modification of the same inode is not detected. This is not a crash-atomic
+multi-file transaction: after a hard interruption discard the entire private
+output directory and rerender into a fresh directory. Never treat an incomplete
+directory as a releasable set.
 Hash, strict tar layout and inventory checks remain mandatory; signatures,
 notarization, architecture and binary-reported version are not verified here.
 
 ## Publication is blocked
 
-No workflows were modified. Both `.github/workflows/release-macos.yml` and
-`update-homebrew.yml` invoke `update_tap.py`, whose `update()` now fails closed
+The macOS review artifact explicitly includes all three rendered formulas;
+this upload manifest change does not enable tap publication. Both
+`.github/workflows/release-macos.yml` and `update-homebrew.yml` invoke
+`update_tap.py`, whose `update()` now fails closed
 **before network access**, even with credentials. `promote_to_tap.py` also refuses
 local promotion, including `--skip-download`. Legacy single-formula publication
 cannot safely publish this split. Future separately authorized workflow work

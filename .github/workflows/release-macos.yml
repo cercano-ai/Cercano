@@ -216,6 +216,8 @@ jobs:
             dist/cercano-${{ inputs.version }}-darwin-arm64.tar.gz
             dist/cercano-${{ inputs.version }}-darwin-arm64.tar.gz.sha256
             dist/cercano.rb
+            dist/cercano-agent.rb
+            dist/cercano-cli.rb
           if-no-files-found: error
           retention-days: 14
 

@@ -162,19 +162,38 @@ def build(argv=None):
         if not source.is_file():
             raise ValidationError(f"template not found: {source}")
         rendered.append(render(source.read_text(), version, archive.name, expected_digest))
-    # Pre-render everything before creating anything. O_EXCL also protects
-    # against a file appearing after preflight. Roll back only our own files.
+    # Pre-render everything before creating anything. O_EXCL prevents clobbering
+    # arrivals after preflight. Retain descriptors through rollback so an unlinked
+    # inode cannot be recycled and mistaken for one of our outputs.
+    # The caller must control the parent directory: identity-check + unlink is
+    # not atomic and does not defend against hostile concurrent directory edits
+    # (nor in-place changes to the same inode).
     created = []
     try:
         for target, text in zip(outputs, rendered):
             fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-            created.append(target)
-            with os.fdopen(fd, "w") as handle:
+            created.append((target, fd))
+            with os.fdopen(fd, "w", closefd=False) as handle:
                 handle.write(text)
     except OSError as error:
-        for target in reversed(created):
-            target.unlink()
-        raise ValidationError(f"could not write formula set: {error}") from error
+        cleanup_errors = []
+        for target, fd in reversed(created):
+            try:
+                current = target.lstat()
+                owned = os.fstat(fd)
+                if (current.st_dev, current.st_ino) == (owned.st_dev, owned.st_ino):
+                    target.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as cleanup_error:
+                # One failed cleanup must not strand independent owned outputs
+                # or replace the original write failure.
+                cleanup_errors.append(f"{target}: {cleanup_error}")
+        detail = ("; cleanup errors: " + "; ".join(cleanup_errors)) if cleanup_errors else ""
+        raise ValidationError(f"could not write formula set: {error}{detail}") from error
+    finally:
+        for _, fd in created:
+            os.close(fd)
     return output
 
 

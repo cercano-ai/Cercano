@@ -160,6 +160,23 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertLess(publication, names.index("Publish release"))
         self.assertLess(names.index("Publish release"), names.index("Publish verified formula to tap"))
 
+    def test_macos_review_upload_includes_complete_formula_set(self):
+        upload = self.step("build", "Upload artifacts for review")
+        self.assertEqual(upload["uses"], "actions/upload-artifact@v4")
+        self.assertEqual(upload["with"]["path"].splitlines(), [
+            "dist/cercano-${{ inputs.version }}-darwin-arm64.tar.gz",
+            "dist/cercano-${{ inputs.version }}-darwin-arm64.tar.gz.sha256",
+            "dist/cercano.rb",
+            "dist/cercano-agent.rb",
+            "dist/cercano-cli.rb",
+        ])
+        self.assertEqual(upload["with"]["if-no-files-found"], "error")
+        self.assertNotIn("if", upload)  # Also available for non-publishing review.
+        render = self.step("build", "Render Homebrew formula")
+        self.assertIn("--output dist/cercano.rb", render["run"])
+        steps = self.jobs["build"]["steps"]
+        self.assertLess(steps.index(render), steps.index(upload))
+
     def test_publication_uses_only_this_runs_artifacts_without_rebuilding(self):
         steps = self.jobs["build"]["steps"]
         upload = steps.index(self.step("build", "Upload artifacts for review"))

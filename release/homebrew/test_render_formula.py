@@ -127,6 +127,73 @@ class RenderFormulaTest(unittest.TestCase):
                 self.run_render(archive, digest)
         self.assertEqual(list(self.dir.glob("*.rb")), [])
 
+    def test_rollback_preserves_replaced_output(self):
+        archive, digest = write_archive(self.dir)
+        original = render_formula.os.open
+        sentinel = self.dir / "sentinel"
+        sentinel.write_text("competitor replacement")
+
+        def failing(path, *args):
+            if Path(path).name == "cercano-cli.rb":
+                self.output.unlink()
+                sentinel.rename(self.output)
+                raise PermissionError("original third-create failure")
+            return original(path, *args)
+
+        with patch.object(render_formula.os, "open", side_effect=failing):
+            with self.assertRaisesRegex(render_formula.ValidationError,
+                                        "original third-create failure") as caught:
+                self.run_render(archive, digest)
+        self.assertIsInstance(caught.exception.__cause__, PermissionError)
+        self.assertEqual(self.output.read_text(), "competitor replacement")
+        self.assertFalse((self.dir / "cercano-agent.rb").exists())
+        self.assertFalse((self.dir / "cercano-cli.rb").exists())
+
+    def test_rollback_continues_after_disappeared_output(self):
+        archive, digest = write_archive(self.dir)
+        original = render_formula.os.open
+
+        def failing(path, *args):
+            if Path(path).name == "cercano-cli.rb":
+                # The last-created file is visited first during rollback.
+                (self.dir / "cercano-agent.rb").unlink()
+                raise PermissionError("original third-create failure")
+            return original(path, *args)
+
+        with patch.object(render_formula.os, "open", side_effect=failing):
+            with self.assertRaisesRegex(render_formula.ValidationError,
+                                        "original third-create failure") as caught:
+                self.run_render(archive, digest)
+        self.assertIsInstance(caught.exception.__cause__, PermissionError)
+        self.assertEqual(list(self.dir.glob("*.rb")), [])
+
+    def test_cleanup_error_does_not_mask_failure_or_stop_independent_cleanup(self):
+        archive, digest = write_archive(self.dir)
+        original_open = render_formula.os.open
+        original_unlink = Path.unlink
+        sibling = self.dir / "cercano-agent.rb"
+
+        def failing_open(path, *args):
+            if Path(path).name == "cercano-cli.rb":
+                raise PermissionError("original third-create failure")
+            return original_open(path, *args)
+
+        def failing_unlink(path, *args, **kwargs):
+            if path == sibling:
+                raise PermissionError("fixture cleanup failure")
+            return original_unlink(path, *args, **kwargs)
+
+        with patch.object(render_formula.os, "open", side_effect=failing_open), \
+                patch.object(Path, "unlink", failing_unlink):
+            with self.assertRaisesRegex(render_formula.ValidationError,
+                                        "original third-create failure") as caught:
+                self.run_render(archive, digest)
+        self.assertIsInstance(caught.exception.__cause__, PermissionError)
+        self.assertIn("fixture cleanup failure", str(caught.exception))
+        self.assertFalse(self.output.exists())
+        self.assertTrue(sibling.exists())
+        self.assertFalse((self.dir / "cercano-cli.rb").exists())
+
     def test_invalid_last_template_writes_nothing(self):
         archive, digest = write_archive(self.dir)
         for name in ("cercano", "cercano-agent", "cercano-cli"):
