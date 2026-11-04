@@ -84,15 +84,12 @@ def parse_report(text):
     return dependencies, rpaths
 
 
-def validate(root, inventory):
+def inventory_members(root, executable, backends, names):
+    """Shared staged member/alias validation for offline and fresh collection."""
     root = Path(root).resolve(strict=True)
     require(root.is_dir(), 'staged root must be a directory')
-    require(isinstance(inventory, dict) and set(inventory) == {'executable', 'backends', 'reports'},
-            'expected executable, backends and reports inventory')
-    require(isinstance(inventory['backends'], list) and inventory['backends'],
+    require(isinstance(backends, list) and backends,
             'explicit nonempty backend roots required')
-    require(isinstance(inventory['reports'], dict), 'reports must be an object')
-
     def inside(path):
         # Check both lexical traversal and symlink resolution, including missing targets.
         require(Path(os.path.abspath(path)).is_relative_to(root), f'path escapes staged root: {path}')
@@ -106,15 +103,33 @@ def validate(root, inventory):
                 f'invalid inventory member: {value!r}')
         return inside(root / value)
 
-    reports = {}
-    for name, text in inventory['reports'].items():
+    images = {}
+    for name in names:
         image = member(name)
         require(image.is_file(), f'missing reported image: {name}')
-        require(image not in reports, f'ambiguous report alias: {name}')
-        reports[image] = parse_report(text)
-    executable = member(inventory['executable'])
-    backends = [member(name) for name in inventory['backends']]
+        require(image not in images.values(), f'ambiguous report alias: {name}')
+        images[name] = image
+    executable = member(executable)
+    backends = [member(name) for name in backends]
     require(len(set(backends)) == len(backends), 'duplicate backend roots')
+    require(executable in images.values(), 'missing report for executable')
+    require(all(p in images.values() for p in backends), 'missing report for backend')
+    return root, images, executable, backends
+
+
+def validate(root, inventory):
+    require(isinstance(inventory, dict) and set(inventory) == {'executable', 'backends', 'reports'},
+            'expected executable, backends and reports inventory')
+    require(isinstance(inventory['reports'], dict), 'reports must be an object')
+    root, members, executable, backends = inventory_members(
+        root, inventory['executable'], inventory['backends'], inventory['reports'])
+    reports = {members[name]: parse_report(text) for name, text in inventory['reports'].items()}
+
+    def inside(path):
+        require(Path(os.path.abspath(path)).is_relative_to(root), f'path escapes staged root: {path}')
+        resolved = path.resolve()
+        require(resolved.is_relative_to(root), f'symlink escapes staged root: {path}')
+        return resolved
 
     def expand(value, image):
         for token, base in [('@loader_path', image.parent),

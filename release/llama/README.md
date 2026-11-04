@@ -93,6 +93,57 @@ image only once. Only a thin image is supported; universal binaries require a
 separately reviewed per-slice contract. Environment injection and unsupported
 loader commands fail; this is not a complete dyld emulator.
 
+## Opt-in fresh Darwin staged-image collection
+
+For a caller-owned **stable** stage, a separate command collects native output
+and immediately feeds the same closure checker. The offline `--loader-reports`
+command above remains unchanged and does not gain freshness guarantees.
+
+```sh
+python3 -B scripts/darwin_staged_reports.py \
+  --staged-root /path/to/private-stage \
+  --image-inventory /path/to/images.json --architecture arm64
+python3 -B scripts/test-darwin-staged-reports.py
+```
+
+`images.json` has exactly these fields (paths are stage-relative):
+
+```json
+{
+  "executable": "bin/llama-server",
+  "backends": ["libexec/ggml-cpu"],
+  "images": ["bin/llama-server", "lib/libllama.dylib", "libexec/ggml-cpu"]
+}
+```
+
+This is an explicit caller inventory, not automatic discovery. Include **every**
+static dependency and every selected backend root. The sample only illustrates
+shape, not a complete usable payload. Missing images/backends, extra unreachable
+images, unsafe paths and duplicate physical-image aliases fail through shared
+closure validation. Internal aliases remain allowed only under that check;
+current release archives still prohibit symlinks.
+
+The collector invokes only the fixed trusted host `/usr/bin/otool`, with `-hv`
+for thin Mach-O identity/architecture and `-l` for load commands. It never
+executes staged payloads. It accepts only little-endian 64-bit thin Mach-O for
+the explicitly selected `arm64` or `x86_64` architecture; the executable must be
+`EXECUTE` and other images `DYLIB`/`BUNDLE`. Fat/universal, non-Mach-O, unknown
+CPU/type or malformed/unsupported reports fail. Tool calls have a 10-second
+per-call timeout, a minimal environment, capped diagnostics, and a 4 MiB accepted
+stdout limit; missing tools, nonzero exits and stderr diagnostics fail closed.
+
+SHA-256 snapshots of all supplied images precede inspection; each inspected
+image is rehashed afterward, and all images and inventory path resolutions are
+rechecked after closure validation. Reports and hashes are ephemeral: there is
+no new persistent hash-report schema, report export or source-provenance claim.
+The caller must own the stage and keep it stable throughout the operation.
+These checks detect ordinary mutation, **not hostile concurrency**, transient
+write-and-restore races, or changes after return; they do not lock or freeze the
+stage. This opt-in check does not modify archive requirements or qualify native
+payloads. Dynamic discovery and resource completeness remain caller obligations
+below. Tests inject host-tool responses against inert temporary byte fixtures;
+they require no native binaries or installed payload.
+
 ### Caller inventory obligations
 
 A caller must determine the backends actually required by the build and its

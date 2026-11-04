@@ -446,3 +446,66 @@ with later-worker acceptance, native Windows locking/ACL and Linux installed
 acceptance. Signing/notarization credentials and operations, repository/package
 publication and any live installation remain separately unauthorized. Fixture
 success does not satisfy any of these requirements.
+
+
+## Opt-in fresh Darwin staged-image collection (2026-11-03)
+
+Feature-gap probe before implementation:
+`python3 -B scripts/darwin_loader_closure.py --staged-root . --image-inventory missing.json`
+exited 2 requiring `--loader-reports`. This is expected missing capability,
+not a bug: the existing command accepts only supplied offline reports and
+cannot collect or bind native output to staged bytes.
+
+Implemented separate `scripts/darwin_staged_reports.py` with explicit
+`--staged-root --image-inventory --architecture` inputs. The inventory contains
+exactly executable, nonempty backends and nonempty images. Shared staged-member
+validation handles containment and aliases; fresh in-memory reports feed the
+real existing closure validator. The fixed host `/usr/bin/otool -hv` checks thin
+64-bit identity, requested arm64/x86_64 architecture and image role; `-l`
+collects load commands. A raw magic precheck rejects fat/non-Mach-O inputs.
+Only the host inspector runs, never staged code. Subprocesses have 10-second
+per-call timeouts, a minimal environment, capped errors and accepted-output
+size, with errors/diagnostics failing closed.
+
+All image hashes are captured before collection, each is rehashed after its
+tool calls, then all hashes and inventory path resolutions are checked after
+closure validation. This binds ephemeral evidence under the caller-owned
+stable-stage assumption, not hostile-concurrency safety. No report/hash schema,
+source provenance, dynamic discovery/resource completeness or qualification
+claim was introduced. The offline CLI and current release/archive contracts
+remain unchanged; archive symlink restrictions are not relaxed.
+
+The first new test run exposed only a test-fixture path issue on Darwin
+(`/var` versus resolved `/private/var`); resolving the inert temporary root
+fixed the stub's pathname matching. No native payload was involved.
+
+Final commands (all from repository root):
+
+| Command | Tests | Result |
+| --- | ---: | --- |
+| `python3 -B scripts/test-darwin-staged-reports.py` | 15 | PASS |
+| `python3 -B scripts/test-darwin-loader-closure.py` | 20 | PASS |
+| `python3 -B scripts/test-llama-baseline.py` | 6 | PASS |
+| `python3 -B scripts/test-runtime-inventory.py` | 3 | PASS |
+| `python3 -B scripts/test-macos-release-verify.py` | 23 | PASS |
+| `python3 -B scripts/test-release-workflow.py` | 47 | PASS |
+| `python3 -B scripts/llama_baseline.py` | validator | PASS |
+
+114 tests passed, no skips. New tests use inert temporary bytes and injected
+host tools/subprocess results, covering full success through the real checker,
+both supported architectures, safe aliases, invalid/escaping/missing paths,
+duplicate aliases, missing inventories/roots/dependency reports, unsupported
+bytes/headers, tool errors/timeouts/diagnostics, mutation during collection,
+late mutation of earlier images, retargeted aliases, malformed/external report
+edges, and CLI JSON failures. Expected negative-test FAILED diagnostics do not
+indicate suite failures. No native tool or installed payload inspection,
+network/download, build, signing, model startup, live mutation, policy change,
+push or merge was performed.
+
+Residual local work: source/dependency recipe and provenance; selected backend,
+discovery/resource/Metal/TLS/trust/license inventories; bundle-relative staged
+IDs/edges and archive-compatible alias materialization; actual native collection
+acceptance on authorized stable stages; final signed-byte inventory generation
+and runtime admission/retention integration. Linux/Windows loader contracts and
+native qualification remain separate. No resource/discovery completeness,
+source provenance or bundled runtime qualification follows from this slice.
