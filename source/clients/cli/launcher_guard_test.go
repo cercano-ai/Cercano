@@ -23,6 +23,7 @@ func TestDevelopmentLauncherGuard(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{}, {"--dev-host="}, {"-dev-host="},
+		{"--address=127.0.0.1:1"},
 		{"--dev-host", "injected", "--dev-host="},
 		{"positional", "--dev-host=hidden"}, {"--unknown"}, {"--version"}, {"--help"},
 	} {

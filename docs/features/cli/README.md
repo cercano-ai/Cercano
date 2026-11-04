@@ -27,15 +27,39 @@ Supported startup options:
 
 | Option | Effect |
 |---|---|
+| `--address HOST:PORT` | Connect only to an existing agent at this endpoint; never launch or respawn a local agent, even for loopback. |
 | `--resume`, `-r` | Open the conversation history picker, not automatically the latest conversation. |
 | `--setup`, `-s` | Open setup explicitly. |
 | `--mdtest [file]` | Seed a markdown document into the TUI; built-in sample if omitted. Still connects to the agent, but rendering the sample needs no inference. |
 | `--version` | Print client version and exit. |
 | `--help` | Show Go flag help. |
 
-Setup also opens when the server config file is missing or saved wizard state
-indicates an unfinished setup. `/setup` reopens it without resetting settings.
-There are no client `--yolo` or `--bypass-permissions` flags.
+Without `--address`, setup also opens when the server config file is missing or
+saved wizard state indicates an unfinished setup. `/setup` reopens it without
+resetting settings. There are no client `--yolo` or `--bypass-permissions` flags.
+
+### Connect to an existing agent
+
+```sh
+cercano-cli --address agent.internal:50052
+# Or connect through an already-established loopback tunnel:
+cercano-cli --address 127.0.0.1:55052 --resume
+```
+
+An explicit `--address` bypasses local agent config loading and automatic setup
+detection: no local `config.yaml` is required. `--setup` still opens setup on
+explicit request. On connection failure the CLI reports the selected endpoint
+without falling back to a local agent. After disconnecting it retries that same
+endpoint without spawning a replacement. Omitting `--address` retains the local
+config/auto-launch behavior described above.
+
+Use `HOST:PORT`, or `[IPv6]:PORT`, with a numeric port from 1 to 65535. Empty
+addresses are rejected. `--address` cannot be combined with `--dev-host` or any
+`--dev-host-*` management flag, and cannot bypass the development launcher's
+pinned-selection requirement. This is the ordinary plaintext gRPC transport,
+not the authenticated pinned development-host protocol; use only trusted networks
+or a separately secured tunnel. CLI settings/setup RPCs operate on the selected
+agent, not a separate local agent.
 
 ## Commands inside the TUI
 

@@ -2,7 +2,8 @@
 //
 // It is a thin gRPC client: it connects to a running cercano agent server on
 // localhost:<port>, or auto-launches one (as `cercano agent`) if none is
-// listening. The agent server is a singleton — multiple clients (this CLI, the
+// listening. An explicit --address selects connect-only mode, even on loopback.
+// The agent server is a singleton — multiple clients (this CLI, the
 // VS Code extension, etc.) share the same server and conversation store.
 package main
 
@@ -11,7 +12,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -27,6 +31,7 @@ import (
 var version = "dev"
 
 func main() {
+	address := flag.String("address", "", "Connect only to an existing agent at HOST:PORT (including loopback tunnels); never launch a local agent")
 	resumeShort := flag.Bool("r", false, "Open the conversation history picker on launch (alias for --resume)")
 	resumeLong := flag.Bool("resume", false, "Open the conversation history picker on launch")
 	setupShort := flag.Bool("s", false, "Open the setup wizard on launch (alias for --setup)")
@@ -53,6 +58,32 @@ func main() {
 		os.Exit(78)
 	}
 
+	addressSet, devSelectorSet := false, false
+	flag.Visit(func(f *flag.Flag) {
+		if strings.HasPrefix(f.Name, "dev-host") {
+			devSelectorSet = true
+		}
+		if f.Name == "address" {
+			addressSet = true
+		}
+	})
+	if addressSet {
+		if devSelectorSet {
+			fmt.Fprintln(os.Stderr, "cercano: --address is incompatible with --dev-host and dev-host management flags")
+			os.Exit(1)
+		}
+		if err := validateRemoteAddress(*address); err != nil {
+			fmt.Fprintln(os.Stderr, "cercano:", err)
+			os.Exit(1)
+		}
+		seedDoc := ""
+		if *mdtest {
+			seedDoc = loadMdTestDoc(flag.Arg(0))
+		}
+		// Missing local agent config says nothing about the selected server's setup.
+		runCLIAddress(*address, true, *resumeShort || *resumeLong, *setupShort || *setupLong, seedDoc)
+		return
+	}
 	if *devHost != "" {
 		s, err := cliui.ReadDevHostSelection(*devHost)
 		if err == nil {
@@ -126,9 +157,12 @@ func main() {
 // openHistoryOnStart opens the /history picker immediately after first paint
 // (used by the -r / --resume flag).
 func runCLI(cfg config.Config, openHistoryOnStart, openWizardOnStart bool, seedDoc string) {
-	addr := "localhost:" + cfg.Port
+	runCLIAddress("localhost:"+cfg.Port, false, openHistoryOnStart, openWizardOnStart, seedDoc)
+}
+
+func runCLIAddress(addr string, connectOnly, openHistoryOnStart, openWizardOnStart bool, seedDoc string) {
 	fmt.Fprintln(os.Stderr, "cercano: connecting to", addr+"…")
-	ag, err := agentclient.Dial(context.Background(), addr)
+	ag, err := dialCLI(context.Background(), addr, connectOnly)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cercano:", err)
 		os.Exit(1)
@@ -167,4 +201,28 @@ func closeIntentionalSession(final tea.Model) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return m.CloseSession(ctx)
+}
+
+// Address selection is explicit, not inferred from whether the host is loopback.
+func validateRemoteAddress(addr string) error {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return fmt.Errorf("--address requires HOST:PORT (IPv6: [HOST]:PORT)")
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("--address requires a numeric port between 1 and 65535")
+	}
+	return nil
+}
+
+func dialCLI(ctx context.Context, addr string, connectOnly bool) (*agentclient.Client, error) {
+	if connectOnly {
+		c, err := agentclient.DialExisting(ctx, addr)
+		if err != nil {
+			return nil, fmt.Errorf("connect-only agent at %s unavailable (no local launch): %w", addr, err)
+		}
+		return c, nil
+	}
+	return agentclient.Dial(ctx, addr)
 }

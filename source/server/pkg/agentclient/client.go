@@ -61,8 +61,9 @@ type Client struct {
 
 	// addr is the dial target — kept so reconnect() can redial after a
 	// crash without threading it through every callsite.
-	addr   string
-	pinned *PinnedSessionIntent
+	connectOnly bool // explicit existing endpoint; reconnect must never launch locally
+	addr        string
+	pinned      *PinnedSessionIntent
 
 	// Connection-state observation (see reconnect.go).
 	stateMu     sync.Mutex
@@ -126,9 +127,17 @@ func Dial(ctx context.Context, addr string) (*Client, error) {
 }
 
 // DialExisting connects only to the supplied running server. It never launches
-// or respawns a process; the caller owns connection lifetime and retry policy.
+// or respawns a process, including on loopback. Recovery redials the same endpoint.
 func DialExisting(ctx context.Context, addr string) (*Client, error) {
-	return connect(ctx, addr, 600*time.Millisecond)
+	c, err := connect(ctx, addr, 600*time.Millisecond)
+	if err != nil {
+		return nil, err
+	}
+	c.addr = addr
+	c.connectOnly = true
+	c.stopWatch = make(chan struct{})
+	go c.watchConn(context.Background())
+	return c, nil
 }
 
 func connect(ctx context.Context, addr string, timeout time.Duration) (*Client, error) {
@@ -181,7 +190,7 @@ func connectIntent(ctx context.Context, addr string, timeout time.Duration, pin 
 			return nil, err
 		}
 	}
-	return &Client{conn: conn, agent: agent}, nil
+	return &Client{conn: conn, agent: agent, stateBroker: newStateBroker()}, nil
 }
 
 func ensureServerLaunched(ctx context.Context, addr string, timeout time.Duration) (string, bool, error) {

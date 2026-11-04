@@ -61,6 +61,12 @@ func TestTransportReplacementIsolation(t *testing.T) {
 						t.Fatal(err)
 					}
 					defer c.Close()
+					// This test drives recovery explicitly so it can count exactly
+					// one fresh attestation. DialExisting also starts automatic
+					// recovery; disable that watcher before stopping the fixture.
+					if c.stopWatch != nil {
+						close(c.stopWatch)
+					}
 					oldConn := c.readConn()
 					s.Stop()
 					_, _ = start(addr, replacement == "disabled", replacement == "old")
@@ -94,9 +100,10 @@ func TestTransportReplacementIsolation(t *testing.T) {
 					if health.Load() != 0 {
 						t.Fatal("old ClientConn reached replacement")
 					}
-					c.addr = addr
-					c.stopWatch = make(chan struct{})
-					c.state = ConnStateReconnecting
+					// Use a separate client rather than resetting a live watcher's
+					// stop channel/state. Recovery must preserve connect-only intent.
+					c = &Client{addr: addr, connectOnly: path == "DialExisting", stopWatch: make(chan struct{}), state: ConnStateReconnecting}
+					defer c.Close()
 					err = c.reconnect(ctx)
 					if health.Load() != 1 {
 						t.Fatalf("fresh connection missing attestation: %d", health.Load())

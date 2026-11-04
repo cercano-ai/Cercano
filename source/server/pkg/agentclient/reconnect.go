@@ -247,7 +247,7 @@ func (c *Client) setState(next ConnState, attempt int, err error) {
 		c.stateBroker = newStateBroker()
 	}
 	ev := ConnStateChanged{State: next, Attempt: attempt, Err: err}
-	if prev == ConnStateConnected && next == ConnStateReconnecting {
+	if !c.connectOnly && prev == ConnStateConnected && next == ConnStateReconnecting {
 		ev.CrashSummary = crashlog.LatestSummary(defaultCrashLogPath())
 	}
 	c.stateBroker.broadcast(ev)
@@ -279,11 +279,11 @@ func (c *Client) watchConn(ctx context.Context) {
 		if state == connectivity.Shutdown {
 			return
 		}
-		if state == connectivity.TransientFailure {
+		if state == connectivity.TransientFailure || (c.connectOnly && state == connectivity.Idle) {
 			// Give it a beat to self-heal (gRPC will retry the
 			// transport on its own). If still failing, escalate.
 			time.Sleep(500 * time.Millisecond)
-			if conn.GetState() == connectivity.TransientFailure {
+			if next := conn.GetState(); next == connectivity.TransientFailure || (c.connectOnly && next == connectivity.Idle) {
 				if err := c.reconnect(ctx); err != nil {
 					// reconnect() sets ConnStateFailed on its final
 					// attempt — no further action here.
@@ -349,7 +349,7 @@ func (c *Client) reconnect(ctx context.Context) error {
 			if errors.Is(err, ErrCredentialIsolation) {
 				return err
 			}
-			if !shouldRespawn(attempt) {
+			if c.connectOnly || !shouldRespawn(attempt) {
 				continue
 			}
 			if _, _, launchErr := c.launchReplacement(ctx, func() (string, bool, error) {
@@ -410,6 +410,9 @@ type grpcConn = grpcConnAlias
 func (c *Client) launchReplacement(ctx context.Context, launch func() (string, bool, error)) (string, bool, error) {
 	c.shutdownMu.Lock()
 	defer c.shutdownMu.Unlock()
+	if c.connectOnly {
+		return "", false, errors.New("connect-only client cannot launch a replacement")
+	}
 	if c.shutdownIncomplete {
 		return "", false, ErrShutdownIncomplete
 	}
