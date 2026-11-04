@@ -20,6 +20,20 @@ SYSTEM = frozenset({
 })
 LOADS = {'LC_LOAD_DYLIB', 'LC_LOAD_WEAK_DYLIB', 'LC_REEXPORT_DYLIB',
          'LC_LOAD_UPWARD_DYLIB', 'LC_LAZY_LOAD_DYLIB'}
+# Explicitly reviewed commands with no dependency/runpath semantics. Do not
+# silently accept new LC_* names: review their loader effects before adding them.
+NONDEPENDENCY = {
+    'LC_SEGMENT', 'LC_SEGMENT_64', 'LC_SYMTAB', 'LC_DYSYMTAB',
+    'LC_UUID', 'LC_CODE_SIGNATURE', 'LC_SEGMENT_SPLIT_INFO',
+    'LC_FUNCTION_STARTS', 'LC_DATA_IN_CODE', 'LC_DYLIB_CODE_SIGN_DRS',
+    'LC_LINKER_OPTIMIZATION_HINT', 'LC_DYLD_INFO', 'LC_DYLD_INFO_ONLY',
+    'LC_DYLD_EXPORTS_TRIE', 'LC_DYLD_CHAINED_FIXUPS',
+    'LC_VERSION_MIN_MACOSX', 'LC_VERSION_MIN_IPHONEOS',
+    'LC_VERSION_MIN_TVOS', 'LC_VERSION_MIN_WATCHOS', 'LC_BUILD_VERSION',
+    'LC_SOURCE_VERSION', 'LC_MAIN', 'LC_THREAD', 'LC_UNIXTHREAD',
+    'LC_TWOLEVEL_HINTS', 'LC_ENCRYPTION_INFO', 'LC_ENCRYPTION_INFO_64',
+}
+STRING_COMMANDS = LOADS | {'LC_ID_DYLIB', 'LC_LOAD_DYLINKER', 'LC_RPATH'}
 
 
 class Failure(ValueError):
@@ -43,14 +57,19 @@ def parse_report(text):
         block = parts[index + 1]
         require(all(not line or line[0].isspace() for line in block.splitlines()),
                 'unexpected report header or diagnostic')
-        commands = re.findall(r'^\s*cmd (LC_\w+)\s*$', block, re.M)
-        require(len(commands) == 1, 'missing/ambiguous load command')
-        cmd = commands[0]
-        require(cmd != 'LC_DYLD_ENVIRONMENT', 'unsupported loader environment command')
-        require(not (('DYLIB' in cmd or 'DYLINKER' in cmd or 'FVMLIB' in cmd or cmd == 'LC_RPATH')
-                     and cmd not in LOADS | {'LC_ID_DYLIB', 'LC_LOAD_DYLINKER', 'LC_RPATH'}),
-                f'unsupported loader command: {cmd}')
-        if cmd in LOADS | {'LC_ID_DYLIB', 'LC_RPATH', 'LC_LOAD_DYLINKER'}:
+        commands = re.findall(r'^\s*cmd\b([^\n]*)$', block, re.M)
+        require(len(commands) == 1 and re.fullmatch(r'\s+LC_\w+\s*', commands[0]),
+                'missing/ambiguous/malformed load command')
+        cmd = commands[0].strip()
+        require(cmd in STRING_COMMANDS | NONDEPENDENCY,
+                f'unsupported load command: {cmd}; review loader semantics before accepting it')
+        sizes = re.findall(r'^\s*cmdsize\b([^\n]*)$', block, re.M)
+        require(len(sizes) == 1 and re.fullmatch(r'\s+[0-9]+\s*', sizes[0]),
+                f'missing/ambiguous/malformed cmdsize: {cmd}')
+        size = int(sizes[0])
+        require(size >= 8 and size % 4 == 0, f'invalid cmdsize: {cmd}: {size}')
+        # Validate the common load_command envelope, not every command payload.
+        if cmd in STRING_COMMANDS:
             field = 'path' if cmd == 'LC_RPATH' else 'name'
             values = re.findall(r'^\s*' + field + r' (.+) \(offset \d+\)\s*$', block, re.M)
             require(len(values) == 1, f'missing/ambiguous {field}: {cmd}')

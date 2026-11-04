@@ -107,3 +107,36 @@ OpenSSL providers/configuration/CA trust, licenses, and any further dlopen
 modules. This loader report format does not validate those resources. A passing
 check is only supplied-report closure, not a bundled-payload release gate,
 runtime qualification, model support, or authorization to build/sign/install.
+
+### Parser validation verification (2026-11-03)
+
+Before the fix, running the two smallest new regressions with
+`python3 -B scripts/test-darwin-loader-closure.py ClosureTests.test_unknown_command_rejected ClosureTests.test_missing_cmdsize_rejected`
+exited 1: **2 tests, 2 failures**, both `Failure not raised`. The reports were
+`file:\nLoad command 0\n cmd LC_BOGUS\n` and the same envelope with `LC_UUID`:
+unknown commands and missing `cmdsize` incorrectly produced empty edges.
+
+The parser now explicitly recognizes reviewed dependency/runpath and
+nondependency commands, rejecting other names with an instruction to review
+loader semantics. Each block requires exactly one well-formed `cmd` and decimal
+`cmdsize` (at least the 8-byte load-command header, aligned to 4 bytes).
+Existing required dependency name/runpath fields remain checked. This validates
+the common command envelope, not every Mach-O command payload or binary layout;
+the offline supplied-report contract and all limitations above remain unchanged.
+
+Post-fix offline verification:
+
+| Command (`python3 -B scripts/…`) | Tests | Result |
+| --- | ---: | --- |
+| `test-darwin-loader-closure.py` | 20 | PASS |
+| `test-llama-baseline.py` | 6 | PASS |
+| `test-runtime-inventory.py` | 3 | PASS |
+| `test-macos-release-verify.py` | 23 | PASS |
+| `test-release-workflow.py` | 47 | PASS |
+
+**99 tests passed**, no skips. Loader regressions cover a valid `LC_UUID` with
+`cmdsize`, unknown commands with/without `cmdsize`, missing sizes (including
+otherwise populated dependency/runpath commands), duplicate/malformed commands
+and sizes, invalid sizes, and missing/ambiguous dependency fields. Tests use
+synthesized reports, inert staged files, and stub tools only; no native payload,
+network, signing, installation, or runtime qualification was performed.

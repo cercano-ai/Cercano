@@ -133,11 +133,52 @@ class ClosureTests(unittest.TestCase):
         deps, _ = closure.parse_report(self.observed['reports']['lib/libomp.dylib'])
         self.assertEqual(set(deps), {'/usr/lib/libSystem.B.dylib', '/usr/lib/libc++.1.dylib'})
 
+    def test_unknown_command_rejected(self):
+        with self.assertRaisesRegex(closure.Failure, 'unsupported.*LC_BOGUS'):
+            closure.parse_report('file:\nLoad command 0\n cmd LC_BOGUS\n')
+
+    def test_missing_cmdsize_rejected(self):
+        for fields in [' cmd LC_UUID\n',
+                       ' cmd LC_LOAD_DYLIB\n name /usr/lib/libSystem.B.dylib (offset 24)\n',
+                       ' cmd LC_RPATH\n path @loader_path (offset 12)\n']:
+            with self.subTest(fields=fields), self.assertRaisesRegex(closure.Failure, 'cmdsize'):
+                closure.parse_report('file:\nLoad command 0\n' + fields)
+
+    def test_valid_nondependency_command(self):
+        self.assertEqual(closure.parse_report(
+            'file:\nLoad command 0\n cmd LC_UUID\n cmdsize 24\n'
+            ' uuid 12345678-1234-1234-1234-123456789ABC\n'), ([], []))
+
+    def test_malformed_command_structure(self):
+        for fields in [
+                'cmdsize 24\n',
+                'cmd LC_UUID\ncmd LC_UUID\ncmdsize 24\n',
+                'cmd LC_UUID\ncmd garbage\ncmdsize 24\n',
+                'cmd LC_UUID\ncmdsize 24\ncmdsize 24\n',
+                'cmd LC_UUID\ncmdsize 24\ncmdsize invalid\n',
+                *('cmd LC_UUID\ncmdsize ' + size + '\n'
+                  for size in ['invalid', '-8', '0', '4', '9', '24 extra']),
+                'cmd LC_LOAD_DYLIB\ncmdsize 32\n',
+                'cmd LC_RPATH\ncmdsize 32\n',
+                'cmd LC_LOAD_DYLIB\ncmdsize 32\nname x (offset 24)\nname y (offset 24)\n',
+        ]:
+            text = 'file:\nLoad command 0\n' + ''.join(
+                ' ' + line + '\n' for line in fields.splitlines())
+            with self.subTest(text=text), self.assertRaises(closure.Failure):
+                closure.parse_report(text)
+
+    def test_unknown_command_with_cmdsize_rejected(self):
+        for cmd in ['LC_BOGUS', 'LC_FUTURE', 'LC_DYLD_ENVIRONMENT',
+                    'LC_PREBOUND_DYLIB', 'LC_FILESET_ENTRY']:
+            with self.subTest(cmd=cmd), self.assertRaisesRegex(
+                    closure.Failure, 'unsupported.*' + cmd):
+                closure.parse_report(f'file:\nLoad command 0\n cmd {cmd}\n cmdsize 32\n')
+
     def test_fail_closed_reports(self):
         for text in ['', 'file:\n', 'file:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n',
-                     'file:\nLoad command 0\n cmd LC_LOAD_DYLIB\n',
-                     'file:\nLoad command 0\n cmd LC_DYLD_ENVIRONMENT\n',
-                     'file:\nLoad command 0\n cmd LC_PREBOUND_DYLIB\n',
+                     'file:\nLoad command 0\n cmd LC_LOAD_DYLIB\n cmdsize 32\n',
+                     'file:\nLoad command 0\n cmd LC_DYLD_ENVIRONMENT\n cmdsize 32\n',
+                     'file:\nLoad command 0\n cmd LC_PREBOUND_DYLIB\n cmdsize 32\n',
                      self.safe['reports']['bin/llama-server'] + 'second image:\n']:
             with self.subTest(text=text), self.assertRaises(closure.Failure):
                 closure.parse_report(text)
