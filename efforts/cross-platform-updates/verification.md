@@ -402,3 +402,47 @@ cross-platform acceptance. No direct git plumbing was used; the decision ledger
 helper reported no active autonomous run, so the decision is recorded here:
 keep validation at the existing release metadata/test gate rather than embedding
 a lock into payload inventories that do not yet contain llama.
+
+## Offline opt-in Darwin staged loader reports (2026-11-03)
+
+Added `scripts/darwin_loader_closure.py` and 15 offline tests using synthesized
+text fixtures based on the recorded Homebrew graph. The standalone explicit
+`--staged-root --loader-reports` command leaves archive builders, mandatory
+workflow gates, baseline qualification and runtime lookup unchanged. It checks
+static dependencies plus caller-declared backend roots, loader/executable paths,
+inherited rpaths, exact system allowlisting, missing and ambiguous targets,
+unsupported/external paths, and root/symlink containment. Install IDs are not
+edges. All five observed backend candidate names appear in the fixture, not as
+a claim that all are required or sufficient. No dynamic discovery is claimed.
+Caller report freshness and selected backend completeness are obligations, not
+facts this offline check can establish. README records the explicit inventory
+contract and non-Mach-O resource obligations.
+
+Decision: separate opt-in command rather than extending mandatory signed archive
+verification, which currently has no llama payload and invokes native tools.
+This avoids changing the existing archive contract or implying dynamic closure.
+The decision ledger tool again reported no active autonomous run.
+
+Focused results: loader tests 15, baseline tests 6, runtime inventory tests 3,
+release workflow tests 47, macOS release verifier tests 23 all passed; baseline
+validator passed. Only inert temporary files/text reports were staged. No live
+binary inspection/mutation/copy, native execution, network, signing, credentials,
+installation or model startup occurred. Read-only self-review of implementation,
+tests and documentation checked that success is labeled supplied-report closure
+and explicitly excludes report freshness and dynamic/resource qualification.
+
+Remaining local code: reproducible source/dependency recipe and provenance;
+backend/discovery/Metal/TLS/trust/license inventory; bundle-relative IDs/load
+edges; safe alias materialization compatible with archive inventory; actual
+staged identity and report-to-byte binding; post-signing inventory generation;
+packaged runtime admission/lookup and retention integration. Linux/Windows need
+platform loader checks and independent build contracts. No actual bundled
+payload was built in this slice.
+
+Separate native-resource authorization/evidence: source/dependency acquisition
+if network is needed, native toolchains/build hosts and actual per-platform
+builds, isolated model/backend/resource qualification and package A-to-B cleanup
+with later-worker acceptance, native Windows locking/ACL and Linux installed
+acceptance. Signing/notarization credentials and operations, repository/package
+publication and any live installation remain separately unauthorized. Fixture
+success does not satisfy any of these requirements.

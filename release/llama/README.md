@@ -46,3 +46,64 @@ and `runtime-inventory.json` remain unchanged. Later integration must verify the
 actual staged llama identity and complete dependency/resource inventory before
 claiming bundled delivery. Updating the source lock requires deliberate review;
 validation checks consistency, not upstream authenticity.
+
+## Opt-in offline Darwin staged loader check
+
+This is a separate command, **not** a mandatory gate for current release archives
+(which contain no llama payload):
+
+```sh
+python3 -B scripts/darwin_loader_closure.py \
+  --staged-root /path/to/private-stage --loader-reports /path/to/reports.json
+python3 -B scripts/test-darwin-loader-closure.py
+```
+
+Proposed layout: `bin/llama-server`, `lib/<libraries>`,
+`libexec/<selected ggml backend modules>`. The caller supplies JSON with exactly:
+
+- `executable`: stage-relative executable path;
+- `backends`: **nonempty explicit list** of stage-relative backend root paths;
+- `reports`: object mapping every closure image's stage-relative path to its
+  complete, single-image thin `otool -l` text. Do not supply `otool -L`: install
+  IDs are not dependency edges. Report headers are informational, not identity.
+
+The command reads reports and checks existing staged regular-file targets; it
+never invokes otool, executes staged code, copies or rewrites binaries. The
+caller must produce fresh reports from the actual staged images after relocation
+and bind evidence to their bytes separately. Reports alone cannot prove Mach-O
+identity, architecture, provenance, freshness or completeness. The fixture JSON
+under `fixtures/` illustrates the format but is **synthesized text**, not raw
+native output or evidence of relocated bytes. Its dependency spellings model the
+previously recorded Homebrew graph (including opt paths and the OpenSSL 3.6.5
+Cellar edge); staged names/IDs and other load-command fields are illustrative.
+
+Resolution supports `@loader_path`, `@executable_path`, and `@rpath` using local
+then inherited loader-chain runpaths. Backend roots use executable runpaths as
+initial context. More than one distinct existing rpath target fails rather than
+assuming dyld search order proves safe packaging. Plain relative paths, unknown
+tokens, external absolute paths, missing images/reports, external runpaths (even
+unused), lexical/root or symlink escapes and unaccounted report images fail.
+Only exact OS library/framework paths in the reviewed `SYSTEM` constant are
+allowlisted; arbitrary `/usr/lib` or framework-prefix matches are not allowed.
+Weak/lazy/reexport/upward loads are required too (conservative packaging policy).
+Install IDs are parsed but not treated as load edges or qualified for relocation.
+Safe internal aliases resolve to one physical image; this does **not** change the
+archive inventory's existing symlink prohibition. Reports must key each physical
+image only once. Only a thin image is supported; universal binaries require a
+separately reviewed per-slice contract. Environment injection and unsupported
+loader commands fail; this is not a complete dyld emulator.
+
+### Caller inventory obligations
+
+A caller must determine the backends actually required by the build and its
+supported hardware. The observed candidates were BLAS, CPU apple_m1,
+apple_m2_m3, apple_m4 and Metal. List each selected module explicitly even if no
+static edge reaches it. Omitting one from both the stage and inventory cannot be
+detected here: **dynamic backend discovery is not complete or verified**. Verify
+discovery/search directories and CPU selection separately; the validator does
+not scan libexec and infer requirements. Declare non-Mach-O resources in the
+runtime inventory and establish their use independently: Metal resources,
+OpenSSL providers/configuration/CA trust, licenses, and any further dlopen
+modules. This loader report format does not validate those resources. A passing
+check is only supplied-report closure, not a bundled-payload release gate,
+runtime qualification, model support, or authorization to build/sign/install.
