@@ -509,3 +509,79 @@ acceptance on authorized stable stages; final signed-byte inventory generation
 and runtime admission/retention integration. Linux/Windows loader contracts and
 native qualification remain separate. No resource/discovery completeness,
 source provenance or bundled runtime qualification follows from this slice.
+
+
+## Mac-first native staged-closure probe — blocked (2026-11-03)
+
+The user directs Mac-first native validation, with Windows deferred. Added only
+an opt-in native integration test and documentation; no production collector or
+closure policy changes. Read AGENTS, both implementations, both regression
+suites and release/llama README before implementation. No live installation,
+configuration/state/VM changes, credentials, network, downloaded code, fixture
+execution, model startup, push, merge or git plumbing was used. Host compilers
+and inspectors alone ran; all authored C and native bytes were temporary.
+
+### Actual native behavior before any proposed fix
+
+Host `uname -a` reported Darwin 25.5.0 arm64. `/usr/bin/xcrun --find clang`
+resolved the host compiler under
+`/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang`.
+The minimization probe reported Apple clang 21.0.0
+(`clang-2100.1.1.101`), target arm64-apple-darwin25.5.0, SDK 26.5.
+
+The first opt-in run exited 1: 3 tests, 2 assertion failures and 1 error, all
+caused by `unexpected report header or diagnostic`, not dependency resolution.
+The final run moved the whole stage before collection (the initial probe tried
+collection before moving) and reproduced the same result. No production fix was
+attempted. The missing-library and external-edge tests intentionally assert
+specific failure messages, so this unrelated parser failure cannot count as
+successful negative coverage.
+
+Minimized independently in a fresh temporary directory:
+
+1. Author only `int main(void) { return 0; }` in `empty.c`.
+2. `/usr/bin/xcrun clang <temp>/empty.c -o <temp>/empty`: exit 0.
+3. `/usr/bin/otool -l <temp>/empty`: exit 0, stderr empty.
+4. Isolate the first segment block with unindented lines, replace only the
+   informational report header and command ordinal to form a one-command
+   report, and pass it to the real `parse_report`: same rejection.
+
+The observed block was `LC_SEGMENT_64`, `cmdsize 232`, `segname __TEXT`,
+`nsects 2`, followed by unindented `Section` markers for `__text` and
+`__unwind_info`. Every other payload line in that block was indented. This
+isolates the root cause at `scripts/darwin_loader_closure.py:58-59`: the
+all-payload-lines-indented rule rejects normal native section formatting.
+The collector had already accepted Mach-O identity and gathered real output;
+this is not a missing toolchain, wrong architecture or bad fixture edge.
+
+That rule is also the fail-closed unexpected-header/diagnostic boundary.
+Changing accepted parser grammar requires explicit security review, so the user
+stop condition was applied rather than broadening it, filtering native reports,
+allowlisting new commands, changing SYSTEM paths or weakening assertions.
+
+### Exact final commands and results
+
+All commands ran from the repository root:
+
+| Command | Result |
+| --- | --- |
+| `CERCANO_DARWIN_NATIVE_TESTS=1 python3 -B scripts/test-darwin-native-staged-reports.py -v` | exit 1; 3 tests in 0.385s; 2 failures, 1 error; no skips |
+| `python3 -B scripts/test-darwin-native-staged-reports.py -v` | exit 0; all 3 explicitly skipped without opt-in |
+| `python3 -B scripts/test-darwin-staged-reports.py` | exit 0; 15 tests in 0.021s; PASS |
+| `python3 -B scripts/test-darwin-loader-closure.py` | exit 0; 20 tests in 0.131s; PASS |
+
+The collector suite's duplicate-JSON and missing-inventory FAILED diagnostics
+are expected negative-test output, not suite failures. Native non-Darwin and
+missing-toolchain skip branches are implemented but were not executed on this
+available Darwin/toolchain host. No x86_64 or Windows native results are claimed.
+
+### Remaining gap
+
+The committed native probe preserves the intended success-after-relocation,
+missing-rpath-target rejection and external-non-system rejection contracts.
+Those outcomes remain **unverified on real tools** until a separately reviewed
+parser grammar fix allows normal segment section markers without weakening
+header/diagnostic rejection. The native opt-in suite is deliberately red and
+is not added to release gates or the platform-independent suite. No runtime
+execution, full dyld semantics, backend discovery/resources, llama provenance,
+signing or installed-system acceptance was established. Windows stays deferred.

@@ -141,8 +141,9 @@ These checks detect ordinary mutation, **not hostile concurrency**, transient
 write-and-restore races, or changes after return; they do not lock or freeze the
 stage. This opt-in check does not modify archive requirements or qualify native
 payloads. Dynamic discovery and resource completeness remain caller obligations
-below. Tests inject host-tool responses against inert temporary byte fixtures;
-they require no native binaries or installed payload.
+below. Platform-independent collector regressions inject host-tool responses
+against inert temporary byte fixtures; they require no native binaries or
+installed payload. The separate native integration probe below is opt-in.
 
 ### Caller inventory obligations
 
@@ -191,3 +192,57 @@ otherwise populated dependency/runpath commands), duplicate/malformed commands
 and sizes, invalid sizes, and missing/ambiguous dependency fields. Tests use
 synthesized reports, inert staged files, and stub tools only; no native payload,
 network, signing, installation, or runtime qualification was performed.
+
+
+## Opt-in native Darwin integration probe (2026-11-03)
+
+User direction is **Mac-first**; Windows native validation is deferred, not
+qualified. This probe is separate from the platform-independent suites and
+release gates:
+
+```sh
+CERCANO_DARWIN_NATIVE_TESTS=1 python3 -B scripts/test-darwin-native-staged-reports.py -v
+```
+
+Without the environment opt-in, all three tests explicitly skip. With opt-in,
+non-Darwin hosts, unsupported host architectures, or missing host xcrun,
+otool, clang/SDK explicitly skip. A present toolchain's compilation or inspection
+failures remain failures, not skips. Each case authors two minimal C sources in
+a fresh temporary directory and invokes trusted host `/usr/bin/xcrun clang`
+with a minimal environment. It downloads nothing and **never runs the fixture
+executable or loads the dylib**. It uses the default real `/usr/bin/otool`
+collector and closure validator, with no mocks or report rewriting.
+
+The analytical contract is a two-image closure: a dylib installed as
+`@rpath/libfixture.dylib`, an executable with
+`@executable_path/../lib` runpath, and success after renaming the entire stage
+(including a space in its new path). The dylib also serves as the explicitly
+required backend root; this does not test backend discovery. The negative cases
+retain complete image/backend inventories but remove the rpath target by
+renaming the library, or embed an absolute non-system install name outside the
+stage. They require the corresponding dependency-resolution rejection, not just
+any failure.
+
+**Current native result: BLOCKED, not PASS.** Darwin 25.5.0 arm64, Apple clang
+21.0.0 (`clang-2100.1.1.101`), SDK 26.5: the command exited 1 with **3 tests,
+2 failures and 1 error**. All hit `unexpected report header or diagnostic`
+before dependency resolution. Real `otool -l` emits unindented `Section`
+markers inside `LC_SEGMENT_64`; the parser currently requires every nonempty
+load-command payload line to be indented (`darwin_loader_closure.py:58`). A
+single `int main(void) { return 0; }` executable and one isolated real segment
+block reproduce the rejection; compiling and collecting that output both exit
+0 with no otool stderr. No downloaded or installed payload is involved.
+
+Changing this rule affects the fail-closed header/diagnostic boundary. Per the
+user's security-semantics stop condition, production collector/parser policy is
+unchanged; the strict native assertions remain failing rather than being
+weakened, mocked, skipped or marked expected failures. A reviewed parser grammar
+change is needed before the intended native closure outcomes can be evaluated.
+The 15 collector and 20 closure platform-independent regressions still pass;
+the ungated native invocation explicitly skips all 3. Exact evidence and limits
+are recorded in `efforts/cross-platform-updates/verification.md`.
+
+This is not runtime/dyld execution validation, installed-system acceptance,
+llama.cpp provenance, signing, universal/per-architecture qualification, resource
+completeness or release qualification. No live installation/config/state/VM
+changes, signing credentials, network, model startup, push or merge were used.
