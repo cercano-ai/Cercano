@@ -889,3 +889,114 @@ Minimal reduced cause: exact committed cercano.rb.in lines 17–19 have an empty
 NOT EXECUTED after blocker: A-to-B brew upgrade, brew cleanup, successful convenience installation/ownership test, final uninstall marker-preservation test, repository-lag/partial-upgrade test, old-monolithic-link migration. migration.py and other prepared scripts are not execution evidence. Both fixture versions were built, but B was not installed. Synthetic config/conversation marker hashes remain unchanged at stop, NOT proof of post-uninstall preservation. Agent/CLI A remain installed for inspection. No live sessions/models, session continuity, later-worker retention, full llama delivery, signing/notarization or distribution-trust claim.
 
 Evidence on guest and host: /tmp/cnp-homebrew-evidence. Host guest/ contains copied logs/results/scripts/formulas and archive inventories; large local binaries/fixture archives remain guest-side. guest-evidence.tar.gz SHA256 f2ebb8315f6d4107f38e175c301ca5134fd400ea068aed29718638a588473de8 equals guest copy (snapshot before this report). Exact commands/results are in build-results.json, test-results.json (including failures/retries), offline-results.json, stopped-results.json, *.log and launch/helper scripts. No source edits or fixes are part of this rehearsal.
+
+## Native Homebrew fixed-template continuation — 2026-11-04
+
+### Scope and exact inputs
+
+Used **only** disposable macOS VM `{d5633dbc-c8a1-49fc-a420-df6d5d60d952}`
+as `test`/501 through the existing transport. Reused the preceding isolated
+HOME/XDG/cache environment, `/opt/homebrew`, trusted guest-local tap
+`fixture/cercano`, and real 0.0.901/0.0.902 archives with the previously recorded
+SHA256 values. These binaries have the same application source and version-only
+ldflags; this is package lifecycle evidence, not changed-source compatibility.
+No root ownership correction or new trust/security change was needed.
+
+Transferred exact `release/homebrew` renderer/template set plus
+`scripts/runtime_inventory.py` and `scripts/build-macos-unsigned.sh` from
+**`7d7aa262f577299787360c374d528c619ebf403e`**, verified to contain both
+`f3bcc2158f84` and `1fa4874f4b30`. Every regular archive member was compared to
+`git show` at that SHA. Definitions tar SHA256:
+`27d13de48f3b70f83238179049ab7a5f7e3c78c68a8c84fd1e0b700903cbb250`,
+confirmed guest-side. Both versions were freshly rendered with that set into
+`/tmp/cnp-homebrew-evidence/resume-rendered-VERSION`. Fixture copies in
+`resume-fixture-VERSION` replace **only** the generated HTTPS URL line with
+`file:///tmp/cnp-homebrew-evidence/cercano-VERSION-darwin-arm64.tar.gz`.
+Reverse-replacement assertions establish all other bytes unchanged; checksums and
+bare dependency names were preserved. Exact old/new lines are recorded in
+`resume-transformations-VERSION.json`. Local tap commits/pulls were normal git
+operations within this guest; nothing was published.
+
+### Actual native lifecycle outcomes
+
+All **52 logged guest commands exited 0**, with strict filesystem/marker
+assertions also completing:
+
+- Actual `brew install --formula fixture/cercano/cercano` at A succeeded with
+  preexisting A components. Fixed convenience keg contains nonempty
+  `share/cercano/README.txt`, owns **zero executable files/commands**, and passes
+  `brew test`. Both component formula tests passed as well.
+- Normal coordinated command (not atomicity proof):
+  `brew upgrade --formula fixture/cercano/cercano fixture/cercano/cercano-agent fixture/cercano/cercano-cli`.
+  All three advanced 0.0.901 → 0.0.902; each B `brew test` passed. Both direct
+  `--version` outputs reported 0.0.902. At A, B and after cleanup, assertions
+  required the agent keg's only executable to be `cercano`, CLI keg's only
+  executable to be `cercano-cli`, convenience's executable set to be empty, and
+  both `/opt/homebrew/bin` links to resolve to their exclusive component owners.
+- Targeted `brew cleanup fixture/cercano/cercano fixture/cercano/cercano-agent fixture/cercano/cercano-cli`
+  removed all three A kegs and their isolated Homebrew archive caches, reporting
+  approximately 242.3 MB freed. Both B commands and ownership remained correct.
+- Uninstalled convenience, then components using ordinary `brew uninstall`.
+  Both command links were absent. SHA256 assertions against the original
+  `marker-hashes.json` proved both synthetic config/conversation markers remained
+  byte-identical **after uninstall**, not merely at the earlier blocker.
+
+### Separate old-monolith ownership transition
+
+Also completed a separate **layout fixture**, not a historical-hook compatibility
+claim: derived an A `Cercano` formula from the current agent template, changing
+only class identity and installing both binaries. This intentionally omits the
+historical restart hook; exact formula is `resume-old-monolith-fixture.rb`.
+Installed it normally with both commands owned by `cercano`, then staged the
+exact fixed split B fixture and ran only
+`brew upgrade --formula fixture/cercano/cercano`. Homebrew installed both B
+component dependencies and upgraded convenience successfully (exit 0), without
+`--overwrite`, manual unlink/link, or repair. The subsequent **strict** ownership
+assertions, all three formula tests, targeted cleanup, and version probes passed;
+old monolithic A keg was removed. Initial migration state logging used tolerant
+`|| true` probes solely to preserve output; the later strict assertions, not that
+logging command, establish success. No unresolved migration failure was observed
+for this fixture/Homebrew version. This does not cover every historical release,
+rollback, interrupted migration, mixed tap state or partial-upgrade ordering.
+
+Finally uninstalled all three formulas again; strict assertions required their
+Cellar roots and both command links absent. Both synthetic markers still matched
+the original hashes (`resume-markers-final-uninstall.json`). Test archives, local
+tap/trust and evidence remain in the guest; no test formula remains installed.
+
+### Hooks, preserved evidence and boundaries
+
+Exact transferred templates have no process launch/restart hooks. Only product
+invocations requested were `--version` (direct and component `brew test`), never
+bare CLI or agent startup. Continuous 0.2-second `ps pid,comm` samples span both
+drivers; sampled product entries are consistent with those short version probes,
+and final process listing has no product/model process. No hook-launched product
+process was observed; comm sampling is **not exhaustive transient-process
+tracing** and cannot independently prove every short-lived argv. No model,
+real session, host brew/config/agent, Windows, credential, publication or security
+change occurred. No source fix/workaround was needed or applied.
+
+Original empty-install/failure logs and original `guest-evidence.tar.gz` remain
+untouched. New host and guest evidence lives under
+`/tmp/cnp-homebrew-evidence`: `resume.py`, `resume-finalize.py`, launch files,
+`resume-results.json`, per-command logs (including full isolated environments),
+ownership/marker results, `resume-main-process-samples.log`,
+`resume-process-samples.log`, provenance and definition-member hashes.
+Host copy is `resume-guest/`; `resume-evidence.tar.gz` snapshot SHA256 matches
+host and guest:
+`16f0235cebe17c08dc81800a623cba4227d16aad945bf13459ffa0f4f0cf5c68`.
+Additional host command ledger/comparison/fetch helper were copied guest-side
+following that snapshot. `resume-host-commands.txt` records exact transport/build
+commands and retained harness failures: ad hoc non-isolated preflight lacked brew
+PATH (exit 127); first host extraction hit Python 3.9's unsupported
+`extractall(filter=...)`, then succeeded with explicit safe regular-file copying.
+Neither was a product failure or masked native result.
+
+**Bounded package ownership/install/upgrade/cleanup/uninstall acceptance passed
+for these local macOS fixtures.** Remaining gaps: production/full bundled llama
+runtime and resource delivery, signing/notarization/distribution trust,
+changed-source compatibility, repository-lag/partial upgrades, interrupted or
+historical-hook migration/rollback, other native platforms, and installed
+session/reconnect/later-worker continuity. Those are not implied by this result;
+session continuity was explicitly outside this rehearsal's goal. No plan or
+source file was changed in this continuation.
