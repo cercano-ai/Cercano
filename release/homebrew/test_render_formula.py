@@ -7,6 +7,9 @@ import io
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
+import subprocess
+import shutil
 from pathlib import Path
 
 import render_formula
@@ -78,10 +81,87 @@ class RenderFormulaTest(unittest.TestCase):
         archive, digest = write_archive(self.dir)
         self.run_render(archive, digest)
         text = self.output.read_text()
+        text = self.output.with_name("cercano-agent.rb").read_text()
         self.assertIn(f'url "https://github.com/cercano-ai/Cercano/releases/download/v{VERSION}/{ARCHIVE_NAME}"', text)
         self.assertIn(f'version "{VERSION}"', text)
         self.assertIn(f'sha256 "{digest}"', text)
         self.assertNotIn("@", text.split("class Cercano")[1])
+
+    @unittest.skipUnless(shutil.which("ruby"), "Ruby unavailable")
+    def test_formula_ownership_dsl(self):
+        subprocess.run(["ruby", str(Path(__file__).with_name("test_formula.rb"))], check=True, capture_output=True)
+
+    def test_all_outputs_have_coordinated_metadata_and_ruby_syntax(self):
+        archive, digest = write_archive(self.dir)
+        self.run_render(archive, digest)
+        for path in self.dir.glob("*.rb"):
+            self.assertIn(f'version "{VERSION}"', path.read_text())
+            self.assertIn(f'sha256 "{digest}"', path.read_text())
+            if shutil.which("ruby"):
+                subprocess.run(["ruby", "-c", str(path)], check=True, capture_output=True)
+        self.assertEqual(len(list(self.dir.glob("*.rb"))), 3)
+
+    def test_existing_component_or_dangling_symlink_blocks_entire_set(self):
+        archive, digest = write_archive(self.dir)
+        sibling = self.dir / "cercano-cli.rb"
+        for symlink in (False, True):
+            if symlink:
+                sibling.symlink_to("missing")
+            else:
+                sibling.write_text("keep")
+            with self.assertRaises(render_formula.ValidationError):
+                self.run_render(archive, digest)
+            self.assertFalse(self.output.exists())
+            self.assertFalse((self.dir / "cercano-agent.rb").exists())
+            sibling.unlink()
+
+    def test_partial_write_failure_rolls_back_new_files(self):
+        archive, digest = write_archive(self.dir)
+        original = render_formula.os.open
+        def failing(path, *args):
+            if Path(path).name == "cercano-cli.rb":
+                raise PermissionError("fixture failure")
+            return original(path, *args)
+        with patch.object(render_formula.os, "open", side_effect=failing):
+            with self.assertRaisesRegex(render_formula.ValidationError, "could not write"):
+                self.run_render(archive, digest)
+        self.assertEqual(list(self.dir.glob("*.rb")), [])
+
+    def test_invalid_last_template_writes_nothing(self):
+        archive, digest = write_archive(self.dir)
+        for name in ("cercano", "cercano-agent", "cercano-cli"):
+            source = self.template.with_name(name + ".rb.in")
+            (self.dir / source.name).write_text(source.read_text())
+        (self.dir / "cercano-cli.rb.in").write_text("invalid")
+        with self.assertRaises(render_formula.ValidationError):
+            self.run_render(archive, digest, template=self.dir / "cercano.rb.in")
+        self.assertEqual(list(self.dir.glob("*.rb")), [])
+
+    def test_concurrent_output_is_preserved_and_ours_rolled_back(self):
+        archive, digest = write_archive(self.dir)
+        original = render_formula.os.open
+        target = self.dir / "cercano-agent.rb"
+        def racing(path, *args):
+            if Path(path) == target:
+                target.write_text("concurrent owner")
+            return original(path, *args)
+        with patch.object(render_formula.os, "open", side_effect=racing):
+            with self.assertRaises(render_formula.ValidationError):
+                self.run_render(archive, digest)
+        self.assertFalse(self.output.exists())
+        self.assertEqual(target.read_text(), "concurrent owner")
+        self.assertFalse((self.dir / "cercano-cli.rb").exists())
+
+    def test_rejects_missing_or_tampered_inventory(self):
+        for missing in (True, False):
+            entries = [entry for entry in default_members()
+                       if not entry[0].name.endswith("runtime-inventory.json")]
+            if not missing:
+                entries.append(member(f"{TOP}/runtime-inventory.json", data=b"{}"))
+            archive, digest = write_archive(self.dir, entries)
+            with self.assertRaises(render_formula.ValidationError):
+                self.run_render(archive, digest)
+            self.assertEqual(list(self.dir.glob("*.rb")), [])
 
     def test_rejects_digest_mismatch(self):
         archive, _ = write_archive(self.dir)
@@ -137,7 +217,7 @@ class RenderFormulaTest(unittest.TestCase):
         for label, extra in cases.items():
             with self.subTest(case=label):
                 archive, digest = write_archive(self.dir, default_members() + extra,
-                                                name=f"{label.replace(' ', '-')}-{ARCHIVE_NAME}")
+                                                name=ARCHIVE_NAME)
                 with self.assertRaises(render_formula.ValidationError):
                     self.run_render(archive, digest)
                 self.assertFalse(self.output.exists())
@@ -163,7 +243,7 @@ class RenderFormulaTest(unittest.TestCase):
             with self.subTest(case=label):
                 template = self.dir / f"{label}.rb.in"
                 template.write_text(text)
-                output = self.dir / f"{label}.rb"
+                output = self.output
                 with self.assertRaises(render_formula.ValidationError):
                     self.run_render(archive, digest, output=output, template=template)
                 self.assertFalse(output.exists())

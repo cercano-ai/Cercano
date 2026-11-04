@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Publish the verified release formula to one fixed tap path, with optimistic locking.
+"""Legacy single-formula publisher: disabled for the incomplete Homebrew split.
 
-Only this command writes remotely. Tokens are environment-only. Public artifact
-requests never carry credentials. Re-running after success is a no-op.
+Transport/validation helpers remain for future review; update() unconditionally
+refuses before credentials, network access or publication. See README.md.
 """
 import argparse
 import base64
@@ -152,33 +152,7 @@ def decision(existing, desired, version, digest):
 
 
 def update(version, digest, archive, formula, token):
-    require(bool(token), 'Configure HOMEBREW_TAP_TOKEN in the release environment, then retry only Update Homebrew tap')
-    desired = prepare(version, digest, archive, formula)
-    published(version, archive.name, digest)
-    for attempt in range(3):
-        sha, existing = None, None
-        try:
-            current = api('GET', TAP_PATH + '?ref=main', token)
-            require(current.get('type') == 'file' and current.get('encoding') == 'base64',
-                    'Unexpected tap formula object')
-            sha = current['sha']
-            existing = base64.b64decode(current['content']).decode('utf-8')
-        except Failure as e:
-            if e.status != 404:
-                raise
-        if decision(existing, desired, version, digest) == 'unchanged':
-            return 'unchanged'
-        payload = {'branch': 'main', 'message': f'chore(cercano): update to {version}',
-                   'content': base64.b64encode(desired.encode()).decode()}
-        if sha:
-            payload['sha'] = sha
-        try:
-            api('PUT', TAP_PATH, token, payload)
-            return 'updated'
-        except Failure as e:
-            if e.status != 409:
-                raise
-    raise Failure('Tap changed repeatedly; retry only the tap job. No force update performed.')
+    raise Failure('Homebrew split publication is disabled: three-formula promotion, old-monolith migration and full runtime acceptance are pending')
 
 
 def main():

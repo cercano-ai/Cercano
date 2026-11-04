@@ -1,100 +1,115 @@
-# Release formula and upgrade
+# Homebrew split — non-publishing definitions
 
-`cercano.rb.in` is the Apple Silicon release formula template. It is **not ready to publish**: replace `@RELEASE_URL@`, `@VERSION@`, and `@SHA256@` with the final signed/notarized release archive's values. The archive must contain `bin/cercano` and `bin/cercano-cli`; its agent binary must implement `restart-after-upgrade`. Do not attach this hook to the legacy 0.8.1 single-binary formula.
+**Not release-ready.** These definitions prepare Phase 4 in parallel with runtime
+retention/activation work; they are not native acceptance or a support claim.
 
-## Rendering the formula
+| Formula | Commands installed | Package dependencies |
+| --- | --- | --- |
+| `cercano-agent` | `bin/cercano` | none (no CLI dependency) |
+| `cercano-cli` | `bin/cercano-cli` | none (remote agent remains possible) |
+| `cercano` | none | `cercano-agent`, `cercano-cli` |
 
-`render_formula.py` fills the template's three placeholders from a verified local archive:
+All three use the same coordinated, verified darwin-arm64 archive and version.
+The component installs select only their binary. The archive currently contains
+those two executables, LICENSE, README.txt and runtime-inventory.json; it has
+**no bundled llama/full model runtime**. No additional runtime resources are
+invented or installed. The inventory describes the combined archive, not a
+complete installed agent runtime, so it is not copied into either component.
+Homebrew manages acquisition, checksums, Cellar, links, upgrades and removal.
+There are no service/post-install/restart hooks, custom updater or user-state
+operations. Bare dependencies deliberately do not promise exact-version or
+atomic upgrades: partial upgrades and repository lag require native testing.
 
-```bash
-python3 release/homebrew/render_formula.py \
-    --version 1.2.3 \
-    --archive dist/cercano-1.2.3-darwin-arm64.tar.gz \
-    --sha256 <expected-64-hex-digest> \
-    --output dist/cercano.rb
-```
+## Offline tests and rendering
 
-It hashes the archive bytes before parsing the tar, requires that digest to equal the one you supply, then checks layout without extracting or executing anything: exactly `bin/cercano` and `bin/cercano-cli` as regular executable files under a single `cercano-<version>-darwin-arm64` directory, with only `LICENSE` and `README.txt` permitted beside them. Symlinks, hardlinks, devices, FIFOs, absolute or traversing paths, duplicate members, extra executables and stray files are rejected. The URL is built only from the validated version and archive name. The output is created exclusively and never overwritten, and any validation failure writes no formula at all.
+From the repository root:
 
-**Trust boundary.** This renderer checks archive layout and byte digest only. It does **not** verify code signatures, notarization, Mach-O architecture, the macOS deployment target, or the version the binaries actually report, and it never downloads, installs, executes archive contents or publishes. A rendered formula is not evidence that signing or notarization passed.
-
-The unsigned rehearsal build (`scripts/build-macos-unsigned.sh`) emits a `-unsigned` archive and top-level directory, so it is deliberately rejected; only a final release archive renders.
-
-## Homebrew Integration
-
-Homebrew runs `post_install` after placing/linking the new keg. The hook invokes the **new keg's absolute executable**, not a PATH lookup. Installation itself only places files. The coordinator does nothing when no owned agent listens at the configured endpoint. It does not register a background service or compare client/agent versions.
-
-For an existing owned agent, the coordinator captures launch settings, validates local restart prerequisites, acquires the existing client auto-launch lock using the agent's original temporary directory, rechecks ownership, requests shutdown through the existing RPC, waits for the actual process to exit, launches the new executable, and holds the lock until the replacement's listener and gRPC connection are ready. The existing agent determines its normal bounded drain/cleanup behavior. No forced-kill fallback is added.
-
-Failures before shutdown leave the existing agent alone. Failures during/after shutdown are reported; they cannot promise that the old agent is still running. An unsuccessful restart does not roll back the installed files. Inspect logs before retrying:
-
-```
-/absolute/new/keg/bin/cercano restart-after-upgrade
-```
-
-The default endpoint is `127.0.0.1` with the port from Cercano configuration. If the running agent was started with an environment-only `CERCANO_PORT` override not inherited by Homebrew, supply its address explicitly when retrying:
-
-```
-/absolute/new/keg/bin/cercano restart-after-upgrade --address 127.0.0.1:50053
-```
-
-Automatic discovery of agents on other ports is not implemented. A nil ownership result describes the selected endpoint, not all agents on the machine. Nonstandard launch arguments are refused instead of replayed unsafely.
-
-## Promoting to the tap
-
-`promote_to_tap.py` stages a rendered formula into a local checkout of
-`cercano-ai/homebrew-cercano`:
-
-```bash
-python3 release/homebrew/promote_to_tap.py dist/cercano.rb ~/git/homebrew-cercano --version 1.2.3
-```
-
-Promotion is what makes a release reachable by users, so it refuses to run
-until the referenced artifact is **actually downloadable and matches the
-checksum the formula claims**. A formula pointing at a missing or altered asset
-would break `brew install` for everyone. It also rejects unrendered
-placeholders, a version or URL that disagrees with the expected version, a tap
-path that is not a git checkout, invalid Ruby, and a formula identical to what
-the tap already has.
-
-`--skip-download` skips the artifact check for offline work; the run then
-reports the artifact as `UNVERIFIED` rather than implying it was checked.
-
-**The tool never commits, pushes, or opens a pull request.** It writes one file
-into a local checkout. Review the diff and publish deliberately.
-
-## Testing
-
-```bash
-cd release/homebrew && python3 -m unittest test_render_formula test_promote_to_tap
+```sh
+python3 -m unittest discover -s release/homebrew -p 'test_*.py'
 ruby release/homebrew/test_formula.rb
 ```
 
-The promotion tests serve the artifact from a loopback HTTP server, so the real
-download and digest-comparison path runs; no live release or tap is involved.
-Every refusal is asserted to leave the tap checkout unmodified.
+Use a local coordinated archive with the exact release layout/name and its
+independently trusted lowercase SHA-256:
 
-The Python tests build tiny inert tar fixtures and cover valid rendering, digest/name/version mismatches, incomplete archives, hostile members (symlink, hardlink, FIFO, traversal, absolute path, smuggled executable, stray file, second tree), duplicate members, refusal to overwrite an existing formula, and templates with missing, duplicated or unknown placeholders.
-
-The Ruby tests exercise our formula methods against a small DSL stub. Neither suite proves Homebrew's actual lifecycle, sandbox behavior, detached-process survival, or installation of a real release archive; those need the clean-Mac rehearsal.
-
-Nothing in this directory publishes to the tap.
-
-## Automatic tap update after publication
-
-The release workflow's **Update Homebrew tap** job runs `update_tap.py` after
-successful publication, never for a rehearsal. It verifies the local formula
-against the release template and the published archive against the build digest,
-then uses optimistic locking to update only `Formula/cercano.rb`. Repeated
-identical updates succeed without a commit; older versions and same-version
-changes are refused.
-
-This remote updater is separate from `promote_to_tap.py`, which remains a
-local-only staging tool. See [release setup and recovery](../../docs/macos-release-build.md#automatic-tap-update-after-publication)
-for the scoped `HOMEBREW_TAP_TOKEN` setup and retry instructions.
-
-```bash
-python3 -m unittest discover -s release/homebrew -p 'test_update_tap.py'
+```sh
+mkdir -p /tmp/cercano-formulas
+python3 release/homebrew/render_formula.py --version 1.2.3 \
+  --archive /path/to/cercano-1.2.3-darwin-arm64.tar.gz \
+  --sha256 "$TRUSTED_SHA256" --output /tmp/cercano-formulas/cercano.rb
 ```
 
-Updater tests use simulated GitHub responses; no live tap writes are performed.
+The existing `--output .../cercano.rb` entry point and returned path are retained;
+it now also creates sibling `cercano-agent.rb` and `cercano-cli.rb`. A custom
+`--template` must have matching sibling component templates. All inputs/templates
+are validated before writing. Existing outputs (including dangling symlinks)
+are refused; exclusive creation protects against races. Write failures roll back
+newly created files. This is not a crash-atomic multi-file transaction: after a
+hard interruption discard the entire private output directory and rerender into
+a fresh directory. Never treat an incomplete directory as a releasable set.
+Hash, strict tar layout and inventory checks remain mandatory; signatures,
+notarization, architecture and binary-reported version are not verified here.
+
+## Publication is blocked
+
+No workflows were modified. Both `.github/workflows/release-macos.yml` and
+`update-homebrew.yml` invoke `update_tap.py`, whose `update()` now fails closed
+**before network access**, even with credentials. `promote_to_tap.py` also refuses
+local promotion, including `--skip-download`. Legacy single-formula publication
+cannot safely publish this split. Future separately authorized workflow work
+must stage/review all three formulas coherently, handle dependency availability
+and existing monolith migration, and require full runtime/native acceptance.
+Do not dispatch release workflows: the macOS workflow has other release actions
+outside this bounded guard. No publication, network release action, credentials,
+signing or release-tag change is authorized by this slice.
+
+## Native fixture recipe — instructions only, not executed
+
+Use a **fresh disposable macOS arm64 machine with an isolated Homebrew prefix and
+HOME**, never the developer's host brew/agent/state. No VM activity is part of
+this slice. Prepare a local tap and local artifact; do not fetch production assets.
+
+1. Render as above into a fresh directory. For install smoke testing, use binaries
+   built locally for that disposable system. Keep the original archive/hash and
+   rendered definitions as evidence. A tiny inert archive suffices only for layout
+   and ownership checks, not `brew test` or runtime acceptance.
+2. On that disposable machine create a local tap:
+   `mkdir -p /tmp/cercano-native-tap/Formula; git -C /tmp/cercano-native-tap init`.
+   Copy **all three** rendered `.rb` files into its `Formula/` directory. In this
+   fixture copy only, change each `url` to the same absolute
+   `file:///path/to/cercano-1.2.3-darwin-arm64.tar.gz`; retain its exact checksum.
+3. Set `HOMEBREW_NO_AUTO_UPDATE=1` and `HOMEBREW_NO_INSTALL_FROM_API=1`.
+   Run `brew tap fixture/cercano /tmp/cercano-native-tap`, then
+   `brew install --formula fixture/cercano/cercano-cli`.
+   Check `brew list --formula` has no agent and
+   `brew list fixture/cercano/cercano-cli` owns only `bin/cercano-cli`
+   (apart from Homebrew metadata/license bookkeeping). Run `brew test
+   fixture/cercano/cercano-cli`; remote-only connectivity needs a separately
+   isolated fixture agent, not the developer's agent.
+4. Uninstall CLI, install `fixture/cercano/cercano-agent`, confirm no CLI was
+   pulled in and only `bin/cercano` is owned; run its version-only `brew test`.
+   Install `fixture/cercano/cercano`, verify both dependencies and confirm its
+   own keg has no commands. Inspect `command -v cercano` and `cercano-cli` and
+   `brew list` for exclusive ownership. No installation should start an agent.
+5. Prepare locally built A/B sets in the same tap. Test `brew upgrade` of each
+   component independently and the convenience package, including a tap missing
+   B for one dependency. Record installed versions separately from running
+   versions; dependency resolution is not activation evidence. Verify uninstall
+   preserves fixture configuration/conversations/credentials.
+
+## Unresolved acceptance blockers
+
+* **Old-monolith migration:** the old `cercano` keg owns both command paths.
+  New components may encounter link conflicts during dependency-first upgrades.
+  No `conflicts_with`, overwrite, unlink, process kill or migration hook is used
+  to hide this. Rehearse old monolith -> convenience topology with real Homebrew,
+  failure/recovery and preserved user state before choosing migration policy.
+* **Runtime closure:** no bundled llama/libraries/resources or full installed
+  retention integration is supplied here. Complete per-platform dependency
+  inventory and Phases 2–3 must prove later A worker launches after B install and
+  `brew cleanup`, compatible admission, incompatible activation deferral and
+  shared-data safety. Definition tests cannot establish any of these.
+* **Native manager evidence:** actual install/upgrade/uninstall, partial upgrades,
+  repository lag, cleanup and migration have not been run in this slice.
+* **Distribution trust:** signing/notarization and coordinated publication remain
+  separately gated obligations. Unsigned fixtures and checksums do not satisfy them.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the Cercano Homebrew formula from a verified local release archive.
+"""Render a non-publishing three-formula set from a verified local release archive.
 
 Trust boundary: this tool checks archive *layout* and that the archive's bytes
 hash to the expected SHA-256. It does NOT verify code signatures, notarization,
@@ -124,19 +124,12 @@ def render(template, version, archive_name, digest):
     return rendered
 
 
-def write_new_file(path, content):
-    """Create the output exclusively; never overwrite an existing formula."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    with os.fdopen(fd, "w") as handle:
-        handle.write(content)
-
-
 def build(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--version", required=True)
     parser.add_argument("--archive", required=True)
     parser.add_argument("--sha256", required=True)
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--output", required=True, help="new cercano.rb; component siblings are also created")
     parser.add_argument("--template", default=str(Path(__file__).with_name("cercano.rb.in")))
     args = parser.parse_args(argv)
 
@@ -146,8 +139,12 @@ def build(argv=None):
     if not archive.is_file():
         raise ValidationError(f"archive is not a regular file: {archive}")
     output = Path(args.output)
-    if output.exists():
-        raise ValidationError(f"output already exists: {output}")
+    if output.name != "cercano.rb":
+        raise ValidationError("--output must be named cercano.rb (three-formula set)")
+    outputs = [output, output.with_name("cercano-agent.rb"), output.with_name("cercano-cli.rb")]
+    for target in outputs:
+        if os.path.lexists(target):
+            raise ValidationError(f"output already exists: {target}")
 
     actual_digest = hash_archive(archive)
     if actual_digest != expected_digest:
@@ -158,18 +155,36 @@ def build(argv=None):
     template_path = Path(args.template)
     if not template_path.is_file():
         raise ValidationError(f"template not found: {template_path}")
-    rendered = render(template_path.read_text(), version, archive.name, expected_digest)
-    write_new_file(output, rendered)
+    templates = [template_path, template_path.with_name("cercano-agent.rb.in"),
+                 template_path.with_name("cercano-cli.rb.in")]
+    rendered = []
+    for source in templates:
+        if not source.is_file():
+            raise ValidationError(f"template not found: {source}")
+        rendered.append(render(source.read_text(), version, archive.name, expected_digest))
+    # Pre-render everything before creating anything. O_EXCL also protects
+    # against a file appearing after preflight. Roll back only our own files.
+    created = []
+    try:
+        for target, text in zip(outputs, rendered):
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+            created.append(target)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(text)
+    except OSError as error:
+        for target in reversed(created):
+            target.unlink()
+        raise ValidationError(f"could not write formula set: {error}") from error
     return output
 
 
 def main(argv=None):
     try:
         output = build(argv)
-    except ValidationError as error:
+    except (ValidationError, OSError, tarfile.TarError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    print(f"Rendered {output}")
+    print(f"Rendered {output} and component siblings (non-publishing fixtures)")
     print("Signature, notarization, architecture and reported version are NOT checked here.")
     return 0
 

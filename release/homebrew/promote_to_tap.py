@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
-"""Stage a rendered formula into a local checkout of the Homebrew tap.
+"""Legacy local tap promotion: disabled for the incomplete Homebrew split.
 
-Promotion is the step that makes a release reachable by users, so it refuses
-to run until the referenced artifact is actually downloadable and matches the
-checksum the formula claims. A formula pointing at a missing or altered asset
-would break `brew install` for everyone.
-
-This writes to a local tap checkout only. It never commits, pushes, opens a
-pull request, or touches GitHub. Review the result and publish deliberately.
+promote() refuses even offline; a single formula is not a coherent release set.
+Validation helpers remain for future review. See README.md.
 """
 
 import argparse
@@ -99,45 +94,7 @@ def check_ruby_syntax(path):
 
 
 def promote(formula_path, tap_path, expected_version, skip_download=False):
-    formula_path = Path(formula_path)
-    tap_path = Path(tap_path)
-    if not formula_path.is_file():
-        raise PromotionError(f"rendered formula not found: {formula_path}")
-    if not (tap_path / ".git").is_dir():
-        raise PromotionError(f"not a git checkout of the tap: {tap_path}")
-
-    text = formula_path.read_text()
-    fields = read_formula_fields(text)
-    version = render_formula.parse_version(fields["version"])
-    digest = render_formula.parse_digest(fields["sha256"])
-    if expected_version and version != expected_version:
-        raise PromotionError(
-            f"formula is version {version}, expected {expected_version}")
-
-    expected_name = f"cercano-{version}-darwin-arm64.tar.gz"
-    if not fields["url"].endswith(f"/v{version}/{expected_name}"):
-        raise PromotionError(
-            f"release URL does not point at v{version}/{expected_name}: {fields['url']}")
-
-    notes = []
-    syntax_note = check_ruby_syntax(formula_path)
-    if syntax_note:
-        notes.append(syntax_note)
-
-    if skip_download:
-        notes.append("published artifact was NOT verified (--skip-download)")
-    else:
-        size = verify_published_artifact(fields["url"], digest)
-        notes.append(f"verified published artifact: {size} bytes, sha256 matches")
-
-    # Formula/ is the conventional tap layout; create it only if the tap uses it.
-    destination_dir = tap_path / "Formula" if (tap_path / "Formula").is_dir() else tap_path
-    destination = destination_dir / "cercano.rb"
-    previous = destination.read_text() if destination.is_file() else None
-    if previous == text:
-        raise PromotionError("tap already contains this exact formula; nothing to promote")
-    destination.write_text(text)
-    return destination, previous is not None, notes
+    raise PromotionError("Homebrew split promotion is disabled pending coordinated publication and native runtime/migration acceptance")
 
 
 def main(argv=None):
