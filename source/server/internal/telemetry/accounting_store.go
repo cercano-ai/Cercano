@@ -196,12 +196,36 @@ func (s *SQLiteStore) WriteAttempts(ctx context.Context, batch []usage.AttemptOb
 			return err
 		}
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO inference_attempts
+	defer conn.Close()
+	// Source identity must be read before an update. Reserve the writer before
+	// that read so another SQLite writer cannot advance the WAL snapshot and
+	// make the subsequent update fail with SQLITE_BUSY_SNAPSHOT.
+	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		// A canceled BEGIN can have succeeded despite its returned error.
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		return err
+	}
+	committed := false
+	discard := false
+	defer func() {
+		if committed {
+			return
+		}
+		if discard {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if _, rollbackErr := conn.ExecContext(cleanupCtx, `ROLLBACK`); rollbackErr != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}()
+	stmt, err := conn.PrepareContext(ctx, `INSERT INTO inference_attempts
  (id,revision,operation_id,conversation_id,session_id,worker_id,source,provider,model,profile,destination,started_at,ended_at,outcome,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,usage_final,reasoning_chunks,reasoning_bytes,requested_provider,requested_model,route_id,source_connection_id,report_identity)
  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
  ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,provider=excluded.provider,model=excluded.model,
@@ -220,7 +244,7 @@ func (s *SQLiteStore) WriteAttempts(ctx context.Context, batch []usage.AttemptOb
 			return e
 		}
 		var oldRequestedProvider, oldRequestedModel, oldRoute, oldConnection, oldReport string
-		err = tx.QueryRowContext(ctx, `SELECT requested_provider,requested_model,route_id,source_connection_id,report_identity FROM inference_attempts WHERE id=?`, a.ID).Scan(&oldRequestedProvider, &oldRequestedModel, &oldRoute, &oldConnection, &oldReport)
+		err = conn.QueryRowContext(ctx, `SELECT requested_provider,requested_model,route_id,source_connection_id,report_identity FROM inference_attempts WHERE id=?`, a.ID).Scan(&oldRequestedProvider, &oldRequestedModel, &oldRoute, &oldConnection, &oldReport)
 		if err != nil && err != sql.ErrNoRows {
 			return err
 		}
@@ -231,11 +255,18 @@ func (s *SQLiteStore) WriteAttempts(ctx context.Context, batch []usage.AttemptOb
 		if err != nil {
 			return err
 		}
-		if err := insertEnterpriseOutbox(ctx, tx, a); err != nil {
+		if err := insertEnterpriseOutbox(ctx, conn, a); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
+		// The commit outcome may be uncertain; never return this connection to
+		// the pool with an unknown transaction state.
+		discard = true
+		return err
+	}
+	committed = true
+	return nil
 }
 
 // AccountingAttempt reads a single attempt for diagnostics/tests, not UI history.

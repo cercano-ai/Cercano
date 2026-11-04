@@ -71,6 +71,10 @@ func TestAccountingStoreRejectsChangedPhysicalSource(t *testing.T) {
 	if err != nil || got.Revision != first.Revision || got.SourceConnectionID != first.SourceConnectionID {
 		t.Fatalf("conflict changed stored attempt: %+v %v", got, err)
 	}
+	pending, err := s.PendingEnterpriseUsage(t.Context(), "org", "host", 64)
+	if err != nil || len(pending) != 1 || pending[0].Revision != first.Revision {
+		t.Fatalf("conflict changed outbox: %+v %v", pending, err)
+	}
 	second := accountingFixture("second-physical")
 	second.SourceConnectionID = "source-subscription"
 	if err := s.WriteAttempts(t.Context(), []usage.AttemptObservation{second}); err != nil {

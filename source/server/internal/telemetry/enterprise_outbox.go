@@ -25,7 +25,12 @@ type EnterpriseUsageAck struct {
 	ErrorCode string `json:"error_code,omitempty"`
 }
 
-func insertEnterpriseOutbox(ctx context.Context, tx *sql.Tx, a usage.AttemptObservation) error {
+type accountingQueryExecer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func insertEnterpriseOutbox(ctx context.Context, tx accountingQueryExecer, a usage.AttemptObservation) error {
 	raw, managed, conversionErr := usage.ReportEventV2(a)
 	if !managed && conversionErr == nil {
 		return nil
