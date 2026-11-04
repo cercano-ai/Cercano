@@ -18,10 +18,13 @@ import sys
 import tarfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+import runtime_inventory
+
 PLACEHOLDERS = ("@RELEASE_URL@", "@VERSION@", "@SHA256@")
 # Must match scripts/build-macos-unsigned.sh's staging layout.
 EXECUTABLES = ("bin/cercano", "bin/cercano-cli")
-METADATA = ("LICENSE", "README.txt")
+METADATA = ("LICENSE", "README.txt", "runtime-inventory.json")
 URL_TEMPLATE = "https://github.com/cercano-ai/Cercano/releases/download/v{version}/{name}"
 VERSION_PATTERN = re.compile(r"\A(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
@@ -95,6 +98,11 @@ def validate_archive(path, version):
     missing = expected_files - found_files
     if missing:
         raise ValidationError(f"archive is missing: {', '.join(sorted(missing))}")
+
+    try:
+        runtime_inventory.validate_archive(path, top, version, "darwin-arm64")
+    except ValueError as error:
+        raise ValidationError(str(error)) from error
 
 
 def render(template, version, archive_name, digest):

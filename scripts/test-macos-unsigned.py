@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import runtime_inventory
 
 
 def run(args, **kwargs):
@@ -26,7 +27,8 @@ def main():
     if checksum != [digest, archive.name]:
         raise SystemExit("checksum or checksum filename mismatch")
     print(f"SHA-256 verified: {digest}")
-    required = {"bin/cercano", "bin/cercano-cli", "LICENSE", "README.txt"}
+    runtime_inventory.validate_archive(archive, root_name, version, "darwin-arm64")
+    required = {"runtime-inventory.json", "bin/cercano", "bin/cercano-cli", "LICENSE", "README.txt"}
     with tempfile.TemporaryDirectory(prefix="cercano-archive-test-") as tmp:
         base = Path(tmp)
         # Extract only the exact expected regular files; reject links and extras.

@@ -27,7 +27,7 @@ def member(name, mode=0o644, kind=tarfile.REGTYPE, data=b"inert", link=""):
 
 
 def default_members():
-    return [
+    entries = [
         member(TOP, mode=0o755, kind=tarfile.DIRTYPE),
         member(f"{TOP}/bin", mode=0o755, kind=tarfile.DIRTYPE),
         member(f"{TOP}/bin/cercano", mode=0o755),
@@ -35,6 +35,12 @@ def default_members():
         member(f"{TOP}/LICENSE"),
         member(f"{TOP}/README.txt"),
     ]
+
+    files = {info.name[len(TOP)+1:]: (payload.getvalue(), info.mode)
+             for info, payload in entries if info.isfile()}
+    entries.append(member(f"{TOP}/runtime-inventory.json",
+                          data=render_formula.runtime_inventory.encode(VERSION, "darwin-arm64", files)))
+    return entries
 
 
 def write_archive(directory, members=None, name=ARCHIVE_NAME):

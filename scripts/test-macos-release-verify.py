@@ -16,6 +16,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import runtime_inventory
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -70,6 +71,9 @@ exit 0
             (f"{top}/LICENSE", 0o644, b"license"),
             (f"{top}/README.txt", 0o644, b"readme"),
         ]
+        files = {n[len(top)+1:]: (data, mode) for n, mode, data in entries}
+        entries.append((f"{top}/runtime-inventory.json", 0o644,
+                        runtime_inventory.encode(version, "darwin-arm64", files)))
         with tarfile.open(path, "w:gz") as tar:
             for directory in (top, f"{top}/bin"):
                 info = tarfile.TarInfo(directory)

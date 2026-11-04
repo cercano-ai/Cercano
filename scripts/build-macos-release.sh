@@ -112,12 +112,15 @@ for name in cercano cercano-cli; do
     codesign --verify --strict "$STAGE_ROOT/bin/$name" || fail "Signature verification failed after staging: $name"
 done
 
+python3 "$SCRIPT_DIR/runtime_inventory.py" produce "$STAGE_ROOT" "$VERSION" darwin-arm64
+
 # Deterministic member order and ownership; the archive is created in the temp
 # directory and moved into place only after it is complete.
 TEMP_ARCHIVE="$TEMP_DIR/$NAME.tar.gz"
 ( cd "$TEMP_DIR" && tar --uid 0 --gid 0 --numeric-owner -czf "$TEMP_ARCHIVE" \
-    "$NAME/LICENSE" "$NAME/README.txt" "$NAME/bin/cercano" "$NAME/bin/cercano-cli" ) \
+    "$NAME/LICENSE" "$NAME/README.txt" "$NAME/bin/cercano" "$NAME/bin/cercano-cli" "$NAME/runtime-inventory.json" ) \
     || fail 'Archive creation failed'
+python3 "$SCRIPT_DIR/runtime_inventory.py" validate "$TEMP_ARCHIVE" "$VERSION" darwin-arm64 "$NAME"
 mv "$TEMP_ARCHIVE" "$FINAL_ARCHIVE"
 ( cd "$OUTPUT_DIR" && shasum -a 256 "$NAME.tar.gz" > "$CHECKSUM_FILE" ) || fail 'Checksum failed'
 

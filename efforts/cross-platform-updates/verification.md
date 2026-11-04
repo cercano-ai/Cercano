@@ -224,3 +224,64 @@ resource lookup, reconnects and later workers to that same authority, retain
 inventory for recovery/revalidation, then prove native package cleanup behavior.
 No cleanup, package database, downloads, rollback or shared-data migration is
 included. Native acceptance remains deferred.
+
+
+## 2026-11-03 — Build-produced release payload inventory
+
+Explicit user clarification: llama.cpp is a version-locked, tested internal
+agent-host dependency delivered with agent native packages, NOT an arbitrary
+external PATH dependency. This records the new approval without rewriting the
+approved spec. Production runtime lookup has not changed in this slice.
+
+Added schema-1 `runtime-inventory.json`: release version, platform identity,
+lexically sorted safe relative member paths, SHA-256 and executable booleans.
+The inventory excludes itself to avoid recursive hashing. Shared Python production
+and canonical validation use the runtimebundle Member semantics; that Go helper
+has no reusable on-disk schema. Embedded inventory was chosen over a detached
+sidecar to keep bytes and inventory in the same payload. Exact archive layout
+gates remain authoritative and now require the inventory (older inventory-free
+archives fail the updated gates). Decision ledger capture was attempted but the
+tool reported no active autonomous run; this paragraph records the decision.
+
+Linux/Windows generate at their final staging boundary, then verify archived
+bytes and inventory before promoting the archive. Signed macOS generates only
+AFTER staged codesign verification; the unsigned rehearsal does likewise after
+staging. Homebrew archive validation and macOS consumer verification require
+the same inventory contract. Fixture signing changes bytes and tests assert the
+inventory hashes those changed bytes, not the pre-signing input.
+
+Scope is ONLY actually packaged bytes: the two Cercano binaries, LICENSE and
+README. This is not complete dependency closure, authenticity proof, retained
+runtime admission, native package installation, or evidence of a llama payload.
+No llama version or payload has been invented. Inspection of `scripts/`,
+`release/`, `.github/` and `source/server/Makefile` with recursive llama/cmake
+search found only llama provider-test references in test-release-workflow.py
+and release-macos.yml, no llama version lock or build recipe. Builders still
+build only the two Go binaries. Needed next: an exact llama.cpp source revision
+and reproducible per-platform build recipe with dependency/library inventory,
+plus compatibility qualification evidence on the supported platforms before
+that revision can be called tested and shipped. No upstream pin selected.
+
+Fresh focused verification (all passed):
+- `python3 -B scripts/test-runtime-inventory.py`: 3 tests; deterministic output,
+  unsafe paths, changed bytes/modes, identity mismatch, missing/extra/duplicate
+  members, absent inventory, overwrite and symlink refusal across tar/ZIP fixtures.
+- `python3 -B scripts/test-linux-release-build.py`: 14 tests.
+- `python3 -B scripts/test-windows-release-build.py`: 11 tests.
+- `python3 -B scripts/test-macos-release-build.py`: 12 tests, including unsigned
+  staging and post-signing byte hashes.
+- `python3 -B release/homebrew/test_render_formula.py`: 11 tests.
+- `python3 -B scripts/test-macos-release-verify.py`: 23 tests.
+- `python3 -B scripts/test-release-workflow.py`: 47 tests.
+- `bash -n scripts/build-macos-release.sh scripts/build-macos-unsigned.sh`: passed.
+
+Failure probes preceded fixes: Linux sandbox launcher lacked the imported
+inventory module on sys.path (runpy does not add the script directory); fixture
+launchers now explicitly add it. Windows exact-layout expectation initially
+omitted the newly packaged inventory; updated after reproducing that failure.
+These are stubbed/inert archive tests, not real compiler/signing or installed
+acceptance. No downloads, publication, live install, credentials or model startup
+were used; developer installation is unchanged. No production runtime lookup
+or Go runtimebundle behavior changed. Native installed-system acceptance,
+actual Developer ID/notarization, loader/library closure, Windows ACL/locking,
+and llama qualification remain unverified/deferred.

@@ -45,6 +45,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+import runtime_inventory
+
 STABLE_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 # Fixed member timestamp (the zip format's epoch) so archives of the same
 # inputs are byte-for-byte reproducible.
@@ -226,9 +228,14 @@ def main():
             (f"{name}/bin/cercano.exe", stage_root / "bin" / "cercano.exe", 0o755),
             (f"{name}/bin/cercano-cli.exe", stage_root / "bin" / "cercano-cli.exe", 0o755),
         ]
+        runtime_inventory.produce(stage_root, version, "windows-x64",
+                                  runtime_inventory.payload_modes("windows-x64"))
+        entries.append((f"{name}/{runtime_inventory.NAME}",
+                        stage_root / runtime_inventory.NAME, 0o644))
         temp_archive = temp_dir / f"{name}.zip"
         write_zip(temp_archive, entries)
         verify_zip(temp_archive, entries)
+        runtime_inventory.validate_archive(temp_archive, name, version, "windows-x64")
 
         shutil.move(str(temp_archive), str(final_archive))
         digest = hashlib.sha256(final_archive.read_bytes()).hexdigest()

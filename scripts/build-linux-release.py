@@ -51,6 +51,8 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+import runtime_inventory
+
 STABLE_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 # Fixed member metadata so archives of the same inputs are byte-for-byte
 # reproducible: epoch mtime, root ownership, no gzip timestamp.
@@ -190,7 +192,10 @@ def verify_tar(archive, entries):
     staged = {arcname: source for arcname, source, _ in entries}
     modes = {arcname: mode for arcname, _, mode in entries}
     with tarfile.open(archive, "r:gz") as tf:
-        members = {m.name.rstrip("/"): m for m in tf.getmembers()}
+        raw_members = tf.getmembers()
+        members = {m.name.rstrip("/"): m for m in raw_members}
+        if len(members) != len(raw_members):
+            fail("Duplicate archive member")
         if sorted(members) != expected:
             fail(f"Archive layout mismatch: {sorted(members)} != {expected}")
         for arcname in expected:
@@ -284,9 +289,14 @@ def main():
             (f"{name}/bin/cercano", stage_root / "bin" / "cercano", 0o755),
             (f"{name}/bin/cercano-cli", stage_root / "bin" / "cercano-cli", 0o755),
         ]
+        runtime_inventory.produce(stage_root, version, "linux-x64",
+                                  runtime_inventory.payload_modes("linux-x64"))
+        entries.append((f"{name}/{runtime_inventory.NAME}",
+                        stage_root / runtime_inventory.NAME, 0o644))
         temp_archive = temp_dir / f"{name}.tar.gz"
         write_tar(temp_archive, entries)
         verify_tar(temp_archive, entries)
+        runtime_inventory.validate_archive(temp_archive, name, version, "linux-x64")
 
         shutil.move(str(temp_archive), str(final_archive))
         digest = hashlib.sha256(final_archive.read_bytes()).hexdigest()

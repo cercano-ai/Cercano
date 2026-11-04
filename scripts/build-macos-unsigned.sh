@@ -108,10 +108,16 @@ This build does not include:
 Use at your own risk. This build is not suitable for production deployment.
 EOF
 
+chmod 0644 "$STAGE_ROOT/LICENSE" "$STAGE_ROOT/README.txt"
+chmod 0755 "$STAGE_ROOT/bin/cercano" "$STAGE_ROOT/bin/cercano-cli"
+python3 "$SCRIPT_DIR/runtime_inventory.py" produce "$STAGE_ROOT" "$VERSION" darwin-arm64
+
 # Create temporary archive
 TEMP_ARCHIVE="$TEMP_DIR/cercano-${VERSION}-darwin-arm64-unsigned.tar.gz"
 echo "Creating archive..."
 tar -czf "$TEMP_ARCHIVE" -C "$TEMP_DIR" "cercano-${VERSION}-darwin-arm64-unsigned"
+
+python3 "$SCRIPT_DIR/runtime_inventory.py" validate "$TEMP_ARCHIVE" "$VERSION" darwin-arm64 "cercano-${VERSION}-darwin-arm64-unsigned"
 
 # Move final archive to output directory
 mv "$TEMP_ARCHIVE" "$FINAL_ARCHIVE"

@@ -12,6 +12,9 @@ require the real build and the clean-Mac rehearsal.
 """
 
 import os
+import hashlib
+import json
+import runtime_inventory
 import shutil
 import subprocess
 import sys
@@ -71,6 +74,7 @@ echo "sign $1" >> {self.log}
 [[ "${{FAKE_SIGN_EXIT:-0}}" == 0 ]] || exit "${{FAKE_SIGN_EXIT}}"
 for name in cercano cercano-cli; do
   [[ -x "$1/$name" ]] || {{ echo "missing $name" >&2; exit 1; }}
+  echo "# fixture signature changes bytes" >> "$1/$name"
 done
 """)
 
@@ -81,6 +85,7 @@ done
         for relative in ("scripts", "source/server/cmd/cercano", "source/clients/cli"):
             (sandbox / relative).mkdir(parents=True, exist_ok=True)
         shutil.copy2(SCRIPT, sandbox / "scripts" / SCRIPT.name)
+        shutil.copy2(REPO / "scripts/runtime_inventory.py", sandbox / "scripts/runtime_inventory.py")
         shutil.copy2(self.bin / "sign-macos-release.sh", sandbox / "scripts" / "sign-macos-release.sh")
         (sandbox / "LICENSE").write_text("license text\n")
         environ = {
@@ -107,9 +112,15 @@ done
         self.assertTrue(archive.is_file())
         with tarfile.open(archive) as tar:
             members = {m.name: m for m in tar.getmembers()}
+            inventory = json.loads(tar.extractfile(f"{NAME}/runtime-inventory.json").read())
+            rows = {row["path"]: row for row in inventory["members"]}
+            for binary in ("cercano", "cercano-cli"):
+                data = tar.extractfile(f"{NAME}/bin/{binary}").read()
+                self.assertIn(b"fixture signature changes bytes", data)
+                self.assertEqual(rows[f"bin/{binary}"]["sha256"], hashlib.sha256(data).hexdigest())
         self.assertEqual(sorted(members), [
             f"{NAME}/LICENSE", f"{NAME}/README.txt",
-            f"{NAME}/bin/cercano", f"{NAME}/bin/cercano-cli",
+            f"{NAME}/bin/cercano", f"{NAME}/bin/cercano-cli", f"{NAME}/runtime-inventory.json",
         ])
         for name in (f"{NAME}/bin/cercano", f"{NAME}/bin/cercano-cli"):
             self.assertTrue(members[name].mode & 0o111, f"{name} must stay executable")
@@ -121,6 +132,19 @@ done
         self.assertIn("sign ", calls, "release archives must be signed")
         # Signing must happen before the archive is built, not after.
         self.assertLess(calls.index("sign "), len(calls))
+
+    def test_unsigned_builder_inventory(self):
+        global SCRIPT
+        original = SCRIPT
+        SCRIPT = REPO / "scripts/build-macos-unsigned.sh"
+        self.stub("uname", 'if [[ "$1" == "-m" ]]; then echo arm64; else echo Darwin; fi')
+        try:
+            result = self.run_build()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            top = NAME + "-unsigned"
+            runtime_inventory.validate_archive(self.out / f"{top}.tar.gz", top, VERSION, "darwin-arm64")
+        finally:
+            SCRIPT = original
 
     def test_rendered_by_formula_renderer(self):
         # The archive this script emits must satisfy the formula renderer's

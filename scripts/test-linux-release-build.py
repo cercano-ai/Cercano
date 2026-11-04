@@ -72,6 +72,7 @@ def run(args, *a, **kw):
     return original(args, *a, **kw)
 subprocess.run = run
 sys.argv = sys.argv[1:]
+sys.path.insert(0, __import__('os').path.dirname(sys.argv[0]))
 runpy.run_path(sys.argv[0], run_name='__main__')
 """)
 
@@ -80,6 +81,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         sandbox = self.dir / "sandbox"
         (sandbox / "scripts").mkdir(parents=True, exist_ok=True)
         shutil.copy2(SCRIPT, sandbox / "scripts" / SCRIPT.name)
+        shutil.copy2(REPO / "scripts/runtime_inventory.py", sandbox / "scripts/runtime_inventory.py")
         (sandbox / "LICENSE").write_text("license text\n")
         for relative in ("source/server/cmd/cercano", "source/clients/cli"):
             (sandbox / relative).mkdir(parents=True, exist_ok=True)
@@ -124,7 +126,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
             members = {m.name.rstrip("/"): m for m in tf.getmembers()}
         self.assertEqual(sorted(members), [
             f"{NAME}", f"{NAME}/LICENSE", f"{NAME}/README.txt",
-            f"{NAME}/bin", f"{NAME}/bin/cercano", f"{NAME}/bin/cercano-cli",
+            f"{NAME}/bin", f"{NAME}/bin/cercano", f"{NAME}/bin/cercano-cli", f"{NAME}/runtime-inventory.json",
         ])
         self.assertTrue(members[f"{NAME}"].isdir())
         self.assertTrue(members[f"{NAME}/bin"].isdir())
