@@ -775,3 +775,98 @@ acceptance-baseline command, not yet run:
 Then prepare guest-only Homebrew/test tools and local fixture package sources
 before the required A-to-B install/upgrade/cleanup/later-worker rehearsal. No
 Homebrew install/upgrade/session-continuity result or platform support is claimed.
+
+
+## Disposable macOS VM focused validation — 2026-11-03
+
+This continues the VM provisioning record above: guest execution now works through
+`prlctl exec` as disposable user `test` (uid 501) on VM
+`{d5633dbc-c8a1-49fc-a420-df6d5d60d952}`. Fresh version probes observed macOS
+26.5.2 (25F84), arm64, Homebrew 7.0.12, Go 1.27.3, Python 3.15.2,
+CMake 4.4.5, Apple clang 21.0.0 (clang-2100.1.1.101), and CLT SDK
+`/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk`. This establishes a usable
+focused macOS test environment, not native installed-upgrade acceptance or
+completion of Phase 1 environments across all platforms.
+
+### Snapshot provenance and privacy boundary
+
+Guest base: `/Users/test/cercano-validation/65973c75f848a10a2d05d514ca16b11854f69d07`,
+with source under `checkout`. The prior transfer was a filtered archive of commit
+`65973c75f848a10a2d05d514ca16b11854f69d07` (2,522 paths, 4,499,699 bytes), SHA256
+`dedeadbe6d70986424170e6b082566e37695e2ee721016acdc24daf0cc26258a`.
+Its omission of the required go:embed fixture caused the earlier worker and
+agentclient setup failures; the minimal compaction compile probe reproduced it.
+
+With explicit authorization, restored **only**
+`source/server/internal/compaction/testdata/real_conversation.json` using
+`git show 65973c75f848a10a2d05d514ca16b11854f69d07:source/server/internal/compaction/testdata/real_conversation.json`
+into the private guest checkout via bounded base64 transport. The contents were
+not displayed or published, and no host live conversations or substitute fixture
+were used. Snapshot identity is **original filtered archive + exact committed
+fixture overlay**, not an unfiltered checkout. Overlay size: 6,055,949 bytes;
+committed-source and guest SHA256 both
+`8a753cb765a1c7c621e39fdc387d64551cbe466899a44b4419a9588642861787`.
+Guest archive and overlay hashes were rechecked unchanged after testing. No source
+patches were made; only this tracked documentation file changed on the host.
+
+### Isolation, exact commands and observed results
+
+Reused the prior runner's short isolated fixture directories, as `test` through
+`/usr/bin/env -i`:
+
+```sh
+HOME=/tmp/cnp.h8sjTc/home
+XDG_CONFIG_HOME=/tmp/cnp.h8sjTc/config
+XDG_CACHE_HOME=/tmp/cnp.h8sjTc/cache
+XDG_DATA_HOME=/tmp/cnp.h8sjTc/data
+TMPDIR=/tmp/cnp.h8sjTc/tmp
+GOCACHE=/tmp/cnp.h8sjTc/gocache
+GOMODCACHE=/tmp/cnp.h8sjTc/gomodcache
+GOWORK=off CERCANO_DISABLE_CREDENTIALS=1
+PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+CERCANO_DARWIN_NATIVE_TESTS=1 PYTHONDONTWRITEBYTECODE=1
+```
+
+macOS/Python additionally supplied `__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0`
+and `LC_CTYPE=C.UTF-8`, recorded in each log. Driver command timeout 2400s;
+test binaries use 120s. From guest `checkout/source/server`, executed:
+
+```sh
+grep -n '^func Test' pkg/agentclient/connect_only_test.go pkg/agentclient/connect_only_isolation_test.go
+go test -count=1 -timeout=120s -v ./internal/compaction -run '^$'
+go test -list '^(TestDialExistingAutomaticRecoveryCredentialIsolation|TestDialExistingConnectOnlyLoopbackRecovery|TestUnavailableExistingNeverLaunchesAndDefaultStillLaunches)$' ./pkg/agentclient
+go test -count=1 -timeout=120s -v ./internal/worker -run '^(TestInstalledRetentionCharacterization|TestInstalledRetainedBundleWorker|TestPinnedFixtureSubprocessGenerations)$'
+go test -race -count=1 -timeout=120s -v ./internal/worker -run '^(TestInstalledRetentionCharacterization|TestInstalledRetainedBundleWorker|TestPinnedFixtureSubprocessGenerations)$'
+go test -count=1 -timeout=120s -v ./pkg/agentclient -run '^(TestDialExistingAutomaticRecoveryCredentialIsolation|TestDialExistingConnectOnlyLoopbackRecovery|TestUnavailableExistingNeverLaunchesAndDefaultStillLaunches)$'
+go test -race -count=1 -timeout=120s -v ./pkg/agentclient -run '^(TestDialExistingAutomaticRecoveryCredentialIsolation|TestDialExistingConnectOnlyLoopbackRecovery|TestUnavailableExistingNeverLaunchesAndDefaultStillLaunches)$'
+```
+
+All exited 0. Compaction probe intentionally ran zero tests (compile-only,
+not a compaction suite pass). Test listing confirmed all three agentclient names,
+including automatic credential-isolation recovery and the unavailable/default
+launch case missed by the earlier narrower regex. Worker normal/race each ran
+and passed 3 top-level tests, zero failures/skips. Agentclient normal/race each
+ran and passed 3 top-level tests plus 3 policy subtests, zero failures/skips.
+No retries, source workarounds, or failure masking were needed.
+
+The prior evidence report records Python runtime-inventory 3, loader-closure 26,
+staged-reports 15, native-staged-reports 3 tests passed; runtimebundle normal/race
+each 5 top-level + 16 subtests; CLI normal/race each 3 top-level + 11 subtests,
+all zero skips. Those prior successful groups were not rerun in this continuation.
+
+Evidence: `/tmp/cnp-evidence-65973c75/REPORT.md`, `overlay-provenance.json`,
+`post-validation-hashes.txt`, `resume-command.txt`, `resume.py`, and
+`logs-overlay/{results.json,counts.json,*.log}` preserve exact commands,
+environments, counts and no-skips evidence. Logs-only `overlay-evidence.tar.gz`
+was copied back with equal host/guest SHA256 (see `overlay-evidence-digest.txt`);
+it contains no fixture. Original logs/archive manifest/exclusions remain adjacent.
+
+### Remaining acceptance gaps
+
+The archive omission blocker is resolved for these selected fixture tests only.
+No product/model installation, A-to-B native-manager upgrade/cleanup/later-worker
+rehearsal, real installed session continuity, signing/publication, shipped-binary
+provenance or broader dynamic-resource acceptance was established. Linux and
+Windows native environments were not validated here; no all-platform Phase 1
+completion claim is made. No host live agent/config changes, credential access,
+Windows actions, publication or push were performed.
