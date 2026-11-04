@@ -1000,3 +1000,107 @@ historical-hook migration/rollback, other native platforms, and installed
 session/reconnect/later-worker continuity. Those are not implied by this result;
 session continuity was explicitly outside this rehearsal's goal. No plan or
 source file was changed in this continuation.
+
+
+## Native macOS running-process survival / later-worker retention characterization (2026-11-04)
+
+Executed only on disposable guest `{d5633dbc-c8a1-49fc-a420-df6d5d60d952}`,
+macOS 26.5.2 arm64, as `test` (uid 501). This is an observed native
+**retention gap**, not production acceptance or host-routed conversation continuity.
+No production source was changed and no full-plan acceptance item is closed.
+
+### Isolation, preflight and retained harness blocker
+
+Read the prior verification, `resume.py` and existing lifecycle logs; did not rerun
+that broad lifecycle. Preflight listed guest packages (no test formulas installed),
+processes, original synthetic marker hashes and archive hashes. Used existing
+same-source, version-only A `0.0.901` / B `0.0.902` archives and fixed local tap
+formulas; only disposable fixture-tap staging used direct git. Archive SHA256:
+
+- A: `59b6d5e8eff4ac52c935935cf0c8b47b069399e2fa0c340d0947638d3def1b6b`
+- B: `1d1330f190c63a826af6121fdc9ed3817cd1a83ec0493717a8d098cedde22d90`
+
+All product processes used a new synthetic HOME/config/data/cache/tmp beneath
+`/tmp/cnp-macos-update-retention`, an allowlisted environment,
+`CERCANO_DISABLE_CREDENTIALS=1`, and sandbox denial of non-loopback networking.
+No host product/config was accessed; no model inference, cloud call or download
+was requested. Agent config disabled llama-server/mistralrs backends, used
+`open_only`, no cloud profiles and unreachable loopback Ollama port 1. Startup
+still printed a default local model name but did not run an inference/model server.
+The actual agent log confirms credentials disabled and Ollama unavailable.
+
+The first install attempt, with brew also pointed at the new empty config,
+failed exit 1: `Refusing to load formula fixture/cercano/cercano-agent from
+untrusted tap fixture/cercano.` The convenience formula alone had been trusted;
+the failure occurred before any formula installation. Its attempted uninstall
+also exited 1. These harness logs/scripts/results are preserved in guest
+`attempt1/`. Brew printed `Trusted formula fixture/cercano/cercano` in that
+new synthetic config before refusing the dependency; no explicit `brew trust`
+command or system security change was made. Corrected only brew's
+HOME/XDG paths to the **established synthetic fixture environment**
+`/tmp/cnp.h8sjTc/{home,config,data,cache}`; product isolation remained new.
+The bounded install/upgrade/retention run then completed normally.
+
+### Native observations
+
+1. Installed A using ordinary `brew install --formula fixture/cercano/cercano`.
+   The selected executable resolved to
+   `/opt/homebrew/Cellar/cercano-agent/0.0.901/bin/cercano`;
+   `--version` returned `cercano v0.0.901` and installed SHA256 matched archive
+   member `081a25b496774375f773095330369142da4438f85211ea6f7e3b88b091b7ba4f`.
+2. Started ordinary installed `cercano agent`, PID **23131**, on free port
+   **49264**, plus actual installed `cercano worker --socket
+   /tmp/cnp-macos-update-retention/a.sock`, PID **23136**. Both were ready:
+   TCP/Unix probes received HTTP/2 SETTINGS (`000006040000000000000500004000`).
+   These are transport readiness checks, not turn execution or authenticated RPCs.
+3. Independently staged B, then ordinary `brew upgrade --formula` for the three
+   test formulas. Both A PIDs remained alive and transport-ready; all three A
+   kegs and A executable still existed immediately after upgrade (automatic
+   install cleanup disabled by established fixture environment).
+4. Ran targeted `brew cleanup` for only `fixture/cercano/cercano`,
+   `fixture/cercano/cercano-agent`, `fixture/cercano/cercano-cli`. Exit 0;
+   **all three A kegs and the original A executable path were removed**.
+   The same A agent and worker PIDs still responded with HTTP/2 SETTINGS;
+   `ps` recorded their original A argv after removal.
+5. Attempted a fresh worker at the exact original A executable path.
+   **Desired retention assertion FAILED (expected characterization result):**
+   `[Errno 2] No such file or directory:
+   '/opt/homebrew/Cellar/cercano-agent/0.0.901/bin/cercano'`.
+   Running A surviving unlink did **not** retain a launchable A generation.
+6. Homebrew-selected `/opt/homebrew/bin/cercano` resolved to
+   `/opt/homebrew/Cellar/cercano-agent/0.0.902/bin/cercano`;
+   `--version` returned `cercano v0.0.902`, installed SHA256 matched B archive
+   member `5169f9f84ab2a062a2b20f62ecca990c248677bff127153a7b719951d241b77a`.
+   Started that manager-selected command with `worker --socket .../b.sock`,
+   PID **23407**; HTTP/2 SETTINGS readiness passed. Here “manager-selected” means
+   the Homebrew command link, **not** an A agent spawning a turn worker via its
+   production worker-admission path.
+
+### Teardown, evidence and limits
+
+Only the three owned product PIDs were terminated (agent drained normally,
+workers exited on SIGTERM). Ordinary targeted uninstall removed convenience then
+components; strict assertions verified all test Cellar roots and both command
+links absent. Original two synthetic markers and new config/conversation markers
+were SHA256-identical before/after cleanup and final uninstall. Final results
+assert every owned PID exited. No generic pkill, manual retention copying,
+development launcher, forced links or direct Cellar mutation was used.
+Individual command timeout was 600 seconds; each readiness window 30 seconds.
+Successful characterization took 12.28 seconds before teardown; guest `DONE`
+records total including teardown. Both attempts and orchestration were bounded.
+
+Host and guest evidence directories: `/tmp/cnp-macos-update-retention`.
+Host `guest/` contains guest scripts, synthetic config, per-command logs,
+`results.json`, `attempt1/` and process/marker observations; `host.py`,
+`guest.py`, preflight/launch logs and `evidence-digest.txt` preserve orchestration.
+Original `/tmp/cnp-homebrew-evidence` evidence remains preserved (only its
+explicitly disposable fixture-tap working tree/commits were staged).
+Host `guest-evidence.tar.gz` matches guest `/tmp/cnp-macos-update-retention.tar.gz`
+SHA256 `4ea644daf64e98347af7f58ff39a63b0cc8938a6e529f7efc8c619094b8dfa7b`.
+
+This establishes native immediate PID/socket survival and the missing later-A
+executable, plus a fresh manager-selected B worker. It does **not** establish
+host-routed conversations, in-flight turns, reconnect continuity, A-agent later
+worker dispatch, retained runtime resources, changed-source compatibility,
+long-duration survival, bundled llama delivery, signing/publication, rollback,
+or other native platforms. No retention implementation/fix was attempted.
