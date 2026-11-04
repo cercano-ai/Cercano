@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -18,7 +19,8 @@ func startAgentTelemetry(path, session string) (*telemetry.Collector, func() err
 // The opener is per invocation, never a package-global test override. Real
 // collectors retain transactional accounting and drain before store closure.
 type productionAccountingDependencies struct {
-	open func(string) (*telemetry.SQLiteStore, error)
+	open   func(string) (*telemetry.SQLiteStore, error)
+	sender usageSender
 }
 
 func productionAccountingDefaults() productionAccountingDependencies {
@@ -52,7 +54,22 @@ func startAgentTelemetryWithDependencies(path, session string, d productionAccou
 		collector.Close()
 		return nil, nil, errors.Join(err, store.Close())
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	if d.sender != nil {
+		go func() { defer close(done); runEnterpriseUsage(ctx, store, d.sender) }()
+	} else {
+		close(done)
+	}
 	var once sync.Once
 	var closeErr error
-	return collector, func() error { once.Do(func() { collector.Close(); closeErr = store.Close() }); return closeErr }, nil
+	return collector, func() error {
+		once.Do(func() {
+			cancel()
+			<-done
+			collector.Close()
+			closeErr = store.Close()
+		})
+		return closeErr
+	}, nil
 }

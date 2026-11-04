@@ -42,6 +42,36 @@ func TestManagedBindingDoesNotRedirectProviderCredentials(t *testing.T) {
 		t.Fatal("unapproved endpoint reached credential builder")
 	}
 }
+
+func TestManagedBindingUsesSignedPhysicalConnection(t *testing.T) {
+	c := config.Config{ActiveCloudProfile: "api-key", SecondaryCloudProfile: "subscription", CloudProfiles: []config.CloudProfile{
+		{Name: "api-key", SourceConnectionID: "source-api", Flavor: "chat_completions", BaseURL: "https://models.example/v1"},
+		{Name: "subscription", SourceConnectionID: "source-sub", Flavor: "chat_completions", BaseURL: "https://models.example/v1"},
+	}}
+	route := v1.Route{ID: "shared", Provider: "openai", Endpoint: "https://models.example/v1", Model: "model", Placement: "external", AllowedSourceConnectionIDs: []string{"source-api", "source-sub"}}
+	build := func(p config.CloudProfile) (inference.Provider, error) { return &routeFixture{route: route}, nil }
+	primary, err := BindRoute(t.Context(), c, route, config.DestinationPrimary, nil, build)
+	if err != nil || primary.SourceConnectionID != "source-api" || primary.Profile != "api-key" {
+		t.Fatalf("primary %+v: %v", primary, err)
+	}
+	secondary, err := BindRoute(t.Context(), c, route, config.DestinationSecondary, nil, build)
+	if err != nil || secondary.SourceConnectionID != "source-sub" || secondary.Profile != "subscription" {
+		t.Fatalf("secondary %+v: %v", secondary, err)
+	}
+	route.AllowedSourceConnectionIDs = []string{"source-api"}
+	if _, err := BindRoute(t.Context(), c, route, config.DestinationSecondary, nil, build); err == nil {
+		t.Fatal("preferred unapproved source silently switched to a different credential")
+	}
+	route.AllowedSourceConnectionIDs = []string{"unconfigured"}
+	if _, err := BindRoute(t.Context(), c, route, config.DestinationPrimary, nil, build); err == nil {
+		t.Fatal("accepted an unconfigured source")
+	}
+	route.AllowedSourceConnectionIDs = nil
+	legacy, err := BindRoute(t.Context(), c, route, config.DestinationPrimary, nil, build)
+	if err != nil || legacy.SourceConnectionID != "" {
+		t.Fatalf("legacy route fabricated source: %+v %v", legacy, err)
+	}
+}
 func TestManagedOllamaBindingPreservesPhysicalPlacement(t *testing.T) {
 	var calls []string
 	for _, tc := range []struct{ endpoint, placement string }{{"http://127.0.0.1:11434", "local"}, {"https://ollama.example", "external"}} {
@@ -55,6 +85,31 @@ func TestManagedOllamaBindingPreservesPhysicalPlacement(t *testing.T) {
 		route.Endpoint = "https://other.example"
 		if _, err := BindRoute(context.Background(), c, route, config.DestinationPrimary, raw, nil); err == nil {
 			t.Fatal("runtime endpoint mismatch accepted")
+		}
+	}
+}
+
+func TestLocalRoutesBindOneSignedPhysicalSource(t *testing.T) {
+	for _, provider := range []string{"ollama", "llama.cpp"} {
+		route := v1.Route{ID: "local", Provider: provider, Endpoint: "http://127.0.0.1:11434", Model: "approved", Placement: "local", AllowedSourceConnectionIDs: []string{"workstation"}}
+		c := config.Config{OpenRuntime: provider, OllamaURL: route.Endpoint, LocalSourceConnectionID: "workstation"}
+		raw := &routeFixture{route: route}
+		got, err := BindRoute(t.Context(), c, route, config.DestinationPrimary, raw, nil)
+		if err != nil || got.SourceConnectionID != "workstation" {
+			t.Fatalf("%s lost source: %+v %v", provider, got, err)
+		}
+		route.AllowedSourceConnectionIDs = []string{"other", "workstation"}
+		got, err = BindRoute(t.Context(), c, route, config.DestinationPrimary, raw, nil)
+		if err != nil || got.SourceConnectionID != "workstation" {
+			t.Fatalf("%s failed exact host source selection: %+v %v", provider, got, err)
+		}
+		c.LocalSourceConnectionID = ""
+		if _, err := BindRoute(t.Context(), c, route, config.DestinationPrimary, raw, nil); err == nil {
+			t.Fatalf("%s guessed host source", provider)
+		}
+		c.LocalSourceConnectionID = "foreign"
+		if _, err := BindRoute(t.Context(), c, route, config.DestinationPrimary, raw, nil); err == nil {
+			t.Fatalf("%s accepted foreign host source", provider)
 		}
 	}
 }

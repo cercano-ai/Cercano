@@ -70,9 +70,13 @@ type CloudProfile struct {
 	// AccountIdentity is optional sign-in display metadata, not a credential key.
 	AccountIdentity accountidentity.Identity `yaml:"account_identity,omitempty"`
 	Name            string                   `yaml:"name"`
-	Flavor          string                   `yaml:"flavor"`            // messages | chat_completions | responses | bedrock
-	Backend         string                   `yaml:"backend,omitempty"` // chat_completions only: selects per-backend quirks (openai|gemini|groq|…); empty → defensive default
-	Route           string                   `yaml:"route,omitempty"`   // direct (default) | subscription | ccr (future) | …
+	// SourceConnectionID is an opaque, non-secret identity assigned to this
+	// physical billing connection. It is never derived from the profile name,
+	// endpoint, or credential. Enterprise may authorize it in a signed route.
+	SourceConnectionID string `yaml:"source_connection_id,omitempty"`
+	Flavor             string `yaml:"flavor"`            // messages | chat_completions | responses | bedrock
+	Backend            string `yaml:"backend,omitempty"` // chat_completions only: selects per-backend quirks (openai|gemini|groq|…); empty → defensive default
+	Route              string `yaml:"route,omitempty"`   // direct (default) | subscription | ccr (future) | …
 	// Provider names the vendor whose cost-tier table this profile draws its
 	// per-request models from (anthropic|openai|google|…). It bridges "how I
 	// connect" (route/flavor/auth on this profile) to "which vendor's model
@@ -366,16 +370,20 @@ type Config struct {
 	// only while diagnosing why a dispatch behaved the way it did.
 	CaptureDispatchReasoning bool `yaml:"capture_dispatch_reasoning,omitempty"`
 
-	OllamaURL          string         `yaml:"ollama_url"`
-	OpenRuntime        string         `yaml:"open_runtime"`
-	OpenModel          string         `yaml:"open_model,omitempty"`
-	EmbeddingModel     string         `yaml:"embedding_model,omitempty"`
-	CloudProvider      string         `yaml:"cloud_provider,omitempty"`
-	CloudModel         string         `yaml:"cloud_model,omitempty"`
-	CloudAPIKey        string         `yaml:"cloud_api_key,omitempty"`
-	CloudBaseURL       string         `yaml:"cloud_base_url,omitempty"`
-	CloudProfiles      []CloudProfile `yaml:"cloud_profiles"`
-	ActiveCloudProfile string         `yaml:"active_cloud_profile"`
+	OllamaURL   string `yaml:"ollama_url"`
+	OpenRuntime string `yaml:"open_runtime"`
+	// LocalSourceConnectionID identifies this host's physical local runtime
+	// for Enterprise cost reporting. It is non-secret and is not inferred
+	// from a policy shared by multiple hosts.
+	LocalSourceConnectionID string         `yaml:"local_source_connection_id,omitempty"`
+	OpenModel               string         `yaml:"open_model,omitempty"`
+	EmbeddingModel          string         `yaml:"embedding_model,omitempty"`
+	CloudProvider           string         `yaml:"cloud_provider,omitempty"`
+	CloudModel              string         `yaml:"cloud_model,omitempty"`
+	CloudAPIKey             string         `yaml:"cloud_api_key,omitempty"`
+	CloudBaseURL            string         `yaml:"cloud_base_url,omitempty"`
+	CloudProfiles           []CloudProfile `yaml:"cloud_profiles"`
+	ActiveCloudProfile      string         `yaml:"active_cloud_profile"`
 	// BackupCloudProfile names the profile that serves a request when the
 	// active profile's provider fails (see internal/llm/fallback for what
 	// counts as a failure worth failing over). Empty = no fallback.

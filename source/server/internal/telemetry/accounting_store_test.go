@@ -12,7 +12,7 @@ import (
 )
 
 func accountingFixture(id string) usage.AttemptObservation {
-	return usage.AttemptObservation{ID: id, Revision: 1, Provider: "fake", Model: "fake", Attribution: usage.Attribution{Source: "main"}, StartedAt: time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC), Outcome: usage.Started}
+	return usage.AttemptObservation{ID: id, Revision: 1, Provider: "fake", Model: "fake", RequestedProvider: "fake", RequestedModel: "fake", RouteID: "shared-route", SourceConnectionID: "source-api", Report: usage.ReportIdentity{OrganizationID: "org", HostID: "host", ProfileVersion: 7, TaskType: "chat", RequestedRouteID: "original", RequestedSourceConnectionID: "source-api"}, Attribution: usage.Attribution{Source: "main"}, StartedAt: time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC), Outcome: usage.Started}
 }
 func accountingTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
@@ -46,12 +46,39 @@ func TestAccountingStoreIdempotencyAndPresence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Tokens.Complete() || got.Revision != 3 || got.Outcome != usage.Completed || got.Tokens.Output != llm.ReportedTokens(0) || got.Tokens.CacheRead.Known {
+	if !got.Tokens.Complete() || got.Revision != 3 || got.Outcome != usage.Completed || got.Tokens.Output != llm.ReportedTokens(0) || got.Tokens.CacheRead.Known || got.RouteID != start.RouteID || got.SourceConnectionID != start.SourceConnectionID || got.Report != start.Report {
 		t.Fatalf("stored=%+v", got)
 	}
 	var count int
 	if err = s.db.QueryRow(`SELECT COUNT(*) FROM inference_attempts`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("count=%d err=%v", count, err)
+	}
+}
+
+func TestAccountingStoreRejectsChangedPhysicalSource(t *testing.T) {
+	s := accountingTestStore(t)
+	first := accountingFixture("physical")
+	if err := s.WriteAttempts(t.Context(), []usage.AttemptObservation{first}); err != nil {
+		t.Fatal(err)
+	}
+	conflict := first
+	conflict.Revision++
+	conflict.SourceConnectionID = "source-subscription"
+	if err := s.WriteAttempts(t.Context(), []usage.AttemptObservation{conflict}); err == nil {
+		t.Fatal("changed physical source accepted")
+	}
+	got, err := s.AccountingAttempt(t.Context(), first.ID)
+	if err != nil || got.Revision != first.Revision || got.SourceConnectionID != first.SourceConnectionID {
+		t.Fatalf("conflict changed stored attempt: %+v %v", got, err)
+	}
+	second := accountingFixture("second-physical")
+	second.SourceConnectionID = "source-subscription"
+	if err := s.WriteAttempts(t.Context(), []usage.AttemptObservation{second}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.AccountingAttempt(t.Context(), second.ID)
+	if err != nil || got.SourceConnectionID == first.SourceConnectionID {
+		t.Fatalf("two connections on one route collapsed: %+v %v", got, err)
 	}
 }
 func TestAccountingStoreLegacyIsolationAndCutover(t *testing.T) {

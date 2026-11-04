@@ -55,6 +55,7 @@ func (s *SQLiteStore) InitializeAccounting(ctx context.Context) error {
    id TEXT PRIMARY KEY,revision INTEGER NOT NULL CHECK(revision>0),
    operation_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,worker_id TEXT NOT NULL,
    source TEXT NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,profile TEXT NOT NULL,destination TEXT NOT NULL,
+   requested_provider TEXT NOT NULL DEFAULT '',requested_model TEXT NOT NULL DEFAULT '',route_id TEXT NOT NULL DEFAULT '',source_connection_id TEXT NOT NULL DEFAULT '',report_identity TEXT NOT NULL DEFAULT '{}',
    started_at INTEGER NOT NULL,ended_at INTEGER,
    outcome TEXT NOT NULL CHECK(outcome IN ('started','completed','failed','interrupted')),
    input_tokens INTEGER CHECK(input_tokens>=0),output_tokens INTEGER CHECK(output_tokens>=0),
@@ -74,6 +75,11 @@ func (s *SQLiteStore) InitializeAccounting(ctx context.Context) error {
    provider TEXT NOT NULL,model TEXT NOT NULL,stable_identity INTEGER NOT NULL,
    input_tokens INTEGER CHECK(input_tokens>=0),output_tokens INTEGER CHECK(output_tokens>=0))`,
 		`CREATE INDEX IF NOT EXISTS external_usage_reports_time ON external_usage_reports(reported_at)`,
+		`CREATE TABLE IF NOT EXISTS enterprise_usage_outbox (
+ organization_id TEXT NOT NULL,host_id TEXT NOT NULL,attempt_id TEXT NOT NULL,revision INTEGER NOT NULL,
+ event_json TEXT NOT NULL,last_error TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,
+ PRIMARY KEY(organization_id,host_id,attempt_id,revision))`,
+		`CREATE INDEX IF NOT EXISTS enterprise_usage_outbox_pending ON enterprise_usage_outbox(organization_id,host_id,last_error,created_at)`,
 	} {
 		if _, err = conn.ExecContext(ctx, statement); err != nil {
 			return err
@@ -84,6 +90,11 @@ func (s *SQLiteStore) InitializeAccounting(ctx context.Context) error {
 	for _, column := range []string{
 		`ALTER TABLE inference_attempts ADD COLUMN reasoning_chunks INTEGER CHECK(reasoning_chunks>=0)`,
 		`ALTER TABLE inference_attempts ADD COLUMN reasoning_bytes INTEGER CHECK(reasoning_bytes>=0)`,
+		`ALTER TABLE inference_attempts ADD COLUMN requested_provider TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inference_attempts ADD COLUMN requested_model TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inference_attempts ADD COLUMN route_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inference_attempts ADD COLUMN source_connection_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE inference_attempts ADD COLUMN report_identity TEXT NOT NULL DEFAULT '{}'`,
 	} {
 		if _, err = conn.ExecContext(ctx, column); err != nil {
 			if !isDuplicateColumn(err) {
@@ -143,10 +154,13 @@ func ValidateAttempt(a usage.AttemptObservation) error {
 	if a.ID == "" || a.Revision == 0 || a.Revision > math.MaxInt64 || a.StartedAt.IsZero() {
 		return fmt.Errorf("invalid attempt identity or start")
 	}
-	for _, v := range []string{a.ID, a.Attribution.OperationID, a.Attribution.ConversationID, a.Attribution.SessionID, a.Attribution.WorkerID, a.Attribution.Source, a.Provider, a.Model, a.Profile, a.Destination} {
+	for _, v := range []string{a.ID, a.Attribution.OperationID, a.Attribution.ConversationID, a.Attribution.SessionID, a.Attribution.WorkerID, a.Attribution.Source, a.Provider, a.Model, a.Profile, a.Destination, a.RequestedProvider, a.RequestedModel, a.RouteID, a.SourceConnectionID, a.Report.OrganizationID, a.Report.HostID, a.Report.TaskType, a.Report.RequestedRouteID, a.Report.RequestedSourceConnectionID} {
 		if len(v) > 1024 {
 			return fmt.Errorf("attempt metadata exceeds limit")
 		}
+	}
+	if a.Report.ProfileVersion < 0 || (a.Report.ProfileVersion > 0 && (a.Report.OrganizationID == "" || a.Report.HostID == "" || a.Report.TaskType == "" || a.RouteID == "")) {
+		return fmt.Errorf("invalid managed report identity")
 	}
 	switch a.Outcome {
 	case usage.Started:
@@ -188,10 +202,11 @@ func (s *SQLiteStore) WriteAttempts(ctx context.Context, batch []usage.AttemptOb
 	}
 	defer tx.Rollback()
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO inference_attempts
- (id,revision,operation_id,conversation_id,session_id,worker_id,source,provider,model,profile,destination,started_at,ended_at,outcome,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,usage_final,reasoning_chunks,reasoning_bytes)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ (id,revision,operation_id,conversation_id,session_id,worker_id,source,provider,model,profile,destination,started_at,ended_at,outcome,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,usage_final,reasoning_chunks,reasoning_bytes,requested_provider,requested_model,route_id,source_connection_id,report_identity)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
  ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,provider=excluded.provider,model=excluded.model,
  profile=excluded.profile,destination=excluded.destination,ended_at=excluded.ended_at,outcome=excluded.outcome,
+ requested_provider=excluded.requested_provider,requested_model=excluded.requested_model,route_id=excluded.route_id,source_connection_id=excluded.source_connection_id,report_identity=excluded.report_identity,
  input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,cache_read_tokens=excluded.cache_read_tokens,
  cache_write_tokens=excluded.cache_write_tokens,reasoning_tokens=excluded.reasoning_tokens,usage_final=excluded.usage_final,reasoning_chunks=excluded.reasoning_chunks,reasoning_bytes=excluded.reasoning_bytes
  WHERE excluded.revision>inference_attempts.revision AND (inference_attempts.outcome='started' OR excluded.outcome!='started')`)
@@ -200,8 +215,23 @@ func (s *SQLiteStore) WriteAttempts(ctx context.Context, batch []usage.AttemptOb
 	}
 	defer stmt.Close()
 	for _, a := range batch {
-		_, err = stmt.ExecContext(ctx, a.ID, a.Revision, a.Attribution.OperationID, a.Attribution.ConversationID, a.Attribution.SessionID, a.Attribution.WorkerID, a.Attribution.Source, a.Provider, a.Model, a.Profile, a.Destination, a.StartedAt.UTC().UnixMicro(), nullableTime(a.EndedAt), a.Outcome, nullableCount(a.Tokens.Input), nullableCount(a.Tokens.Output), nullableCount(a.Tokens.CacheRead), nullableCount(a.Tokens.CacheWrite), nullableCount(a.Tokens.Reasoning), a.Tokens.Final, nullableCount(a.Tokens.ReasoningChunks), nullableCount(a.Tokens.ReasoningBytes))
+		reportData, e := json.Marshal(a.Report)
+		if e != nil {
+			return e
+		}
+		var oldRequestedProvider, oldRequestedModel, oldRoute, oldConnection, oldReport string
+		err = tx.QueryRowContext(ctx, `SELECT requested_provider,requested_model,route_id,source_connection_id,report_identity FROM inference_attempts WHERE id=?`, a.ID).Scan(&oldRequestedProvider, &oldRequestedModel, &oldRoute, &oldConnection, &oldReport)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if err == nil && ((oldRequestedProvider != "" && a.RequestedProvider != oldRequestedProvider) || (oldRequestedModel != "" && a.RequestedModel != oldRequestedModel) || (oldRoute != "" && a.RouteID != oldRoute) || (oldConnection != "" && a.SourceConnectionID != oldConnection) || (oldReport != "{}" && oldReport != string(reportData))) {
+			return fmt.Errorf("physical attempt source changed across revisions")
+		}
+		_, err = stmt.ExecContext(ctx, a.ID, a.Revision, a.Attribution.OperationID, a.Attribution.ConversationID, a.Attribution.SessionID, a.Attribution.WorkerID, a.Attribution.Source, a.Provider, a.Model, a.Profile, a.Destination, a.StartedAt.UTC().UnixMicro(), nullableTime(a.EndedAt), a.Outcome, nullableCount(a.Tokens.Input), nullableCount(a.Tokens.Output), nullableCount(a.Tokens.CacheRead), nullableCount(a.Tokens.CacheWrite), nullableCount(a.Tokens.Reasoning), a.Tokens.Final, nullableCount(a.Tokens.ReasoningChunks), nullableCount(a.Tokens.ReasoningBytes), a.RequestedProvider, a.RequestedModel, a.RouteID, a.SourceConnectionID, string(reportData))
 		if err != nil {
+			return err
+		}
+		if err := insertEnterpriseOutbox(ctx, tx, a); err != nil {
 			return err
 		}
 	}
@@ -214,8 +244,12 @@ func (s *SQLiteStore) AccountingAttempt(ctx context.Context, id string) (usage.A
 	var start int64
 	var end sql.NullInt64
 	var counts [7]sql.NullInt64
-	err := s.db.QueryRowContext(ctx, `SELECT id,revision,operation_id,conversation_id,session_id,worker_id,source,provider,model,profile,destination,started_at,ended_at,outcome,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,usage_final,reasoning_chunks,reasoning_bytes FROM inference_attempts WHERE id=?`, id).Scan(&a.ID, &a.Revision, &a.Attribution.OperationID, &a.Attribution.ConversationID, &a.Attribution.SessionID, &a.Attribution.WorkerID, &a.Attribution.Source, &a.Provider, &a.Model, &a.Profile, &a.Destination, &start, &end, &a.Outcome, &counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &a.Tokens.Final, &counts[5], &counts[6])
+	var reportData string
+	err := s.db.QueryRowContext(ctx, `SELECT id,revision,operation_id,conversation_id,session_id,worker_id,source,provider,model,profile,destination,started_at,ended_at,outcome,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,usage_final,reasoning_chunks,reasoning_bytes,requested_provider,requested_model,route_id,source_connection_id,report_identity FROM inference_attempts WHERE id=?`, id).Scan(&a.ID, &a.Revision, &a.Attribution.OperationID, &a.Attribution.ConversationID, &a.Attribution.SessionID, &a.Attribution.WorkerID, &a.Attribution.Source, &a.Provider, &a.Model, &a.Profile, &a.Destination, &start, &end, &a.Outcome, &counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &a.Tokens.Final, &counts[5], &counts[6], &a.RequestedProvider, &a.RequestedModel, &a.RouteID, &a.SourceConnectionID, &reportData)
 	if err != nil {
+		return a, err
+	}
+	if err := json.Unmarshal([]byte(reportData), &a.Report); err != nil {
 		return a, err
 	}
 	a.StartedAt = time.UnixMicro(start).UTC()

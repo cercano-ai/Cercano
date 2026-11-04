@@ -117,6 +117,16 @@ func (p Policy) Validate(expected Scope, now time.Time) error {
 		if !identifier.MatchString(r.ID) || !identifier.MatchString(r.Provider) || strings.TrimSpace(r.Model) == "" || len(r.Model) > 256 {
 			return errors.New("invalid route identity")
 		}
+		if len(r.AllowedSourceConnectionIDs) > 16 {
+			return errors.New("too many source connections on route")
+		}
+		connections := map[string]bool{}
+		for _, id := range r.AllowedSourceConnectionIDs {
+			if !identifier.MatchString(id) || connections[id] {
+				return errors.New("invalid or duplicate source connection ID")
+			}
+			connections[id] = true
+		}
 		if _, exists := routes[r.ID]; exists {
 			return errors.New("duplicate route ID")
 		}
