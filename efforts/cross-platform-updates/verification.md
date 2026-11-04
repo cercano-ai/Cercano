@@ -585,3 +585,73 @@ header/diagnostic rejection. The native opt-in suite is deliberately red and
 is not added to release gates or the platform-independent suite. No runtime
 execution, full dyld semantics, backend discovery/resources, llama provenance,
 signing or installed-system acceptance was established. Windows stays deferred.
+
+
+## Scoped native segment-parser fix — separate blocker remains (2026-11-03)
+
+The historical blocked probe above is retained as evidence. With explicit user
+approval for the segment grammar fix, this follow-up reproduced the original
+native failure before editing: the opt-in suite ran 3 tests in 0.319s, with 2
+failures and 1 error (`unexpected report header or diagnostic`), no skips.
+Read AGENTS, the native test, parser, offline closure suite and prior verification.
+The exact opt-in variable is `CERCANO_DARWIN_NATIVE_TESTS`, not
+`CERCANO_RUN_NATIVE_DARWIN_TESTS`.
+
+Moved payload indentation validation after command identification and the existing
+allowlist check. Only an exact unindented `Section` line in `LC_SEGMENT` or
+`LC_SEGMENT_64` is newly accepted. No command allowlist, dependency/path/system
+policy, collector behavior or native assertions changed. Offline regressions
+include a fresh real arm64 `LC_SEGMENT_64` __TEXT excerpt with two section markers,
+a synthetic `LC_SEGMENT` counterpart, exact markers rejected in every existing
+nonsegment command, and unexpected unindented diagnostics/near-marker text
+rejected in both segment commands.
+
+### Follow-up commands and results
+
+All commands ran from this worktree root:
+
+| Command | Result |
+| --- | --- |
+| `python3 -B scripts/test-darwin-loader-closure.py` | exit 0; 23 tests in 0.194s; PASS |
+| `python3 -B scripts/test-darwin-staged-reports.py` | exit 0; 15 tests in 0.022s; PASS |
+| `CERCANO_DARWIN_NATIVE_TESTS=1 python3 -B scripts/test-darwin-native-staged-reports.py -v` | exit 1; 3 tests in 0.347s; 2 failures, 1 error; no skips |
+
+Collector duplicate-JSON and missing-inventory FAILED messages remain expected
+negative-test output. The segment-specific rejection is fixed, but native
+acceptance is **not green** and relocation/dependency rejection outcomes are
+still unverified by that suite.
+
+### Independently reduced remaining native failure (not fixed here)
+
+In a fresh temporary directory, authored only
+`int main(void) { return 0; }`, compiled using `/usr/bin/xcrun clang`, and inspected
+with `/usr/bin/otool -l`; both exited 0 and otool stderr was empty. Split the
+output into individual command blocks and normalized only the informational
+header and ordinal before passing each block to the real parser. Segment blocks
+now passed; the only rejected block was:
+
+```text
+file:
+Load command 0
+          cmd LC_LOAD_DYLIB
+      cmdsize 56
+         name /usr/lib/libSystem.B.dylib (offset 24)
+   time stamp 2 Wed Dec 31 16:00:02 1969
+      current version 1356.0.0
+compatibility version 1.0.0
+```
+
+Passing that isolated report reproduces `unexpected report header or diagnostic`.
+A separate in-memory diagnostic probe adding only one leading space to the
+`compatibility version` line parses to
+`(['/usr/lib/libSystem.B.dylib'], [])`. This identifies another native formatting
+incompatibility, not a dependency-policy failure. No such report rewriting is
+used in production or the tests. Per the user stop condition, no additional
+parser exemption was introduced; this separate grammar issue needs its own
+review. The native test remains red and is not a release gate.
+
+No payload was executed. Only host compiler/inspector tools and offline tests
+ran, with authored source/native bytes confined to temporary directories. No
+network, install, VM/live-state changes, git plumbing, push or merge occurred.
+No runtime, signing, provenance, backend discovery/resource, Windows or x86_64
+qualification is claimed.

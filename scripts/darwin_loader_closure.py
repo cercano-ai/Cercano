@@ -55,14 +55,18 @@ def parse_report(text):
     for index in range(1, len(parts), 2):
         require(int(parts[index]) == (index - 1) // 2, 'nonsequential load commands')
         block = parts[index + 1]
-        require(all(not line or line[0].isspace() for line in block.splitlines()),
-                'unexpected report header or diagnostic')
         commands = re.findall(r'^\s*cmd\b([^\n]*)$', block, re.M)
         require(len(commands) == 1 and re.fullmatch(r'\s+LC_\w+\s*', commands[0]),
                 'missing/ambiguous/malformed load command')
         cmd = commands[0].strip()
         require(cmd in STRING_COMMANDS | NONDEPENDENCY,
                 f'unsupported load command: {cmd}; review loader semantics before accepting it')
+        # Native otool emits exact, unindented Section markers only inside
+        # segment commands. All other unindented payload remains fail-closed.
+        require(all(not line or line[0].isspace()
+                    or (line == 'Section' and cmd in {'LC_SEGMENT', 'LC_SEGMENT_64'})
+                    for line in block.splitlines()),
+                'unexpected report header or diagnostic')
         sizes = re.findall(r'^\s*cmdsize\b([^\n]*)$', block, re.M)
         require(len(sizes) == 1 and re.fullmatch(r'\s+[0-9]+\s*', sizes[0]),
                 f'missing/ambiguous/malformed cmdsize: {cmd}')

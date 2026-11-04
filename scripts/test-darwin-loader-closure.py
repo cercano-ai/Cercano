@@ -14,6 +14,48 @@ import darwin_loader_closure as closure
 FIXTURE = Path(__file__).resolve().parents[1] / 'release/llama/fixtures/darwin-homebrew-reports.json'
 
 
+# Real arm64 host otool -l __TEXT excerpt from a temporary clang-built
+# int main(void) { return 0; }. Only the report header/ordinal are normalized.
+SEGMENT_REPORT = '''file:
+Load command 0
+      cmd LC_SEGMENT_64
+  cmdsize 232
+  segname __TEXT
+   vmaddr 0x0000000100000000
+   vmsize 0x0000000000004000
+  fileoff 0
+ filesize 16384
+  maxprot 0x00000005
+ initprot 0x00000005
+   nsects 2
+    flags 0x0
+Section
+  sectname __text
+   segname __TEXT
+      addr 0x0000000100000328
+      size 0x0000000000000014
+    offset 808
+     align 2^2 (4)
+    reloff 0
+    nreloc 0
+     flags 0x80000400
+ reserved1 0
+ reserved2 0
+Section
+  sectname __unwind_info
+   segname __TEXT
+      addr 0x000000010000033c
+      size 0x0000000000000058
+    offset 828
+     align 2^2 (4)
+    reloff 0
+    nreloc 0
+     flags 0x00000000
+ reserved1 0
+ reserved2 0
+'''
+
+
 class ClosureTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -148,6 +190,30 @@ class ClosureTests(unittest.TestCase):
         self.assertEqual(closure.parse_report(
             'file:\nLoad command 0\n cmd LC_UUID\n cmdsize 24\n'
             ' uuid 12345678-1234-1234-1234-123456789ABC\n'), ([], []))
+
+    def test_native_segment_section_markers(self):
+        self.assertEqual(closure.parse_report(SEGMENT_REPORT), ([], []))
+        # Synthetic 32-bit counterpart exercises the other existing segment
+        # command; payload interpretation is intentionally outside this parser.
+        self.assertEqual(closure.parse_report(SEGMENT_REPORT.replace(
+            'LC_SEGMENT_64', 'LC_SEGMENT')), ([], []))
+
+    def test_section_marker_rejected_in_nonsegment_commands(self):
+        for cmd in sorted((closure.NONDEPENDENCY | closure.STRING_COMMANDS)
+                          - {'LC_SEGMENT', 'LC_SEGMENT_64'}):
+            with self.subTest(cmd=cmd), self.assertRaisesRegex(
+                    closure.Failure, 'unexpected report header or diagnostic'):
+                closure.parse_report(
+                    f'file:\nLoad command 0\n cmd {cmd}\n cmdsize 32\nSection\n')
+
+    def test_segment_unindented_diagnostics_rejected(self):
+        for cmd in ['LC_SEGMENT', 'LC_SEGMENT_64']:
+            for line in ['otool: unexpected diagnostic', 'second image:',
+                         'Section extra', 'Section ', 'Sections', 'section']:
+                with self.subTest(cmd=cmd, line=line), self.assertRaisesRegex(
+                        closure.Failure, 'unexpected report header or diagnostic'):
+                    closure.parse_report(SEGMENT_REPORT.replace(
+                        'LC_SEGMENT_64', cmd) + line + '\n')
 
     def test_malformed_command_structure(self):
         for fields in [
