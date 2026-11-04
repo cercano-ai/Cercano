@@ -84,6 +84,9 @@ jobs:
         run: |
           set -euo pipefail
           ( cd source/server && go test ./internal/brewrestart/... ./pkg/agentclient/... ./cmd/cercano/... )
+          # Baseline metadata only: current archives do not bundle llama.cpp.
+          python3 scripts/llama_baseline.py
+          python3 scripts/test-llama-baseline.py
           python3 scripts/test-macos-release-build.py
           python3 scripts/test-macos-release-verify.py
           ( cd release/homebrew && python3 -m unittest test_render_formula )

@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cercano.ai/schemas/llama-baseline-v1.json",
+  "title": "Configured local llama baseline, not release artifact attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "source",
+    "observed_build",
+    "delivery"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "status": {
+      "const": "configured-local-baseline"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project",
+        "revision",
+        "revision_evidence",
+        "upstream_tag",
+        "source_archive_sha256"
+      ],
+      "properties": {
+        "project": {
+          "const": "llama.cpp"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "revision_evidence": {
+          "const": "Homebrew INSTALL_RECEIPT.json source.scm_revision"
+        },
+        "upstream_tag": {
+          "type": "null"
+        },
+        "source_archive_sha256": {
+          "type": "null"
+        }
+      }
+    },
+    "observed_build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "package_manager",
+        "package",
+        "package_version",
+        "version_revision",
+        "compiler",
+        "built_as_bottle",
+        "poured_from_bottle",
+        "runtime_dependencies"
+      ],
+      "properties": {
+        "platform": {
+          "const": "darwin-arm64"
+        },
+        "package_manager": {
+          "const": "homebrew"
+        },
+        "package": {
+          "const": "llama.cpp"
+        },
+        "package_version": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "version_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{9}$"
+        },
+        "compiler": {
+          "type": "string",
+          "minLength": 1
+        },
+        "built_as_bottle": {
+          "const": true
+        },
+        "poured_from_bottle": {
+          "const": true
+        },
+        "runtime_dependencies": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "version",
+              "revision",
+              "bottle_rebuild"
+            ],
+            "properties": {
+              "name": {
+                "enum": [
+                  "ggml",
+                  "openssl@3",
+                  "libomp",
+                  "ca-certificates"
+                ]
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bottle_rebuild": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "bundled_in_current_archives",
+        "qualified_platforms",
+        "build_recipe",
+        "artifact_sha256"
+      ],
+      "properties": {
+        "scope": {
+          "const": "internal-agent"
+        },
+        "bundled_in_current_archives": {
+          "const": false
+        },
+        "qualified_platforms": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "build_recipe": {
+          "type": "null"
+        },
+        "artifact_sha256": {
+          "type": "null"
+        }
+      }
+    }
+  }
+}

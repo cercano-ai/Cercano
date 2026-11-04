@@ -285,3 +285,120 @@ were used; developer installation is unchanged. No production runtime lookup
 or Go runtimebundle behavior changed. Native installed-system acceptance,
 actual Developer ID/notarization, loader/library closure, Windows ACL/locking,
 and llama qualification remain unverified/deferred.
+
+
+## Configured llama baseline lock and read-only Darwin closure (2026-11-03)
+
+Implemented `release/llama/baseline.lock.json`, its JSON schema, offline
+`scripts/llama_baseline.py` and fixture tests. The release workflow's existing
+test gate validates metadata before credential import. No archive layout,
+installer, runtime lookup, or runtime inventory contract changed; archives still
+do not bundle llama. The baseline is not native acceptance or build provenance
+for a future Cercano artifact. Source revision and observed bottle provenance
+are separate, with unknown upstream tag/source digest/artifact digest/recipe
+explicitly null and no qualified platforms. The schema deliberately cannot
+assert bundled delivery. See `release/llama/README.md` for evolution rules.
+
+Evidence: parent supplied configured binary `/opt/homebrew/bin/llama-server`,
+symlink `../Cellar/llama.cpp/9890/bin/llama-server`, `--version` 9890
+(74976e1ae), AppleClang 21 / Darwin arm64, and no observed running llama process.
+This slice did not reread configuration or start llama. Read-only inspection used
+`otool -L`, `otool -l`, `codesign -dv --verbose=2`, directory/symlink enumeration,
+and selected INSTALL_RECEIPT.json fields. No binary copies, model startup,
+network, signing operations or live changes occurred.
+
+The llama receipt independently confirms source revision
+`74976e1aefd8d64845ae5510674b36079c855c0c`, stable package 9890, arm64,
+built/poured bottle and compiler clang. Declared runtime dependencies are ggml
+0.15.3, libomp 22.1.8, openssl@3 3.6.3, ca-certificates 2026-05-14; all revisions
+0 and rebuilds 0 except OpenSSL rebuild 1. These are *historical receipt
+requirements*, not a pin on currently resolved bytes. Inspected opt links resolve
+ggml 0.15.3, libomp 22.1.8, **OpenSSL 3.6.5**, and **CA certificates
+2026-09-25**. Current OpenSSL's receipt declares the latter. Thus a local version
+string or original receipt alone would incorrectly describe current closure.
+
+### Static loader closure and dynamically loaded backend candidates
+
+Below, G = `/opt/homebrew/opt/ggml/lib/`, O =
+`/opt/homebrew/opt/openssl@3/lib/`, L = llama.cpp 9890 `lib/`.
+Dylib install IDs (the first line for dylibs in `otool -L`) are not dependency
+edges. Every listed non-system target exists; versioned llama/ggml aliases
+resolve to the real files shown. The initial shallow walk marked four @rpath
+edges unresolved; explicit LC_RPATH expansion and directory inspection resolved
+them in L, correcting that limitation.
+
+| Node | Non-system load edges (excluding own install ID) |
+|---|---|
+| `bin/llama-server` | `@rpath/libllama-server-impl.dylib`, `@rpath/libllama-common.0.dylib`, `@rpath/libmtmd.0.dylib`, `@rpath/libllama.0.dylib`, G `libggml.0.dylib` and `libggml-base.0.dylib`, O `libssl.3.dylib` and `libcrypto.3.dylib` |
+| L `libllama-server-impl.dylib` | same llama/mtmd/ggml/OpenSSL edges as server, excluding itself |
+| L `libllama-common.0.0.9890.dylib` | `@rpath/libllama.0.dylib`, G ggml/base, O ssl/crypto |
+| L `libmtmd.0.0.9890.dylib` | `@rpath/libllama.0.dylib`, G ggml/base |
+| L `libllama.0.0.9890.dylib` | G ggml/base |
+| ggml `libggml.0.15.3.dylib` | `@rpath/libggml-base.0.dylib` |
+| ggml `libggml-base.0.15.3.dylib` | `/opt/homebrew/opt/libomp/lib/libomp.dylib` |
+| libomp 22.1.8 `libomp.dylib` | none |
+| OpenSSL 3.6.5 `libssl.3.dylib` | absolute `/opt/homebrew/Cellar/openssl@3/3.6.5/lib/libcrypto.3.dylib` |
+| OpenSSL 3.6.5 `libcrypto.3.dylib` | none |
+
+This is 10 distinct Mach-O files including the executable. Server and llama/ggml
+libraries use LC_RPATH `@loader_path/../lib`; libomp and ssl/crypto have no
+LC_RPATH. Dylib install IDs are absolute Homebrew opt paths. System load edges
+in this graph are `/usr/lib/libSystem.B.dylib`, `/usr/lib/libc++.1.dylib`, plus
+CoreFoundation and Security frameworks from llama-common/server-impl; these are
+OS dependencies, not files to copy into a runtime bundle.
+
+Static closure is insufficient: ggml `libexec/` also contains five arm64 backend
+modules. All have LC_RPATH `@loader_path/../lib`, depend on
+`@rpath/libggml-base.0.dylib`, libc++ and libSystem:
+
+- `libggml-blas.so`: additionally Accelerate framework.
+- `libggml-cpu-apple_m1.so`, `libggml-cpu-apple_m2_m3.so`,
+  `libggml-cpu-apple_m4.so`: additionally Accelerate and absolute opt libomp.
+- `libggml-metal.so`: additionally Foundation, Metal, MetalKit,
+  CoreFoundation frameworks and `/usr/lib/libobjc.A.dylib`.
+
+These candidates make 15 files if all five backends are required. This is not a
+claim that all are loaded or sufficient: backend discovery paths, runtime CPU
+selection, embedded Metal resource behavior and OpenSSL provider/config/trust
+resource requirements remain unqualified. No loose `.metal` or `.metallib` files
+were found under the inspected llama and ggml Cellar roots. Headers and CMake
+metadata do not establish runtime resource completeness. Unrelated llama CLI,
+bench, completion, quantize, perplexity and fit-params implementation libraries
+exist but are not static dependencies of the server graph above.
+
+### Relocation/signing blockers and next steps
+
+All inspected server-closure libraries and backend modules report ad hoc
+signatures with no TeamIdentifier; BLAS/Metal modules are linker-signed ad hoc.
+This is not Developer ID/notarization or signature-verification evidence.
+Absolute opt load edges and the versioned Cellar ssl-to-crypto edge escape any
+retained private bundle. Copying binaries, even with their @rpath siblings,
+would still depend on mutable manager-owned paths. Backend discovery and TLS
+trust/provider resources can escape the static graph too. A source revision
+lock does not fix these issues.
+
+Next concrete locally implementable slice: add an offline Darwin loader-report
+parser/closure validator with text fixtures for the graph above, @rpath and
+@loader_path expansion, symlink aliases, opt-version drift, backend candidates,
+missing resources and escaping absolute paths. Define the proposed private
+bin/lib/libexec layout and reject external non-system edges; do not wire live
+lookup or claim relocation from fixtures. After that, implement an explicit
+source/dependency build recipe (no live bottle copying), resolve backend/resource
+and license requirements, and stage an actual version-checked runtime. Rewrite
+install IDs/load edges or build with bundle-relative IDs before inside-out
+signing; verify the relocated graph and then hash final signed bytes into the
+inventory. Current inventory rejects symlink members, so real-file alias
+materialization or an explicitly reviewed safe alias contract is also required.
+Only then connect packaged identity to retained-runtime admission/lookup and
+perform isolated native A-to-B cleanup/later-worker acceptance; Linux/Windows
+need their own loader closure and native evidence. Publication/signing remain
+separately unauthorized.
+
+Focused local results: `python3 -B scripts/llama_baseline.py` passed;
+`test-llama-baseline.py` 6 tests, `test-runtime-inventory.py` 3 tests and
+`test-release-workflow.py` 47 tests all passed. These are metadata/fixture and
+regression checks, not a build, native package install, model qualification or
+cross-platform acceptance. No direct git plumbing was used; the decision ledger
+helper reported no active autonomous run, so the decision is recorded here:
+keep validation at the existing release metadata/test gate rather than embedding
+a lock into payload inventories that do not yet contain llama.

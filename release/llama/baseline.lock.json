@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "status": "configured-local-baseline",
+  "source": {
+    "project": "llama.cpp",
+    "revision": "74976e1aefd8d64845ae5510674b36079c855c0c",
+    "revision_evidence": "Homebrew INSTALL_RECEIPT.json source.scm_revision",
+    "upstream_tag": null,
+    "source_archive_sha256": null
+  },
+  "observed_build": {
+    "platform": "darwin-arm64",
+    "package_manager": "homebrew",
+    "package": "llama.cpp",
+    "package_version": "9890",
+    "version_revision": "74976e1ae",
+    "compiler": "AppleClang 21",
+    "built_as_bottle": true,
+    "poured_from_bottle": true,
+    "runtime_dependencies": [
+      {
+        "name": "ggml",
+        "version": "0.15.3",
+        "revision": 0,
+        "bottle_rebuild": 0
+      },
+      {
+        "name": "openssl@3",
+        "version": "3.6.3",
+        "revision": 0,
+        "bottle_rebuild": 1
+      },
+      {
+        "name": "libomp",
+        "version": "22.1.8",
+        "revision": 0,
+        "bottle_rebuild": 0
+      },
+      {
+        "name": "ca-certificates",
+        "version": "2026-05-14",
+        "revision": 0,
+        "bottle_rebuild": 0
+      }
+    ]
+  },
+  "delivery": {
+    "scope": "internal-agent",
+    "bundled_in_current_archives": false,
+    "qualified_platforms": [],
+    "build_recipe": null,
+    "artifact_sha256": null
+  }
+}
