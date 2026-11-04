@@ -15,7 +15,8 @@ class Cercano < Formula
   depends_on "cercano-cli"
 
   def install
-    # Intentionally owns no commands or runtime resources.
+    # Keep the keg nonempty without owning commands or runtime resources.
+    pkgshare.install "README.txt"
   end
 
   def caveats
