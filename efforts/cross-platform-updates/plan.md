@@ -54,7 +54,7 @@ Objective: allow package installation while preventing activation that would inv
 Objective: supply independently installable CLI and agent packages plus a dependency-only convenience package, with manager-owned installation and no unconditional agent restart. Files: release/homebrew/cercano.rb.in, render_formula.py and associated tests; new release/debian/ and release/chocolatey/ definitions/tests; .github/workflows/release-macos.yml and update-homebrew.yml; source/server/internal/brewrestart/ and compatibility entrypoints where package integration requires changes. Tests: package-content/dependency checks, formula rendering and native disposable install/upgrade/uninstall fixtures. Definitions may be prepared in parallel, but their upgrade safety depends on Phases 2–3.
 
 - [ ] Define nonconflicting package contents and command ownership; preserve the everyday entry point and standalone remote CLI without silently renaming the server executable
-- [ ] Split Homebrew packaging into CLI, agent and convenience definitions; remove mandatory restart-after-upgrade behavior
+- [~] Split Homebrew packaging into CLI, agent and convenience definitions; remove mandatory restart-after-upgrade behavior
 - [ ] Add Debian/APT and Chocolatey package definitions using manager-native dependencies, verification and upgrade operations
 - [ ] Keep releases coordinated; verify dependency behavior during partial upgrades and repository lag rather than assuming atomic installation
 - [ ] Ensure package hooks neither launch root-owned user agents nor stop other users' sessions; reject wrong-account/SYSTEM misuse where applicable
