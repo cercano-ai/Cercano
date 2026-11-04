@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func serveCutoverFixture(t *testing.T, s *Server) (pb.AgentClient, string) {
@@ -90,9 +91,9 @@ func TestForcedCutoverTransfersStoppedAndExecutingSessions(t *testing.T) {
 				}
 			}
 			request := &pb.LifecycleControlRequest{Target: a.coexistence.controlIdentity(), Source: a.coexistence.controlIdentity(), Destination: b.coexistence.controlIdentity(), DestinationEndpoint: endpoint, Owner: wireOwner(owner), Management: true, HandoverId: "forced-op"}
-			wrong := *request
+			wrong := proto.Clone(request).(*pb.LifecycleControlRequest)
 			wrong.Owner = wireOwner(broker.Owner{Conversation: owner.Conversation, Host: owner.Host, Epoch: "stale"})
-			if _, err := ac.LifecycleForceRelinquish(ctx, &wrong); err == nil {
+			if _, err := ac.LifecycleForceRelinquish(ctx, wrong); err == nil {
 				t.Fatal("stale epoch cancelled source")
 			}
 			select {
@@ -120,10 +121,10 @@ func TestForcedCutoverTransfersStoppedAndExecutingSessions(t *testing.T) {
 			if err != nil || retry.GetReceipt() != result.GetReceipt() {
 				t.Fatalf("retry: %v %v", retry, err)
 			}
-			claim := *request
+			claim := proto.Clone(request).(*pb.LifecycleControlRequest)
 			claim.Target = claim.Destination
 			claim.Receipt = result.Receipt
-			moved, err := bc.LifecycleClaim(ctx, &claim)
+			moved, err := bc.LifecycleClaim(ctx, claim)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -210,10 +211,10 @@ func TestForcedCutoverCancelsAdmittedForegroundAndWaitsForWriteback(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim := *request
+	claim := proto.Clone(request).(*pb.LifecycleControlRequest)
 	claim.Target = claim.Destination
 	claim.Receipt = response.Receipt
-	if _, err := bc.LifecycleClaim(ctx, &claim); err != nil {
+	if _, err := bc.LifecycleClaim(ctx, claim); err != nil {
 		t.Fatal(err)
 	}
 }

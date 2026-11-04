@@ -51,7 +51,9 @@ class LauncherFeedback(unittest.TestCase):
 
         stderr = FlushedOutput()
         with tempfile.TemporaryDirectory() as root:
-            state = Path(root).resolve()
+            # The state parent must be private, even when TMPDIR is shared /tmp.
+            state = Path(root).resolve() / 'state'
+            state.mkdir(mode=0o700)
             for name in ('config.yaml', 'conversations.db'):
                 (state / name).write_text('disposable sentinel; never opened')
                 (state / name).chmod(0o600)

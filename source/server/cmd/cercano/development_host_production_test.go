@@ -22,6 +22,7 @@ import (
 	"cercano/source/server/pkg/devhostauth"
 	"cercano/source/server/pkg/proto"
 	"google.golang.org/grpc/metadata"
+	protobuf "google.golang.org/protobuf/proto"
 )
 
 func developmentProductionFixture(t *testing.T) (developmentHostOptions, *devhostauth.Auth) {
@@ -324,8 +325,7 @@ func TestDevelopmentValidatedStartupBinding(t *testing.T) {
 	for _, field := range []string{"absent", "state", "config", "store", "host", "build", "generation"} {
 		t.Run(field, func(t *testing.T) {
 			bad := o
-			id := *o.Identity
-			bad.Identity = &id
+			bad.Identity = protobuf.Clone(o.Identity).(*proto.LifecycleIdentity)
 			switch field {
 			case "absent":
 				bad.startupAdmission = productionStartupAdmission{}
