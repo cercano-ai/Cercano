@@ -56,6 +56,19 @@ Section
 '''
 
 
+# Real arm64 host otool -l libSystem load from the local native fixture.
+# Only the pathname header and load command ordinal are normalized.
+DYLIB_REPORT = '''file:
+Load command 0
+          cmd LC_LOAD_DYLIB
+      cmdsize 56
+         name /usr/lib/libSystem.B.dylib (offset 24)
+   time stamp 2 Wed Dec 31 16:00:02 1969
+      current version 1356.0.0
+compatibility version 1.0.0
+'''
+
+
 class ClosureTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -214,6 +227,40 @@ class ClosureTests(unittest.TestCase):
                         closure.Failure, 'unexpected report header or diagnostic'):
                     closure.parse_report(SEGMENT_REPORT.replace(
                         'LC_SEGMENT_64', cmd) + line + '\n')
+
+    def test_native_dylib_versions(self):
+        for cmd in sorted(closure.LOADS | {'LC_ID_DYLIB'}):
+            for current in ['      current version', 'current version']:
+                with self.subTest(cmd=cmd, current=current):
+                    report = DYLIB_REPORT.replace('LC_LOAD_DYLIB', cmd).replace(
+                        '      current version', current)
+                    expected = [] if cmd == 'LC_ID_DYLIB' else ['/usr/lib/libSystem.B.dylib']
+                    self.assertEqual(closure.parse_report(report), (expected, []))
+
+    def test_dylib_versions_rejected_in_wrong_commands(self):
+        for cmd in sorted((closure.NONDEPENDENCY | closure.STRING_COMMANDS)
+                          - closure.LOADS - {'LC_ID_DYLIB'}):
+            for field in ['current', 'compatibility']:
+                with self.subTest(cmd=cmd, field=field), self.assertRaisesRegex(
+                        closure.Failure, 'unexpected report header or diagnostic'):
+                    closure.parse_report(
+                        f'file:\nLoad command 0\n cmd {cmd}\n cmdsize 32\n'
+                        f'{field} version 1.0.0\n')
+
+    def test_dylib_malformed_versions_and_diagnostics_rejected(self):
+        for cmd in sorted(closure.LOADS | {'LC_ID_DYLIB'}):
+            for field in ['current', 'compatibility']:
+                for version in ['', '1', '1.0', '1.0.0.0', '-1.0.0', '+1.0.0',
+                                '1.x.0', '1.0.0 extra', '1.0.0 ', '１.0.0', '1..0']:
+                    with self.subTest(cmd=cmd, field=field, version=version), self.assertRaisesRegex(
+                            closure.Failure, 'unexpected report header or diagnostic'):
+                        closure.parse_report(DYLIB_REPORT.replace('LC_LOAD_DYLIB', cmd)
+                                             + f'{field} version {version}\n')
+            for line in ['otool: unexpected diagnostic', 'second image:',
+                         'compatibility version 1.0.0: warning', 'current versions 1.0.0']:
+                with self.subTest(cmd=cmd, line=line), self.assertRaisesRegex(
+                        closure.Failure, 'unexpected report header or diagnostic'):
+                    closure.parse_report(DYLIB_REPORT.replace('LC_LOAD_DYLIB', cmd) + line + '\n')
 
     def test_malformed_command_structure(self):
         for fields in [

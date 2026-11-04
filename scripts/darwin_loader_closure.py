@@ -61,10 +61,13 @@ def parse_report(text):
         cmd = commands[0].strip()
         require(cmd in STRING_COMMANDS | NONDEPENDENCY,
                 f'unsupported load command: {cmd}; review loader semantics before accepting it')
-        # Native otool emits exact, unindented Section markers only inside
-        # segment commands. All other unindented payload remains fail-closed.
+        # Native otool leaves Section markers and dylib version fields
+        # unindented. Recognize only their exact syntax in relevant commands;
+        # all other unindented payload remains fail-closed.
         require(all(not line or line[0].isspace()
                     or (line == 'Section' and cmd in {'LC_SEGMENT', 'LC_SEGMENT_64'})
+                    or (cmd in LOADS | {'LC_ID_DYLIB'} and re.fullmatch(
+                        r'(?:current|compatibility) version [0-9]+\.[0-9]+\.[0-9]+', line))
                     for line in block.splitlines()),
                 'unexpected report header or diagnostic')
         sizes = re.findall(r'^\s*cmdsize\b([^\n]*)$', block, re.M)

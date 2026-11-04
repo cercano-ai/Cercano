@@ -655,3 +655,49 @@ ran, with authored source/native bytes confined to temporary directories. No
 network, install, VM/live-state changes, git plumbing, push or merge occurred.
 No runtime, signing, provenance, backend discovery/resource, Windows or x86_64
 qualification is claimed.
+
+
+## Scoped native dylib-version grammar follow-up — green (2026-11-03)
+
+Continued the segment-only fix from ce72a1ea859a; prior blocked results above
+remain historical evidence. Before editing, ran
+`CERCANO_DARWIN_NATIVE_TESTS=1 python3 scripts/test-darwin-native-staged-reports.py`:
+exit 1, 3 tests in 0.348s, 2 failures and 1 error, no skips. All still encountered
+`unexpected report header or diagnostic` before dependency resolution.
+
+Built the existing locally authored native fixture in its temporary directory
+and printed **complete** real `/usr/bin/otool -l` output for both executable and
+dylib (not just an excerpt). Both inspections exited 0. The executable contained
+unindented compatibility versions 0.0.0 for the fixture load and 1.0.0 for
+libSystem; the dylib contained 0.0.0 in LC_ID_DYLIB and 1.0.0 in its libSystem
+load. Current versions were indented (0.0.0 and 1356.0.0). Section markers were
+already handled by the prior fix. No other unindented metadata blocker appeared.
+Temporary sources/bytes were cleaned up; no compiled payload was executed.
+
+New recognition is restricted to existing LOADS commands and LC_ID_DYLIB, with
+full-line grammar `(?:current|compatibility) version [0-9]+\.[0-9]+\.[0-9]+`.
+There is no general whitespace relaxation, new command/system allowlist entry,
+or dependency/path/security policy change. Existing command identification,
+allowlist, sequential ordinal, cmdsize and string-field checks remain intact.
+The offline suite includes the real libSystem load excerpt (only header/ordinal
+normalized), identity/load variants and unindented current-version coverage;
+wrong-command fields, malformed numeric versions, suffix diagnostics and
+arbitrary unindented diagnostics remain rejected. Existing envelope regressions
+also remain green. Native assertions and collector code were not changed.
+
+Commands run from the worktree root after the fix:
+
+| Command | Result |
+| --- | --- |
+| `python3 scripts/test-darwin-loader-closure.py` | exit 0; 26 tests in 0.187s; PASS |
+| `python3 scripts/test-darwin-staged-reports.py` | exit 0; 15 tests in 0.035s; PASS |
+| `CERCANO_DARWIN_NATIVE_TESTS=1 python3 scripts/test-darwin-native-staged-reports.py` | exit 0; 3 tests in 0.415s; PASS, no skips |
+
+Collector duplicate-key/missing-inventory FAILED lines are expected negative
+case output, not suite failures. Real relocated-stage closure now passes and
+the missing-library/external-dependency cases reach their intended rejection
+messages. No further scope blocker was encountered. This establishes only the
+local arm64 fixture inspection/closure behavior, not runtime/dyld execution,
+x86_64/Windows, signing, source provenance, backend discovery/resources or release
+qualification. No network, downloaded execution, installation, live-state
+changes, git plumbing, push or merge was used.

@@ -223,7 +223,7 @@ renaming the library, or embed an absolute non-system install name outside the
 stage. They require the corresponding dependency-resolution rejection, not just
 any failure.
 
-**Current native result: BLOCKED, not PASS.** Darwin 25.5.0 arm64, Apple clang
+**Historical initial native result: BLOCKED, not PASS.** Darwin 25.5.0 arm64, Apple clang
 21.0.0 (`clang-2100.1.1.101`), SDK 26.5: the command exited 1 with **3 tests,
 2 failures and 1 error**. All hit `unexpected report header or diagnostic`
 before dependency resolution. Real `otool -l` emits unindented `Section`
@@ -241,6 +241,20 @@ change is needed before the intended native closure outcomes can be evaluated.
 The 15 collector and 20 closure platform-independent regressions still pass;
 the ungated native invocation explicitly skips all 3. Exact evidence and limits
 are recorded in `efforts/cross-platform-updates/verification.md`.
+
+**Current follow-up native result (2026-11-03): PASS, 3 tests, no skips.**
+The historical failures above and the intermediate segment-only fix are retained
+in verification history. After that fix, native output still failed on the real
+unindented `compatibility version 1.0.0` in `LC_LOAD_DYLIB`. This follow-up
+reproduced the failure and inspected complete real executable/dylib `otool -l`
+output. The parser now additionally recognizes only exact unindented
+`current version X.Y.Z` / `compatibility version X.Y.Z` fields (ASCII decimal
+components) in existing dylib load commands and `LC_ID_DYLIB`. Other unindented
+text remains rejected; command/envelope and dependency/security policy are
+unchanged. No further metadata blocker appeared. Closure **26**, collector
+**15**, and native opt-in **3** tests pass, including relocation and the intended
+missing/external dependency rejection assertions. Details and prior outcomes:
+`efforts/cross-platform-updates/verification.md`.
 
 This is not runtime/dyld execution validation, installed-system acceptance,
 llama.cpp provenance, signing, universal/per-architecture qualification, resource
