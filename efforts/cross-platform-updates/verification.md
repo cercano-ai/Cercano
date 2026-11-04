@@ -701,3 +701,77 @@ local arm64 fixture inspection/closure behavior, not runtime/dyld execution,
 x86_64/Windows, signing, source provenance, backend discovery/resources or release
 qualification. No network, downloaded execution, installation, live-state
 changes, git plumbing, push or merge was used.
+
+
+## Disposable macOS acceptance VM provisioned — setup pending (2026-11-03)
+
+Supersedes only the historical absence of a macOS runner above; **native package
+acceptance is not complete**. Read AGENTS.md and this effort's spec/plan/verification.
+Installed Parallels CLI 27.1.0 (58756) supports Apple Silicon IPSW provisioning.
+Authoritative workflow: https://kb.parallels.com/125561 documents CLI restore,
+custom plain disk and subsequent interactive language/account setup. Fully
+unattended Setup Assistant was not established.
+
+VM: `cercano-native-acceptance-20261103-203221`, UUID
+`{d5633dbc-c8a1-49fc-a420-df6d5d60d952}`, currently **running**. Dedicated root:
+`/Users/bryancostanich/Parallels/cercano-native-acceptance-20261103-203221/`;
+bundle beneath it has the same name plus `.macvm`. Resources: 4 CPUs,
+8192 MiB RAM, 102400 MiB (100 GiB) plain virtual disk, shared/NAT network.
+The dedicated root currently occupies 41 GiB, including the restore image.
+Existing Windows 11 UUID `{5cd689b0-153c-47d4-943e-935aa7545684}` remains
+suspended; no commands targeted it.
+
+Commands (all VM changes target only the new guest):
+
+```sh
+ROOT=/Users/bryancostanich/Parallels/cercano-native-acceptance-20261103-203221
+VM=cercano-native-acceptance-20261103-203221
+prlctl create "$VM" -o macos --no-hdd --restore-image "$ROOT/UniversalMac_26.5.2_25F84_Restore.ipsw" --dst "$ROOT"
+prlctl set "$VM" --device-add hdd --type plain --size 102400
+prlctl set "$VM" --memsize 8192 --cpus 4
+prlctl set "$VM" --shf-host off --shf-host-defined off --shared-clipboard off
+prlctl set "$VM" --sh-app-host-to-guest off --sh-app-guest-to-host off --smart-mount off --shared-cloud off --share-host-location off --auto-share-camera off
+prlctl start "$VM"
+prlctl start "$VM"
+open "$ROOT/$VM.macvm"
+prlctl capture "$VM" --file "$ROOT/guest-setup.png"
+prlctl exec "$VM" /usr/bin/sw_vers
+```
+
+Creation/resource/isolation commands succeeded. First start failed during restore;
+second start succeeded. The later `parallels.log` explicitly records restore
+**100%, Installation succeeded** at 21:29:11, superseding its earlier failure.
+Console capture after opening the bundle shows **Language** and language choices
+(verified through Vision OCR using the installed Swift SDK, no host tool install).
+`prlctl exec` exits 255, unable to open a guest session; GuestTools not installed.
+This is the actual remaining interactive setup boundary, not a missing VM/license.
+No guest test tools or packages installed, guest account created, or host
+permissions/security altered. Host folders/profile/clipboard/apps/cloud/location
+and SmartMount sharing are off. Generic automatic gamepad sharing remains on;
+no installed CLI disable switch found. This is not a hardened sandbox claim.
+
+Restore provenance: downloaded bytes came from the official Apple URL
+`https://updates.cdn-apple.com/2026SpringFCS/fullrestores/140-24263/B95838F0-6815-4F0B-A039-156526C081AD/UniversalMac_26.5.2_25F84_Restore.ipsw`.
+Third-party IPSW.me discovery supplied the matching-host 26.5.2/25F84 URL
+(metadata says signed=false; not treated as an authoritative signing verdict).
+Apple's Virtualization catalog API failed to load; Apple's downloaded MESU
+catalog advertised newer 27.2, not selected. Official CDN response is HTTP 200,
+19769902281 bytes. `stat` and `shasum -a 256` independently rechecked the file:
+`065abd295a1a456a46c1155217eab92ee95816520ec9aeed83f249f074f68a04`, matching
+the official response's `x-amz-meta-digest-sha256`. No other restore payload used.
+Dedicated root retains headers, metadata, catalog, download/provision/isolation/
+start/retry logs, console capture, helper sources and `verified-provenance.txt`.
+
+Guest access: open the `.macvm` bundle above, finish Setup Assistant using a
+disposable local account (no Apple ID/host credentials), then use guest Terminal.
+Parallels Tools can be installed **inside this guest** for supported CLI access;
+SSH is not enabled and no guest IP/session is verified. Next concrete guest
+acceptance-baseline command, not yet run:
+
+```sh
+/usr/bin/sw_vers && /usr/bin/uname -m && /bin/df -h /
+```
+
+Then prepare guest-only Homebrew/test tools and local fixture package sources
+before the required A-to-B install/upgrade/cleanup/later-worker rehearsal. No
+Homebrew install/upgrade/session-continuity result or platform support is claimed.
