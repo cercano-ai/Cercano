@@ -15,7 +15,7 @@ Objective: identify the smallest safe integration points and reproduce existing 
 - [x] Record current package file ownership and everyday command resolution, including standalone CLI remote-agent use
 - [x] Trace runtime replacement callers and shared-store/configuration admission; identify unsafe replacement or migration paths
 - [x] Run and record focused baseline tests; for observed defects, capture the smallest failing probe before fixing
-- [-] Establish disposable native test environments and list missing resources in efforts/cross-platform-updates/verification.md
+- [~] Establish disposable native test environments and list missing resources in efforts/cross-platform-updates/verification.md
 - [x] Record concrete reuse boundaries; do not merge the old custom-updater branch wholesale
   Local baseline closeout (2026-11-03): focused Go tests now pass via PATH with isolated fixture state; package ownership and replacement/config-admission tracing are recorded in verification.md. The discovery/dependency task remains in progress only for complete per-platform shipped library/resource closure; the source-level inventory and concrete first Phase 2 fixture are recorded. Native environments/acceptance remain blocked/deferred. No source implementation or native upgrade acceptance is implied by these completions.
 
@@ -26,7 +26,7 @@ Objective: bridge native installed files into complete retained runtime bundles 
 - [~] Add failing installed-flow fixtures proving which package removal/replacement events currently break later runtime use
 - [~] Implement complete runtime-bundle retention and validation before admission, independent of replaceable manager-owned files
 - [~] Make interrupted publication or incomplete resources ineligible; preserve the prior valid runtime selection
-- [ ] Integrate installed discovery and launch with retained-generation selection while preserving remote-only CLI operation
+- [~] Integrate installed discovery and launch with retained-generation selection while preserving remote-only CLI operation
 - [ ] Keep active and reconnected sessions bound to their admitted generation and route their later workers to the same retained dependencies
 - [ ] Admit new sessions to eligible newer generations without redirecting existing sessions
 - [ ] Track live generation dependencies across hosts, sessions and workers; handle crash recovery conservatively
