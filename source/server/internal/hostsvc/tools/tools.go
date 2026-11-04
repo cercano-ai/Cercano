@@ -284,9 +284,6 @@ func (x *Service) GrantedRegistry(tools []string) (*agenttools.Registry, []strin
 				normalized = append(normalized, name+"→"+resolved)
 			}
 			t, _ := x.toolRegistry.Get(resolved)
-			if resolved == "dispatch" || resolved == "workflow" {
-				return nil, nil, nil, fmt.Errorf("dispatch: nested delegation is not permitted")
-			}
 			_ = reg.Register(t)
 		}
 		if len(ignored) > 0 {
@@ -526,7 +523,45 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 	// 1. Build the least-privilege tool registry. W/X grants are legitimate
 	// here: the dispatch call itself gated as X at the parent when the grant
 	// was write-capable, so execution implies human approval (or bypass).
-	reg, granted, ignored, err := x.GrantedRegistry(spec.Tools)
+	// Enforce inherited grants at the service boundary as well as the public adapter.
+	parentScope, nested := agenttools.DelegationFrom(ctx)
+	if nested {
+		if parentScope.Registry == nil {
+			return dispatch.Result{}, fmt.Errorf("dispatch: missing parent grant")
+		}
+		if len(spec.Tools) == 0 {
+			for _, tool := range parentScope.Registry.Filter(agenttools.PermR) {
+				if tool.Name() != "dispatch" && tool.Name() != "workflow" {
+					spec.Tools = append(spec.Tools, tool.Name())
+				}
+			}
+		}
+		if len(spec.Tools) == 0 {
+			return dispatch.Result{}, fmt.Errorf("dispatch: empty inherited grant")
+		}
+		inherited := &Service{toolRegistry: parentScope.Registry}
+		names := make([]string, 0, len(spec.Tools))
+		for _, name := range spec.Tools {
+			resolved, ok := inherited.resolveGrantName(name)
+			if !ok {
+				return dispatch.Result{}, fmt.Errorf("dispatch: tool %q is outside the parent grant", name)
+			}
+			names = append(names, resolved)
+		}
+		spec.Tools = names
+		spec.ReadOnly = spec.ReadOnly || parentScope.ReadOnly
+	}
+	var reg *agenttools.Registry
+	var granted, ignored []string
+	var err error
+	if nested {
+		// Keep the actual parent tool objects and aliases, not a fresh lookup
+		// through the host's wider (possibly replaced) global registry.
+		reg = parentScope.Registry.Subset(spec.Tools)
+		granted = registryToolNames(reg)
+	} else {
+		reg, granted, ignored, err = x.GrantedRegistry(spec.Tools)
+	}
 	if err != nil {
 		x.logDispatchFailure("dispatch.failed", spec, "", "", model, sel.IsCloud, nil, ignored, err, failurelog.Event{
 			"error_class": "grant_failed",
@@ -546,7 +581,7 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 	}
 	// Preserve both the normal default R-tier catalog and invalid-grant errors.
 	// Only after that grant succeeds do we add this turn's assigned text reader.
-	if managedsettings.HasSkills(ctx) {
+	if managedsettings.HasSkills(ctx) && !nested {
 		if _, present := reg.Get("get_shared_skill"); !present {
 			reader, ok := x.toolRegistry.Get("get_shared_skill")
 			if !ok {
@@ -786,7 +821,14 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 	if x.newLoopCompactor != nil {
 		loopCompactor = x.newLoopCompactor()
 	}
+	children := &childResults{parent: subConvID}
+	if x.capRegistry != nil {
+		children.tasks = x.capRegistry.Services().Tasks
+	}
+	ctx = agenttools.WithDelegationScope(ctx, agenttools.DelegationScope{Registry: reg, ReadOnly: readOnly, Accepted: children.accepted})
+	defer children.stop(ctx)
 	res, err := agent.RunToolLoop(ctx, agent.ToolLoopInput{
+		ChildResults:       children.drain,
 		Provider:           sel.Provider,
 		Model:              model,
 		Tier:               string(spec.Tier),
@@ -836,7 +878,8 @@ func (x *Service) RunAgenticDispatch(ctx context.Context, spec dispatch.Spec, se
 			}
 		},
 		OnTurnComplete: onTurn,
-		// PermissionRequester: nil — R-tier won't gate; W/X runs pre-authorized after the parent grant confirm.
+		// PermissionRequester: nil — granted W/X tools are preauthorized, but forced
+		// confirmation still denies execution; child outcomes are joined before completion.
 	})
 	loopReturned = true
 	sel, model = dispatch.CurrentRoute(sel, model)

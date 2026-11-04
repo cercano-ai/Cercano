@@ -177,6 +177,11 @@ type ToolLoopInput struct {
 	// before the loop runs). Nil-safe.
 	OnTurnComplete func(m llm.Message)
 
+	// ChildResults drains completed immediate children. With join=true it waits
+	// for an outcome when children remain. Only delegated loops install it;
+	// main-chat independent tasks never delay finalization.
+	ChildResults func(ctx context.Context, join bool) (string, error)
+
 	// MaxIterations caps the number of LLM round-trips this call may make.
 	// 0 means use config.DefaultToolLoopMaxIterations; -1 means unlimited.
 	MaxIterations int
@@ -604,7 +609,45 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 	// else; ordinary logs stay metadata-only by design.
 	tr := dispatchhistory.From(ctx)
 
+	// A stopped batch may still contain unexecuted calls. Before the child-only
+	// continuation, close their tool-use records without executing any of them.
+	joinStoppedBatch := func(calls, results []llm.Block) (bool, error) {
+		if in.ChildResults == nil {
+			return false, nil
+		}
+		note, err := in.ChildResults(ctx, true)
+		if err != nil || note == "" {
+			return false, err
+		}
+		completed := make(map[string]bool, len(results))
+		for _, result := range results {
+			completed[result.ToolUseRef] = true
+		}
+		var skipped []llm.Block
+		for _, call := range calls {
+			if !completed[call.ToolUseID] {
+				skipped = append(skipped, llm.Block{Type: llm.BlockToolResult, ToolUseRef: call.ToolUseID, Content: "not executed: tool batch stopped at a permission or session-control boundary", IsError: true})
+			}
+		}
+		if len(skipped) > 0 {
+			appendTurn(llm.Message{Role: llm.RoleUser, Blocks: skipped})
+		}
+		appendTurn(llm.Message{Role: llm.RoleUser, Blocks: []llm.Block{{Type: llm.BlockText, Text: note}}})
+		return true, nil
+	}
+	// A permission/control stop remains a stop: child evidence may require a
+	// final model continuation, but must not reopen tool execution past it.
+	earlyCompletion := false
 	for iter := 0; unlimitedIters || iter < maxIters; iter++ {
+		if in.ChildResults != nil {
+			note, err := in.ChildResults(ctx, false)
+			if err != nil {
+				return ToolLoopResult{History: hist}, err
+			}
+			if note != "" {
+				appendTurn(llm.Message{Role: llm.RoleUser, Blocks: []llm.Block{{Type: llm.BlockText, Text: note}}})
+			}
+		}
 		target := inference.TargetForContext(ctx, in.Provider, inference.Call{Model: requestedModel, Tier: in.Tier, FallbackTier: in.FallbackTier})
 		if target.Profile != "" || target.Destination == "local" {
 			in.Model = target.Model
@@ -806,6 +849,16 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 			return ToolLoopResult{FinalText: progress.handoff(toolCalls), Iterations: iter + 1, History: hist, InputTokens: lastIn, OutputTokens: lastOut, CalledTools: calledTools, ToolCallCount: toolCallCount, LastRequestBudget: budget}, tokenBudget.Err()
 		}
 		if len(toolCalls) == 0 {
+			if in.ChildResults != nil {
+				note, err := in.ChildResults(ctx, true)
+				if err != nil {
+					return ToolLoopResult{History: hist}, err
+				}
+				if note != "" {
+					appendTurn(llm.Message{Role: llm.RoleUser, Blocks: []llm.Block{{Type: llm.BlockText, Text: note}}})
+					continue // A join is evidence for another model turn, not a terminal-status delay.
+				}
+			}
 			if in.WatchdogTurnEnd != nil && strings.TrimSpace(finalText) != "" {
 				wd := in.WatchdogTurnEnd(ctx, finalText, hist)
 				switch wd.Action {
@@ -1121,6 +1174,15 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 						Content: "no permission requester wired", IsError: true,
 					})
 					appendTurn(llm.Message{Role: llm.RoleUser, Blocks: results})
+					joined, err := joinStoppedBatch(toolCalls, results)
+					if err != nil {
+						return ToolLoopResult{Iterations: iter + 1, History: hist}, err
+					}
+					if joined {
+						earlyCompletion = true
+						maxIters = iter + 1
+						goto completion
+					}
 					return ToolLoopResult{FinalText: finalText, Iterations: iter + 1, History: hist, InputTokens: lastIn, OutputTokens: lastOut, CalledTools: calledTools, ToolCallCount: toolCallCount}, nil
 				}
 				destructive := agenttools.IsDestructive(pc.tool)
@@ -1140,6 +1202,15 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 					})
 					if IsSessionControlTool(pc.block.ToolName) {
 						appendTurn(llm.Message{Role: llm.RoleUser, Blocks: results})
+						joined, err := joinStoppedBatch(toolCalls, results)
+						if err != nil {
+							return ToolLoopResult{Iterations: iter + 1, History: hist}, err
+						}
+						if joined {
+							earlyCompletion = true
+							maxIters = iter + 1
+							goto completion
+						}
 						return ToolLoopResult{FinalText: finalText, Iterations: iter + 1, History: hist, InputTokens: lastIn, OutputTokens: lastOut, CalledTools: calledTools, ToolCallCount: toolCallCount}, nil
 					}
 					continue
@@ -1153,6 +1224,15 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 						Content: "user denied execution", IsError: true,
 					})
 					appendTurn(llm.Message{Role: llm.RoleUser, Blocks: results})
+					joined, err := joinStoppedBatch(toolCalls, results)
+					if err != nil {
+						return ToolLoopResult{Iterations: iter + 1, History: hist}, err
+					}
+					if joined {
+						earlyCompletion = true
+						maxIters = iter + 1
+						goto completion
+					}
 					return ToolLoopResult{FinalText: finalText, Iterations: iter + 1, History: hist, InputTokens: lastIn, OutputTokens: lastOut, CalledTools: calledTools, ToolCallCount: toolCallCount}, nil
 				}
 			}
@@ -1190,6 +1270,15 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 				results = append(results, out)
 				if IsSessionControlTool(pc.block.ToolName) {
 					appendTurn(llm.Message{Role: llm.RoleUser, Blocks: results})
+					joined, err := joinStoppedBatch(toolCalls, results)
+					if err != nil {
+						return ToolLoopResult{Iterations: iter + 1, History: hist}, err
+					}
+					if joined {
+						earlyCompletion = true
+						maxIters = iter + 1
+						goto completion
+					}
 					return ToolLoopResult{FinalText: finalText, Iterations: iter + 1, History: hist, InputTokens: lastIn, OutputTokens: lastOut, CalledTools: calledTools, ToolCallCount: toolCallCount}, nil
 				}
 			} else {
@@ -1304,15 +1393,30 @@ func RunToolLoop(ctx context.Context, in ToolLoopInput) (returned ToolLoopResult
 			consecutiveTruncationErrors = 0
 		}
 	}
+completion:
+	// The no-tools degradation pass is another attempted finalization. Collect
+	// every remaining child outcome before its model request; drain may return
+	// one completed batch while other children are still running.
+	if in.ChildResults != nil {
+		for {
+			note, err := in.ChildResults(ctx, true)
+			if err != nil {
+				return ToolLoopResult{Iterations: maxIters, History: hist}, err
+			}
+			if note == "" {
+				break
+			}
+			appendTurn(llm.Message{Role: llm.RoleUser, Blocks: []llm.Block{{Type: llm.BlockText, Text: note}}})
+		}
+	}
 	// Reached the iteration cap with tools still pending. Rather than erroring
 	// out and discarding everything the model gathered, make one final pass with
 	// no tools so it answers from what it has. Text deltas stream as usual.
-	hist = append(hist, llm.Message{
-		Role: llm.RoleUser,
-		Blocks: []llm.Block{{Type: llm.BlockText, Text: fmt.Sprintf(
-			"You've reached the %d-step tool limit for this turn. Stop calling tools and give your best answer now using what you've gathered.",
-			maxIters)}},
-	})
+	completionNotice := fmt.Sprintf("You've reached the %d-step tool limit for this turn. Stop calling tools and give your best answer now using what you've gathered.", maxIters)
+	if earlyCompletion {
+		completionNotice = "Tool execution stopped at a permission or session-control boundary. Do not retry the stopped action. Process the child outcomes and give your best answer using the available evidence."
+	}
+	hist = append(hist, llm.Message{Role: llm.RoleUser, Blocks: []llm.Block{{Type: llm.BlockText, Text: completionNotice}}})
 	if protectedPrefix > 0 {
 		// The no-tools final pass is still a request: do not bypass the
 		// context guard or sacrifice the task to make room for its notice.

@@ -31,13 +31,13 @@ func TestRunCommandLegacyDispatchGrant(t *testing.T) {
 	}
 }
 
-func TestDispatchGrantCannotDelegateAgain(t *testing.T) {
+func TestDispatchGrantCanDelegateAgain(t *testing.T) {
 	caps := capabilities.NewRegistry(capabilities.Services{})
 	builtins.Register(caps)
 	svc := &Service{toolRegistry: agentadapter.BuildAgentRegistry(caps, builtins.AgentAliases(), builtins.CapabilitySynonyms())}
 	for _, name := range []string{"dispatch", "workflow", "mcp__oc__workflow"} {
-		if _, _, _, err := svc.GrantedRegistry([]string{"Read", name}); err == nil {
-			t.Errorf("nested delegation grant accepted: %s", name)
+		if _, _, _, err := svc.GrantedRegistry([]string{"Read", name}); err != nil {
+			t.Errorf("nested delegation grant rejected: %s: %v", name, err)
 		}
 	}
 	reg, _, _, err := svc.GrantedRegistry(nil)

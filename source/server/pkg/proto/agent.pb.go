@@ -20004,6 +20004,8 @@ type TaskControlRequest struct {
 	WorkDir       string                 `protobuf:"bytes,8,opt,name=work_dir,json=workDir,proto3" json:"work_dir,omitempty"`
 	RoutingTask   string                 `protobuf:"bytes,9,opt,name=routing_task,json=routingTask,proto3" json:"routing_task,omitempty"`
 	Tier          string                 `protobuf:"bytes,10,opt,name=tier,proto3" json:"tier,omitempty"`
+	// Inherited restriction; never authorizes a broader grant.
+	ReadOnly      bool `protobuf:"varint,11,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -20106,6 +20108,13 @@ func (x *TaskControlRequest) GetTier() string {
 		return x.Tier
 	}
 	return ""
+}
+
+func (x *TaskControlRequest) GetReadOnly() bool {
+	if x != nil {
+		return x.ReadOnly
+	}
+	return false
 }
 
 type TaskControlResponse struct {
@@ -20282,12 +20291,14 @@ func (x *SubscribeTasksRequest) GetCursors() []*TaskProgressCursor {
 }
 
 type TaskLifecycleSnapshot struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	ChildId       string                 `protobuf:"bytes,2,opt,name=child_id,json=childId,proto3" json:"child_id,omitempty"`
-	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	Task          string                 `protobuf:"bytes,4,opt,name=task,proto3" json:"task,omitempty"`
-	Error         string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	TaskId  string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	ChildId string                 `protobuf:"bytes,2,opt,name=child_id,json=childId,proto3" json:"child_id,omitempty"`
+	Status  string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	Task    string                 `protobuf:"bytes,4,opt,name=task,proto3" json:"task,omitempty"`
+	Error   string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	// Immediate parent, not the root observing chat.
+	ParentId      string `protobuf:"bytes,6,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -20353,6 +20364,13 @@ func (x *TaskLifecycleSnapshot) GetTask() string {
 func (x *TaskLifecycleSnapshot) GetError() string {
 	if x != nil {
 		return x.Error
+	}
+	return ""
+}
+
+func (x *TaskLifecycleSnapshot) GetParentId() string {
+	if x != nil {
+		return x.ParentId
 	}
 	return ""
 }
@@ -23216,7 +23234,7 @@ const file_agent_proto_rawDesc = "" +
 	"\tteam_name\x18\x0e \x01(\tR\bteamName\"3\n" +
 	"\x10EnterprisePolicy\x12\x1f\n" +
 	"\vpolicy_json\x18\x01 \x01(\fR\n" +
-	"policyJson\"\x94\x02\n" +
+	"policyJson\"\xb1\x02\n" +
 	"\x12TaskControlRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\toperation\x18\x02 \x01(\tR\toperation\x12\x17\n" +
@@ -23228,7 +23246,8 @@ const file_agent_proto_rawDesc = "" +
 	"\bwork_dir\x18\b \x01(\tR\aworkDir\x12!\n" +
 	"\frouting_task\x18\t \x01(\tR\vroutingTask\x12\x12\n" +
 	"\x04tier\x18\n" +
-	" \x01(\tR\x04tier\"y\n" +
+	" \x01(\tR\x04tier\x12\x1b\n" +
+	"\tread_only\x18\v \x01(\bR\breadOnly\"y\n" +
 	"\x13TaskControlResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vresult_json\x18\x02 \x01(\fR\n" +
@@ -23240,13 +23259,14 @@ const file_agent_proto_rawDesc = "" +
 	"\bsequence\x18\x02 \x01(\x03R\bsequence\"i\n" +
 	"\x15SubscribeTasksRequest\x12\x1b\n" +
 	"\tparent_id\x18\x01 \x01(\tR\bparentId\x123\n" +
-	"\acursors\x18\x02 \x03(\v2\x19.agent.TaskProgressCursorR\acursors\"\x8d\x01\n" +
+	"\acursors\x18\x02 \x03(\v2\x19.agent.TaskProgressCursorR\acursors\"\xaa\x01\n" +
 	"\x15TaskLifecycleSnapshot\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\bchild_id\x18\x02 \x01(\tR\achildId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x12\n" +
 	"\x04task\x18\x04 \x01(\tR\x04task\x12\x14\n" +
-	"\x05error\x18\x05 \x01(\tR\x05error\"\xb9\x01\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\x12\x1b\n" +
+	"\tparent_id\x18\x06 \x01(\tR\bparentId\"\xb9\x01\n" +
 	"\x12TaskProgressRecord\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\bchild_id\x18\x02 \x01(\tR\achildId\x12\x1a\n" +

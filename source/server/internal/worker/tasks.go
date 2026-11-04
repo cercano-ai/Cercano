@@ -48,6 +48,7 @@ func handleTaskControl(ctx context.Context, tasks capabilities.Tasks, parent str
 		}
 		args, _ := json.Marshal(map[string]any{"tools": request.GetTools()})
 		readOnly := builtins.Dispatch().(capabilities.ArgsTiered).TierFor(args) == capabilities.TierR
+		readOnly = readOnly || request.GetReadOnly()
 		if taskClass == config.TaskReconnaissance && !readOnly {
 			response.Error = "reconnaissance requires read-only grants"
 			return response
@@ -153,7 +154,7 @@ func (p *streamTasks) deliver(response *proto.TaskControlResponse) {
 	}
 }
 func (p *streamTasks) Launch(ctx context.Context, spec dispatch.Spec) (record conversation.TaskRecord, err error) {
-	err = p.call(ctx, spec.ConversationID, &proto.TaskControlRequest{Operation: "launch", Task: spec.Task, Tools: spec.Tools, WorkDir: spec.WorkDir, RoutingTask: string(spec.RoutingTask), Tier: string(spec.Tier)}, &record)
+	err = p.call(ctx, spec.ConversationID, &proto.TaskControlRequest{Operation: "launch", Task: spec.Task, Tools: spec.Tools, WorkDir: spec.WorkDir, RoutingTask: string(spec.RoutingTask), Tier: string(spec.Tier), ReadOnly: spec.ReadOnly}, &record)
 	return
 }
 func (p *streamTasks) List(ctx context.Context, parent string, limit int) (records []conversation.TaskRecord, err error) {

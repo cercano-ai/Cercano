@@ -31,6 +31,29 @@ Steering the main conversation, finishing its originating turn, and disconnectin
 
 Existing routing, budgets, approved tool grants, and policy checks still apply. Task completion does not authorize new tool use. Task controls require host-established chat identity; a caller-provided `conversation_id` does not establish ownership. Unbound external MCP callers are rejected rather than granted access to another chat's tasks.
 
+## Nested delegation
+
+Delegated agents may dispatch children only when their explicit tool grant includes
+`dispatch` (or `workflow`). An omitted grant remains read-only and does not enable
+further delegation. Each child receives a subset of its immediate parent's tool
+catalog; approval cannot widen that catalog, and inherited read-only restrictions
+remain in force, including across the worker transport.
+
+A parent continues useful work after launching children. Already completed child
+outcomes are delivered before subsequent model turns. When the parent attempts to
+finish, it waits for outstanding immediate children and processes their outcomes
+in a model continuation before completing. This applies recursively; merely
+delaying a terminal status is not result processing. Failed, stopped, and
+interrupted children are outcomes too. An aborted parent requests cancellation of
+its remaining children without waiting indefinitely for their shutdown.
+
+Task control remains bound to the exact immediate parent: ancestors and siblings
+cannot inspect, wait on, or stop another parent's tasks. The root chat's task
+subscription can **observe** the descendant tree without gaining control over it.
+Snapshots retain immediate-parent IDs across resume, yielding hierarchical CLI
+titles such as `sub 35.1` and `sub 35.1.1`. Main-chat tasks remain independent:
+finishing or cancelling the main turn does not join or cancel those tasks.
+
 ## Progress and completion
 
 Before reporting a child's progress, use `task_inspect`. Its optional `evidence`

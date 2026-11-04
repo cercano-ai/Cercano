@@ -184,3 +184,49 @@ func TestDispatchLaunchEmitsChildLinkOnlyAfterAcceptance(t *testing.T) {
 		}
 	}
 }
+
+type scopedGrantTool struct {
+	agenttools.Tool
+	name string
+	perm agenttools.Permission
+}
+
+func (t scopedGrantTool) Name() string                      { return t.name }
+func (t scopedGrantTool) Permission() agenttools.Permission { return t.perm }
+
+func TestNestedDispatchNarrowingAndParentBinding(t *testing.T) {
+	registry := agenttools.NewRegistry()
+	registry.MustRegister(scopedGrantTool{name: "Read", perm: agenttools.PermR})
+	registry.MustRegister(scopedGrantTool{name: "dispatch", perm: agenttools.PermR})
+	accepted := ""
+	ctx := agenttools.WithDelegationScope(t.Context(), agenttools.DelegationScope{Registry: registry, ReadOnly: true, Accepted: func(id string) { accepted = id }})
+	launches := 0
+	svc := capabilities.Services{Tasks: launchProbe{launch: func(_ context.Context, spec dispatch.Spec) (conversation.TaskRecord, error) {
+		launches++
+		if spec.ConversationID != "immediate-parent" || !spec.ReadOnly {
+			t.Fatalf("scope escaped: %+v", spec)
+		}
+		for _, name := range spec.Tools {
+			if _, ok := registry.Get(name); !ok {
+				t.Fatalf("grant escalated: %s", name)
+			}
+		}
+		return conversation.TaskRecord{ID: "nested", Status: "accepted"}, nil
+	}}}
+	for _, args := range []string{`{"task":"nested","tools":["Read","dispatch"]}`, `{"task":"nested"}`, `{"task":"nested","tools":["mcp__oc__dispatch"]}`} {
+		if _, err := Dispatch().Execute(ctx, &capabilities.Call{ConversationID: "immediate-parent", Args: json.RawMessage(args), Svc: svc}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if launches != 3 || accepted != "nested" {
+		t.Fatalf("launches=%d accepted=%s", launches, accepted)
+	}
+	for _, args := range []string{`{"task":"nested","tools":["RunCommand"]}`, `{"task":"nested","conversation_id":"ancestor"}`} {
+		if _, err := Dispatch().Execute(ctx, &capabilities.Call{ConversationID: "immediate-parent", Args: json.RawMessage(args), Svc: svc}); err == nil {
+			t.Fatalf("accepted escalation: %s", args)
+		}
+	}
+	if launches != 3 {
+		t.Fatal("invalid launch reached service")
+	}
+}

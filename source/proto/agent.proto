@@ -2680,6 +2680,8 @@ message TaskControlRequest {
  string work_dir = 8;
  string routing_task = 9;
  string tier = 10;
+ // Inherited restriction; never authorizes a broader grant.
+ bool read_only = 11;
 }
 message TaskControlResponse {
  string id = 1;
@@ -2700,6 +2702,8 @@ message TaskLifecycleSnapshot {
  string status = 3;
  string task = 4;
  string error = 5;
+ // Immediate parent, not the root observing chat.
+ string parent_id = 6;
 }
 message TaskProgressRecord {
  string task_id = 1;

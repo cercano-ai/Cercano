@@ -107,6 +107,37 @@ func (dispatchCap) Execute(ctx context.Context, call *capabilities.Call) (*capab
 	if task == config.TaskReconnaissance && !readOnly {
 		return nil, errors.New("dispatch: reconnaissance requires read-only grants")
 	}
+	// Narrow against the immediate parent's host-bound catalog before launching.
+	// Approval can authorize use of an existing grant, never widen it.
+	if scope, nested := agenttools.DelegationFrom(ctx); nested {
+		if scope.Registry == nil {
+			return nil, errors.New("dispatch: missing parent grant")
+		}
+		var names []string
+		if len(a.Tools) == 0 {
+			for _, tool := range scope.Registry.Filter(agenttools.PermR) {
+				if tool.Name() != "dispatch" && tool.Name() != "workflow" {
+					names = append(names, tool.Name())
+				}
+			}
+		} else {
+			for _, requested := range a.Tools {
+				tool, ok := scope.Registry.Get(requested)
+				if !ok {
+					tool, ok = scope.Registry.Get(stripHostPrefix(requested))
+				}
+				if !ok {
+					return nil, fmt.Errorf("dispatch: tool %q is outside the parent grant", requested)
+				}
+				names = append(names, tool.Name())
+			}
+		}
+		if len(names) == 0 {
+			return nil, errors.New("dispatch: parent grant has no tools available for child")
+		}
+		a.Tools = names
+		readOnly = readOnly || scope.ReadOnly
+	}
 	res, err := call.Svc.Tasks.Launch(ctx, dispatch.Spec{
 		Mode:     dispatch.Agentic,
 		ReadOnly: readOnly,
@@ -122,6 +153,9 @@ func (dispatchCap) Execute(ctx context.Context, call *capabilities.Call) (*capab
 	})
 	if err != nil {
 		return nil, err
+	}
+	if scope, nested := agenttools.DelegationFrom(ctx); nested && scope.Accepted != nil {
+		scope.Accepted(res.ID)
 	}
 	data, err := json.Marshal(map[string]string{"task_id": res.ID, "child_id": res.ChildID, "status": res.Status})
 	if err != nil {

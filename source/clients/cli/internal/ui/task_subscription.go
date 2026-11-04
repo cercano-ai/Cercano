@@ -80,7 +80,7 @@ func (m *Model) applyTaskSubscription(msg taskSubscriptionMsg) tea.Cmd {
 	}
 	m.ensureChatTabs()
 	if task := event.GetTask(); task != nil && !m.chatTabs.closed[task.ChildId] {
-		m.ensureSubAgentTab(task.ChildId, "", "", nil)
+		m.ensureSubAgentTab(task.ChildId, task.ParentId, "", nil)
 		tab := m.chatTabs.tabs[task.ChildId]
 		fresh := false
 		if _, seen := m.taskProgressSequences[task.TaskId]; !seen {

@@ -95,3 +95,28 @@ func TestTaskUpdatesPreserveTypedInput(t *testing.T) {
 		t.Fatal("completion changed input or claimed the main stream")
 	}
 }
+
+func TestTaskSubscriptionRestoresNestedTitles(t *testing.T) {
+	m := New(nil, false)
+	m.convID = "owner"
+	m.ensureTaskSubscription()
+	// Simulate an already populated chat with the next top-level ordinal 35.
+	m.ensureChatTabs()
+	m.chatTabs.childCounts[mainChatTabID] = 34
+	deliver := func(id, child, parent string) {
+		m.applyTaskSubscription(taskSubscriptionMsg{parent: "owner", generation: m.taskSubscriptionGeneration, update: agentclient.TaskUpdate{Event: &proto.TaskSubscriptionEvent{Payload: &proto.TaskSubscriptionEvent_Task{Task: &proto.TaskLifecycleSnapshot{TaskId: id, ChildId: child, ParentId: parent, Status: "running", Task: "work"}}}}})
+	}
+	deliver("parent-task", "parent-child", "owner")
+	deliver("leaf-task", "leaf-child", "parent-child")
+	deliver("deep-task", "deep-child", "leaf-child")
+	for id, want := range map[string]string{"parent-child": "sub 35", "leaf-child": "sub 35.1", "deep-child": "sub 35.1.1"} {
+		tab := m.chatTabs.tabs[id]
+		if tab == nil || tab.title != want {
+			t.Fatalf("%s: %+v; want %s", id, tab, want)
+		}
+	}
+	deliver("leaf-task", "leaf-child", "parent-child")
+	if m.chatTabs.childCounts["parent-child"] != 1 {
+		t.Fatal("replayed snapshot changed hierarchy numbering")
+	}
+}

@@ -59,7 +59,7 @@ func (s *Server) SubscribeTasks(req *proto.SubscribeTasksRequest, stream proto.A
 				return status.Error(codes.Internal, "task snapshot unavailable")
 			}
 			for _, task := range tasks {
-				snapshot := &proto.TaskLifecycleSnapshot{TaskId: task.ID, ChildId: task.ChildID, Status: task.Status, Task: task.Task, Error: task.Error}
+				snapshot := &proto.TaskLifecycleSnapshot{TaskId: task.ID, ChildId: task.ChildID, ParentId: task.ParentID, Status: task.Status, Task: task.Task, Error: task.Error}
 				data, err := protobuf.Marshal(snapshot)
 				if err != nil {
 					return err
