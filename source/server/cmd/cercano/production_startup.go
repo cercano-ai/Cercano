@@ -51,10 +51,11 @@ type productionStartupAdmission struct {
 type validatedDevelopmentBinding struct {
 	state, config, store, generation, host, build, contract string
 	schema                                                  int32
+	installed                                               bool
 }
 
 func developmentBinding(o developmentHostOptions) validatedDevelopmentBinding {
-	b := validatedDevelopmentBinding{state: o.State, config: o.ConfigAuthority, generation: o.Generation, host: o.Host}
+	b := validatedDevelopmentBinding{state: o.State, config: o.ConfigAuthority, generation: o.Generation, host: o.Host, installed: o.Installed}
 	if o.Identity != nil {
 		b.store, b.build, b.contract, b.schema = o.Identity.Store, o.Identity.Build, o.Identity.Contract, o.Identity.Schema
 	}

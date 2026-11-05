@@ -18,6 +18,7 @@ import (
 	"cercano/source/server/internal/server"
 	"cercano/source/server/internal/watchdog"
 	"cercano/source/server/pkg/config"
+	"cercano/source/server/pkg/devhostauth"
 )
 
 // Real ordinary entrypoint and all ordinary services. Only external backends
@@ -34,6 +35,11 @@ func startOrdinaryGenerationTest(t *testing.T) *server.Server {
 func startOrdinaryGenerationObserved(t *testing.T, observe func(*server.Server, developmentHostOptions, string, func())) *server.Server {
 	t.Helper()
 	o, auth := developmentProductionFixture(t)
+	return startOrdinaryGenerationFixture(t, o, auth, observe)
+}
+
+func startOrdinaryGenerationFixture(t *testing.T, o developmentHostOptions, auth *devhostauth.Auth, observe func(*server.Server, developmentHostOptions, string, func())) *server.Server {
+	t.Helper()
 	t.Setenv("HOME", o.State)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(o.State, "xdg"))
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")

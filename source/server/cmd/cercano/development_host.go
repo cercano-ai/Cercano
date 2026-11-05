@@ -34,6 +34,7 @@ type developmentHostSelection struct {
 type developmentHostOptions struct {
 	State, Generation, Host, TokenFile, Record, RuntimeRoot, Listen string
 	ConfigAuthority                                                 string
+	Installed                                                       bool
 	Identity                                                        *proto.LifecycleIdentity
 	startupAdmission                                                productionStartupAdmission
 }
@@ -69,6 +70,7 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 	var o developmentHostOptions
 	fs := flag.NewFlagSet("development-host", flag.ContinueOnError)
 	fs.SetOutput(out)
+	fs.BoolVar(&o.Installed, "installed", false, "validated installed keg layout")
 	fs.StringVar(&o.ConfigAuthority, "config-authority", "", "absolute isolated config authority (adjacent MCP and permissions)")
 	fs.StringVar(&o.State, "state", "", "absolute prepared private state")
 	fs.StringVar(&o.Generation, "generation", "", "absolute immutable published generation")
@@ -114,27 +116,38 @@ func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Wr
 		return fmt.Errorf("generation aliases refused")
 	}
 	var manifest devHostManifest
-	if err := readDevJSON(filepath.Join(o.Generation, "manifest.json"), &manifest); err != nil {
-		return err
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	exe, err = filepath.EvalSymlinks(exe)
-	if err != nil {
-		return err
-	}
-	if exe != filepath.Join(o.Generation, "cercano") {
-		return fmt.Errorf("execute exact generation/cercano binary")
-	}
-	binary, err := os.ReadFile(exe)
-	if err != nil {
-		return err
-	}
-	sum := sha256.Sum256(binary)
-	if manifest.Build == "" || manifest.Binaries["cercano"].SHA256 != hex.EncodeToString(sum[:]) {
-		return fmt.Errorf("published executable digest mismatch")
+	if o.Installed {
+		generation, _, build, err := installedGeneration()
+		if err != nil {
+			return err
+		}
+		if generation != o.Generation {
+			return fmt.Errorf("installed generation mismatch")
+		}
+		manifest.Build = build
+	} else {
+		if err := readDevJSON(filepath.Join(o.Generation, "manifest.json"), &manifest); err != nil {
+			return err
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		exe, err = filepath.EvalSymlinks(exe)
+		if err != nil {
+			return err
+		}
+		if exe != filepath.Join(o.Generation, "cercano") {
+			return fmt.Errorf("execute exact generation/cercano binary")
+		}
+		binary, err := os.ReadFile(exe)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(binary)
+		if manifest.Build == "" || manifest.Binaries["cercano"].SHA256 != hex.EncodeToString(sum[:]) {
+			return fmt.Errorf("published executable digest mismatch")
+		}
 	}
 	database := filepath.Join(o.State, "conversations.db")
 	o.ConfigAuthority, err = developmentConfigAuthority(o.State, o.ConfigAuthority)

@@ -28,10 +28,13 @@ const MaxWorkerResourceRootBytes = MaxWorkerSocketPathBytes - 1 - 26 - 1 - 37
 // MaxWorkerResourceRootBytes bytes; choose a short private root, not a long TMPDIR.
 // HostInstance must be unique for each host lifetime and must never be reused.
 type SpawnOptions struct {
-	GenerationDir string
-	ManifestPath  string
-	HostInstance  string
-	ResourceRoot  string
+	// InstalledExecutable selects an installed keg instead of a published source
+	// manifest. This only pins execution; lifecycle/store admission is unchanged.
+	InstalledExecutable string
+	GenerationDir       string
+	ManifestPath        string
+	HostInstance        string
+	ResourceRoot        string
 }
 
 // SpawnPolicy is immutable after construction. Its zero value preserves legacy
@@ -61,7 +64,7 @@ func generationDigest(path string) ([sha256.Size]byte, error) {
 }
 
 func NewSpawnPolicy(o SpawnOptions) (SpawnPolicy, error) {
-	if o.HostInstance == "" || !filepath.IsAbs(o.GenerationDir) || !filepath.IsAbs(o.ManifestPath) || !filepath.IsAbs(o.ResourceRoot) {
+	if o.HostInstance == "" || !filepath.IsAbs(o.GenerationDir) || (o.InstalledExecutable == "" && !filepath.IsAbs(o.ManifestPath)) || !filepath.IsAbs(o.ResourceRoot) {
 		return SpawnPolicy{}, fmt.Errorf("worker policy: host instance and absolute generation, manifest, resource paths required")
 	}
 	generation, err := filepath.EvalSymlinks(o.GenerationDir)
@@ -90,16 +93,31 @@ func NewSpawnPolicy(o SpawnOptions) (SpawnPolicy, error) {
 	}
 	sum := sha256.Sum256([]byte(generation + "\x00" + o.HostInstance))
 	p := SpawnPolicy{binary: filepath.Join(generation, cercanoBinaryName), manifest: filepath.Clean(o.ManifestPath), generation: generation, dir: filepath.Join(root, fmt.Sprintf("w-%x", sum[:12]))}
-	if err := p.validate(); err != nil {
-		return SpawnPolicy{}, err
-	}
-	// Pin contents as well as paths. A later spawn must not adopt a replaced
-	// executable or manifest at the selected immutable generation path.
-	if p.binaryDigest, err = generationDigest(p.binary); err != nil {
-		return SpawnPolicy{}, err
-	}
-	if p.manifestDigest, err = generationDigest(p.manifest); err != nil {
-		return SpawnPolicy{}, err
+	if o.InstalledExecutable != "" {
+		if o.ManifestPath != "" {
+			return SpawnPolicy{}, fmt.Errorf("worker policy: installed selection cannot carry a source manifest")
+		}
+		installed, err := NewInstalledKegPolicy(o.InstalledExecutable)
+		if err != nil {
+			return SpawnPolicy{}, err
+		}
+		if installed.generation != generation {
+			return SpawnPolicy{}, fmt.Errorf("worker policy: installed generation mismatch")
+		}
+		installed.dir = p.dir
+		p = installed
+	} else {
+		if err := p.validate(); err != nil {
+			return SpawnPolicy{}, err
+		}
+		// Pin contents as well as paths. A later spawn must not adopt a replaced
+		// executable or manifest at the selected immutable generation path.
+		if p.binaryDigest, err = generationDigest(p.binary); err != nil {
+			return SpawnPolicy{}, err
+		}
+		if p.manifestDigest, err = generationDigest(p.manifest); err != nil {
+			return SpawnPolicy{}, err
+		}
 	}
 	p.pinned = true
 	// Refuse reuse, including symlinks. Never adopt resources from an old host.

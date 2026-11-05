@@ -113,6 +113,7 @@ func launchRead(path string, value interface{}) error {
 func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("development-launch", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	installed := fs.Bool("installed", false, "select this installed agent keg; still requires prepared state")
 	authority := fs.String("config-authority", "", "absolute isolated config authority shared across generations")
 	state := fs.String("state", "", "prepared private state")
 	generation := fs.String("generation", "", "exact published generation")
@@ -130,6 +131,17 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 	}
 	if len([]byte(*runtime)) > 38 {
 		return fmt.Errorf("runtime-root exceeds 38 resolved bytes")
+	}
+	var installedBinary, installedBuild string
+	if *installed {
+		if *generation != "" {
+			return fmt.Errorf("installed launch selects its own keg; --generation refused")
+		}
+		var err error
+		*generation, installedBinary, installedBuild, err = installedGeneration()
+		if err != nil {
+			return err
+		}
 	}
 	resolved, e := filepath.EvalSymlinks(*generation)
 	if e != nil {
@@ -158,33 +170,38 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 			SHA256 string `json:"sha256"`
 		}
 	}
-	b, e := os.ReadFile(filepath.Join(*generation, "manifest.json"))
-	if e != nil {
-		return e
-	}
-	if e = json.Unmarshal(b, &manifest); e != nil {
-		return e
-	}
-	binary := filepath.Join(*generation, "cercano")
-	self, e := os.Executable()
-	if e != nil {
-		return e
-	}
-	self, e = filepath.EvalSymlinks(self)
-	if e != nil {
-		return e
-	}
-	if self != binary {
-		return fmt.Errorf("development-launch must execute exact generation/cercano")
-	}
-	for _, name := range []string{"cercano", "cercano-cli"} {
-		b, e = os.ReadFile(filepath.Join(*generation, name))
+	binary := installedBinary
+	if *installed {
+		manifest.Build = installedBuild
+	} else {
+		b, e := os.ReadFile(filepath.Join(*generation, "manifest.json"))
 		if e != nil {
 			return e
 		}
-		sum := sha256.Sum256(b)
-		if manifest.Build == "" || hex.EncodeToString(sum[:]) != manifest.Binaries[name].SHA256 {
-			return fmt.Errorf("generation binary digest mismatch: %s", name)
+		if e = json.Unmarshal(b, &manifest); e != nil {
+			return e
+		}
+		binary = filepath.Join(*generation, "cercano")
+		self, e := os.Executable()
+		if e != nil {
+			return e
+		}
+		self, e = filepath.EvalSymlinks(self)
+		if e != nil {
+			return e
+		}
+		if self != binary {
+			return fmt.Errorf("development-launch must execute exact generation/cercano")
+		}
+		for _, name := range []string{"cercano", "cercano-cli"} {
+			b, e = os.ReadFile(filepath.Join(*generation, name))
+			if e != nil {
+				return e
+			}
+			sum := sha256.Sum256(b)
+			if manifest.Build == "" || hex.EncodeToString(sum[:]) != manifest.Binaries[name].SHA256 {
+				return fmt.Errorf("generation binary digest mismatch: %s", name)
+			}
 		}
 	}
 	hosts := filepath.Join(*state, "hosts")
@@ -239,6 +256,9 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 			return e
 		}
 		cmd := developmentHostCommand(binary, *state, *generation, host, token, record, *runtime, log, configAuthority)
+		if *installed {
+			cmd.Args = append(cmd.Args, "--installed")
+		}
 		e = cmd.Start()
 		log.Close()
 		if e != nil {

@@ -374,7 +374,12 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	var generationStoreOwner *server.Server
 	if admission.generation != nil {
 		g := admission.generation
-		policy, policyErr := worker.NewSpawnPolicy(worker.SpawnOptions{GenerationDir: g.options.Generation, ManifestPath: filepath.Join(g.options.Generation, "manifest.json"), HostInstance: g.options.Host, ResourceRoot: g.options.RuntimeRoot})
+		options := worker.SpawnOptions{GenerationDir: g.options.Generation, ManifestPath: filepath.Join(g.options.Generation, "manifest.json"), HostInstance: g.options.Host, ResourceRoot: g.options.RuntimeRoot}
+		if g.options.Installed {
+			options.ManifestPath = ""
+			options.InstalledExecutable = filepath.Join(g.options.Generation, "bin", "cercano")
+		}
+		policy, policyErr := worker.NewSpawnPolicy(options)
 		if policyErr != nil {
 			return "", nil, policyErr
 		}

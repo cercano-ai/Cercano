@@ -38,6 +38,9 @@ func main() {
 	setupLong := flag.Bool("setup", false, "Open the setup wizard on launch")
 	mdtest := flag.Bool("mdtest", false, "Launch the TUI with a markdown doc pre-loaded for render testing (optional file path as a positional arg; built-in sample if omitted)")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	session := flag.String("session", "", "Reconnect using an exact persisted session selection; never use current-target")
+	installedState := flag.String("installed-state", "", "Select this installed agent for a new session in existing prepared private state (no migration)")
+	installedRuntime := flag.String("installed-runtime-root", "", "Private runtime root for --installed-state")
 	devHost := flag.String("dev-host", "", "Explicit authenticated dev-host selection JSON; never discover or launch")
 	devAction := flag.String("dev-host-action", "", "Management only: list, acquire, release, retire, transfer, claim (no attachment)")
 	devDestination := flag.String("dev-host-destination", "", "Exact destination selection JSON")
@@ -58,15 +61,40 @@ func main() {
 		os.Exit(78)
 	}
 
-	addressSet, devSelectorSet := false, false
+	addressSet, devSelectorSet, installedSelectorSet, sessionSet := false, false, false, false
 	flag.Visit(func(f *flag.Flag) {
 		if strings.HasPrefix(f.Name, "dev-host") {
 			devSelectorSet = true
+		}
+		if f.Name == "session" {
+			sessionSet = true
+		}
+		if f.Name == "installed-state" || f.Name == "installed-runtime-root" {
+			installedSelectorSet = true
 		}
 		if f.Name == "address" {
 			addressSet = true
 		}
 	})
+	if sessionSet || installedSelectorSet {
+		if addressSet || devSelectorSet || (sessionSet && installedSelectorSet) || (sessionSet && *session == "") {
+			fmt.Fprintln(os.Stderr, "cercano: session selection is incompatible with address, dev-host or new-session selection")
+			os.Exit(1)
+		}
+		if *session != "" {
+			*devHost = *session
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+			path, err := selectInstalledSession(ctx, *installedState, *installedRuntime)
+			cancel()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "cercano: installed activation deferred:", err)
+				os.Exit(1)
+			}
+			*devHost = path
+			fmt.Fprintln(os.Stderr, "cercano: session selection:", path, "(reconnect with --session)")
+		}
+	}
 	if addressSet {
 		if devSelectorSet {
 			fmt.Fprintln(os.Stderr, "cercano: --address is incompatible with --dev-host and dev-host management flags")
