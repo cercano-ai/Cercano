@@ -278,7 +278,7 @@ func TestProductionCompositionDisabledAdmissionRefusal(t *testing.T) {
 
 func TestProductionCompositionPolicyFailsBeforeAssembly(t *testing.T) {
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
-	for _, policy := range []productionExecutionPolicy{{}, {legacy: true, prepared: &worker.SpawnPolicy{}}, {prepared: &worker.SpawnPolicy{}}} {
+	for _, policy := range []productionExecutionPolicy{{}, {legacy: true, prepared: &worker.SpawnPolicy{}}, {prepared: &worker.SpawnPolicy{}}, {installed: &worker.SpawnPolicy{}}, {legacy: true, installed: &worker.SpawnPolicy{}}, {prepared: &worker.SpawnPolicy{}, installed: &worker.SpawnPolicy{}}} {
 		// Nil dependencies would panic if dispatch/capability assembly or worker
 		// installation ran before policy validation.
 		if err := composeProductionServices(nil, nil, nil, toolstack.EngineDeps{}, policy); err == nil || strings.Contains(err.Error(), "dependencies required") {

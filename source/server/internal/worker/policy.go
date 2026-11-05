@@ -40,6 +40,9 @@ type SpawnPolicy struct {
 	binary, manifest, generation, dir string
 	binaryDigest, manifestDigest      [sha256.Size]byte
 	pinned                            bool
+	installed                         bool
+	installedInfo                     os.FileInfo
+	installedKegInfo                  os.FileInfo
 }
 
 func generationDigest(path string) ([sha256.Size]byte, error) {
@@ -145,6 +148,19 @@ func (p SpawnPolicy) validate() error {
 func (p SpawnPolicy) workerBinary() (string, error) {
 	if p.binary == "" {
 		return findWorkerBinary()
+	}
+	if p.installed {
+		if err := p.validateInstalled(); err != nil {
+			return "", err
+		}
+		actual, err := generationDigest(p.binary)
+		if err != nil {
+			return "", err
+		}
+		if actual != p.binaryDigest {
+			return "", fmt.Errorf("installed worker: selected executable contents changed: %s", p.binary)
+		}
+		return p.binary, nil
 	}
 	if err := p.validate(); err != nil {
 		return "", err

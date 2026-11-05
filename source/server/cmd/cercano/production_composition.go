@@ -86,13 +86,27 @@ func composeProductionAgent(routing productionRouting, store conversation.Store,
 // productionExecutionPolicy is explicit: a zero value cannot silently select
 // legacy discovery. Prepared policy validation precedes graph mutation.
 type productionExecutionPolicy struct {
-	legacy   bool
-	prepared *worker.SpawnPolicy
+	legacy    bool
+	prepared  *worker.SpawnPolicy
+	installed *worker.SpawnPolicy
 }
 
 func (p productionExecutionPolicy) validate() error {
-	if p.legacy == (p.prepared != nil) {
+	count := 0
+	if p.legacy {
+		count++
+	}
+	if p.prepared != nil {
+		count++
+	}
+	if p.installed != nil {
+		count++
+	}
+	if count != 1 {
 		return fmt.Errorf("exactly one production execution policy required")
+	}
+	if p.installed != nil {
+		return p.installed.ValidateInstalled()
 	}
 	if p.prepared != nil {
 		return p.prepared.ValidatePrepared()
@@ -106,6 +120,9 @@ func (p productionExecutionPolicy) install(s *server.Server) error {
 	}
 	if p.prepared != nil {
 		return s.ConfigurePreparedWorker(*p.prepared)
+	}
+	if p.installed != nil {
+		return s.ConfigureInstalledWorker(*p.installed)
 	}
 	s.SelectExecutionMode()
 	return nil
@@ -142,7 +159,7 @@ func composeProductionServices(s *server.Server, a *agent.Agent, loader *project
 	dispatch := toolstack.NewEngine(deps)
 	a.SetDispatchEngine(dispatch)
 	s.SetDispatchEngine(dispatch)
-	if policy.legacy {
+	if policy.prepared == nil {
 		s.InitWatchdog()
 	}
 	s.InstallCapabilities()

@@ -1556,6 +1556,20 @@ func (s *Server) runnerDeps() runnersvc.Deps {
 // permissions, and secrets are injected — so production arms worker mode while
 // the hermetic test suite keeps the in-process default untouched.
 func (s *Server) SelectExecutionMode() {
+	s.selectExecutionMode(worker.SpawnPolicy{})
+}
+
+// ConfigureInstalledWorker preserves ordinary host services and execution-mode
+// behavior, but never uses discovery for a selected installed keg.
+func (s *Server) ConfigureInstalledWorker(policy worker.SpawnPolicy) error {
+	if err := policy.ValidateInstalled(); err != nil {
+		return err
+	}
+	s.selectExecutionMode(policy)
+	return nil
+}
+
+func (s *Server) selectExecutionMode(policy worker.SpawnPolicy) {
 	mode := s.cfgSvc.Get().ExecutionMode
 	if mode == "in_process" {
 		// Explicit embedded/test mode: no worker runner; all turns in-process.
@@ -1564,7 +1578,8 @@ func (s *Server) SelectExecutionMode() {
 	}
 	// Production default ("worker" or empty): arm worker-process execution. The
 	// in-process runner stays as the fallback for MCP-involving turns.
-	s.workerRunner = worker.NewWorkerRunner(
+	s.workerRunner = worker.NewWorkerRunnerWithPolicy(
+		policy,
 		s.persistSvc, // pre-assembles history + project context
 		s.cfgSvc,     // builds the ConfigSnapshot
 		s.permBroker, // permission mode + decisions

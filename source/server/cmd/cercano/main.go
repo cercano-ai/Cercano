@@ -212,6 +212,22 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	if err := admission.validateActivation(); err != nil {
 		return "", nil, err
 	}
+	// Capture installed selection before runtime/store activation. Protected
+	// generation startup keeps its existing manifest and admission path.
+	executionPolicy := productionExecutionPolicy{legacy: true}
+	if admission.generation == nil {
+		executable, err := os.Executable()
+		if err != nil {
+			return "", nil, err
+		}
+		selected, installed, err := worker.SelectInstalledKegPolicy(executable)
+		if err != nil {
+			return "", nil, err
+		}
+		if installed {
+			executionPolicy = productionExecutionPolicy{installed: &selected}
+		}
+	}
 	if err := runtimes.validate(); err != nil {
 		return "", nil, err
 	}
@@ -743,7 +759,6 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		engineDeps.UsageSink = server.UsageEventSink(agentCollector.Emit)
 		engineDeps.AttemptSink = agentCollector.EmitAttempt
 	}
-	executionPolicy := productionExecutionPolicy{legacy: true}
 	if err := composeProductionServices(srv, orchestrator, ctxLoader, engineDeps, executionPolicy); err != nil {
 		return "", nil, err
 	}
