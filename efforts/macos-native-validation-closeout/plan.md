@@ -27,9 +27,9 @@ Objective: close the application path, not add an updater. Candidate files: sour
 
 Objective: answer the real dependency-safety question without creating a custom installer. Candidate files: docs/homebrew-worker-selection.md, source/server/internal/localruntime/llamaserver/{provider.go,detect.go}, source/server/internal/modelhost/, and source/server/cmd/cercano/ordinary_upgrade_test.go. Tests: only those necessary for the actual supported runtime and later-use behavior.
 
-- [~] Trace the selected llama executable and its actual library/backend/resource/model dependencies; identify which existing native-manager policies and Cercano bindings protect them across external upgrade/cleanup and which do not.
+- [x] Trace the selected llama executable and its actual library/backend/resource/model dependencies; identify which existing native-manager policies and Cercano bindings protect them across external upgrade/cleanup and which do not.
 - [ ] Reuse compatibility and nonreplacement tests. Probe a concrete uncovered case before applying any fix; do not infer complete dependency retention from one binary or a running process.
-- [ ] Implement the minimum supported protection if existing approved mechanisms suffice. If a consequential mechanism choice remains, or protection cannot be guaranteed, stop for approval of the specific design or explicit support limitation rather than expanding scope or claiming safety.
+- [-] Implement the minimum supported protection if existing approved mechanisms suffice. If a consequential mechanism choice remains, or protection cannot be guaranteed, stop for approval of the specific design or explicit support limitation rather than expanding scope or claiming safety.
 - [ ] Record the supported boundary and, where supported, exercise idle-session later runtime use plus deferred incompatible activation using the smallest suitable test. Keep broader inference usability in the human checklist.
 - [ ] Review changed behavior and documentation, run focused tests, and checkpoint the slice. Mark unaccepted safety limitations blocked rather than complete.
 
