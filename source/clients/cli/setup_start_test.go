@@ -65,4 +65,17 @@ func TestPinnedSetupAuthority(t *testing.T) {
 	if needsPinnedSetup(false, authority) {
 		t.Fatal("host config ignored")
 	}
+	if err := setupstate.Save(setupstate.Fresh()); err != nil {
+		t.Fatal(err)
+	}
+	if needsPinnedSetup(false, authority) {
+		t.Fatal("unrelated ambient resume state reopened selected host setup")
+	}
+	t.Setenv("CERCANO_WIZARD_STATE", filepath.Join(filepath.Dir(authority), "wizard_state.yaml"))
+	if err := setupstate.Save(setupstate.Fresh()); err != nil {
+		t.Fatal(err)
+	}
+	if !needsPinnedSetup(false, authority) {
+		t.Fatal("selected authority resume state ignored")
+	}
 }

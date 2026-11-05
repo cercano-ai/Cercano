@@ -2,7 +2,10 @@ package main
 
 import (
 	"cercano/source/clients/cli/internal/wizard"
+	"cercano/source/server/pkg/setupstate"
+	"gopkg.in/yaml.v3"
 	"os"
+	"path/filepath"
 )
 
 // needsSetup preserves ordinary startup policy while allowing a reset to seed
@@ -24,5 +27,18 @@ func needsPinnedSetup(explicit bool, authority string) bool {
 	if authority == "" {
 		return explicit
 	}
-	return needsSetup(explicit, authority)
+	if explicit {
+		return true
+	}
+	if _, err := os.Stat(authority); os.IsNotExist(err) {
+		return true
+	}
+	// Use the existing setupstate schema and adjacent wizard_state.yaml
+	// convention, not the caller's ambient XDG/override resume file.
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(authority), "wizard_state.yaml"))
+	if err != nil {
+		return false
+	}
+	var state setupstate.State
+	return yaml.Unmarshal(data, &state) == nil && state.Step != ""
 }

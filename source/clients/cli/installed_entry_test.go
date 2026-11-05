@@ -25,6 +25,9 @@ func TestInstalledEntryRouting(t *testing.T) {
 		return
 	}
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "runtime-root.json"), []byte(`not-json`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		name string
 		args []string
@@ -32,6 +35,10 @@ func TestInstalledEntryRouting(t *testing.T) {
 	}{
 		{"bare", nil, "installed activation deferred:"},
 		{"remote", []string{"--address="}, "address"},
+		{"empty dev", []string{"--dev-host="}, "nonempty"},
+		{"orphan destination", []string{"--dev-host-destination=/missing"}, "require --dev-host"},
+		{"empty destination", []string{"--dev-host-destination="}, "nonempty"},
+		{"explicit absent", []string{"--installed-state=" + filepath.Join(root, "absent")}, "installed activation deferred:"},
 		{"development", []string{"--dev-host=" + filepath.Join(root, "missing")}, "missing"},
 		{"reconnect", []string{"--session=" + filepath.Join(root, "missing")}, "missing"},
 	} {
@@ -39,12 +46,16 @@ func TestInstalledEntryRouting(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestInstalledEntryRouting$", "--"}, tc.args...)...)
-			cmd.Env = []string{"HOME=" + root, "XDG_CONFIG_HOME=" + root, "XDG_DATA_HOME=" + root, "XDG_CACHE_HOME=" + root, "PATH=/usr/bin:/bin", "CERCANO_DISABLE_CREDENTIALS=1", "CERCANO_INSTALLED_ENTRY_CHILD=1"}
+			cmd.Env = []string{"HOME=" + root, "XDG_CONFIG_HOME=" + root, "XDG_DATA_HOME=" + root, "XDG_CACHE_HOME=" + root, "PATH=/usr/bin:/bin", "CERCANO_DISABLE_CREDENTIALS=1", "CERCANO_DEVELOPMENT_STATE=" + root, "CERCANO_INSTALLED_ENTRY_CHILD=1"}
+			if tc.name == "explicit absent" {
+				// Explicit admission must not be overwritten by absent ambient discovery.
+				cmd.Env = append(cmd.Env, "CERCANO_DEVELOPMENT_STATE="+filepath.Join(root, "no-ambient-record"))
+			}
 			output, err := cmd.CombinedOutput()
 			if err == nil || !strings.Contains(string(output), tc.want) {
 				t.Fatalf("routing: %v: %s", err, output)
 			}
-			if tc.name != "bare" && strings.Contains(string(output), "installed activation deferred:") {
+			if tc.name != "bare" && tc.name != "explicit absent" && strings.Contains(string(output), "installed activation deferred:") {
 				t.Fatalf("explicit lane routed to installed: %s", output)
 			}
 		})

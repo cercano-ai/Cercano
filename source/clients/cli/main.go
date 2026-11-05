@@ -62,7 +62,9 @@ func main() {
 	}
 
 	addressSet, devSelectorSet, installedSelectorSet, sessionSet := false, false, false, false
+	present := make(map[string]bool)
 	flag.Visit(func(f *flag.Flag) {
+		present[f.Name] = true
 		if strings.HasPrefix(f.Name, "dev-host") {
 			devSelectorSet = true
 		}
@@ -76,10 +78,23 @@ func main() {
 			addressSet = true
 		}
 	})
+	if addressSet && devSelectorSet {
+		fmt.Fprintln(os.Stderr, "cercano: --address is incompatible with --dev-host and dev-host management flags")
+		os.Exit(1)
+	}
+	if err := validateDevHostArgs(present, *devHost, *devAction, *devDestination, *devHandover, *devReceipt); err != nil {
+		fmt.Fprintln(os.Stderr, "cercano:", err)
+		os.Exit(1)
+	}
 	// Ordinary installed entry uses the same adapter as explicit selection.
 	// Explicit remote and source-development lanes keep their own routing.
-	if !addressSet && !devSelectorSet && !sessionSet {
-		installedSelectorSet = true
+	if !addressSet && !devSelectorSet && !sessionSet && !installedSelectorSet {
+		var err error
+		installedSelectorSet, err = discoverInstalledEntry()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cercano: installed activation deferred:", err)
+			os.Exit(1)
+		}
 	}
 	if sessionSet || installedSelectorSet {
 		if addressSet || devSelectorSet || (sessionSet && installedSelectorSet) || (sessionSet && *session == "") {
@@ -101,10 +116,6 @@ func main() {
 		}
 	}
 	if addressSet {
-		if devSelectorSet {
-			fmt.Fprintln(os.Stderr, "cercano: --address is incompatible with --dev-host and dev-host management flags")
-			os.Exit(1)
-		}
 		if err := validateRemoteAddress(*address); err != nil {
 			fmt.Fprintln(os.Stderr, "cercano:", err)
 			os.Exit(1)
