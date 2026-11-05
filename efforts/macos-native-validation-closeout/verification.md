@@ -87,3 +87,63 @@ Exact verification commands from `source/server`, using `/opt/homebrew/bin/go`, 
 The optional successful worker turn is not asserted in this combined fixture. Concrete boundary: production cloud construction calls `secrets.CheckAllowed` (`internal/cloudfactory/factory.go:93`), and production keychain opening uses the OS backend whenever credentials are enabled (`internal/secrets/secrets.go:49–70`); a synthetic loopback URL alone cannot supply the injected memory secret used by the earlier worker fixture. Disabling credentials is deliberately retained to avoid touching the macOS login keychain. The local alternative requires an already prepared protected modelhost attachment (`cmd/cercano/development_host_production.go:46–87`), not merely an HTTP provider URL. Adding a credential backend, dependency override or modelhost fixture would expand this bounded cold-host test. No bypass or alternate system was introduced. The earlier separate deterministic worker-turn evidence remains separate, not proof of a successful turn in these production hosts.
 
 This closes the missing compiled-production cold-host A/B admission/reconnect test, not native Homebrew upgrade rehearsal, arbitrary release-version compatibility, local-runtime safety, human acceptance or full Phase 2 qualification.
+
+
+## Phase 2 verification/docs-only closeout — 2026-11-05
+
+This is bounded verification, not completion of Phase 2 or the effort. Reviewed the current effort plan/spec/verification and affected CLI tests, including subprocess entry routing, installed selection/default discovery, launcher guard, offline version, remote/setup/argument handling, Ctrl-C shutdown, and existing UI selection/session-close tests. Reviewed focused server fixture side effects before testing: temporary Cellar/state/runtime/store paths, isolated child environments, loopback-only synthetic peers/provider, and owned-process teardown. No source or plan edits, dependency acquisition, real model/cloud service, live agent/configuration, VM, installation, broad e2e, push or merge was performed. The compiled cold-host fixture launches only owned production hosts in private temporary state; worker tests launch owned fixture children, not a live developer agent.
+
+### Provenance and historical failures
+
+CLI fixes at `a3ec4ef7198d` and their prior red/green observations are **child-reported historical evidence, not rerun red/green reproductions in this closeout**. The supplied handoff identifies that checkpoint but does not supply the exact prior failure output/commands; those details were not independently reconstructed or certified here. The green commands below test the current tree only, not a before-fix revision or overlay. Earlier overlay failures and the corrected build-versus-contract assertion above remain historical, not new failures. An earlier inspection command exited 1 because optional `go.work` was absent; it did not execute tests and is not an application/test failure.
+
+### Exact final invocation environment
+
+Go is resolved via PATH (`go1.26.3 darwin/arm64`), not a pinned executable argument. The runner uses an explicit environment (no ambient credentials/provider keys/proxies/config/GOFLAGS):
+
+```text
+PATH=/opt/homebrew/bin:/usr/bin:/bin
+GOENV=off
+GOTOOLCHAIN=local
+GOPROXY=off
+GOSUMDB=off
+GOCACHE=/Users/bryancostanich/Library/Caches/go-build
+GOPATH=/Users/bryancostanich/go
+CERCANO_DISABLE_CREDENTIALS=1
+```
+
+For each label below, `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, and `TMPDIR` are separate newly created directories `/tmp/closeout-final-vupvmo5o/<label>/<VARIABLE>`. Only existing Go caches are shared. Go subprocesses use absolute cwd:
+
+- CLI: `/Users/bryancostanich/git_repos/cercano-ai/Cercano/wt-native-packages/source/clients/cli`
+- Server: `/Users/bryancostanich/git_repos/cercano-ai/Cercano/wt-native-packages/source/server`
+
+The runner captured JSON test events and required nonzero selection; outer subprocess bounds were 180 seconds per invocation. Local raw event logs and `results.json` are under `/tmp/closeout-final-vupvmo5o` (temporary local diagnostics, not durable published artifacts). Every final invocation exited 0; no selected test failed and no race report occurred. Package elapsed times are reported below, not the outer command duration.
+
+### Exact commands and results
+
+- **cli-main** (CLI cwd): `go test . -run 'Test(Installed|DevelopmentLauncherGuard|Remote|Setup|Release)' -count=1 -timeout=60s -json` — exit 0, PASS; 8 top-level test starts; clients/cli 1.818s.
+- **cli-extra** (CLI cwd): `go test . -run '^Test(AbsentInstalledEntryPreservesLegacy|MalformedDevHostArgs|ValidDevHostArgs|CtrlCProgramShutdown|FreshSetupWithPreservedConfiguration|PinnedSetupAuthority)$' -count=1 -timeout=60s -json` — exit 0, PASS; 6 top-level test starts; clients/cli 0.739s.
+- **cli-ui** (CLI cwd): `go test ./internal/ui -run '^Test(DevHostSelectionRequiresExactIdentity|DevHostSelectionPreservesConfigAuthority|IntentionalQuitIsDistinctFromDisconnect|IntentionalSlashQuitAndExit|CloseSessionFinalClientDetachedAndFailure)$' -count=1 -timeout=60s -json` — exit 0, PASS; 5 top-level test starts; clients/cli/internal/ui 0.436s.
+- **server-admission** (Server cwd): `go test ./cmd/cercano -run '^Test(LaunchLockContentionCancellation|InstalledSessionAdmissionAndPinnedReconnect|InstalledLaunchLayoutProbe|InstalledWorkerSuccessfulTurnAfterAliasSwitch)$' -count=1 -timeout=90s -json` — exit 0, PASS; 3 top-level test starts; server/cmd/cercano 1.944s.
+- **server-cold** (Server cwd): `go test ./cmd/cercano -run '^TestInstalledProductionColdHost$' -count=1 -timeout=150s -json` — exit 0, PASS; 1 top-level test starts; server/cmd/cercano 6.003s.
+- **server-worker** (Server cwd): `go test ./internal/server ./internal/worker ./pkg/agentclient -run '^TestInstalled' -count=1 -timeout=90s -json` — exit 0, PASS; 9 top-level test starts; server/internal/server 2.029s / server/pkg/agentclient 5.095s / server/internal/worker 13.475s.
+- **cli-main-race** (CLI cwd): `go test -race . -run 'Test(Installed|DevelopmentLauncherGuard|Remote|Setup|Release)' -count=1 -timeout=90s -json` — exit 0, PASS; 8 top-level test starts; clients/cli 8.387s.
+- **cli-extra-race** (CLI cwd): `go test -race . -run '^Test(AbsentInstalledEntryPreservesLegacy|MalformedDevHostArgs|ValidDevHostArgs|CtrlCProgramShutdown|FreshSetupWithPreservedConfiguration|PinnedSetupAuthority)$' -count=1 -timeout=90s -json` — exit 0, PASS; 6 top-level test starts; clients/cli 1.910s.
+- **cli-ui-race** (CLI cwd): `go test -race ./internal/ui -run '^Test(DevHostSelectionRequiresExactIdentity|DevHostSelectionPreservesConfigAuthority|IntentionalQuitIsDistinctFromDisconnect|IntentionalSlashQuitAndExit|CloseSessionFinalClientDetachedAndFailure)$' -count=1 -timeout=90s -json` — exit 0, PASS; 5 top-level test starts; clients/cli/internal/ui 1.599s.
+- **server-admission-race** (Server cwd): `go test -race ./cmd/cercano -run '^Test(LaunchLockContentionCancellation|InstalledSessionAdmissionAndPinnedReconnect|InstalledLaunchLayoutProbe|InstalledWorkerSuccessfulTurnAfterAliasSwitch)$' -count=1 -timeout=90s -json` — exit 0, PASS; 3 top-level test starts; server/cmd/cercano 5.953s.
+- **server-cold-race** (Server cwd): `go test -race ./cmd/cercano -run '^TestInstalledProductionColdHost$' -count=1 -timeout=150s -json` — exit 0, PASS; 1 top-level test starts; server/cmd/cercano 8.382s.
+- **server-worker-race** (Server cwd): `go test -race ./internal/server ./internal/worker ./pkg/agentclient -run '^TestInstalled' -count=1 -timeout=90s -json` — exit 0, PASS; 9 top-level test starts; server/internal/server 3.329s / server/pkg/agentclient 8.773s / server/internal/worker 25.975s.
+- **cli-transfer** (CLI cwd): `go test . -run '^TestTransferRetryWithReceipt$' -count=1 -timeout=90s -json` — exit 0, PASS; 1 top-level test starts; clients/cli 0.435s.
+- **cli-transfer-race** (CLI cwd): `go test -race . -run '^TestTransferRetryWithReceipt$' -count=1 -timeout=90s -json` — exit 0, PASS; 1 top-level test starts; clients/cli 1.435s.
+
+The prior exact CLI and focused server selectors were reused. CLI supplementation explicitly covers the main-package argument/setup/legacy-routing/Ctrl-C tests missed by the original prefix selector; existing UI tests are warranted because pinned selection/config authority and intentional session release cross that interface. `TestTransferRetryWithReceipt` also passed separately normally and with race detection. Race coverage includes lock cancellation, session/RPC shutdown, installed worker policy/pool and reuse; it is not merely a rerun of a version-only test.
+
+Selection accounting: main 8, extra 6, UI 5, transfer 1; admission 3, cold-host 1; worker packages 9 top-level starts (8 pass plus the expected top-level skip of `TestInstalledAgentReuseHelper`, which is subprocess-only). Both actual reuse/control subtests pass and execute the helper in their isolated children. All other selected top-level tests pass without skips. The admission selector retains the historical `InstalledWorkerSuccessfulTurnAfterAliasSwitch` alternative, but that test is absent from `./cmd/cercano` and is **not counted there**; it actually passes under `./internal/server` in both worker invocations. All three worker-command packages selected real non-helper tests.
+
+Nonfatal observation retained honestly: normal/race worker-turn logs emit `SQL logic error: no such table: delegated_tasks (1)` at the completion boundary, as previously recorded for the minimal store fixture. The asserted successful response, fresh pinned-A worker and persisted messages pass. This does not verify delegated-task bookkeeping, and no source/storage fix was attempted. No new failing test was found for the parent to fix.
+
+### Scope of the green result
+
+The cold-host normal/race runs verify compiled-current-production A/B admission and pinned reconnect from initially absent host records, not a successful production worker turn. **Only its harness is race-instrumented; its built product and host processes are not.** The separate deterministic loopback worker-turn test passes normally and under race (including its copied child executable), but does not fill that combined production-host-turn gap.
+
+A/B use identical current-code bytes in separate synthetic kegs. Contract/schema rejection and pinned reconnect are covered; compatibility between distinct released CLI/agent versions is **not established**. Installed-but-deferred/error routing tests do not constitute release qualification. Native Homebrew A-to-B rehearsal, local-runtime dependency/idle-upgrade safety, human acceptance, changed-source release transition and signed-package release gates remain outstanding. No full-suite/build acceptance or full production parity is claimed. The plan is intentionally unchanged; this checkpoint closes only the delegated verification/documentation task.
