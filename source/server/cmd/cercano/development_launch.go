@@ -220,7 +220,7 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 		return e
 	}
 	defer targetLock.Close()
-	if e = syscall.Flock(int(targetLock.Fd()), syscall.LOCK_EX); e != nil {
+	if e = launchLock(ctx, targetLock); e != nil {
 		return e
 	}
 	defer syscall.Flock(int(targetLock.Fd()), syscall.LOCK_UN)
@@ -231,7 +231,7 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 		return e
 	}
 	defer lock.Close()
-	if e = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); e != nil {
+	if e = launchLock(ctx, lock); e != nil {
 		return e
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
@@ -353,4 +353,32 @@ func (s launchSelection) validateConfigAuthority(want string) error {
 		return fmt.Errorf("host config authority mismatch; refusing reuse or replacement")
 	}
 	return nil
+}
+
+// Keep the existing lock files and lock ordering, but bound contention by the
+// caller's context. Cancellation never removes locks or startup intent.
+func launchLock(ctx context.Context, f *os.File) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			if err := ctx.Err(); err != nil {
+				_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+				return err
+			}
+			return nil
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN && err != syscall.EINTR {
+			return err
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

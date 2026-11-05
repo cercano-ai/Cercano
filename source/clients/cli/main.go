@@ -55,7 +55,7 @@ func main() {
 
 	// Set only by the source development launcher. Even an empty override or
 	// a selector hidden behind a positional must never reach legacy auto-launch.
-	// Ordinary packaged CLI invocations retain their existing behavior.
+	// Packaged CLI invocations use installed admission below, never legacy fallback.
 	if os.Getenv("CERCANO_LAUNCHED_DEVELOPMENT") == "1" && *devHost == "" {
 		fmt.Fprintln(os.Stderr, "cercano: development launcher requires nonempty --dev-host; legacy fallback refused")
 		os.Exit(78)
@@ -76,6 +76,11 @@ func main() {
 			addressSet = true
 		}
 	})
+	// Ordinary installed entry uses the same adapter as explicit selection.
+	// Explicit remote and source-development lanes keep their own routing.
+	if !addressSet && !devSelectorSet && !sessionSet {
+		installedSelectorSet = true
+	}
 	if sessionSet || installedSelectorSet {
 		if addressSet || devSelectorSet || (sessionSet && installedSelectorSet) || (sessionSet && *session == "") {
 			fmt.Fprintln(os.Stderr, "cercano: session selection is incompatible with address, dev-host or new-session selection")
