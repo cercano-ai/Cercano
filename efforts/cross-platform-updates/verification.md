@@ -1153,3 +1153,194 @@ remote-only configuration). Package-payload retention alone will not establish
 external llama executable/library/resource closure. That closure, changed-source
 compatibility, reconnect and actual model-backed turn acceptance remain separate
 unproven requirements. The existing worktree is retained; no landing is requested.
+
+## Opted-in native Homebrew agent-keg retention (2026-11-05)
+
+User approved normal formulas plus persistent
+`HOMEBREW_NO_CLEANUP_FORMULAE=cercano-agent`, retaining inactive kegs for now.
+Starting worktree was clean on `feat/native-packages-session-safe`, HEAD
+`65733c5c7ec60e1911a8982c833ea1ee05934c6f`. Read `AGENTS.md`, worker-selection
+documentation, latest verification and preserved retention/Homebrew evidence.
+Only existing disposable macOS guest `{d5633dbc-c8a1-49fc-a420-df6d5d60d952}`
+was used for native package operations (macOS 26.5.2 arm64, `test`, uid 501;
+Homebrew 7.0.12). No host Homebrew/config or live Cercano was modified.
+
+### Preflight, source expectation and persistent scope
+
+Captured full guest `ps user,pid,ppid,comm,args`, installed versions, command links,
+fixture tap status and existing system/prefix/test-user `brew.env` candidates.
+No test formula or Cercano/llama test process was present; no unowned process was
+stopped. Both disposable tap worktrees were clean before staging. Recovered the
+existing `resume-fixture-0.0.901` / `resume-fixture-0.0.902` formulas and checked
+preserved archive hashes instead of building or fetching new product artifacts.
+Only those disposable local-tap formulas were staged/committed/pulled; no
+production tap or publication was touched.
+
+Guest Homebrew source inspection: `/opt/homebrew/bin/brew:128-180` loads system,
+prefix, then user `brew.env` (with optional system priority); user location is
+XDG_CONFIG_HOME, then HOMEBREW_XDG_CONFIG_HOME, else HOME/.homebrew.
+`Library/Homebrew/cleanup.rb:417-422` matches the exclusion by formula name or
+alias; automatic cleanup filters excluded formulas (`:462`), and explicit
+arguments refuse cleanup (`:519-523`). Thus upgrade remains allowed while both
+automatic and explicitly targeted cleanup should retain agent A. This is not
+`brew pin` or protection against explicit uninstall.
+
+Persisted exactly one line in the previously absent guest file:
+
+```text
+/tmp/cnp.h8sjTc/config/homebrew/brew.env
+HOMEBREW_NO_CLEANUP_FORMULAE=cercano-agent
+```
+
+File SHA256: `144bc621160fd50f59a0e966fa04abfb61a3adfce080fe40cd533416ad1631f2`.
+`brew-env-before.json` records that it did not exist. Existing trust and other
+settings were preserved. **Scope is only the established synthetic fixture user
+context with `XDG_CONFIG_HOME=/tmp/cnp.h8sjTc/config`, not guest-wide, not host,
+and not the guest's default shell.** `brew config` in that context reported
+`HOMEBREW_NO_CLEANUP_FORMULAE: cercano-agent` in both drivers. The setting was
+not passed in the command environment; Homebrew read the persistent file.
+It remains in place, including during all cleanup and owned-process teardown;
+no restoration was needed or performed. This is a bounded manual guest setting,
+not product setup automation or a new architecture.
+
+### Exact native commands and observed results
+
+Drivers used `/usr/bin/env -i` and bounded `prlctl exec` transport targeting only
+the UUID above. Exact transport, scripts, argv/environments, command output and
+results are preserved under the evidence paths below. Each brew subprocess used
+this allowlisted environment (TMPDIR differs for the continuation):
+
+```text
+PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+HOME=/tmp/cnp.h8sjTc/home
+XDG_CONFIG_HOME=/tmp/cnp.h8sjTc/config
+XDG_CACHE_HOME=/tmp/cnp.h8sjTc/cache
+XDG_DATA_HOME=/tmp/cnp.h8sjTc/data
+TMPDIR=/tmp/cnp-macos-update-retention/policy-20261105/tmp
+HOMEBREW_NO_AUTO_UPDATE=1
+HOMEBREW_NO_INSTALL_FROM_API=1
+HOMEBREW_NO_ANALYTICS=1
+```
+
+**No `HOMEBREW_NO_INSTALL_CLEANUP`** was set. Commands below use
+`/opt/homebrew/bin/brew`; all returned 0:
+
+```sh
+brew config
+# Stage existing A fixture definitions; git add/commit then pull --ff-only
+brew install --formula fixture/cercano/cercano
+/opt/homebrew/Cellar/cercano-agent/0.0.901/bin/cercano --version
+# Stage existing B definitions in the same disposable fixture tap
+brew upgrade --formula fixture/cercano/cercano fixture/cercano/cercano-agent fixture/cercano/cercano-cli
+brew cleanup fixture/cercano/cercano-agent
+# Successful continuation, without reinstall/reset or changing the exclusion:
+brew config
+brew cleanup fixture/cercano/cercano-agent
+brew cleanup fixture/cercano/cercano fixture/cercano/cercano-cli
+/opt/homebrew/Cellar/cercano-agent/0.0.901/bin/cercano --version
+/opt/homebrew/bin/cercano --version
+brew list --versions fixture/cercano/cercano fixture/cercano/cercano-agent fixture/cercano/cercano-cli
+```
+
+1. A installed at `/opt/homebrew/Cellar/cercano-agent/0.0.901/bin/cercano`,
+   SHA256 `081a25b496774375f773095330369142da4438f85211ea6f7e3b88b091b7ba4f`,
+   device 16777229, inode **445442**. Version output: `cercano v0.0.901`.
+2. Direct A worker PID **27724** became Unix-socket transport-ready, remained
+   ready after ordinary upgrade, and was then terminated by its owning driver.
+   Upgrade output explicitly included automatic `==> Cleanup`, removing
+   `/opt/homebrew/Cellar/cercano-cli/0.0.901` and
+   `/opt/homebrew/Cellar/cercano/0.0.901`. Agent A remained with identical device,
+   inode and hash. Only agent kegs had both A and B; siblings had only B.
+3. Explicit `brew cleanup fixture/cercano/cercano-agent` printed
+   `Error: Refusing to clean cercano-agent because it is listed in HOMEBREW_NO_CLEANUP_FORMULAE!`
+   **but exited 0 on this Homebrew version**. The initial driver incorrectly
+   expected exit 1 and recorded an assertion/harness failure. It safely drained
+   PID 27724 and retained formulas/exclusion. That failure is preserved, not
+   relabeled as a passing full driver. The continuation recovered the same A
+   inode/hash and checked the refusal text and actual filesystem, not exit code
+   alone. Both explicit cleanup commands completed; A still had inode 445442 and
+   the original hash.
+4. After cleanup, a **fresh direct canonical A worker**, PID **28259**, became
+   transport-ready. Version probe still returned `cercano v0.0.901`.
+5. Public `/opt/homebrew/bin/cercano` resolved to
+   `/opt/homebrew/Cellar/cercano-agent/0.0.902/bin/cercano`, SHA256
+   `5169f9f84ab2a062a2b20f62ecca990c248677bff127153a7b719951d241b77a`;
+   version output `cercano v0.0.902`. A worker launched via that public command,
+   PID **28262**, became transport-ready concurrently with fresh A.
+
+All readiness checks sent the HTTP/2 connection preface to the owned Unix socket
+and received SETTINGS `000006040000000000000500004000`. Product invocations used
+`/usr/bin/sandbox-exec` denying non-loopback network access, synthetic HOME/XDG/
+cache/tmp under each driver directory, and `CERCANO_DISABLE_CREDENTIALS=1`.
+No ordinary agent was launched in this rehearsal; no inference/model server,
+model installation, credential or cloud use was requested. Driver subprocess
+limits were 300s, readiness 30s and total work guard 900s. The continuation's
+validation completed in 1.831s before teardown.
+
+### Retained state, hashes and limits
+
+All three owned worker PIDs were reaped after targeted SIGTERM, exit -15, with
+no escalation needed. Final process observations and `owned_pids_exited=true`
+are recorded. No unowned process kill, generic pkill, manual Cellar copying or
+mutation, unrestricted cleanup, uninstall, model action, Windows operation,
+security bypass or production publication occurred. Retained installed formulas:
+
+```text
+cercano 0.0.902
+cercano-agent 0.0.901 0.0.902
+cercano-cli 0.0.902
+```
+
+These are intentionally retained with the exclusion and B-staged disposable tap
+so the surviving A path and selected B command remain reproducibly inspectable.
+No automatic retirement mechanism is implemented. Original synthetic config and
+conversation markers remained identical:
+`218589323cbe80b7ed077e3ee36f1663e7cb5f8f4e4ad02c938ad8a5c2c5a6b9` and
+`7128e61cd02a6fc2440a495468ebc424d4ca4a81f5ee749dd4ffe311760defb3`.
+
+Preserved source archives (same-source/version-only fixtures from the prior
+rehearsal, **predating the installed-worker-policy change**):
+
+- A archive: `59b6d5e8eff4ac52c935935cf0c8b47b069399e2fa0c340d0947638d3def1b6b`.
+- B archive: `1d1330f190c63a826af6121fdc9ed3817cd1a83ec0493717a8d098cedde22d90`.
+
+New evidence is additive; prior evidence archives were not overwritten. Host and
+guest `/tmp/cnp-macos-update-retention/policy-evidence.tar.gz` are SHA256-equal:
+`de27b237a7d70a2c4cae6c3a7d8726541dd699f18e1834bd0dcc8a5402873cd4`.
+It contains `policy-20261105/`, `policy-20261105-continue/`, both guest drivers,
+preflight/source/launch logs and the fetch helper. Host extracted copy is
+`/tmp/cnp-macos-update-retention/policy-guest-evidence/`. Additional post-run
+read-only source capture (outside the archive, on host and guest):
+`/tmp/cnp-macos-update-retention/policy-source-final.log`, SHA256
+`f5bab7dbcd838eb2e5f2b0a105e72823988d490bedf9f8afff8555c4522466f3`.
+It preserves numbered `brew:128-180` and `cleanup.rb:410-530,1055-1080` and also
+shows runtime formula dependencies excluded from autoremove; that is not a lease
+on their old versions or external llama. Host helper commands:
+transfer each driver with the preserved UUID-bound transport, invoke
+`/usr/bin/env -i PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin HOME=/tmp/cnp.h8sjTc/home /opt/homebrew/bin/python3 /tmp/cnp-macos-update-retention/policy-guest.py`
+and the same command with `policy-continue.py`; both driver processes returned 0
+(the first driver reports its assertion failure in results). Then run
+`python3 /tmp/cnp-macos-update-retention/policy-fetch.py`; exit 0, host/guest
+archive digest comparison passed.
+
+This verifies native **retention/launchability with effective external Homebrew
+policy**, not actual A-agent later-worker dispatch, turn/session continuity,
+protected generation authority, changed-source compatibility, external llama or
+resource retention, or explicit uninstall protection. Source-policy fixtures are
+separate evidence; the old native binaries do not validate that newer policy.
+
+Focused current-source check from `source/server`, with `GOPROXY=off`,
+`GOSUMDB=off`, `CERCANO_DISABLE_CREDENTIALS=1`:
+
+```sh
+go test ./internal/worker ./internal/server ./cmd/cercano -run 'TestInstalled|TestProductionCompositionPolicy|TestSelectExecutionMode' -count=1
+```
+
+Passed (exit 0): worker 12.944s, server 0.996s, command 1.412s. No full suite,
+race rerun or new native binary build was claimed. Documentation-only changes;
+no spec/plan, source, formula, setup automation or architectural change.
+
+`git diff --check` passed (exit 0); changed-path inspection showed only
+`docs/homebrew-worker-selection.md` and this verification log. Checkpoint is
+documentation-only, explicit-path staged, with no push/land; the worktree and
+guest fixtures remain retained.

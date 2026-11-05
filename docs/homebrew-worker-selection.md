@@ -42,6 +42,69 @@ policy and continues to require its existing manifest, admission checks, resourc
 namespace, and prepared-session authority. Installed selection grants none of
 that authority and cannot satisfy `ValidatePrepared`.
 
+## Opted-in Homebrew keg retention
+
+The approved operational policy uses normal (unversioned) formulas and a
+persistent, formula-specific Homebrew setting:
+
+```text
+HOMEBREW_NO_CLEANUP_FORMULAE=cercano-agent
+```
+
+Place this assignment in the appropriate supported `brew.env`, preserving all
+other settings and any existing comma-separated exclusions. This is an external
+Homebrew invocation policy, **not configuration installed or enforced by Cercano**.
+For user scope, Homebrew reads `$XDG_CONFIG_HOME/homebrew/brew.env` when
+`XDG_CONFIG_HOME` is set, otherwise `$HOMEBREW_XDG_CONFIG_HOME/homebrew/brew.env`
+when set, otherwise `$HOME/.homebrew/brew.env`. Different users, service
+invocations, HOME/XDG overrides, prefix/system settings and precedence can change
+which policy is effective; verify with `brew config` in each invoking context.
+Do not assume a setting in a synthetic test user applies to a normal shell.
+
+With the exclusion effective, ordinary A→B upgrades remain allowed and the public
+command selects B. Homebrew automatic cleanup skips old `cercano-agent` kegs;
+explicit targeted cleanup also refuses to remove them. On tested Homebrew 7.0.12,
+that explicit refusal printed `Error: Refusing to clean ...` but returned **0**;
+check the diagnostic and retained filesystem state, not just exit status.
+An intact canonical A path remains launchable, allowing the selection policy
+above to keep choosing A rather than following the updated public alias.
+
+Limitations:
+
+- This is **not explicit uninstall protection**, a package-manager version pin,
+  or an immutable executable lease. Removal/replacement still makes new pinned
+  launches fail closed.
+- External llama installations and models are not retained by this setting;
+  it does not guarantee old dependency/library versions. Homebrew also excludes
+  runtime formula dependencies from autoremove, but that is not a whole-runtime
+  version lease. Neither the convenience formula nor `cercano-cli` receives the
+  agent exclusion.
+- There is **no automatic retirement** or safe-to-delete detection. Inactive agent
+  kegs are retained for now; disk usage grows across upgrades. Any retirement
+  requires separately authorized lifecycle work after users/processes drain.
+- Keg retention alone proves neither session coexistence/continuity nor actual
+  A-agent dispatch. The native rehearsal below used pre-worker-policy synthetic
+  binaries; their direct worker probes establish launchability only.
+
+### Disposable native retention rehearsal (2026-11-05)
+
+Only guest `{d5633dbc-c8a1-49fc-a420-df6d5d60d952}` was changed. The setting remains
+in `/tmp/cnp.h8sjTc/config/homebrew/brew.env`, scoped to the established synthetic
+fixture user's `XDG_CONFIG_HOME=/tmp/cnp.h8sjTc/config`; it is **not guest-wide**.
+The file was absent before the run; existing Homebrew trust/settings were left
+unchanged. No host Homebrew configuration or live Cercano was changed.
+
+Ordinary native install/upgrade of preserved synthetic A `0.0.901` and B `0.0.902`
+succeeded with automatic cleanup enabled. Cleanup removed old convenience/CLI
+kegs but kept agent A's inode and SHA-256. Explicit agent cleanup refused removal;
+a fresh canonical A worker and public-command B worker both returned HTTP/2
+SETTINGS. All three owned probe processes exited on targeted SIGTERM. Agent A/B,
+convenience B and CLI B remain installed, with the exclusion, for reproducible
+inspection; no uninstall was attempted. Exact commands, hashes, the initial
+harness exit-code assertion failure and successful continuation are recorded in
+`efforts/cross-platform-updates/verification.md` and
+`/tmp/cnp-macos-update-retention/policy-evidence.tar.gz` on host and guest.
+
 ## Fixture verification
 
 No Homebrew command, installation, live agent, model, or credential is needed:
