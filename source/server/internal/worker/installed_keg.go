@@ -12,8 +12,11 @@ func installedKegRoot(binary string) (string, bool) {
 	bin := filepath.Dir(binary)
 	keg := filepath.Dir(bin)
 	formula := filepath.Dir(keg)
+	// The legacy monolith owned cercano; split releases install the same
+	// executable in cercano-agent. Do not recognize arbitrary formula names.
+	name := filepath.Base(formula)
 	return keg, filepath.Base(binary) == cercanoBinaryName && filepath.Base(bin) == "bin" &&
-		filepath.Base(formula) == "cercano" && filepath.Base(filepath.Dir(formula)) == "Cellar"
+		(name == "cercano" || name == "cercano-agent") && filepath.Base(filepath.Dir(formula)) == "Cellar"
 }
 
 // SelectInstalledKegPolicy selects only Homebrew installations. Other layouts
@@ -46,7 +49,7 @@ func NewInstalledKegPolicy(executable string) (SpawnPolicy, error) {
 	}
 	keg, ok := installedKegRoot(binary)
 	if !ok {
-		return SpawnPolicy{}, fmt.Errorf("installed worker: expected Cellar/cercano/<version>/bin/cercano")
+		return SpawnPolicy{}, fmt.Errorf("installed worker: expected Cellar/{cercano,cercano-agent}/<version>/bin/cercano")
 	}
 	p := SpawnPolicy{binary: binary, generation: keg, installed: true}
 	if err := p.validateInstalled(); err != nil {

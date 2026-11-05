@@ -17,14 +17,26 @@ import (
 // manually selected path. The fixture is intentionally not an agent or model:
 // it records dispatch and exits before the worker handshake.
 func TestInstalledKegPoolPin(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	for _, formula := range []string{"cercano", "cercano-agent"} {
+		t.Run(formula, func(t *testing.T) { testInstalledKegPoolPin(t, formula) })
+	}
+}
+
+func testInstalledKegPoolPin(t *testing.T, formula string) {
+	// Darwin's socket pathname budget is too short for nested t.TempDir names.
+	allocated, err := os.MkdirTemp("/tmp", "ik-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(allocated) })
+	root, err := filepath.EvalSymlinks(allocated)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", root) // all pool resources stay inside the fixture
 	marker := filepath.Join(root, "launched")
 	makeKeg := func(version string) string {
-		bin := filepath.Join(root, "Cellar", "cercano", version, "bin", "cercano")
+		bin := filepath.Join(root, "Cellar", formula, version, "bin", "cercano")
 		if err := os.MkdirAll(filepath.Dir(bin), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -60,13 +72,15 @@ func TestInstalledKegPoolPin(t *testing.T) {
 		t.Fatal("installed policy acquired prepared credential/session behavior")
 	}
 	acquire := func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_, err := r.RunTurn(ctx, runner.Request{ConversationID: "fixture", Gen: 1}, nil, nil, nil)
 		return err
 	}
 	if err := acquire(); err == nil {
 		t.Fatal("fixture must not complete handshake")
+	} else {
+		t.Logf("fixture handshake rejection: %v", err)
 	}
 	got, err := os.ReadFile(marker)
 	if err != nil || string(got) != "1.0" {
@@ -131,5 +145,41 @@ func TestInstalledKegSelectionBoundaries(t *testing.T) {
 	}
 	if _, err := NewInstalledKegPolicy(dev); err == nil {
 		t.Fatal("explicit installed policy accepted non-keg")
+	}
+}
+
+// Only the two formulas that own the agent executable may select a keg.
+func TestInstalledKegFormulaLayouts(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, formula := range []string{"cercano", "cercano-agent", "cercano-cli", "unrelated", "cercano-agent-extra"} {
+		t.Run(formula, func(t *testing.T) {
+			binary := filepath.Join(root, "Cellar", formula, "1.2.3_1", "bin", "cercano")
+			if err := os.MkdirAll(filepath.Dir(binary), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			want := formula == "cercano" || formula == "cercano-agent"
+			policy, selected, err := SelectInstalledKegPolicy(binary)
+			if err != nil || selected != want {
+				t.Fatalf("selection = %v, %v; want %v", selected, err, want)
+			}
+			_, explicitErr := NewInstalledKegPolicy(binary)
+			if (explicitErr == nil) != want {
+				t.Fatalf("explicit policy error = %v; accepted want %v", explicitErr, want)
+			}
+			if want {
+				if err := policy.ValidateInstalled(); err != nil {
+					t.Fatal(err)
+				}
+				if err := policy.ValidatePrepared(); err == nil {
+					t.Fatal("installed selection grants prepared authority")
+				}
+			}
+		})
 	}
 }

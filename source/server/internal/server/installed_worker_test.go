@@ -14,7 +14,7 @@ func TestInstalledWorkerExecutionMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(root, "Cellar", "cercano", "1.0", "bin", "cercano")
+	binary := filepath.Join(root, "Cellar", "cercano-agent", "1.0", "bin", "cercano")
 	if err := os.MkdirAll(filepath.Dir(binary), 0700); err != nil {
 		t.Fatal(err)
 	}
