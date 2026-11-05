@@ -105,6 +105,24 @@ harness exit-code assertion failure and successful continuation are recorded in
 `efforts/cross-platform-updates/verification.md` and
 `/tmp/cnp-macos-update-retention/policy-evidence.tar.gz` on host and guest.
 
+## Accepted local-runtime rehearsal boundary (2026-11-05)
+
+The user explicitly accepted ("that's fine") the closeout/native rehearsal scope:
+**Cercano upgrades only**, while the external llama executable, libraries,
+backends/resources and models remain unchanged for all active dependent sessions,
+including idle sessions and later work/restarts. Defer external runtime/dependency/
+model upgrades or cleanup affecting those paths until those sessions finish.
+This is an accepted scope limitation, not a guarantee of external cleanup safety
+or completed native qualification. No new manager or live policy edit is involved;
+automatic retirement remains deferred.
+
+The four Phase 3 modelhost tests already passed normally and under the race
+detector (not rerun for this record). Fake-runtime hold tests are not real
+inference. The human checklist must verify actual local inference after idle
+across the Cercano upgrade, plus later work/restart usability with those external
+paths unchanged. Results remain outstanding; see
+`efforts/macos-native-validation-closeout/verification.md`.
+
 ## Fixture verification
 
 No Homebrew command, installation, live agent, model, or credential is needed:
