@@ -16,18 +16,18 @@ Objective: preserve active work and select the smallest remaining gaps. Files: t
 Objective: close the application path, not add an updater. Candidate files: source/server/internal/worker/installed_keg_test.go, source/server/internal/server/installed_worker_test.go, source/server/cmd/cercano/production_composition.go, ordinary_generation_host.go, source/server/pkg/agentclient/client.go, reconnect.go, installed_reuse_test.go, and existing generation admission/session code only where needed. Tests: successful fresh-worker dispatch, stable A reconnect, eligible new B session, and mixed-version compatibility.
 
 - [x] Build the smallest deterministic successful-turn integration case through ordinary server dispatch using isolated state and a controlled test service. Observe current behavior and record a failing probe before changing code.
-- [-] Trace reusable admission/routing mechanisms and identify the minimum safe bridge for ordinary installed sessions. Do not assume prepared-generation authority follows from keg selection. If there is a consequential architecture choice, present that specific decision for approval before implementing it.
-- [ ] Implement only the missing bridge, preserving authentication and store authority; prove a later fresh worker uses A after public selection changes to B.
-- [ ] Add focused coverage showing existing A sessions reconnect to A while eligible new sessions reach B, without stopping A. Reuse missing/replaced executable rejection tests rather than duplicating them.
-- [ ] Cover compatible and incompatible CLI/agent version handling and installed-but-deferred status using existing mechanisms. Add only necessary installed/session identity and blocked-reason diagnostics.
-- [ ] Test shared-state access or interrupted Cercano admission only where the changes introduce a concrete risk. No generic recovery framework or storage redesign.
-- [ ] Run affected package tests and integration tests; use race detection for changed concurrency paths. Delegate an independent bounded review, resolve concrete defects with reproductions, and checkpoint explicit paths without pushing.
+- [x] Trace reusable admission/routing mechanisms and identify the minimum safe bridge for ordinary installed sessions. Do not assume prepared-generation authority follows from keg selection. If there is a consequential architecture choice, present that specific decision for approval before implementing it.
+- [x] Implement only the missing bridge, preserving authentication and store authority; prove a later fresh worker uses A after public selection changes to B.
+- [x] Add focused coverage showing existing A sessions reconnect to A while eligible new sessions reach B, without stopping A. Reuse missing/replaced executable rejection tests rather than duplicating them.
+- [x] Cover compatible and incompatible CLI/agent version handling and installed-but-deferred status using existing mechanisms. Add only necessary installed/session identity and blocked-reason diagnostics.
+- [x] Test shared-state access or interrupted Cercano admission only where the changes introduce a concrete risk. No generic recovery framework or storage redesign.
+- [x] Run affected package tests and integration tests; use race detection for changed concurrency paths. Delegate an independent bounded review, resolve concrete defects with reproductions, and checkpoint explicit paths without pushing.
 
 ## Phase 3 — Establish the local-runtime support boundary
 
 Objective: answer the real dependency-safety question without creating a custom installer. Candidate files: docs/homebrew-worker-selection.md, source/server/internal/localruntime/llamaserver/{provider.go,detect.go}, source/server/internal/modelhost/, and source/server/cmd/cercano/ordinary_upgrade_test.go. Tests: only those necessary for the actual supported runtime and later-use behavior.
 
-- [ ] Trace the selected llama executable and its actual library/backend/resource/model dependencies; identify which existing native-manager policies and Cercano bindings protect them across external upgrade/cleanup and which do not.
+- [~] Trace the selected llama executable and its actual library/backend/resource/model dependencies; identify which existing native-manager policies and Cercano bindings protect them across external upgrade/cleanup and which do not.
 - [ ] Reuse compatibility and nonreplacement tests. Probe a concrete uncovered case before applying any fix; do not infer complete dependency retention from one binary or a running process.
 - [ ] Implement the minimum supported protection if existing approved mechanisms suffice. If a consequential mechanism choice remains, or protection cannot be guaranteed, stop for approval of the specific design or explicit support limitation rather than expanding scope or claiming safety.
 - [ ] Record the supported boundary and, where supported, exercise idle-session later runtime use plus deferred incompatible activation using the smallest suitable test. Keep broader inference usability in the human checklist.
