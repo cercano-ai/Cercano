@@ -10,6 +10,6 @@ Reuse cross-platform verification lines 920–965 for package lifecycle/layout e
 
 A deterministic fresh-worker turn needs current-code fixtures, isolated HOME/XDG/store/socket paths, a loopback HTTP provider, observed worker identity, and bounded owned-process teardown. No real model, cloud credentials, downloads, or external service is necessary. Real local-runtime qualification remains separate.
 
-Historical migration applicability is unresolved. README Homebrew instructions and a historical formula/hook establish intended distribution, not actual supported-user uptake. Prior migration evidence used a reconstructed layout without the restart hook. User confirmation is needed before treating historical migration as required or safely omitted.
+Historical migration is excluded by explicit user direction on 2026-11-05: old-package compatibility need not be supported in this effort. This resolves applicability without asserting that no historical users existed. Omit historical monolithic-package and restart-hook migration tests; current-package continuity remains required.
 
 No implementation, current-code native rehearsal, human acceptance, or release qualification has completed in this closeout effort.

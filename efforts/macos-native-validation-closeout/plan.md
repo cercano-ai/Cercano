@@ -8,8 +8,8 @@ Objective: preserve active work and select the smallest remaining gaps. Files: t
 
 - [x] Delegate repository inspection to confirm the active worktree, branch, checkpoint, unrelated changes, and presence of the installed-worker fix. Reconcile these planning documents with that worktree through a scoped checkpoint without merging unrelated main changes or discarding existing work.
 - [x] Verify the disposable guest is accessible and identify owned synthetic state and effective Homebrew configuration. Read-only inspection first; no host installation changes.
-- [-] Record which existing tests and native evidence are reusable, with precise remaining assertions. Confirm whether a historical monolithic package actually reached users requiring migration; absence of evidence is not proof it did not.
-- [ ] Record the minimum resources needed for deterministic turn tests and local-runtime investigation. Obtain any missing authorization before downloads, model runs, or credentials are used.
+- [x] Record which existing tests and native evidence are reusable, with precise remaining assertions. Confirm whether a historical monolithic package actually reached users requiring migration; absence of evidence is not proof it did not.
+- [x] Record the minimum resources needed for deterministic turn tests and local-runtime investigation. Obtain any missing authorization before downloads, model runs, or credentials are used.
 
 ## Phase 2 — Complete ordinary dispatch and session binding
 
