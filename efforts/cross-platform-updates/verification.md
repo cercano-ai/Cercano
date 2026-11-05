@@ -1104,3 +1104,52 @@ host-routed conversations, in-flight turns, reconnect continuity, A-agent later
 worker dispatch, retained runtime resources, changed-source compatibility,
 long-duration survival, bundled llama delivery, signing/publication, rollback,
 or other native platforms. No retention implementation/fix was attempted.
+
+## Isolated source-level reduction (2026-11-04; implementation still pending)
+
+Starting worktree was clean on `feat/native-packages-session-safe` at
+`e37a26a91e8abb54896e4280db0482d3504bd822`. Read repository instructions,
+effort specification/plan, latest native characterization and runtimebundle
+README. This continuation completed investigation only, **not** the requested
+ordinary-installed retention integration.
+
+Executed from `source/server`, with `GOPROXY=off`, `GOSUMDB=off` and
+`CERCANO_DISABLE_CREDENTIALS=1`:
+
+- `go test ./internal/worker -run '^TestInstalledRetentionCharacterization$' -count=1 -v`
+  passed. Its temporary copied test helper observed A and B resources. Removing
+  A's asset yielded helper exit 93 despite successful binary selection; removing
+  A's package yielded `worker policy: lstat .../manager/A: no such file or
+  directory` before launch. B still worked. This reproduces the missing retained
+  dependency without a host agent/model or native package operation. A passing
+  characterization means the **gap was reproduced**, not fixed.
+- `go test ./cmd/cercano -run '^TestRunAgentStartupAdmissionBeforeConfigAndServices$' -count=1 -v`
+  passed both temporary-store cases. An unprepared store failed generation
+  authority admission; a compatible prepared store without the validated binding
+  failed the service-parity gate. Neither case loaded config or started services;
+  the test compared durable fixture bytes before/after.
+
+Source inspection confirms that `productionStartupPolicy.admit` performs
+read-only coexistence preflight, while `validateActivation` additionally requires
+an exact validated generation/config/store binding. Simply switching the ordinary
+startup policy or copying an executable does not satisfy that contract. These
+checks must remain intact. Existing ordinary-state conversion is not authorized
+by this probe; documented offline store upgrade requires separate approval.
+This is not evidence that all implementation is blocked: prepared-state,
+fail-closed integration remains work to do.
+
+No production code or test code was changed. In particular, no new actual
+agent-dispatch A-removal/B-eligibility test was implemented or run. The existing
+helper test is a lower-level reduction, not that acceptance seam. No full suite,
+build, native install/VM, live config, credential, agent/model, publication or
+push operation was performed in this continuation. No deletion was implemented.
+
+Next prerequisites: connect installed inventory/publication to the existing
+validated host admission and session routing; exercise the real dispatch runner
+with isolated A/B fixtures and prove pinned failure never falls back to PATH;
+then use separately authorized disposable native testing with compatible prepared
+store/config and a protected shared-modelhost fixture (or an explicitly
+remote-only configuration). Package-payload retention alone will not establish
+external llama executable/library/resource closure. That closure, changed-source
+compatibility, reconnect and actual model-backed turn acceptance remain separate
+unproven requirements. The existing worktree is retained; no landing is requested.
