@@ -12,4 +12,21 @@ A deterministic fresh-worker turn needs current-code fixtures, isolated HOME/XDG
 
 Historical migration is excluded by explicit user direction on 2026-11-05: old-package compatibility need not be supported in this effort. This resolves applicability without asserting that no historical users existed. Omit historical monolithic-package and restart-hook migration tests; current-package continuity remains required.
 
-No implementation, current-code native rehearsal, human acceptance, or release qualification has completed in this closeout effort.
+At baseline, no implementation, current-code native rehearsal, human acceptance, or release qualification had completed in this closeout effort.
+
+## Phase 2 first deterministic ordinary turn — recovery, 2026-11-05
+
+Recovered the existing `internal/server/installed_worker_turn_test.go` left by task cb7d17e5fba6a412a36e9e4ec02f92db; preserved its test and formatted it with gofmt. Read AGENTS.md and this effort's spec/plan. No plan status changed, no production code changed, and no admission/routing/store architecture was added. The first actual test probe passed: there was no compile/runtime failure requiring a fix, and the earlier task's tool-launch failures are not evidence of an application defect.
+
+`TestInstalledWorkerSuccessfulTurnAfterAliasSwitch` selects installed keg A, asserts it does not confer prepared authority, configures the ordinary server worker runner, verifies no worker has started, switches the public alias to B, then invokes `Server.StreamProcessRequest`. It observes one loopback provider request, exact final text, a distinct child PID reporting the canonical A executable, and persisted user/assistant turns. The child is a copied current-code test executable whose worker-only entry point serves the real worker gRPC implementation with an injected memory secret store. The parent does not launch a worker directly or call worker RunTurn; ordinary dispatch/pool/handshake/snapshot/provider execution is exercised. This is an isolated server integration fixture, not a packaged CLI/native rehearsal or proof of ordinary production startup composition, reconnect, B admission, cross-version compatibility, or local-runtime safety.
+
+Safety: credentialtest.Enable isolates HOME and XDG directories and clears credential environment; conversation storage, socket/pid paths, keg copies and identity marker are owned temporary state. Both parent and child default HTTP transports reject non-loopback destinations; the only provider is httptest with a synthetic key and deterministic SSE response. No real inference, cloud request, live agent, VM, install, or external model/download was used. Cleanup invokes CleanupOwnedWorkers and removes temporary state. Logs retain a default model label, but all actual provider HTTP goes to the loopback fixture. The minimal conversation-store helper emits the nonfatal `no such table: delegated_tasks` completion-boundary warning; the turn and both persisted messages succeed. This does not establish delegated-task completion bookkeeping and is not a basis for a production storage change in this bounded slice.
+
+Verification used simple argv commands with absolute cwd `/Users/bryancostanich/git_repos/cercano-ai/Cercano/wt-native-packages/source/server`:
+
+- `go version`: exit 0, `go1.26.3 darwin/arm64` via PATH (no hardcoded Go executable path).
+- Initial unchanged test probe: `go test ./internal/server -run '^TestInstalledWorkerSuccessfulTurnAfterAliasSwitch$' -count=1 -timeout=60s -v`: PASS, fresh A PID 88600, one provider request, two persisted turns.
+- Final normal: `go test ./internal/server -run '^TestInstalledWorker(ExecutionMode|SuccessfulTurnAfterAliasSwitch)$' -count=1 -timeout=60s`: PASS, package 1.142s, command 4.661s.
+- Final race: `go test -race ./internal/server -run '^TestInstalledWorker(ExecutionMode|SuccessfulTurnAfterAliasSwitch)$' -count=1 -timeout=90s -v`: PASS, package 2.955s, command 8.434s; fresh A PID 88654 after B alias selection, one provider request, two persisted turns; no race report. Race instrumentation also applies to the copied child test executable.
+
+Only the first deterministic-turn case is completed here. Remaining Phase 2 work and all later phases remain as recorded in the unchanged plan. No push or native/release acceptance is claimed.
