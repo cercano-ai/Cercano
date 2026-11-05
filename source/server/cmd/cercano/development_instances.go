@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"cercano/source/server/internal/brewrestart"
@@ -186,12 +185,12 @@ func developmentReplaceBlockedWith(ctx context.Context, base, generation, author
 }
 
 func developmentInstanceLock(base string) (*os.File, error) {
-	f, err := os.OpenFile(base+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	f, err := os.OpenFile(base+".lock", os.O_CREATE|os.O_RDWR|devOpenNoFollow, 0600)
 	if err != nil {
 		return nil, err
 	}
 	if err = launchPrivateFile(base + ".lock"); err == nil {
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		err = devFlock(f, devLockExclusive)
 	}
 	if err != nil {
 		f.Close()

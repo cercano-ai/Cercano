@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"cercano/source/server/internal/brewrestart"
 )
@@ -21,15 +20,15 @@ func developmentUpgradeGuard(ctx context.Context, database string) (func(), erro
 func developmentUpgradeGuardWith(ctx context.Context, database string, absent func(context.Context, string) error) (func(), error) {
 	state := filepath.Dir(database)
 	hosts := filepath.Join(state, "hosts")
-	lock, err := os.OpenFile(filepath.Join(state, "current-target.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	lock, err := os.OpenFile(filepath.Join(state, "current-target.lock"), os.O_CREATE|os.O_RDWR|devOpenNoFollow, 0600)
 	if err != nil {
 		return nil, err
 	}
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if err = devFlock(lock, devLockExclusive); err != nil {
 		lock.Close()
 		return nil, err
 	}
-	release := func() { syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); lock.Close() }
+	release := func() { devFlock(lock, devLockUnlock); lock.Close() }
 	fail := func(err error) (func(), error) {
 		release()
 		return nil, fmt.Errorf("offline upgrade blocked by development host inventory: %w", err)

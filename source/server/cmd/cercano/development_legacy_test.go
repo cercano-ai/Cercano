@@ -7,7 +7,6 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 
 	"cercano/source/server/internal/brewrestart"
@@ -60,7 +59,7 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 				if _, ok := ctx.Deadline(); !ok {
 					t.Fatal("unbounded shutdown")
 				}
-				if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+				if err := devFlock(lock, devLockExclusive|devLockNonBlock); err == nil {
 					t.Fatal("stop without launch exclusion")
 				}
 				if host != "A" || !expected.SameProcess(id) {
@@ -98,10 +97,10 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 			case "destination":
 				source = dest
 			case "launch-busy":
-				if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+				if err = devFlock(lock, devLockExclusive|devLockNonBlock); err != nil {
 					t.Fatal(err)
 				}
-				defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+				defer devFlock(lock, devLockUnlock)
 			}
 			err = adapter.Stop(ctx, source, snapshot, func() error {
 				approvals++
