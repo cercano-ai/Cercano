@@ -35,9 +35,6 @@ func validateDevHostArgs(present map[string]bool, host, action, destination, han
 		if action == "claim" && receipt == "" {
 			return fmt.Errorf("claim requires --dev-host-receipt")
 		}
-		if action == "transfer" && receipt != "" {
-			return fmt.Errorf("transfer does not accept --dev-host-receipt")
-		}
 		if _, err := cliui.ReadDevHostSelection(destination); err != nil {
 			return fmt.Errorf("dev-host destination: %w", err)
 		}

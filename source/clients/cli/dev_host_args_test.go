@@ -27,6 +27,23 @@ func TestMalformedDevHostArgs(t *testing.T) {
 	}
 }
 
+func TestTransferRetryWithReceipt(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "destination.json")
+	if err := os.WriteFile(destination, []byte(`{"Identity":{"Host":"host","Build":"build","Contract":"contract","Schema":1,"Store":"store"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	present := map[string]bool{
+		"dev-host":             true,
+		"dev-host-action":      true,
+		"dev-host-destination": true,
+		"dev-host-handover":    true,
+		"dev-host-receipt":     true,
+	}
+	if err := validateDevHostArgs(present, "/source.json", "transfer", destination, "same-handover-id", "same-receipt"); err != nil {
+		t.Fatalf("transfer retry with receipt rejected: %v", err)
+	}
+}
+
 func TestValidDevHostArgs(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "destination.json")
 	if err := os.WriteFile(destination, []byte(`{"Identity":{"Host":"host","Build":"build","Contract":"contract","Schema":1,"Store":"store"}}`), 0600); err != nil {
