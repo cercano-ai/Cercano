@@ -120,16 +120,60 @@ Historical candidate repro attribution is recorded in the
 [verification notes](promotion-preparation-verification.md#historical-candidate-evidence-attribution),
 not an external-checkout-dependent current test.
 
-## Publication is blocked
+## Coordinated publication mechanics (acceptance gate remains closed)
 
-The macOS review artifact explicitly includes all three rendered formulas.
-Both `.github/workflows/release-macos.yml` and `update-homebrew.yml` still call
-`update_tap.py`, whose `update()` fails closed **before network access**, even
-with credentials. `promote_to_tap.py` also refuses local promotion, including
-`--skip-download`. Offline preparation does not bypass either guard. Do not
-dispatch release workflows: the macOS workflow has other release actions outside
-this bounded guard. No publication, network release action, credentials, signing
-or release-tag change is authorized here.
+`formula_set.py:PUBLICATION_ACCEPTED = False` is the effective code gate for
+both entry points, before files, credentials or network access. It has no CLI or
+environment override. Runtime/native acceptance is incomplete; do not dispatch
+release or recovery workflows. Enabling it requires reviewed acceptance evidence,
+not merely removal of a guard. The main workflow also has release actions outside
+this tap gate.
+
+Both workflows pass `--formula-dir dist`, requiring the complete reviewed set.
+The updater checks all three against trusted templates and a shared version,
+archive and digest, validates the local archive layout/inventory, then verifies
+the public archive and checksum sidecar. Old single-formula review artifacts are
+not eligible for split publication (including recovery).
+
+The Git Data API builds one tree based on the current tree and one commit with
+that head as parent, then advances `main` once with `force: false`. Unrelated
+paths are preserved. An exact complete set is a no-op; downgrades, same-version
+mutations, mixed/tampered or incomplete split sets fail closed. Explicit ref
+contention permits at most three fresh snapshots and validations. After an
+ambiguous ref response, an exact reread reconciles success; other network/auth
+failures stop without blind retries. Unreachable objects from failed attempts
+are not publication. This is single-commit tap visibility, **not atomic Homebrew
+installation/upgrade of three packages**.
+
+Local `promote_to_tap.py cercano.rb TAP --version X.Y.Z --archive ARCHIVE`
+uses the same checks (no offline bypass). After acceptance it prepares a single
+unreferenced review commit with a private Git index, preserving the user's real
+index, staged/unstaged/untracked files and all refs. Inspect `git show COMMIT`;
+only a separately deliberate non-force/fast-forward publication may expose it.
+If interrupted, existing checkout/refs stay intact; rerun preparation. Temporary
+index or unreachable Git objects may remain. Never describe three filesystem
+writes as crash-atomic publication.
+
+### Supported historical monolith: explicit manual migration
+
+An older single `cercano` formula owning both commands is a supported source tap
+state; a lone split convenience definition is not. Same-version conversion is
+refused: use a new coordinated release version. Users of the old monolith must
+explicitly migrate, rather than running a dependency-first `brew upgrade cercano`:
+record current configuration and package versions, drain/stop their old agent
+when ready, explicitly unlink the old `cercano` keg, then install the two component
+formulas and upgrade/install the dependency-only convenience formula. Verify
+command ownership before explicitly starting the desired agent. On failure,
+inspect installed/link state; unlink only the new component command links before
+explicitly relinking the preserved old keg. Do not delete user data or the old
+keg during recovery. Rehearse these steps in the isolated native fixture before
+publication. There are no automatic unlink, restart or migration hooks. This
+manual policy is settled; the remaining task is native evidence, not policy choice.
+
+The accepted rehearsal boundary is Cercano-only updates with external runtime
+paths unchanged; this does not claim ownership or retention of external llama
+installations/models. Record runtime/retention and rollback evidence within that
+boundary before enabling the gate.
 
 The one-time manual migration policy is approved. Recorded native packaging
 evidence now covers the historical 0.25.2 to split 0.27.0 fixture transition,

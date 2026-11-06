@@ -52,4 +52,4 @@ jobs:
           DIGEST="$(awk 'NR==1 {print $1}' "dist/$ARCHIVE.sha256")"
           python3 release/homebrew/update_tap.py \
             --version "$VERSION" --sha256 "$DIGEST" \
-            --archive "dist/$ARCHIVE" --formula dist/cercano.rb
+            --archive "dist/$ARCHIVE" --formula-dir dist

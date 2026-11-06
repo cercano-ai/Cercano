@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Legacy single-formula publisher: disabled for the incomplete Homebrew split.
-
-Transport/validation helpers remain for future review; update() unconditionally
-refuses before credentials, network access or publication. See README.md.
-"""
+"""Coordinated Git-tree publisher, gated on native/runtime acceptance."""
 import argparse
 import base64
 import hashlib
@@ -15,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import formula_set as formulas
 import render_formula as renderer
 from promote_to_tap import read_formula_fields, PromotionError
 
@@ -129,30 +126,74 @@ def prepare(version, digest, archive, formula):
     renderer.parse_digest(digest)
     require(renderer.hash_archive(archive) == digest, 'CI archive checksum mismatch')
     renderer.validate_archive(archive, version)
-    expected = renderer.render(Path(__file__).with_name('cercano.rb.in').read_text(),
-                               version, archive.name, digest)
-    require(trusted_formula_matches(formula.read_text(), expected, version),
-            'CI formula differs from trusted release template')
-    return expected
+    return formulas.reviewed(formula.parent, version, digest)
 
 
-def decision(existing, desired, version, digest):
-    if existing is None:
-        return 'update'
-    fields = read_formula_fields(existing)
-    old_version = renderer.parse_version(fields['version'])
-    old = tuple(map(int, old_version.split('.')))
-    new = tuple(map(int, version.split('.')))
-    require(old <= new, 'Tap already has a newer version; refusing downgrade')
-    if old == new:
-        require(fields['sha256'] == digest, 'Same version has different checksum; refusing replacement')
-        require(existing == desired, 'Same version has different formula; refusing replacement')
-        return 'unchanged'
-    return 'update'
+REPO = '/repos/cercano-ai/homebrew-cercano'
+REF = REPO + '/git/refs/heads/main'
+
+
+def snapshot(token):
+    head = api('GET', REPO + '/git/ref/heads/main', token)['object']['sha']
+    commit = api('GET', REPO + '/git/commits/' + head, token)
+    tree = commit['tree']['sha']
+    listing = api('GET', REPO + '/git/trees/' + tree + '?recursive=1', token)
+    require(listing.get('truncated') is False, 'Truncated tap tree')
+    existing = {}
+    for entry in listing['tree']:
+        if entry['path'] not in {'Formula/' + n for n in formulas.NAMES}:
+            continue
+        require(entry['type'] == 'blob' and entry['mode'] == '100644',
+                'Formula is not an ordinary file')
+        blob = api('GET', REPO + '/git/blobs/' + entry['sha'], token)
+        require(blob['encoding'] == 'base64', 'Unexpected blob encoding')
+        existing[entry['path'].split('/')[1]] = base64.b64decode(blob['content']).decode('utf-8')
+    return head, tree, existing
+
+
+def publish_set(desired, version, digest, token):
+    """One tree/commit per attempt; only a non-force ref update publishes.
+
+    On an ambiguous PATCH response, reread the complete set. Exact desired state
+    is success (including a concurrent identical publisher); otherwise fail
+    closed, except explicit contention, which gets bounded revalidation.
+    """
+    for attempt in range(3):
+        head, base, existing = snapshot(token)
+        if formulas.decision(existing, desired, version, digest) == 'unchanged':
+            return 'unchanged'
+        tree = api('POST', REPO + '/git/trees', token, {
+            'base_tree': base, 'tree': [
+                {'path': 'Formula/' + name, 'mode': '100644', 'type': 'blob',
+                 'content': desired[name]} for name in formulas.NAMES]})['sha']
+        commit = api('POST', REPO + '/git/commits', token, {
+            'message': 'chore: publish Cercano ' + version,
+            'tree': tree, 'parents': [head]})['sha']
+        try:
+            response = api('PATCH', REF, token, {'sha': commit, 'force': False})
+            require(response.get('object', {}).get('sha') == commit,
+                    'Unexpected ref update response')
+            return 'updated'
+        except (Failure, OSError, ValueError) as error:
+            _, _, current = snapshot(token)
+            if current == desired:
+                return 'reconciled'
+            # Also refuse downgrade/mutation immediately after a race.
+            formulas.decision(current, desired, version, digest)
+            if not isinstance(error, Failure) or error.status not in (409, 422):
+                raise
+    raise Failure('Tap contention exhausted; no force update attempted')
 
 
 def update(version, digest, archive, formula, token):
-    raise Failure('Homebrew split publication is disabled: three-formula promotion, old-monolith migration and full runtime acceptance are pending')
+    try:
+        formulas.require_acceptance()
+    except renderer.ValidationError as error:
+        raise Failure(str(error)) from None
+    require(bool(token), 'Missing tap token')
+    desired = prepare(version, digest, archive, formula)
+    published(version, archive.name, digest)
+    return publish_set(desired, version, digest, token)
 
 
 def main():
@@ -160,10 +201,11 @@ def main():
     p.add_argument('--version', required=True)
     p.add_argument('--sha256', required=True)
     p.add_argument('--archive', type=Path, required=True)
-    p.add_argument('--formula', type=Path, required=True)
+    p.add_argument('--formula-dir', type=Path, required=True,
+                   help='reviewed directory containing all three formulas')
     a = p.parse_args()
     try:
-        result = update(a.version, a.sha256, a.archive, a.formula,
+        result = update(a.version, a.sha256, a.archive, a.formula_dir / 'cercano.rb',
                         os.environ.get('HOMEBREW_TAP_TOKEN', ''))
     except (Failure, renderer.ValidationError, PromotionError) as e:
         print(f'Tap update refused: {e}', file=sys.stderr)

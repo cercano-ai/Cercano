@@ -308,7 +308,7 @@ jobs:
 
       - name: Test tap updater
         if: inputs.publish
-        run: python3 -m unittest discover -s release/homebrew -p 'test_update_tap.py'
+        run: python3 -m unittest discover -s release/homebrew -p 'test_*.py'
       - name: Publish verified formula to tap
         if: inputs.publish
         env:
@@ -321,7 +321,7 @@ jobs:
           python3 release/homebrew/update_tap.py \
             --version "$VERSION" --sha256 "$EXPECTED_SHA256" \
             --archive "dist/cercano-$VERSION-darwin-arm64.tar.gz" \
-            --formula dist/cercano.rb
+            --formula-dir dist
 
   # Experimental, UNSIGNED Windows x64 artifact. This job is intentionally
   # NOT in the protected `release` environment and references no secrets:

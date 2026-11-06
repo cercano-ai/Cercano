@@ -228,17 +228,27 @@ networked notarization, and optionally a clean-Mac rehearsal.
 
 ## Homebrew coordinated preparation — publication blocked
 
-The archive now renders **three** formulas: `cercano-agent`, `cercano-cli`
-and the dependency-only `cercano` convenience formula. A single-formula Contents
-API update is not a supported promotion path. Earlier instructions here for
-an automatic `Formula/cercano.rb` write and tap-only recovery dispatch were
-obsolete and have been withdrawn.
+Publication-enabled runs finish with **Publish verified formula to tap** in
+the same protected job, only after publication succeeds; dry runs (`publish=false`)
+never write to the tap. The native/runtime acceptance code gate is still closed
+(`release/homebrew/formula_set.py`); do not dispatch either workflow yet. Once
+accepted, one commit updates `Formula/cercano-agent.rb`, `Formula/cercano-cli.rb`
+and dependency-only `Formula/cercano.rb` on
+`cercano-ai/homebrew-cercano`'s `main`, with no pull request or approval prompt.
 
-Both workflows still call `update_tap.py`, but it unconditionally refuses before
-credentials, network access or tap writes. `promote_to_tap.py` also refuses local
-promotion, even with `--skip-download`. **Do not dispatch either workflow**:
-the macOS release workflow contains other release-publication actions outside
-this tap guard. No publication is authorized by successful offline tests.
+Before writing, the updater checks the CI archive and regenerated formula,
+then downloads the publicly published macOS archive and its checksum sidecar.
+Both must match the digest recorded by the build. Nothing is extracted or run.
+An identical complete formula set is a successful no-op. A newer version, or a
+same-version change of digest/formula, is refused. Concurrent edits use the
+Git Data API's non-force branch advancement; a conflict causes up to three fresh
+head/tree/set validations, never a force update. One tree and commit contain all
+three formulas; unrelated tap files are preserved. Ambiguous ref responses are
+reconciled by rereading the exact complete set, not blind mutation retries.
+Recovery requires all three formulas from the original reviewed artifact; legacy
+single-formula artifacts cannot publish the split. See `release/homebrew/README.md`
+for the supported explicit manual monolith migration and local private-index
+review-commit preparation. Neither implies crash-atomic package installation.
 
 Use the [Homebrew preparation guide](../release/homebrew/README.md) to validate
 all three rendered formulas against the local archive and produce a read-only
