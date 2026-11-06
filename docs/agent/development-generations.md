@@ -8,8 +8,10 @@ in place, never copied or overwritten by preparation. Explicit
 `CERCANO_DEVELOPMENT_STATE` still selects isolated state. A nonempty
 `CERCANO_CONVERSATIONS_DB` is accepted only when it exactly matches the selected
 state's `conversations.db`; other paths are explicitly refused before setup or
-database access. Existing incompatible stores still require a separately
-approved offline upgrade; this correction performs no transition. Path ownership,
+database access. Existing incompatible legacy stores require explicit interactive confirmation
+for an offline upgrade. Approval can stop incompatible hosts, disconnect sessions,
+and interrupt work; unsaved progress may be lost. Decline until active work is
+finished. There is no silent migration. Path ownership,
 privacy and canonical-path checks remain enforced (no automatic permission repair).
 
 The separate-default/cutover details below describe the earlier workflow, not
@@ -21,17 +23,23 @@ it was not executed.
 
 The source launcher publishes immutable generations and acquires an authenticated development host; it no longer uses the earlier fail-closed-only stub. This is a development workflow, not the packaged singleton launcher. **The approved launcher cutover completed on 2026-10-27:** `~/bin/cercano` was replaced using static-only checks, without executing either launcher. The installed launcher's SHA-256 is `99f14bdf3815401086a283e23aaf6e344991968d95c31fcd0a77640a48d4b4ce`. The original is preserved at `~/bin/.cercano-launcher-backup-65xn2gpz/cercano`, SHA-256 `d37ee44856fd8ef34aaec5091a5c9ad265bfc67378d847edde0cdc67459256fc`. No native credentials were accessed, no real-model test was performed, and no agent was stopped during this cutover. The packaged launcher path was not changed. The actual ordinary-launcher A/B acceptance has passed with compiled hosts/workers and injected synthetic providers; see [acceptance evidence](../../efforts/dev-host-generations/everyday-launcher-acceptance-evidence.md). This is not real-model or native-credential qualification.
 
-The workflow never implicitly stops the old app, imports its database, or mutates its original configuration. Initial provisioning copies only the existing server config YAML into the separate development state. The one-time transition creates **separate new state**, not a replacement for or loss of the old data. Do not point it at your existing Cercano state, copy a legacy database into it, or use a running production launcher to provision it. Existing sessions continue on their original hosts until explicitly managed.
+Normal compatible-state launch is non-disruptive; the explicitly confirmed legacy
+store upgrade described above is the exception. For isolation, select a new
+`CERCANO_DEVELOPMENT_STATE`: initial provisioning copies only the existing server
+config YAML and creates separate new state, without copying legacy history or
+native credentials. The default `~/.config/cercano` instead uses ordinary config
+and history in place. See [build and wrapper generation](self-dev.md#layout--build)
+for separate module builds, build-only publication, and no-clobber installation.
 
 ## Automatic first-launch preparation
 
 Prerequisites: Python 3.9+, the supported native Go build toolchain, and on macOS working ad-hoc codesigning. Use canonical absolute paths without symlink aliases. The state parent must already exist, be owned by you, and not writable by others.
 
-The updated **source launcher on this branch** automatically bootstraps an absent default `~/.config/cercano-development` (or an explicitly selected new state). No provisioning command or environment variable is needed for the default. It serializes setup using a persistent private sibling lock, publishes a signed build-only generation in a temporary private sibling directory, then invokes that binary's early `prepare-development --new-state` command before normal publication/acquisition. Concurrent first invocations wait for preparation; they never inspect a half-written state. Temporary bootstrap builds are removed; the lock file remains to preserve lock identity.
+The landed source launcher automatically bootstraps an absent default `~/.config/cercano` (or an explicitly selected new state). No provisioning command or environment variable is needed for the default. It serializes setup using a persistent private sibling lock, publishes a signed build-only generation in a temporary private sibling directory, then invokes that binary's early `prepare-development --new-state` command before normal publication/acquisition. Concurrent first invocations wait for preparation; they never inspect a half-written state. Temporary bootstrap builds are removed; the lock file remains to preserve lock identity.
 
 The early command creates mode-0700 state and a development-owned v2 store and copies mode-0600 config through the existing implementation. Discovery remains `config.DefaultPath()`: `~/.config/cercano/config.yaml` (not `XDG_CONFIG_HOME`). It does not enter normal startup, open legacy databases, or resolve native credentials. Build/preparation output is captured rather than relayed to avoid secret disclosure.
 
-Missing source config or failed bootstrap build leaves the destination absent. Existing destinations, including empty, partial, incompatible, and legacy stores, are never adopted, overwritten, migrated, or repaired. Failure after exclusive creation leaves partial state for inspection and future launches refuse it. Diagnose that failure and deliberately choose a new destination rather than deleting or repurposing original data. Existing valid state is reused without recopying config.
+Missing source config or failed bootstrap build leaves the destination absent. Empty, partial, or unsafe existing destinations are not adopted or repaired. Supported incompatible legacy stores require the explicitly confirmed offline upgrade described above; preparation itself does not migrate them. Failure after exclusive creation leaves partial state for inspection and future launches refuse it. Diagnose that failure and deliberately choose a new destination rather than deleting or repurposing original data. Existing valid state is reused without recopying config.
 
 Preparation automatically creates `$CERCANO_DEVELOPMENT_STATE/config.yaml` as a
 private regular file (0600) in the private state directory (0700). It copies the
@@ -61,9 +69,17 @@ This pins the exact protected record directory. Ordinary pre-existing unprotecte
 
 ## Everyday launch, reuse, and exact reconnect
 
-The source launcher defaults to `$HOME/.config/cercano-development` and automatically prepares it if absent. For a custom state, set `CERCANO_DEVELOPMENT_STATE`. Set `CERCANO_REPO` only when intentionally overriding the embedded checkout. These changes are unlanded source-template changes, not an update to the installed command. Until a separately reviewed replacement, use the reviewed source entrypoint:
+The source launcher defaults to `$HOME/.config/cercano` (not isolated state) and
+automatically prepares it if absent. For isolated state, set
+`CERCANO_DEVELOPMENT_STATE` to a new canonical absolute path with an existing,
+owned parent not writable by others. The source-template changes are landed;
+an already generated wrapper is not automatically refreshed. Use the checkout
+entrypoint, setting `CERCANO_REPO` explicitly here (or only when intentionally
+overriding an installed wrapper's embedded checkout):
 
 ```bash
+export CERCANO_REPO=/absolute/canonical/Cercano
+export CERCANO_DEVELOPMENT_STATE=/absolute/private/parent/cercano-review-state
 "$CERCANO_REPO/source/server/scripts/cercano-launcher.sh"
 ```
 
@@ -122,7 +138,7 @@ The approved 2026-10-27 replacement is recorded above. The procedure below prese
 
 Target: `/Users/bryancostanich/bin/cercano`. The historical pre-approval warning was: **Do not execute the old script, install over it, or run a candidate against production.** For future preparation, do not touch real application state or native credentials. The installer is explicit and no-clobber; it cannot replace an existing file or symlink and has no `--force` path.
 
-For a future replacement after the implementation lands in the **main repository**, the main operator can prepare a candidate with the following commands. Confirm `MAIN` is the actual canonical main checkout containing the landed revision, not a feature worktree. The example main path is intentional and must be verified by the operator. The installer embeds its own checkout root, so invoking a worktree installer and planning to override `CERCANO_REPO` later is not an acceptable installed artifact.
+For a future replacement using the landed implementation in the **main repository**, the main operator can prepare a candidate with the following commands. Confirm `MAIN` is the actual canonical main checkout containing the landed revision, not a feature worktree. The example main path is intentional and must be verified by the operator. The installer embeds its own checkout root, so invoking a worktree installer and planning to override `CERCANO_REPO` later is not an acceptable installed artifact.
 
 ```bash
 MAIN=/Users/bryancostanich/git_repos/cercano-ai/Cercano

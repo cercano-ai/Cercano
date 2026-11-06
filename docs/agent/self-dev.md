@@ -73,8 +73,11 @@ Two binaries from two Go modules:
 
 | Binary | Module | Role |
 |---|---|---|
-| `cercano` | `source/server` | agent gRPC server, MCP host — a singleton |
+| `cercano` | `source/server` | agent gRPC server, MCP host |
 | `cercano-cli` | `source/clients/cli` | terminal UI, thin gRPC client |
+
+These module builds only write binaries; they do not launch an agent. Outputs are
+`source/server/bin/cercano` and `source/clients/cli/bin/cercano-cli`.
 
 ```bash
 # Server (agent + MCP)
@@ -96,22 +99,77 @@ access across rebuilds, but prompts depend on OS and Keychain configuration.
 The launcher uses the same version/signing convention. Bare `go build` without
 version ldflags reports `dev` and does not run this signing helper.
 
-**Development launcher:** the source launcher publishes immutable generations
-and uses separate prepared development state; it does not kill singleton agents.
-Follow [development generations](development-generations.md) for automatic first-launch
-build-only bootstrap and early `prepare-development`. Preparation carries forward
-`~/.config/cercano/config.yaml` privately without modifying the original or
-copying databases/native credentials; later builds reuse the development copy.
-The source shell/Python and installed launcher's default state is now
-`~/.config/cercano`, using ordinary config and history in place, not a copy.
-`CERCANO_DEVELOPMENT_STATE` optionally selects a separate custom state; the
-preparation/copy behavior above applies to absent custom state.
-`CERCANO_CONVERSATIONS_DB`, if nonempty, must exactly match the selected state's
-`conversations.db` or launch is explicitly refused. Existing partial/incompatible
-stores are refused, never adopted or migrated; an offline upgrade requires
-separate approval. This default correction does not perform that transition. Template changes
-require an explicitly reviewed installed-launcher replacement; the no-clobber
-installer only creates a new destination (`make launcher LAUNCHER_DEST=...`).
+### Build-only immutable generation
+
+From the checkout root, use a dedicated caller-owned absolute root **outside the
+checkout**, not `~/bin` or `.cercano-libexec`:
+
+```bash
+python3 source/server/scripts/publish-dev-generation.py publish \
+  --root /absolute/dedicated/cercano-generations --generation review-001
+```
+
+This creates `review-001/cercano`, `review-001/cercano-cli`, and
+`review-001/manifest.json` under that root, validating and publishing without
+executing either binary. It does not launch hosts, install a launcher, or replace
+existing generations. Optional `--sign` enables conditional macOS signing;
+signing may access the Keychain and prompt. Structural validation is not runtime
+acceptance.
+
+### Generate (or regenerate) the development wrapper
+
+Launcher generation is separate from module builds and generation publication.
+From the checkout root:
+
+```bash
+make -C source/server launcher LAUNCHER_DEST=/absolute/new/path/cercano
+# Equivalent:
+# bash source/server/scripts/install-launcher.sh --destination /absolute/new/path/cercano
+```
+
+Choose an absolute **new** destination with an existing parent directory. The
+installer embeds its checkout root; use the canonical checkout you intend to run.
+`CERCANO_REPO` can intentionally override that embedded root at runtime. It never
+overwrites an existing file or symlink and has no `--force`. To regenerate after
+template changes, generate a new candidate path and review it; do not delete an
+existing `~/bin/cercano` to bypass this protection. Generation alone neither
+launches the wrapper nor changes `PATH`.
+
+### Everyday checkout launch and exact reconnect
+
+This is a **development wrapper**, not the same-name packaged `cercano` agent
+binary. See [the agent guide](README.md) for packaged-command context and
+[development generations](development-generations.md) for prerequisites,
+preparation, lifecycle management, and replacement review.
+
+For an isolated checkout run, choose canonical absolute paths; the state parent
+must already exist, be owned by you, and not writable by others:
+
+```bash
+export CERCANO_REPO=/absolute/canonical/Cercano
+export CERCANO_DEVELOPMENT_STATE=/absolute/private/parent/cercano-review-state
+"$CERCANO_REPO/source/server/scripts/cercano-launcher.sh"
+# Save the exact selection for YOUR conversation, not the newest by timestamp:
+SELECTION="$CERCANO_DEVELOPMENT_STATE/selections/EXACT-CONVERSATION.json"
+"$CERCANO_REPO/source/server/scripts/cercano-launcher.sh" --dev-host "$SELECTION"
+```
+
+A normal launch publishes/reuses immutable binaries and acquires a new
+conversation without disrupting existing hosts. Exact saved `--dev-host`
+reconnect uses the pinned generation/host, not current source or a “latest”
+selection. An absent custom state is prepared from a private copy of existing
+`~/.config/cercano/config.yaml`, without copying databases or native credentials;
+later launches reuse that state/config. Runtime credential access is separate
+from build-only publication.
+
+**The default is `~/.config/cercano`, not isolated state:** without
+`CERCANO_DEVELOPMENT_STATE`, ordinary config and history are used in place.
+A nonempty `CERCANO_CONVERSATIONS_DB` must exactly match the selected state's
+`conversations.db`, or launch is refused. Partial/unsafe state is not silently
+adopted or repaired. An incompatible legacy store requires explicit interactive
+confirmation for an offline upgrade; approving it can stop incompatible hosts,
+disconnect sessions, and interrupt work (unsaved progress may be lost). Decline
+and finish active work first. There is no silent migration.
 
 ## Logs
 

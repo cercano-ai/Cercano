@@ -33,35 +33,39 @@ You need Go plus one model source. Everything else is optional.
 
 ### 2. Build the dev launcher
 
-The normal development launcher publishes immutable generations and acquires
-an authenticated development host; it does not rebuild shared binaries or kill
-existing agents on invocation. See [development generations](development-generations.md)
-for required isolated-state preparation, exact reconnect, and the approved
-2026-10-27 static-only installed-launcher cutover (no launcher execution, native
-credential access, real-model test, or agent stop). This does not change the
-packaged launcher path. Generate the launcher once; it bakes in this clone's
-path and exports `CERCANO_REPO`:
+The development wrapper publishes immutable generations and acquires an
+authenticated development host. Normal compatible-state launch does not disrupt
+existing hosts; a legacy-store offline upgrade requires explicit confirmation
+and can interrupt work. See [self-development build instructions](self-dev.md#layout--build)
+for module builds and build-only publication, and [development generations](development-generations.md)
+for preparation, exact reconnect, and replacement review.
+
+Generate a new wrapper (the absolute destination's parent must already exist):
 
 ```bash
-cd source/server && make launcher
+make -C source/server launcher LAUNCHER_DEST=/absolute/new/path/cercano
 ```
 
-After this, `cercano` is on your path (the launcher tells you where it wrote
-it and how to add it to `PATH` if needed).
+The no-clobber installer embeds this checkout's root, overridable with
+`CERCANO_REPO`. It will not overwrite an existing file/symlink and has no
+`--force`; generate a new candidate for review rather than deleting an existing
+`~/bin/cercano`. Generation does not launch anything or add it to `PATH`.
 
 ### 3. Run it
 
 ```bash
-cercano
+/absolute/new/path/cercano
 ```
 
-This development launcher is distinct from the installed server binary. For
-Homebrew/release installs, launch `cercano-cli`; bare `cercano` is the server.
-The development launcher always execs `cercano-cli` with the original arguments;
-it does not select server mode based on stdin. The CLI can auto-launch the
-gRPC agent if it cannot connect. To run the agent server by hand from a dev
-launcher install, use `"$HOME/bin/.cercano-libexec/cercano" agent` (or
-`cercano agent` when `cercano` resolves to the installed server binary).
+The default state is `~/.config/cercano`, using ordinary config and history in
+place, **not isolated state**. For isolation, select a new canonical absolute
+`CERCANO_DEVELOPMENT_STATE` with the prerequisites in the linked guide.
+
+This development wrapper runs the generation's CLI, not the same-name packaged
+agent server. For Homebrew/release installs, launch `cercano-cli`; bare `cercano`
+is the server. Do not use the development wrapper to invoke server subcommands.
+To run the server directly from a module build, use
+`source/server/bin/cercano agent` from the checkout root.
 
 ### 4. Point it at a model
 
@@ -79,12 +83,12 @@ any time with `/strict`, `/permissive`, or `/bypass`.
 
 For scripts, CI, or driving Cercano from another agent, invoke the server
 binary's `run` command, not the development launcher. For release installs, use
-`cercano run`; for a dev launcher install:
+`cercano run`; for a server module build (from the checkout root):
 
 ```bash
-"$HOME/bin/.cercano-libexec/cercano" run "list the markdown files in this directory"
-"$HOME/bin/.cercano-libexec/cercano" run --auto-allow "add a TODO line to the top of README.md"
-"$HOME/bin/.cercano-libexec/cercano" run --conv my-session "continue where we left off"
+source/server/bin/cercano run "list the markdown files in this directory"
+source/server/bin/cercano run --auto-allow "add a TODO line to the top of README.md"
+source/server/bin/cercano run --conv my-session "continue where we left off"
 ```
 
 Stdout is the assistant's answer; stderr carries progress and errors. Exit codes:
@@ -107,18 +111,12 @@ piece.
 
 ### Install the dev launcher
 
-The normal development launcher publishes immutable generations without
-rebuilding shared binaries or killing existing agents. Follow the isolated-state
-prerequisites in [development generations](development-generations.md).
-Generate it (bakes this clone's path in, exports `CERCANO_REPO`):
-
-```bash
-cd source/server && make launcher
-```
-
-Then `cercano` always runs the CLI, forwarding its arguments. To run the gRPC
-agent server directly, use `"$HOME/bin/.cercano-libexec/cercano" agent`. The CLI
-can auto-launch the agent if it cannot connect.
+Follow [Build the dev launcher](#2-build-the-dev-launcher) above for explicit
+no-clobber generation (`LAUNCHER_DEST` is required), and
+[self-development](self-dev.md#layout--build) for module build outputs and
+checkout launch examples. The wrapper runs the CLI; invoke the server module
+binary directly for server subcommands. The default `~/.config/cercano` is not
+isolated; choose `CERCANO_DEVELOPMENT_STATE` deliberately.
 
 ### Interactive mode
 
@@ -131,12 +129,13 @@ Type a prompt. The agent decides whether to use tools (Read, Glob, Grep, LS, Run
 ### Headless / scripted mode
 
 Use the server binary, not the development launcher. The paths below are for a
-dev launcher install; for a release install, use `cercano run` instead.
+server module build, run from the checkout root; for a release install, use
+`cercano run` instead.
 
 ```bash
-"$HOME/bin/.cercano-libexec/cercano" run "list the markdown files in this directory"
-"$HOME/bin/.cercano-libexec/cercano" run --auto-allow "edit README.md and add a TODO line at the top"
-"$HOME/bin/.cercano-libexec/cercano" run --conv my-session "continue where we left off"
+source/server/bin/cercano run "list the markdown files in this directory"
+source/server/bin/cercano run --auto-allow "edit README.md and add a TODO line at the top"
+source/server/bin/cercano run --conv my-session "continue where we left off"
 ```
 
 Stdout carries the assistant's text response. Stderr carries progress diagnostics
