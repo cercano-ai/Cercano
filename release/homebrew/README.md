@@ -123,11 +123,16 @@ not an external-checkout-dependent current test.
 ## Coordinated publication mechanics (acceptance gate remains closed)
 
 `formula_set.py:PUBLICATION_ACCEPTED = False` is the effective code gate for
-both entry points, before files, credentials or network access. It has no CLI or
-environment override. Runtime/native acceptance is incomplete; do not dispatch
-release or recovery workflows. Enabling it requires reviewed acceptance evidence,
-not merely removal of a guard. The main workflow also has release actions outside
-this tap gate.
+both entry points and the `publish_set` mutation boundary, before files, credentials
+or network access. It has no CLI or environment override. Runtime/native
+acceptance is incomplete; do not dispatch publication-enabled release or recovery
+workflows. Enabling it requires reviewed acceptance evidence,
+not merely removal of a guard. Publication-enabled main workflow runs execute the
+shared acceptance check in a required preflight job before any platform builds,
+signing, or public release action. With the gate closed they cannot publish the
+six release assets before failing at the tap. `publish=false` skips only that
+publication check, so a non-publishing build/signing rehearsal remains possible.
+The updater retains its own gate, including for recovery.
 
 Both workflows pass `--formula-dir dist`, requiring the complete reviewed set.
 The updater checks all three against trusted templates and a shared version,

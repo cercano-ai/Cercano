@@ -53,14 +53,20 @@ class GitAPI:
         self.mode = mode
         self.calls = []
         self.advances = 0
+        self.head = 'head-0'
+        self.tree = 'base-0'
+        self.commits = {}
+        self.trees = {}
 
     def __call__(self, method, path, token, payload=None):
         self.calls.append((method, path, payload))
         if '/git/ref/heads/' in path:
-            return {'object': {'sha': 'head'}}
+            return {'object': {'sha': self.head}}
         if method == 'GET' and '/git/commits/' in path:
-            return {'tree': {'sha': 'base'}}
+            assert path.endswith('/' + self.head)
+            return {'tree': {'sha': self.tree}}
         if method == 'GET' and '/git/trees/' in path:
+            assert path.endswith('/' + self.tree + '?recursive=1')
             return {'truncated': False, 'tree': [
                 {'path': n, 'type': 'blob', 'mode': '100644', 'sha': n}
                 for n in self.files]}
@@ -68,18 +74,25 @@ class GitAPI:
             name = path.split('/git/blobs/')[1]
             return {'encoding': 'base64', 'content': base64.b64encode(self.files[name].encode()).decode()}
         if method == 'POST' and path.endswith('/trees'):
-            assert payload['base_tree'] == 'base'
+            assert payload['base_tree'] == self.tree
             assert {e['path'] for e in payload['tree']} == {'Formula/' + n for n in f.NAMES}
             self.pending = dict(self.files)
             self.pending.update({e['path']: e['content'] for e in payload['tree']})
             if self.mode == 'tree-failure':
                 raise u.Failure('tree failed', 500)
-            return {'sha': 'newtree'}
+            tree = 'tree-' + str(len(self.trees))
+            self.trees[tree] = self.pending
+            return {'sha': tree}
         if method == 'POST' and path.endswith('/commits'):
-            assert payload['parents'] == ['head']
-            return {'sha': 'newcommit'}
+            assert payload['parents'] == [self.head]
+            commit = 'commit-' + str(len(self.commits))
+            self.commits[commit] = payload
+            return {'sha': commit}
         if method == 'PATCH':
-            assert payload == {'sha': 'newcommit', 'force': False}
+            assert payload['force'] is False
+            commit = self.commits[payload['sha']]
+            if commit['parents'] != [self.head]:
+                raise u.Failure('stale parent', 422)
             if self.mode == 'conflict':
                 raise u.Failure('conflict', 409)
             if self.mode == 'network-before':
@@ -92,12 +105,16 @@ class GitAPI:
             if self.mode == 'once':
                 self.mode = None
                 self.files['concurrent.txt'] = 'preserved'
+                self.head = 'concurrent-head'
+                self.tree = 'concurrent-tree'
                 raise u.Failure('conflict', 422)
-            self.files = self.pending
+            self.files = self.trees[commit['tree']]
+            self.head = payload['sha']
+            self.tree = commit['tree']
             self.advances += 1
             if self.mode == 'lost':
                 raise u.Failure('connection lost')
-            return {'object': {'sha': 'newcommit'}}
+            return {'object': {'sha': self.head}}
         raise AssertionError((method, path))
 
 
@@ -120,9 +137,15 @@ class PublicationTest(unittest.TestCase):
                 u.prepare(V, digest, archive, root/'cercano.rb')
 
 
+    def test_closed_gate_blocks_direct_mutation_boundary(self):
+        with patch.object(u, 'api') as api:
+            with self.assertRaisesRegex(f.r.ValidationError, 'publication is disabled'):
+                u.publish_set(f.expected(V, D), V, D, 'token')
+            api.assert_not_called()
+
     def test_one_advance_and_noop(self):
         fake = GitAPI()
-        with patch.object(u, 'api', fake):
+        with patch.object(f, 'PUBLICATION_ACCEPTED', True), patch.object(u, 'api', fake):
             self.assertEqual(u.publish_set(f.expected(V, D), V, D, 'token'), 'updated')
             self.assertEqual(u.publish_set(f.expected(V, D), V, D, 'token'), 'unchanged')
         self.assertEqual(fake.advances, 1)
@@ -131,16 +154,21 @@ class PublicationTest(unittest.TestCase):
     def test_contention_and_lost_response(self):
         for mode, outcome in [('once', 'updated'), ('lost', 'reconciled')]:
             fake = GitAPI(mode)
-            with patch.object(u, 'api', fake):
+            with patch.object(f, 'PUBLICATION_ACCEPTED', True), patch.object(u, 'api', fake):
                 self.assertEqual(u.publish_set(f.expected(V, D), V, D, 'token'), outcome)
             self.assertEqual(fake.advances, 1)
             if mode == 'once':
                 self.assertEqual(fake.files['concurrent.txt'], 'preserved')
+                commits = list(fake.commits.values())
+                self.assertEqual([c['parents'] for c in commits], [['head-0'], ['concurrent-head']])
+                self.assertNotEqual(commits[0]['tree'], commits[1]['tree'])
+                with self.assertRaisesRegex(u.Failure, 'stale parent'):
+                    fake('PATCH', u.REF, 'token', {'sha': 'commit-0', 'force': False})
 
     def test_failures(self):
         for mode, patches in [('tree-failure', 0), ('conflict', 3), ('auth', 1), ('network-before', 1), ('newer', 1)]:
             fake = GitAPI(mode)
-            with patch.object(u, 'api', fake), self.assertRaises((u.Failure, f.r.ValidationError)):
+            with patch.object(f, 'PUBLICATION_ACCEPTED', True), patch.object(u, 'api', fake), self.assertRaises((u.Failure, f.r.ValidationError)):
                 u.publish_set(f.expected(V, D), V, D, 'token')
             self.assertEqual(fake.advances, 0)
             self.assertEqual(sum(c[0] == 'PATCH' for c in fake.calls), patches)

@@ -158,7 +158,8 @@ class ReleaseWorkflowTest(unittest.TestCase):
             self.assertIn(f"export {flag}='-O2 -g -mmacosx-version-min=12.0'", builder)
 
     def test_publication_waits_for_all_platforms_and_supports_dry_run(self):
-        self.assertEqual(self.jobs["build"]["needs"], ["build-windows", "build-linux"])
+        self.assertEqual(self.jobs["build"]["needs"],
+                         ["publication-preflight", "build-windows", "build-linux"])
         self.assertNotIn("if", self.jobs["build"])
         steps = self.jobs["build"]["steps"]
         publication = steps.index(self.step("build", "refuse to replace"))

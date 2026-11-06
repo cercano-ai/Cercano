@@ -15,6 +15,38 @@ spec.loader.exec_module(fixture)
 
 
 class WorkflowContractTest(unittest.TestCase):
+    def test_closed_preflight_prevents_release_action_but_allows_rehearsal(self):
+        jobs = fixture.load_workflow_file(
+            ROOT/'.github/workflows/release-macos.yml')['jobs']
+        preflight = jobs['publication-preflight']
+        self.assertNotIn('if', preflight)  # rehearsal must succeed, not skip the job
+        gate = next(s for s in preflight['steps'] if 'require_acceptance' in s.get('run', ''))
+        self.assertEqual(gate['if'], 'inputs.publish')
+        self.assertNotIn('continue-on-error', gate)
+        self.assertNotIn('continue-on-error', preflight)
+        release = next(s for s in jobs['build']['steps']
+                       if s.get('uses', '').startswith('softprops/action-gh-release@'))
+        self.assertEqual(release['if'], 'inputs.publish')
+        for name in ('build', 'build-windows', 'build-linux'):
+            self.assertIn('publication-preflight', jobs[name]['needs'])
+            self.assertNotIn('if', jobs[name])  # no always() bypass of failed needs
+        # Execute the real preflight shell, then model Actions' default success()
+        # dependency scheduling. Never execute builds, signing, or remote actions.
+        for publish in (True, False):
+            result = (subprocess.run(['bash', '-e', '-c', gate['run']], cwd=ROOT,
+                                     capture_output=True, text=True) if publish else None)
+            status = {'publication-preflight': not publish or result.returncode == 0}
+            if publish:
+                self.assertIn('publication is disabled', result.stderr)
+            reached = []
+            for name in ('build-windows', 'build-linux', 'build'):
+                status[name] = all(status[dep] for dep in jobs[name]['needs'])
+                if status[name]:
+                    reached.append(name)
+            release_invoked = status['build'] and publish
+            self.assertFalse(release_invoked, 'closed gate reached public release action')
+            self.assertEqual(reached, [] if publish else ['build-windows', 'build-linux', 'build'])
+
     def test_main_and_recovery_full_set_and_gate(self):
         for filename, job_name in [('release-macos.yml', 'build'),
                                    ('update-homebrew.yml', 'update-homebrew')]:

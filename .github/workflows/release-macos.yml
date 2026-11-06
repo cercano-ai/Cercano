@@ -42,9 +42,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  publication-preflight:
+    name: Check publication acceptance before builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require publication acceptance
+        if: inputs.publish
+        run: |
+          python3 -c "import sys; sys.path.insert(0, 'release/homebrew'); from formula_set import require_acceptance; require_acceptance()"
+
   build:
     name: Build, sign, notarize, verify and release
-    needs: [build-windows, build-linux]
+    needs: [publication-preflight, build-windows, build-linux]
     # One protected approval covers signing and publication, including the tap.
     permissions:
       contents: write
@@ -331,6 +343,7 @@ jobs:
   # compilation is used for the packaging probes, but the binaries are built
   # and smoke-tested on the Windows host itself.
   build-windows:
+    needs: [publication-preflight]
     name: Build unsigned experimental Windows x64 archive
     runs-on: windows-latest
     timeout-minutes: 60
@@ -519,6 +532,7 @@ jobs:
   # job produces a reviewable experimental artifact, never an implied
   # support commitment, and the publish flag below still gates distribution.
   build-linux:
+    needs: [publication-preflight]
     name: Build unsigned experimental Linux x86_64 archive
     runs-on: ubuntu-24.04
     timeout-minutes: 60

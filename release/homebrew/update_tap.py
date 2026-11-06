@@ -158,6 +158,7 @@ def publish_set(desired, version, digest, token):
     is success (including a concurrent identical publisher); otherwise fail
     closed, except explicit contention, which gets bounded revalidation.
     """
+    formulas.require_acceptance()
     for attempt in range(3):
         head, base, existing = snapshot(token)
         if formulas.decision(existing, desired, version, digest) == 'unchanged':
