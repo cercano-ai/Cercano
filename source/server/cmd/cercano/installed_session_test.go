@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	gproto "google.golang.org/protobuf/proto"
+
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/server"
 	"cercano/source/server/pkg/agentclient"
@@ -88,15 +90,20 @@ func TestInstalledSessionAdmissionAndPinnedReconnect(t *testing.T) {
 		}
 		options := o
 		options.Generation, options.Host, options.RuntimeRoot, options.TokenFile, options.Installed = generation, host, runtime, token, true
-		identity := *o.Identity
+		originalHost, originalBuild := o.Identity.Host, o.Identity.Build
+		// Generated messages contain runtime state and must not be copied by value.
+		identity := gproto.Clone(o.Identity).(*proto.LifecycleIdentity)
 		identity.Host, identity.Build = host, build
-		options.Identity = &identity
+		if o.Identity.Host != originalHost || o.Identity.Build != originalBuild {
+			t.Fatal("installed generation mutated the source identity")
+		}
+		options.Identity = identity
 		binding := developmentBinding(options)
 		options.startupAdmission.bounded = &binding
 		startOrdinaryGenerationFixture(t, options, auth, func(_ *server.Server, _ developmentHostOptions, endpoint string, _ func()) {
 			// Fixture publication only: admission below still authenticates readiness,
 			// acquires a real owner and persists before publishing discovery.
-			record := launchSelection{Endpoint: endpoint, Identity: &identity, TokenFile: token, ConfigAuthority: options.ConfigAuthority}
+			record := launchSelection{Endpoint: endpoint, Identity: identity, TokenFile: token, ConfigAuthority: options.ConfigAuthority}
 			if err := launchExclusive(base+".json", record); err != nil {
 				t.Fatal(err)
 			}
