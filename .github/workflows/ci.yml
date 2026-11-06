@@ -47,6 +47,14 @@ jobs:
       - name: Build binary
         run: go build -ldflags "-X main.version=ci-${{ github.sha }}" -o bin/cercano ./cmd/cercano
 
+      # The release workflow ships a Windows build, but this job only runs on
+      # Linux. Cross-compile so Unix-only code is caught here, not at release.
+      - name: Cross-compile for Windows and macOS
+        run: |
+          GOOS=windows GOARCH=amd64 go build ./...
+          GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./cmd/cercano
+          GOOS=darwin GOARCH=arm64 go build ./...
+
   cli-e2e:
     runs-on: ubuntu-latest
     defaults:

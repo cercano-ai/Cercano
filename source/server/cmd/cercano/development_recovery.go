@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 )
 
 func developmentRecoveryGuard(state string, destination *pb.LifecycleIdentity) func(context.Context, string) (func(), error) {
@@ -53,12 +52,12 @@ func developmentRecoveryGuardWithVerifier(state string, destination *pb.Lifecycl
 		if err := launchPrivateFile(base + ".lock"); err != nil {
 			return nil, err
 		}
-		lock, err := os.OpenFile(base+".lock", os.O_RDWR|syscall.O_NOFOLLOW, 0)
+		lock, err := os.OpenFile(base+".lock", os.O_RDWR|devOpenNoFollow, 0)
 		if err != nil {
 			return nil, err
 		}
-		release := func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); _ = lock.Close() }
-		if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		release := func() { _ = devFlock(lock, devLockUnlock); _ = lock.Close() }
+		if err = devFlock(lock, devLockExclusive|devLockNonBlock); err != nil {
 			lock.Close()
 			return nil, fmt.Errorf("source launch in progress: %w", err)
 		}

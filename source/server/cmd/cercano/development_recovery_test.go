@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 )
 
@@ -43,7 +42,7 @@ func TestDevelopmentRecoveryRegistryExclusion(t *testing.T) {
 		}
 		return nil
 	})
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err = devFlock(lock, devLockExclusive|devLockNonBlock); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = guard(context.Background(), "A"); err == nil {
@@ -52,19 +51,19 @@ func TestDevelopmentRecoveryRegistryExclusion(t *testing.T) {
 	if checks != 0 {
 		t.Fatal("verification before launch exclusion")
 	}
-	syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	devFlock(lock, devLockUnlock)
 	release, err := guard(context.Background(), "A")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+	if err = devFlock(lock, devLockExclusive|devLockNonBlock); err == nil {
 		t.Fatal("recovery did not retain launch exclusion")
 	}
 	release()
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err = devFlock(lock, devLockExclusive|devLockNonBlock); err != nil {
 		t.Fatal(err)
 	}
-	syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	devFlock(lock, devLockUnlock)
 	if _, err = guard(context.Background(), "unknown"); err == nil {
 		t.Fatal("missing record accepted")
 	}
@@ -72,8 +71,8 @@ func TestDevelopmentRecoveryRegistryExclusion(t *testing.T) {
 	if _, err = live(context.Background(), "A"); err == nil {
 		t.Fatal("live source accepted")
 	}
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err = devFlock(lock, devLockExclusive|devLockNonBlock); err != nil {
 		t.Fatal("failure leaked lock")
 	}
-	syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	devFlock(lock, devLockUnlock)
 }

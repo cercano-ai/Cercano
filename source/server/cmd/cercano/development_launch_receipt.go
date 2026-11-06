@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"cercano/source/server/pkg/agentclient"
@@ -124,15 +123,15 @@ func runDevelopmentLaunchReceipt(ctx context.Context, args []string, out io.Writ
 	if err := launchPrivateDir(state); err != nil {
 		return err
 	}
-	lock, err := os.OpenFile(filepath.Join(state, "current-target.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	lock, err := os.OpenFile(filepath.Join(state, "current-target.lock"), os.O_CREATE|os.O_RDWR|devOpenNoFollow, 0600)
 	if err != nil {
 		return err
 	}
 	defer lock.Close()
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if err = devFlock(lock, devLockExclusive); err != nil {
 		return err
 	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	defer devFlock(lock, devLockUnlock)
 	if *action == "abort" {
 		err = abortLaunch(state, s)
 	} else {
