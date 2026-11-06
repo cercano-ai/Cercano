@@ -53,31 +53,38 @@ func TestNativeProductionController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(root, "built-cercano")
-	buildCtx, stopBuild := context.WithTimeout(context.Background(), 90*time.Second)
-	defer stopBuild()
-	// Reuse only the existing compiler/module caches; do not inherit runtime
-	// credentials, proxies, Go flags/tags, or user config into the product build.
-	cacheCmd := exec.CommandContext(buildCtx, "go", "env", "GOCACHE", "GOPATH")
-	cacheOut, err := cacheCmd.Output()
-	if err != nil {
-		t.Fatal(err)
+	nativeBrew := os.Getenv("CERCANO_NATIVE_BREW") == "1"
+	if nativeBrew && (os.Getuid() != 501 || os.Getenv("HOME") != "/tmp/cnp.h8sjTc/home" || os.Getenv("XDG_CONFIG_HOME") != "/tmp/cnp.h8sjTc/config") {
+		t.Fatal("Homebrew rehearsal requires authorized guest synthetic UID/HOME/XDG")
 	}
-	caches := strings.Split(strings.TrimSpace(string(cacheOut)), "\n")
-	if len(caches) != 2 {
-		t.Fatalf("unexpected Go cache paths: %q", cacheOut)
-	}
-	goBinary, err := exec.LookPath("go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	build := exec.CommandContext(buildCtx, goBinary, "build", "-tags=", "-o", binary, ".")
-	build.Env = []string{"PATH=" + filepath.Dir(goBinary) + ":/usr/bin:/bin", "HOME=" + root, "XDG_CONFIG_HOME=" + root, "XDG_DATA_HOME=" + root, "XDG_CACHE_HOME=" + root, "TMPDIR=" + root, "GOCACHE=" + caches[0], "GOPATH=" + caches[1], "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOENV=off", "GOMAXPROCS=2", "GOFLAGS=-p=2", "CERCANO_DISABLE_CREDENTIALS=1"}
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("production build: %v\n%s", err, out)
-	}
-	if supplied := os.Getenv("CERCANO_NATIVE_AGENT"); supplied != "" {
-		binary = supplied
+	binary := os.Getenv("CERCANO_NATIVE_AGENT")
+	if !nativeBrew {
+		binary = filepath.Join(root, "built-cercano")
+		buildCtx, stopBuild := context.WithTimeout(context.Background(), 90*time.Second)
+		defer stopBuild()
+		// Reuse only the existing compiler/module caches; do not inherit runtime
+		// credentials, proxies, Go flags/tags, or user config into the product build.
+		cacheCmd := exec.CommandContext(buildCtx, "go", "env", "GOCACHE", "GOPATH")
+		cacheOut, err := cacheCmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		caches := strings.Split(strings.TrimSpace(string(cacheOut)), "\n")
+		if len(caches) != 2 {
+			t.Fatalf("unexpected Go cache paths: %q", cacheOut)
+		}
+		goBinary, err := exec.LookPath("go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		build := exec.CommandContext(buildCtx, goBinary, "build", "-tags=", "-o", binary, ".")
+		build.Env = []string{"PATH=" + filepath.Dir(goBinary) + ":/usr/bin:/bin", "HOME=" + root, "XDG_CONFIG_HOME=" + root, "XDG_DATA_HOME=" + root, "XDG_CACHE_HOME=" + root, "TMPDIR=" + root, "GOCACHE=" + caches[0], "GOPATH=" + caches[1], "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOENV=off", "GOMAXPROCS=2", "GOFLAGS=-p=2", "CERCANO_DISABLE_CREDENTIALS=1"}
+		if out, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("production build: %v\n%s", err, out)
+		}
+		if supplied := os.Getenv("CERCANO_NATIVE_AGENT"); supplied != "" {
+			binary = supplied
+		}
 	}
 	info, err := buildinfo.ReadFile(binary)
 	if err != nil {
@@ -112,6 +119,13 @@ func TestNativeProductionController(t *testing.T) {
 	kegs := make([]string, 1)
 	for i, version := range []string{"A"} {
 		kegs[i] = filepath.Join(root, "Cellar", "cercano-agent", version, "bin", "cercano")
+		if nativeBrew {
+			kegs[i], err = filepath.EvalSymlinks(binary)
+			if err != nil || kegs[i] != "/opt/homebrew/Cellar/cercano-agent/0.0.903/bin/cercano" {
+				t.Fatalf("installed A: %s %v", kegs[i], err)
+			}
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(kegs[i]), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -130,7 +144,7 @@ func TestNativeProductionController(t *testing.T) {
 		var processes []nativeControllerProcess
 		for _, line := range strings.Split(string(out), "\n") {
 			f := strings.Fields(line)
-			if len(f) < 3 || f[1] != kegs[0] {
+			if len(f) < 3 || (f[1] != kegs[0] && (!nativeBrew || f[1] != "/opt/homebrew/Cellar/cercano-agent/0.0.904/bin/cercano")) {
 				continue
 			}
 			pid, err := strconv.Atoi(f[0])
@@ -142,6 +156,7 @@ func TestNativeProductionController(t *testing.T) {
 		return processes, nil
 	}
 	var selected *launchSelection
+	var selections []launchSelection
 	var closeFixtures []func()
 	t.Cleanup(func() {
 		defer func() {
@@ -151,7 +166,11 @@ func TestNativeProductionController(t *testing.T) {
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if selected != nil && selected.Identity != nil {
+		for i := len(selections) - 1; i >= 0; i-- {
+			selected = &selections[i]
+			if selected.Identity == nil {
+				continue
+			}
 			controls, err := launchControls(ctx, *selected)
 			if err == nil {
 				defer controls.Close()
@@ -187,7 +206,17 @@ func TestNativeProductionController(t *testing.T) {
 		}
 	})
 	alias := filepath.Join(root, "cercano")
+	if nativeBrew {
+		alias = "/opt/homebrew/bin/cercano"
+	}
 	selectKeg := func(keg string) {
+		if nativeBrew {
+			actual, err := filepath.EvalSymlinks(alias)
+			if err != nil || actual != keg {
+				t.Fatalf("public selection=%s want=%s error=%v", actual, keg, err)
+			}
+			return
+		}
 		if err := os.Remove(alias); err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
@@ -220,6 +249,7 @@ func TestNativeProductionController(t *testing.T) {
 			t.Fatalf("persisted selection %q: %v", out, err)
 		}
 		selected = &s
+		selections = append(selections, s)
 		if s.Fixture || s.Identity == nil || s.Identity.Host == "" || s.Conversation == "" || s.Epoch == "" || s.Generation != generation {
 			t.Fatalf("invalid production selection: %+v", s)
 		}
@@ -278,7 +308,7 @@ data: [DONE]
 	provider.Context = localruntime.ContextCapacity{ConfirmedTokens: 32768, ConfirmedAt: time.Now()}
 	manager := localruntime.NewManager()
 	manager.RegisterProvider(provider)
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 	defer cancel()
 	if _, err := manager.Start(ctx, localruntime.StartRequest{Runtime: "llama_server", ModelID: "m1"}); err != nil {
 		t.Fatal(err)
@@ -309,6 +339,42 @@ data: [DONE]
 		t.Fatal(err)
 	}
 	t.Logf("before turn owned PIDs=%v binary_sha256=%x", before, sha256.Sum256(body))
+	if nativeBrew {
+		prior, err := os.Stat(kegs[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		hook := os.Getenv("CERCANO_NATIVE_BREW_HOOK")
+		if !filepath.IsAbs(hook) {
+			t.Fatal("absolute guest hook required")
+		}
+		upgrade := exec.CommandContext(ctx, "/opt/homebrew/bin/python3", hook, "upgrade")
+		upgrade.Env = os.Environ()
+		out, err := upgrade.CombinedOutput()
+		t.Logf("external upgrade/cleanup: %s", out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now, err := os.Stat(kegs[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		retained, err := os.ReadFile(kegs[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !os.SameFile(prior, now) || sha256.Sum256(retained) != sha256.Sum256(body) {
+			t.Fatal("A identity changed")
+		}
+		noWorkers, err := owned()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := nativeControllerInventory(noWorkers, nil); err != nil {
+			t.Fatal(err)
+		}
+		t.Log("A inode/hash unchanged after automatic and explicit cleanup; still zero workers")
+	}
 	var messages []agentclient.StreamMsg
 	stream, err := c.StreamChat(ctx, a.Conversation, "Reply with native-controller-ok", root)
 	if err != nil {
@@ -366,6 +432,67 @@ data: [DONE]
 		t.Logf("fresh worker PID=%d canonical executable=%s mapped=%s", process.pid, kegs[0], mapped)
 	}
 
+	if nativeBrew {
+		bKeg := "/opt/homebrew/Cellar/cercano-agent/0.0.904/bin/cercano"
+		selectKeg(bKeg)
+		_, b := launch(bKeg)
+		if b.Identity.Host == a.Identity.Host || b.Conversation == a.Conversation {
+			t.Fatal("B reused A")
+		}
+		bc := dial(b)
+		doTurn := func(client *agentclient.Client, selection launchSelection, wantTurns int, wantCalls int64) {
+			stream, err := client.StreamChat(ctx, selection.Conversation, "Reply with native-controller-ok", root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var messages []agentclient.StreamMsg
+			for msg := range stream {
+				messages = append(messages, msg)
+			}
+			if err := nativeControllerFinal(messages); err != nil {
+				t.Fatal(err)
+			}
+			turns, err := client.ResumeConversation(ctx, selection.Conversation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(turns) != wantTurns {
+				t.Fatalf("history length=%d want=%d", len(turns), wantTurns)
+			}
+			for i := 0; i < len(turns); i += 2 {
+				if err := nativeControllerTurns(turns[i : i+2]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if calls.Load() != wantCalls || provider.StartCalls() != 1 {
+				t.Fatalf("calls=%d starts=%d", calls.Load(), provider.StartCalls())
+			}
+			t.Logf("host=%s generation=%s exact final=1 history=%d completion_count=%d", selection.Identity.Host, selection.Generation, len(turns), calls.Load())
+		}
+		doTurn(bc, b, 2, 2)
+		c.Close()
+		reconnected := dial(a)
+		doTurn(reconnected, a, 4, 3)
+		roles, err := owned()
+		if err != nil {
+			t.Fatal(err)
+		}
+		hosts, workers := 0, 0
+		for _, p := range roles {
+			switch p.role {
+			case "development-host":
+				hosts++
+			case "worker":
+				workers++
+			default:
+				t.Fatalf("unexpected role %+v", p)
+			}
+		}
+		if hosts != 2 || workers != 2 {
+			t.Fatalf("coexisting inventory=%+v", roles)
+		}
+		t.Logf("A authenticated reconnect and later turn; A/B coexistence=%+v", roles)
+	}
 }
 
 // Resolve synthetic metadata without asking a real on-disk model catalog.
