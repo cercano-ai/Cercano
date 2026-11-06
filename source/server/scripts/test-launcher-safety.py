@@ -557,20 +557,38 @@ print(json.dumps(sys.argv[1:]))
             self.assertEqual(destination.stat().st_mode & 0o777, 0o755)
             self.assertEqual(sorted(p.name for p in Path(root).iterdir()), ['cercano'])
 
+    def test_installed_launcher_executes_with_fixture_dependencies_after_update(self):
+        with tempfile.TemporaryDirectory(prefix='launcher installed ') as root:
+            env = self.fixture(root)
+            destination = Path(root) / 'cercano'
+            for attempt in range(2):
+                with self.subTest(attempt=attempt):
+                    result = self.install('--destination', str(destination))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    result = subprocess.run([str(destination), '--resume=false', '-r'],
+                                            env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    forwarded = json.loads(result.stdout)
+                    self.assertEqual(forwarded[0], '--dev-host')
+                    self.assertEqual(forwarded[2:], ['--resume=false', '-r'])
+
     def test_install_replaces_symlink_without_touching_target(self):
         with tempfile.TemporaryDirectory(prefix='launcher safety ') as root:
             target = Path(root) / 'real-cercano'
-            result = self.install('--destination', str(target))
-            self.assertEqual(result.returncode, 0, result.stderr)
-            target_bytes = target.read_bytes()
+            # Distinct bytes and mode detect writes through the symlink, even
+            # if an implementation subsequently replaces the symlink itself.
+            target_bytes = b'untouched symlink target\n'
+            target.write_bytes(target_bytes)
+            target.chmod(0o640)
             alias = Path(root) / 'alias'
             alias.symlink_to(target)
             result = self.install('--destination', str(alias))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(alias.is_symlink())
-            self.assertEqual(alias.read_bytes(), target_bytes)
+            self.assertTrue(alias.read_bytes().startswith(b'#!/usr/bin/env bash\n'))
+            self.assertEqual(alias.stat().st_mode & 0o777, 0o755)
             self.assertEqual(target.read_bytes(), target_bytes)
-            self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o640)
             self.assertEqual(sorted(p.name for p in Path(root).iterdir()), ['alias', 'real-cercano'])
 
     def test_directory_destination_refused_without_staging_leftovers(self):
