@@ -122,17 +122,18 @@ Launcher generation is separate from module builds and generation publication.
 From the checkout root:
 
 ```bash
-make -C source/server launcher LAUNCHER_DEST=/absolute/new/path/cercano
+make -C source/server launcher LAUNCHER_DEST=/absolute/path/cercano
 # Equivalent:
-# bash source/server/scripts/install-launcher.sh --destination /absolute/new/path/cercano
+# bash source/server/scripts/install-launcher.sh --destination /absolute/path/cercano
 ```
 
-Choose an absolute **new** destination with an existing parent directory. The
+Choose an absolute destination with an existing parent directory. The
 installer embeds its checkout root; use the canonical checkout you intend to run.
-`CERCANO_REPO` can intentionally override that embedded root at runtime. It never
-overwrites an existing file or symlink and has no `--force`. To regenerate after
-template changes, generate a new candidate path and review it; do not delete an
-existing `~/bin/cercano` to bypass this protection. Generation alone neither
+`CERCANO_REPO` can intentionally override that embedded root at runtime. It
+atomically installs or replaces the destination file/symlink, so re-running
+against the same path updates the launcher in place; generate a fresh candidate
+path if you want to review a new launcher before replacing `~/bin/cercano`.
+Generation alone neither
 launches the wrapper nor changes `PATH`.
 
 ### Everyday checkout launch and exact reconnect

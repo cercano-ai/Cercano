@@ -531,20 +531,63 @@ print(json.dumps(sys.argv[1:]))
         self.assertEqual(self.install('--force').returncode, 2)
         self.assertEqual(self.install('--destination', 'relative').returncode, 2)
 
-    def test_install_and_refuse_overwrite_or_symlink(self):
+    def test_missing_parent_refused(self):
+        with tempfile.TemporaryDirectory(prefix='launcher safety ') as root:
+            destination = Path(root) / 'absent-bin' / 'cercano'
+            result = self.install('--destination', str(destination))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('destination parent must already exist', result.stderr.decode())
+            self.assertFalse(destination.parent.exists())
+
+    def test_install_then_update_existing_launcher(self):
         with tempfile.TemporaryDirectory(prefix='launcher safety ') as root:
             destination = Path(root) / 'cercano'
             result = self.install('--destination', str(destination))
             self.assertEqual(result.returncode, 0, result.stderr)
             original = destination.read_bytes()
             self.assertTrue(os.access(destination, os.X_OK))
-            self.assertNotEqual(self.install('--destination', str(destination)).returncode, 0)
+            self.assertEqual(destination.stat().st_mode & 0o777, 0o755)
+            self.assertTrue(destination.is_file() and not destination.is_symlink())
+            # Simulate a stale/edited launcher, then update the same destination.
+            destination.write_bytes(b'#!/bin/sh\n# stale\n')
+            destination.chmod(0o644)
+            result = self.install('--destination', str(destination))
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(destination.read_bytes(), original)
+            self.assertEqual(destination.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(sorted(p.name for p in Path(root).iterdir()), ['cercano'])
+
+    def test_install_replaces_symlink_without_touching_target(self):
+        with tempfile.TemporaryDirectory(prefix='launcher safety ') as root:
+            target = Path(root) / 'real-cercano'
+            result = self.install('--destination', str(target))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            target_bytes = target.read_bytes()
             alias = Path(root) / 'alias'
-            alias.symlink_to(destination)
-            self.assertNotEqual(self.install('--destination', str(alias)).returncode, 0)
-            self.assertEqual(destination.read_bytes(), original)
-            self.assertEqual(sorted(p.name for p in Path(root).iterdir()), ['alias', 'cercano'])
+            alias.symlink_to(target)
+            result = self.install('--destination', str(alias))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(alias.is_symlink())
+            self.assertEqual(alias.read_bytes(), target_bytes)
+            self.assertEqual(target.read_bytes(), target_bytes)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(sorted(p.name for p in Path(root).iterdir()), ['alias', 'real-cercano'])
+
+    def test_directory_destination_refused_without_staging_leftovers(self):
+        for kind in ('directory', 'symlinked-directory'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory(prefix='launcher safety ') as root:
+                parent = Path(root) / 'bin'
+                parent.mkdir()
+                destination = parent / 'cercano'
+                destination.mkdir()
+                if kind == 'symlinked-directory':
+                    destination.rmdir()
+                    destination.symlink_to(parent, target_is_directory=True)
+                result = self.install('--destination', str(destination))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('destination is a directory', result.stderr.decode())
+                self.assertTrue(destination.is_dir())
+                self.assertEqual(list(parent.iterdir()), [destination])
 
 
 if __name__ == '__main__':
