@@ -52,8 +52,11 @@ func launchPrivateDir(path string) error {
 	if err != nil {
 		return err
 	}
-	owner, ok := st.Sys().(*syscall.Stat_t)
-	if !st.IsDir() || st.Mode().Perm()&0077 != 0 || !ok || owner.Uid != uint32(os.Getuid()) {
+	owned, ownErr := devOwnedByCaller(st)
+	if ownErr != nil {
+		return ownErr
+	}
+	if !st.IsDir() || st.Mode().Perm()&0077 != 0 || !owned {
 		return fmt.Errorf("private owned directory required: %s", path)
 	}
 	return nil
@@ -96,8 +99,11 @@ func launchPrivateFile(path string) error {
 	if e != nil {
 		return e
 	}
-	owner, ok := st.Sys().(*syscall.Stat_t)
-	if !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 || !ok || owner.Uid != uint32(os.Getuid()) {
+	owned, ownErr := devOwnedByCaller(st)
+	if ownErr != nil {
+		return ownErr
+	}
+	if !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 || !owned {
 		return fmt.Errorf("private owned regular file required: %s", path)
 	}
 	return nil
@@ -233,7 +239,7 @@ func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Wr
 		}
 	}
 	// Serialize target publication across generations, not only per-host starts.
-	targetLock, e := os.OpenFile(filepath.Join(*state, "current-target.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	targetLock, e := os.OpenFile(filepath.Join(*state, "current-target.lock"), os.O_CREATE|os.O_RDWR|devOpenNoFollow, 0600)
 	if e != nil {
 		return e
 	}
@@ -241,10 +247,10 @@ func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Wr
 	if e = launchLock(ctx, targetLock); e != nil {
 		return e
 	}
-	defer syscall.Flock(int(targetLock.Fd()), syscall.LOCK_UN)
+	defer devFlock(targetLock, devLockUnlock)
 	key := sha256.Sum256([]byte(*generation))
 	base := filepath.Join(hosts, hex.EncodeToString(key[:]))
-	lock, e := os.OpenFile(base+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	lock, e := os.OpenFile(base+".lock", os.O_CREATE|os.O_RDWR|devOpenNoFollow, 0600)
 	if e != nil {
 		return e
 	}
@@ -252,7 +258,7 @@ func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Wr
 	if e = launchLock(ctx, lock); e != nil {
 		return e
 	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	defer devFlock(lock, devLockUnlock)
 	generationBase := base
 	base, e = developmentInstanceBase(generationBase)
 	if e != nil {
@@ -306,7 +312,7 @@ func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Wr
 			if e = devhostauth.Create(token); e != nil {
 				return e
 			}
-			log, e := os.OpenFile(base+".log", os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
+			log, e := os.OpenFile(base+".log", os.O_CREATE|os.O_APPEND|os.O_WRONLY|devOpenNoFollow, 0600)
 			if e != nil {
 				return e
 			}
@@ -447,7 +453,7 @@ func developmentHostCommand(binary, state, generation, host, token, record, runt
 	cmd.Env = os.Environ()
 	cmd.Stdout = log
 	cmd.Stderr = log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = devDetachSysProcAttr()
 	return cmd
 }
 
@@ -466,10 +472,10 @@ func launchLock(ctx context.Context, f *os.File) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err := devFlock(f, devLockExclusive|devLockNonBlock)
 		if err == nil {
 			if err := ctx.Err(); err != nil {
-				_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+				_ = devFlock(f, devLockUnlock)
 				return err
 			}
 			return nil

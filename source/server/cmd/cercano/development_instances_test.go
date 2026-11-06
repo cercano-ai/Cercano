@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"cercano/source/server/internal/brewrestart"
@@ -197,8 +196,8 @@ func TestDevelopmentMigrationExcludesFirstLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if err := devFlock(f, devLockExclusive|devLockNonBlock); err == nil {
+		devFlock(f, devLockUnlock)
 		t.Fatal("first launch not excluded from migration")
 	}
 }

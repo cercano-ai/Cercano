@@ -17,6 +17,9 @@ import (
 // Failure after creation leaves the new directory for inspection;
 // neither retries nor cleanup may adopt or remove an existing destination.
 func runPrepareDevelopment(ctx context.Context, args []string, out io.Writer) error {
+	if err := devHostSupported(); err != nil {
+		return err
+	}
 	fs := flag.NewFlagSet("prepare-development", flag.ContinueOnError)
 	fs.SetOutput(out)
 	root := fs.String("new-state", "", "absolute NEW separate development directory (never overwritten)")

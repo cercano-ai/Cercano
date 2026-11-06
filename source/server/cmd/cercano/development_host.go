@@ -68,6 +68,9 @@ func developmentPrivatePath(p string, directory bool) error {
 	return nil
 }
 func runDevelopmentHostWithFactory(ctx context.Context, args []string, out io.Writer, factory developmentHostFactory) (result error) {
+	if err := devHostSupported(); err != nil {
+		return err
+	}
 	var o developmentHostOptions
 	fs := flag.NewFlagSet("development-host", flag.ContinueOnError)
 	fs.SetOutput(out)
