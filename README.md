@@ -1,6 +1,6 @@
 # Cercano
 
-**Cercano is a 100% free + open, premium agent/harness that not only has a premium 
+**Cercano is a 100% free + open agent/harness that not only has a premium 
 UX, but is designed to use context and compute deliberately.**
 
 **Frontier + open, separately or together.** Use a frontier provider through an
