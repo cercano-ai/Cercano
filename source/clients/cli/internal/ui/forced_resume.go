@@ -63,6 +63,7 @@ func (m Model) offerForcedResume(offer *forcedResumeOffer) (tea.Model, tea.Cmd) 
 					return r
 				}
 				selection := offer.destination
+				selection.LaunchOperation, selection.OperationFile = "", ""
 				selection.Conversation, selection.Epoch = owner.Conversation, owner.Epoch
 				r.selection = &selection
 				r.client, r.err = selection.Dial(ctx)

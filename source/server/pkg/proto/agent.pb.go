@@ -20989,8 +20989,12 @@ type LifecycleControlRequest struct {
 	Requester         *LifecycleIdentity `protobuf:"bytes,10,opt,name=requester,proto3" json:"requester,omitempty"`
 	// Opaque verified process snapshot, bound to the durable resume operation.
 	LegacyProcessIdentity string `protobuf:"bytes,11,opt,name=legacy_process_identity,json=legacyProcessIdentity,proto3" json:"legacy_process_identity,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// New-launch-only receipt protocol on LifecycleAcquire; never generic release.
+	LaunchOperation string `protobuf:"bytes,12,opt,name=launch_operation,json=launchOperation,proto3" json:"launch_operation,omitempty"`
+	// acquire, deliver, or abort. Journal-only states are never client commands.
+	LaunchAction  string `protobuf:"bytes,13,opt,name=launch_action,json=launchAction,proto3" json:"launch_action,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LifecycleControlRequest) Reset() {
@@ -21096,6 +21100,20 @@ func (x *LifecycleControlRequest) GetRequester() *LifecycleIdentity {
 func (x *LifecycleControlRequest) GetLegacyProcessIdentity() string {
 	if x != nil {
 		return x.LegacyProcessIdentity
+	}
+	return ""
+}
+
+func (x *LifecycleControlRequest) GetLaunchOperation() string {
+	if x != nil {
+		return x.LaunchOperation
+	}
+	return ""
+}
+
+func (x *LifecycleControlRequest) GetLaunchAction() string {
+	if x != nil {
+		return x.LaunchAction
 	}
 	return ""
 }
@@ -23266,7 +23284,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x0eLifecycleOwner\x12\"\n" +
 	"\fconversation\x18\x01 \x01(\tR\fconversation\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x14\n" +
-	"\x05epoch\x18\x03 \x01(\tR\x05epoch\"\x94\x04\n" +
+	"\x05epoch\x18\x03 \x01(\tR\x05epoch\"\xe4\x04\n" +
 	"\x17LifecycleControlRequest\x120\n" +
 	"\x06target\x18\x01 \x01(\v2\x18.agent.LifecycleIdentityR\x06target\x120\n" +
 	"\x06source\x18\x02 \x01(\v2\x18.agent.LifecycleIdentityR\x06source\x12+\n" +
@@ -23282,7 +23300,9 @@ const file_agent_proto_rawDesc = "" +
 	"\x13confirm_legacy_stop\x18\t \x01(\bR\x11confirmLegacyStop\x126\n" +
 	"\trequester\x18\n" +
 	" \x01(\v2\x18.agent.LifecycleIdentityR\trequester\x126\n" +
-	"\x17legacy_process_identity\x18\v \x01(\tR\x15legacyProcessIdentity\"\xc6\x04\n" +
+	"\x17legacy_process_identity\x18\v \x01(\tR\x15legacyProcessIdentity\x12)\n" +
+	"\x10launch_operation\x18\f \x01(\tR\x0flaunchOperation\x12#\n" +
+	"\rlaunch_action\x18\r \x01(\tR\flaunchAction\"\xc6\x04\n" +
 	"\x18LifecycleControlResponse\x124\n" +
 	"\bidentity\x18\x01 \x01(\v2\x18.agent.LifecycleIdentityR\bidentity\x12+\n" +
 	"\x05owner\x18\x02 \x01(\v2\x15.agent.LifecycleOwnerR\x05owner\x12\x18\n" +

@@ -594,7 +594,7 @@ func (m Model) Init() tea.Cmd {
 	}
 	if m.devHost != nil {
 		cmds = append(cmds, func() tea.Msg {
-			return resumeRequestedMsg{ConversationID: m.devHost.selection.Conversation, Title: m.sessionTitle}
+			return devHostHydrateMsg{}
 		})
 	}
 	return tea.Batch(cmds...)
@@ -2923,6 +2923,14 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		}
 		return m, nil
 
+	case devHostHydrateMsg:
+		// Dial/reconnect already validated this exact retained owner. Hydration
+		// must not reinterpret it as a user reopen against the default host.
+		if m.devHost == nil || m.devHost.detached {
+			return m, nil
+		}
+		return m.beginAttachedResume(m.devHost.selection.Conversation)
+
 	case resumeRequestedMsg:
 		// Fired by the history picker's OnSelect after the overlay closes.
 		m, resumeCmd := m.beginProgressiveResume(msg.ConversationID)
@@ -4233,6 +4241,13 @@ func (m Model) beginProgressiveResume(conversationID string) (Model, tea.Cmd) {
 	if m.devHost != nil && (m.devHost.detached || conversationID != m.devHost.selection.Conversation || (m.devHost.defaultSelection.Identity != nil && m.devHost.selection.Identity.Host != m.devHost.defaultSelection.Identity.Host)) {
 		return m.beginDevHostReopen(conversationID)
 	}
+	return m.beginAttachedResume(conversationID)
+}
+
+// devHostHydrateMsg is internal startup hydration, not a history-picker action.
+type devHostHydrateMsg struct{}
+
+func (m Model) beginAttachedResume(conversationID string) (Model, tea.Cmd) {
 	if m.agent == nil {
 		m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "resume failed: agent unavailable"})
 		m.refreshViewport()

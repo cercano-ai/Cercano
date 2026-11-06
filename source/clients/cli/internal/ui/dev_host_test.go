@@ -18,7 +18,7 @@ func TestDevHostSelectionRequiresExactIdentity(t *testing.T) {
 			t.Fatalf("accepted %s", input)
 		}
 	}
-	if _, err := (DevHostSelection{}).Dial(context.Background()); err == nil {
+	if _, err := (&DevHostSelection{}).Dial(context.Background()); err == nil {
 		t.Fatal("empty selection accepted")
 	}
 }

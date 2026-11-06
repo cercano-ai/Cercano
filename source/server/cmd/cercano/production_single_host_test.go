@@ -81,12 +81,15 @@ func (l *countedStartupListener) Close() error { l.closes.Add(1); return l.Liste
 // Sequential subtests own ONE full Agent/policy authority at a time. This is a
 // startup-only, in_process check, not worker acceptance or model qualification.
 func TestProductionSingleHostStartupShutdown(t *testing.T) {
-	for _, scenario := range []struct{ fail, initial, watcher, closeFailure, idle bool }{{}, {idle: true}, {closeFailure: true}, {fail: true}, {initial: true}, {watcher: true}, {fail: true, initial: true}, {fail: true, watcher: true}} {
+	for _, scenario := range []struct{ fail, initial, watcher, closeFailure, idle, disposal bool }{{}, {idle: true}, {idle: true, disposal: true}, {closeFailure: true}, {fail: true}, {initial: true}, {watcher: true}, {fail: true, initial: true}, {fail: true, watcher: true}} {
 		failMCP := scenario.fail
 		blocked := scenario.initial || scenario.watcher
 		name := "serves"
 		if scenario.idle {
 			name = "legacy-idle-shutdown"
+		}
+		if scenario.disposal {
+			name += "-pending-disposal"
 		}
 		if scenario.closeFailure {
 			name += "-close-failure"
@@ -158,7 +161,14 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 					catCtx = ctx
 					go func() { <-ctx.Done(); close(catDone) }()
 				},
-				stop: func(*ollamacatalog.Manager) { catStops++; <-catDone },
+				stop: func(*ollamacatalog.Manager) {
+					if scenario.disposal {
+						close(entered)
+						<-release
+					}
+					catStops++
+					<-catDone
+				},
 			}
 			audit := &startupAudit{}
 			// A fake-only positive control demonstrates the store is usable without
@@ -328,11 +338,30 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 					<-entered
 				}
 				var wg sync.WaitGroup
-				for i := 0; i < 4; i++ {
+				var shutdownResults [4]productionShutdownStatus
+				for i := range shutdownResults {
 					wg.Add(1)
-					go func() { defer wg.Done(); cleanup.Shutdown() }()
+					go func() { defer wg.Done(); shutdownResults[i] = cleanup.Shutdown() }()
 				}
 				wg.Wait()
+				if scenario.disposal {
+					select {
+					case <-entered:
+					case <-time.After(5 * time.Second):
+						t.Fatal("disposal did not reach catalog stop")
+					}
+					for _, st := range shutdownResults {
+						if !st.Pending || st.Complete || st.Failed {
+							t.Fatal("gated disposal did not return pending", st)
+						}
+					}
+					select {
+					case <-cleanup.done:
+						t.Fatal("cleanup completed while disposal gated")
+					default:
+					}
+					unblock()
+				}
 				if _, err := client.GetConfig(ctx, &proto.GetConfigRequest{}); err == nil {
 					t.Fatal("serving after shutdown")
 				}
@@ -357,8 +386,16 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 					t.Fatal("repeat shutdown lost completion")
 				}
 			}
+			// Shutdown is bounded and may return Pending even after all callers
+			// return. Join disposal before reading counters or restored policy.
+			if cleanup != nil {
+				select {
+				case <-cleanup.done:
+				case <-time.After(5 * time.Second):
+					t.Fatal("resource disposal did not complete")
+				}
+			}
 			if scenario.closeFailure {
-				<-cleanup.done
 				st := cleanup.Shutdown()
 				if st.Complete || !st.Failed || !errors.Is(st.Err, store.closeErr) || cleanup.Control(true).Phase != "failed" {
 					t.Fatal("lost ordinary close failure", st)

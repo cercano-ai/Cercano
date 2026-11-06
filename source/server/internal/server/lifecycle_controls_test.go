@@ -19,7 +19,9 @@ func TestLifecycleControlsLocalhostTransfer(t *testing.T) {
 	}
 	serve := func(s *Server) (pb.AgentClient, string) {
 		s.coexistence.options.ControlAuthorize = func(context.Context) error { return nil } // synthetic fixture trust ONLY
-		s.coexistence.options.ControlDial = dial
+		s.coexistence.options.ControlDial = func(ctx context.Context, endpoint string, _ *pb.LifecycleIdentity) (*grpc.ClientConn, error) {
+			return dial(ctx, endpoint)
+		}
 		listener, e := net.Listen("tcp", "127.0.0.1:0")
 		if e != nil {
 			t.Fatal(e)

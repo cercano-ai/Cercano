@@ -49,6 +49,37 @@ func devHostReap(t *testing.T, cmd *exec.Cmd, name string) {
 	}
 }
 
+// Model a compiler writing Linux Go telemetry, even when this test runs on macOS.
+func TestDevHostBuildConfigIsolation(t *testing.T) {
+	if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "dev-host-build-config-probe" {
+		if err := os.MkdirAll(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "go", "telemetry"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	root := t.TempDir()
+	for _, dir := range []string{"config", "tmp"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(executable, "-test.run=^TestDevHostBuildConfigIsolation$", "--", "dev-host-build-config-probe")
+	if output, err := devHostBuild(t, cmd, root); err != nil {
+		t.Fatalf("compiler config probe: %v\n%s", err, output)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "config"))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("compiler touched runtime config: %v %v", entries, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "build-home", "config", "go", "telemetry")); err != nil {
+		t.Fatalf("compiler did not use its private config: %v", err)
+	}
+}
+
 func devHostBuild(t *testing.T, original *exec.Cmd, root string) ([]byte, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -70,7 +101,9 @@ func devHostBuild(t *testing.T, original *exec.Cmd, root string) ([]byte, error)
 	if err := os.MkdirAll(buildHome, 0700); err != nil {
 		return nil, err
 	}
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + buildHome, "TMPDIR=" + filepath.Join(root, "tmp"), "XDG_CONFIG_HOME=" + filepath.Join(root, "config"), "XDG_CACHE_HOME=" + filepath.Join(root, "cache"), "XDG_DATA_HOME=" + filepath.Join(root, "data"), "CERCANO_DISABLE_CREDENTIALS=1", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOCACHE=" + paths[0], "GOMODCACHE=" + paths[1]}
+	// Go telemetry uses XDG_CONFIG_HOME on Linux. Keep compiler writes out of
+	// the runtime config directory, whose emptiness the host tests assert.
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + buildHome, "TMPDIR=" + filepath.Join(root, "tmp"), "XDG_CONFIG_HOME=" + filepath.Join(buildHome, "config"), "XDG_CACHE_HOME=" + filepath.Join(root, "cache"), "XDG_DATA_HOME=" + filepath.Join(root, "data"), "CERCANO_DISABLE_CREDENTIALS=1", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOCACHE=" + paths[0], "GOMODCACHE=" + paths[1]}
 	start := time.Now()
 	output, err := cmd.CombinedOutput()
 	t.Logf("compiled %s in %s: %v", filepath.Base(filepath.Dir(original.Args[len(original.Args)-2])), time.Since(start), err)

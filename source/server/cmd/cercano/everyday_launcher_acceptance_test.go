@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestEverydayLauncherCompiledPTY is an explicit, relatively expensive gate. A
@@ -37,6 +39,10 @@ func TestEverydayLauncherCompiledPTY(t *testing.T) {
 // This negative entrypoint coverage deliberately does not claim the compiled
 // production A/B acceptance journey. No fixture development-host is started.
 func TestEverydayLauncherEntrypointRefusalsPTY(t *testing.T) {
+	// Reproduce an ordinary developer shell's inherited authority. The disposable
+	// harness must isolate it rather than masking its injected-failure assertion.
+	t.Setenv("CERCANO_LAUNCHED_DEVELOPMENT", "1")
+	t.Setenv("CERCANO_DEVELOPMENT_CONFIG_AUTHORITY", filepath.Join(t.TempDir(), "caller-config.yaml"))
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("python3 required for actual shell-entrypoint PTY test")
@@ -53,6 +59,27 @@ func TestEverydayLauncherEntrypointRefusalsPTY(t *testing.T) {
 	cmd.Env = append(os.Environ(), "CERCANO_DISABLE_CREDENTIALS=1")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("ordinary launcher PTY refusals: %v\n%s", err, output)
+	} else {
+		t.Log(string(output))
+	}
+}
+
+// TestEverydayLauncherHistorySmoke reuses the disposable compiled harness, not
+// an installed runtime. Kept opt-in because it builds two real generations.
+func TestEverydayLauncherHistorySmoke(t *testing.T) {
+	if os.Getenv("CERCANO_RUN_LAUNCHER_HISTORY_SMOKE") != "1" {
+		t.Skip("set CERCANO_RUN_LAUNCHER_HISTORY_SMOKE=1")
+	}
+	repo, err := filepath.Abs("../../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "python3", filepath.Join(repo, "efforts/dev-host-generations/everyday-launcher-compiled.py"), "--repo", repo, "--evidence", filepath.Join(t.TempDir(), "history-smoke"), "--history-smoke")
+	cmd.Env = append(os.Environ(), "CERCANO_DISABLE_CREDENTIALS=1", "GOPROXY=off", "GOSUMDB=off")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bounded launcher history smoke: %v\n%s", err, output)
 	} else {
 		t.Log(string(output))
 	}

@@ -264,7 +264,7 @@ func runDevHostBounded(ctx context.Context, args []string, out io.Writer) (resul
 		RetainFailure: func(dispose func() error) { constructorRollback = dispose },
 		Coexistence: server.CoexistenceOptions{StorePath: database, Build: manifest.Build, Host: *host, Contract: contract,
 			ControlAuthorize: auth.Authorize,
-			ControlDial: func(ctx context.Context, endpoint string) (*grpc.ClientConn, error) {
+			ControlDial: func(ctx context.Context, endpoint string, _ *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
 				a := peerAuth[endpoint]
 				if a == nil {
 					return nil, fmt.Errorf("peer not explicitly selected")

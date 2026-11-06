@@ -58,6 +58,9 @@ def invoke(script, env):
 
 def run(repo, evidence):
     script = repo / 'source/server/scripts/cercano-launcher.sh'
+    # The refusal fixture owns its entire CERCANO namespace. Caller launch
+    # authority must never preempt the specific refusal being asserted.
+    clean_env = {k: v for k, v in os.environ.items() if not k.startswith("CERCANO_")}
     results = []
     with tempfile.TemporaryDirectory(prefix='everyday-refusal-') as temporary:
         root = Path(temporary).resolve()
@@ -87,7 +90,7 @@ def run(repo, evidence):
         hosts.mkdir(mode=0o700)
         (hosts / 'existing.json').write_text('{"sentinel":"never touch"}')
         (hosts / 'existing.token').write_text('test-only sentinel')
-        env = dict(os.environ, CERCANO_DISABLE_CREDENTIALS='1',
+        env = dict(clean_env, CERCANO_DISABLE_CREDENTIALS='1',
                    CERCANO_DEVELOPMENT_STATE=str(state), CERCANO_REPO=str(mock),
                    TEST_TRACE=str(trace))
         before = snapshot(state)

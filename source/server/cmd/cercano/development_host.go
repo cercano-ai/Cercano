@@ -19,6 +19,7 @@ import (
 	"cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	protoequal "google.golang.org/protobuf/proto"
 )
 
 type developmentHostSelection struct {
@@ -329,11 +330,17 @@ func developmentSourceResolver(state string, own *proto.LifecycleIdentity) func(
 		return r.Identity, r.Endpoint, nil // authenticated by ControlDial before any source mutation
 	}
 }
-func developmentPeerDial(state string, own *proto.LifecycleIdentity) func(context.Context, string) (*grpc.ClientConn, error) {
-	return func(ctx context.Context, endpoint string) (*grpc.ClientConn, error) {
-		selected, err := selectDevelopmentPeer(state, own, endpoint, "")
+func developmentPeerDial(state string, own *proto.LifecycleIdentity) func(context.Context, string, *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
+	return func(ctx context.Context, endpoint string, want *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
+		if want == nil {
+			return nil, fmt.Errorf("exact peer identity required")
+		}
+		selected, err := selectDevelopmentPeer(state, own, "", want.Host)
 		if err != nil {
 			return nil, err
+		}
+		if selected.Endpoint != endpoint || !protoequal.Equal(selected.Identity, want) {
+			return nil, fmt.Errorf("peer record identity changed")
 		}
 		// Tokens come only from private records, never a control request.
 		if err := developmentPrivatePath(selected.TokenFile, false); err != nil {

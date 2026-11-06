@@ -15,9 +15,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 type DevHostSelection struct {
+	LaunchOperation string `json:",omitempty"`
+	OperationFile   string `json:",omitempty"`
 	// Fixture restricts synthetic dependency-factory terminals only; never authorization.
 	Fixture bool `json:",omitempty"`
 	// Retain the launcher's explicit authority when emitting updated selections.
@@ -44,7 +47,38 @@ func ReadDevHostSelection(path string) (DevHostSelection, error) {
 	}
 	return s, nil
 }
-func (s DevHostSelection) Dial(ctx context.Context) (*agentclient.Client, error) {
+
+// AcceptLaunchDelivery is required before NEW selections become usable. Legacy
+// selections and resumed owners have no launch receipt and keep their lifecycle.
+func (s *DevHostSelection) AcceptLaunchDelivery(ctx context.Context) error {
+	if s.LaunchOperation == "" {
+		return nil
+	}
+	if s.Identity == nil || s.Epoch == "" || s.Conversation == "" {
+		return fmt.Errorf("incomplete launch receipt; preserve %s", s.OperationFile)
+	}
+	c, err := s.controls(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	r := &proto.LifecycleControlRequest{Target: s.Identity, Owner: &proto.LifecycleOwner{Conversation: s.Conversation, Host: s.Identity.Host, Epoch: s.Epoch}, LaunchOperation: s.LaunchOperation, LaunchAction: "deliver"}
+	response, err := c.LifecycleAcquire(ctx, r)
+	if err != nil {
+		return fmt.Errorf("launch delivery unresolved; preserve %s; do not abort: %w", s.OperationFile, err)
+	}
+	if response == nil || !gproto.Equal(response.Identity, s.Identity) || !gproto.Equal(response.Owner, r.Owner) || response.Receipt != s.LaunchOperation || response.Pending {
+		return fmt.Errorf("ambiguous launch delivery; preserve %s; do not abort", s.OperationFile)
+	}
+	// Only an exact, acknowledged delivery consumes initial-launch metadata.
+	s.LaunchOperation, s.OperationFile = "", ""
+	return nil
+}
+func (s *DevHostSelection) Dial(ctx context.Context) (*agentclient.Client, error) {
+	if err := s.AcceptLaunchDelivery(ctx); err != nil {
+		return nil, err
+	}
+
 	if s.Identity == nil {
 		return nil, fmt.Errorf("complete exact development host identity required")
 	}
@@ -63,6 +97,9 @@ func (s DevHostSelection) controls(ctx context.Context) (*agentclient.LifecycleC
 // Management requests never create an attachment. The server refuses release or
 // transfer while ANY terminal is attached. Receipts are returned even on errors.
 func ControlDevHost(ctx context.Context, s DevHostSelection, action, destination, handover, receipt string) (*proto.LifecycleControlResponse, *DevHostSelection, error) {
+	if err := s.AcceptLaunchDelivery(ctx); err != nil {
+		return nil, nil, err
+	}
 	c, err := s.controls(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -100,6 +137,7 @@ func ControlDevHost(ctx context.Context, s DevHostSelection, action, destination
 			out, err = c.Transfer(ctx, dc, r)
 		}
 		if err == nil && out != nil && !out.Pending && out.Owner != nil {
+			d.LaunchOperation, d.OperationFile = "", "" // transferred ownership is not a new launch
 			d.Conversation, d.Epoch = out.Owner.Conversation, out.Owner.Epoch
 			return out, &d, nil
 		}
@@ -182,6 +220,7 @@ func (m Model) runDevHost(line string) (tea.Model, tea.Cmd) {
 		result := devHostResult{action: action}
 		if action == "reconnect" {
 			result.client, result.err = s.Dial(ctx)
+			result.selection = &s
 		} else {
 			result.response, result.selection, result.err = ControlDevHost(ctx, s, action, destination, handover, receipt)
 		}
@@ -206,6 +245,11 @@ func (m Model) applyDevHost(r devHostResult) (tea.Model, tea.Cmd) {
 		return m.offerForcedResume(offer)
 	}
 	if r.client != nil {
+		// Reopen/reconnect acknowledged the original launch before changing owners.
+		// Retire the template copy too, so later history selections never replay it.
+		if r.action == "reopen" || r.action == "reconnect" {
+			m.devHost.defaultSelection.LaunchOperation, m.devHost.defaultSelection.OperationFile = "", ""
+		}
 		if r.selection != nil {
 			m.devHost.selection = *r.selection
 		}

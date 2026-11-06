@@ -27,6 +27,8 @@ import (
 )
 
 type launchSelection struct {
+	LaunchOperation string `json:",omitempty"`
+	OperationFile   string `json:",omitempty"`
 	// Fixture restricts synthetic dependency-factory terminals only; never authorization.
 	Fixture         bool `json:",omitempty"`
 	ConfigAuthority string
@@ -110,10 +112,26 @@ func launchRead(path string, value interface{}) error {
 	}
 	return json.Unmarshal(b, value)
 }
+
+type developmentBlockedRecovery func(context.Context, string, string, string, launchSelection, error) error
+
 func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) error {
+	return runDevelopmentLaunchWithRecovery(ctx, args, out, func(ctx context.Context, base, generation, authority string, s launchSelection, cause error) error {
+		return developmentReplaceBlocked(ctx, base, generation, authority, s, cause, developmentConfirm)
+	})
+}
+
+func runDevelopmentLaunchWithRecovery(ctx context.Context, args []string, out io.Writer, recoverBlocked developmentBlockedRecovery) error {
+	return runDevelopmentLaunchWithHooks(ctx, args, out, recoverBlocked, developmentHostCommand)
+}
+
+type developmentLaunchCommand func(string, string, string, string, string, string, string, io.Writer, ...string) *exec.Cmd
+
+func runDevelopmentLaunchWithHooks(ctx context.Context, args []string, out io.Writer, recoverBlocked developmentBlockedRecovery, hostCommand developmentLaunchCommand) error {
 	fs := flag.NewFlagSet("development-launch", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	installed := fs.Bool("installed", false, "select this installed agent keg; still requires prepared state")
+	handoff := fs.Bool("launch-handoff", false, "pending handoff to CLI; caller must explicitly abort definitive pre-exec failures")
 	authority := fs.String("config-authority", "", "absolute isolated config authority shared across generations")
 	state := fs.String("state", "", "prepared private state")
 	generation := fs.String("generation", "", "exact published generation")
@@ -206,7 +224,7 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 	}
 	hosts := filepath.Join(*state, "hosts")
 	selections := filepath.Join(*state, "selections")
-	for _, p := range []string{hosts, selections} {
+	for _, p := range []string{hosts, selections, filepath.Join(*state, "launch-operations")} {
 		if e = os.Mkdir(p, 0700); e != nil && !os.IsExist(e) {
 			return e
 		}
@@ -235,101 +253,187 @@ func runDevelopmentLaunch(ctx context.Context, args []string, out io.Writer) err
 		return e
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	record := base + ".json"
-	var s launchSelection
-	e = launchRead(record, &s)
-	if os.IsNotExist(e) {
-		host, err := launchID()
-		if err != nil {
-			return err
+	generationBase := base
+	base, e = developmentInstanceBase(generationBase)
+	if e != nil {
+		return e
+	}
+	freshHost := ""
+	replaced := false
+	for {
+		var instanceLock *os.File
+		if base != generationBase {
+			instanceLock, e = developmentInstanceLock(base)
+			if e != nil {
+				return e
+			}
+			defer instanceLock.Close()
 		}
-		// Never delete this intent automatically, even if spawning or readiness fails.
-		if e = launchExclusive(base+".starting", map[string]string{"host": host, "generation": *generation, "config_authority": configAuthority}); e != nil {
-			return fmt.Errorf("prior start intent exists; explicit verified retirement required: %w", e)
-		}
-		token := base + ".token"
-		if e = devhostauth.Create(token); e != nil {
+		record := base + ".json"
+		var s launchSelection
+		e = launchRead(record, &s)
+		if os.IsNotExist(e) {
+			host := freshHost
+			if host == "" {
+				var intent map[string]string
+				intentErr := launchRead(base+".starting", &intent)
+				if intentErr == nil {
+					if replaced {
+						return fmt.Errorf("replacement attempt did not become ready; intent retained")
+					}
+					if e = recoverBlocked(ctx, base, *generation, configAuthority, s, fmt.Errorf("prior start intent exists")); e != nil {
+						return e
+					}
+					base, freshHost, e = developmentNewInstance(generationBase, *generation, configAuthority)
+					if e != nil {
+						return e
+					}
+					replaced = true
+					continue
+				}
+				if !os.IsNotExist(intentErr) {
+					return intentErr
+				}
+				host, e = launchID()
+				if e != nil {
+					return e
+				}
+				if e = launchExclusive(base+".starting", map[string]string{"host": host, "generation": *generation, "config_authority": configAuthority}); e != nil {
+					return e
+				}
+			}
+			token := base + ".token"
+			if e = devhostauth.Create(token); e != nil {
+				return e
+			}
+			log, e := os.OpenFile(base+".log", os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
+			if e != nil {
+				return e
+			}
+			cmd := hostCommand(binary, *state, *generation, host, token, record, *runtime, log, configAuthority)
+			if *installed {
+				cmd.Args = append(cmd.Args, "--installed")
+			}
+			e = cmd.Start()
+			log.Close()
+			if e != nil {
+				return e
+			}
+			_ = cmd.Process.Release()
+			deadline := time.Now().Add(30 * time.Second)
+			for {
+				e = launchRead(record, &s)
+				if e == nil {
+					break
+				}
+				if !os.IsNotExist(e) || time.Now().After(deadline) {
+					return fmt.Errorf("host not ready; start intent retained, no replacement: %w", e)
+				}
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(100 * time.Millisecond):
+				}
+			}
+			if s.Identity == nil || s.Identity.Host != host || s.TokenFile != token {
+				return fmt.Errorf("spawned host identity mismatch")
+			}
+		} else if e != nil {
 			return e
 		}
-		log, e := os.OpenFile(base+".log", os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
+		expected := &pb.LifecycleIdentity{Host: s.Identity.GetHost(), Build: manifest.Build, Contract: contract.Contract, Schema: int32(contract.SchemaVersion), Store: store}
+		if e := s.validateConfigAuthority(configAuthority); e != nil {
+			return e
+		}
+		if expected.Host == "" || !proto.Equal(s.Identity, expected) || s.Conversation != "" || s.Epoch != "" || s.TokenFile != base+".token" {
+			return fmt.Errorf("host record identity mismatch")
+		}
+		ready, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		controls, e := launchControls(ready, s)
+		var check *pb.LifecycleControlResponse
+		if e == nil {
+			defer controls.Close()
+			check, e = controls.LifecycleList(ready, &pb.LifecycleControlRequest{Target: expected, Management: true})
+		}
+		if e != nil {
+			if controls != nil {
+				controls.Close()
+			}
+			cancel()
+			if replaced {
+				return fmt.Errorf("replacement host unavailable; intent retained: %w", e)
+			}
+			if e = recoverBlocked(ctx, base, *generation, configAuthority, s, e); e != nil {
+				return e
+			}
+			base, freshHost, e = developmentNewInstance(generationBase, *generation, configAuthority)
+			if e != nil {
+				return e
+			}
+			replaced = true
+			continue
+		}
+		if !proto.Equal(check.Identity, expected) {
+			return fmt.Errorf("authenticated readiness identity mismatch")
+		}
+		id, e := launchID()
 		if e != nil {
 			return e
 		}
-		cmd := developmentHostCommand(binary, *state, *generation, host, token, record, *runtime, log, configAuthority)
-		if *installed {
-			cmd.Args = append(cmd.Args, "--installed")
-		}
-		e = cmd.Start()
-		log.Close()
+		operation, e := launchID()
 		if e != nil {
 			return e
 		}
-		_ = cmd.Process.Release()
-		deadline := time.Now().Add(30 * time.Second)
-		for {
-			e = launchRead(record, &s)
-			if e == nil {
-				break
+		s.Conversation, s.Generation, s.LaunchOperation = id, *generation, operation
+		s.OperationFile = filepath.Join(*state, "launch-operations", operation+".json")
+		if e = launchExclusive(s.OperationFile, s); e != nil {
+			return e
+		}
+		// Sync before acquisition: lost responses must have a recoverable ID.
+		if e = replaceLaunchRecord(s.OperationFile, s); e != nil {
+			return e
+		}
+		acquired, e := controls.LifecycleAcquire(ready, &pb.LifecycleControlRequest{Target: expected, Owner: &pb.LifecycleOwner{Conversation: id}, LaunchOperation: operation, LaunchAction: "acquire"})
+		if e != nil {
+			return fmt.Errorf("ambiguous launch acquisition; do not release or replace host; retry development-launch-receipt --operation-file %s --action acquire: %w", s.OperationFile, e)
+		}
+		if acquired == nil || !proto.Equal(acquired.Identity, expected) || acquired.GetOwner().GetConversation() != id || acquired.GetOwner().GetHost() != expected.Host || acquired.GetOwner().GetEpoch() == "" || acquired.Receipt != operation {
+			return fmt.Errorf("ambiguous acquire identity/receipt; preserve %s; retry same operation acquire", s.OperationFile)
+		}
+		s.Epoch = acquired.Owner.Epoch
+		compensate := func(cause error) error {
+			if err := abortLaunch(*state, s); err != nil {
+				return fmt.Errorf("%w; cleanup unresolved: %v; retry development-launch-receipt --operation-file %s --action abort (first --action acquire if epoch was not saved)", cause, err, s.OperationFile)
 			}
-			if !os.IsNotExist(e) || time.Now().After(deadline) {
-				return fmt.Errorf("host not ready; start intent retained, no replacement: %w", e)
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(100 * time.Millisecond):
+			return cause
+		}
+		if e = replaceLaunchRecord(s.OperationFile, s); e != nil {
+			return compensate(e)
+		}
+		selection := filepath.Join(selections, id+".json")
+		if e = launchExclusive(selection, s); e != nil {
+			return compensate(e)
+		}
+		if e = publishCurrentTarget(*state, s); e != nil {
+			return compensate(e)
+		}
+		if !*handoff {
+			// Direct output is a delivery, not permission to cancel later. Claim
+			// before exposing details; a partial/lost output must retain ownership.
+			if e = launchReceipt(ready, controls, s, "deliver"); e != nil {
+				return fmt.Errorf("delivery ambiguous; preserve %s; do not abort: %w", s.OperationFile, e)
 			}
 		}
-		if s.Identity == nil || s.Identity.Host != host || s.TokenFile != token {
-			return fmt.Errorf("spawned host identity mismatch")
+		n, e := fmt.Fprintln(out, selection)
+		if e != nil && *handoff && n == 0 {
+			return compensate(e)
 		}
-	} else if e != nil {
-		return e
+		if e != nil {
+			return fmt.Errorf("output ambiguous or already delivered; retain %s, do not abort: %w", s.OperationFile, e)
+		}
+		return nil
 	}
-	expected := &pb.LifecycleIdentity{Host: s.Identity.GetHost(), Build: manifest.Build, Contract: contract.Contract, Schema: int32(contract.SchemaVersion), Store: store}
-	if e := s.validateConfigAuthority(configAuthority); e != nil {
-		return e
-	}
-	if expected.Host == "" || !proto.Equal(s.Identity, expected) || s.Conversation != "" || s.Epoch != "" || s.TokenFile != base+".token" {
-		return fmt.Errorf("host record identity mismatch")
-	}
-	ready, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	controls, e := launchControls(ready, s)
-	if e != nil {
-		return e
-	}
-	defer controls.Close()
-	check, e := controls.LifecycleList(ready, &pb.LifecycleControlRequest{Target: expected, Management: true})
-	if e != nil {
-		return fmt.Errorf("recorded host unreachable or unavailable; refusing replacement: %w", e)
-	}
-	if !proto.Equal(check.Identity, expected) {
-		return fmt.Errorf("authenticated readiness identity mismatch")
-	}
-	id, e := launchID()
-	if e != nil {
-		return e
-	}
-	acquired, e := controls.LifecycleAcquire(ready, &pb.LifecycleControlRequest{Target: expected, Owner: &pb.LifecycleOwner{Conversation: id}})
-	if e != nil {
-		return e
-	}
-	if !proto.Equal(acquired.Identity, expected) || acquired.GetOwner().GetConversation() != id || acquired.GetOwner().GetHost() != expected.Host || acquired.GetOwner().GetEpoch() == "" {
-		return fmt.Errorf("acquire identity mismatch")
-	}
-	s.Conversation = id
-	s.Epoch = acquired.Owner.Epoch
-	s.Generation = *generation
-	selection := filepath.Join(selections, id+".json")
-	if e = launchExclusive(selection, s); e != nil {
-		return e
-	}
-	if e = publishCurrentTarget(*state, s); e != nil {
-		return e
-	}
-	_, e = fmt.Fprintln(out, selection)
-	return e
 }
 
 // developmentHostCommand is the runtime spawn boundary, after launch validation.

@@ -85,7 +85,10 @@ if os.environ.get('FAKE_HOST_FAIL'): sys.exit(9)
 selections=state/'selections'; selections.mkdir(mode=0o700,exist_ok=True)
 fd,path=tempfile.mkstemp(prefix='selection-',dir=selections)
 authority=sys.argv[sys.argv.index('--config-authority')+1]
-with os.fdopen(fd,'w') as f: json.dump({'Generation':str(pathlib.Path(sys.argv[0]).parent), 'ConfigAuthority':authority},f)
+operation=pathlib.Path(path).name
+operations=state/'launch-operations'; operations.mkdir(mode=0o700,exist_ok=True)
+operation_file=operations/(operation+'.json'); operation_file.write_text('{}')
+with os.fdopen(fd,'w') as f: json.dump({'Generation':str(pathlib.Path(sys.argv[0]).parent), 'ConfigAuthority':authority, 'LaunchOperation':operation, 'OperationFile':str(operation_file)},f)
 print(path)
 ''')
         (state / 'cercano-cli').write_text('''#!/usr/bin/env python3

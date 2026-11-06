@@ -56,8 +56,10 @@ func TestDevelopmentHostRetirementWakesOwner(t *testing.T) {
 			contract := conversation.CurrentCoexistenceDeclaration()
 			srv, err := server.NewCoexistenceServer(ctx, server.CoexistenceOptions{
 				StorePath: path, Host: "host", Build: "build", Contract: contract,
-				ControlAuthorize:   auth.Authorize,
-				ControlDial:        func(context.Context, string) (*grpc.ClientConn, error) { return nil, errors.New("unused peer dial") },
+				ControlAuthorize: auth.Authorize,
+				ControlDial: func(context.Context, string, *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
+					return nil, errors.New("unused peer dial")
+				},
 				Reload:             func(context.Context, conversation.Store, *conversation.Ownership) error { return nil },
 				CloseParticipation: resources.Wait,
 			})

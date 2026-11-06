@@ -73,5 +73,8 @@ func (s *Server) CheckRetainedSession(ctx context.Context, req *proto.CheckRetai
 	if !retained || !open {
 		return result(proto.RetainedSessionState_RETAINED_SESSION_STATE_CLOSED)
 	}
+	if err := l.observeLaunchLocked(owner); err != nil {
+		return nil, err
+	}
 	return result(proto.RetainedSessionState_RETAINED_SESSION_STATE_RETAINED)
 }

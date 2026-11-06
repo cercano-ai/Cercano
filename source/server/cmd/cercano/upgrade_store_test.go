@@ -27,8 +27,8 @@ func TestOfflineUpgradeKnownAgentBeforeChanges(t *testing.T) {
 		t.Fatal("modified database before refusal")
 	}
 	entries, _ := os.ReadDir(filepath.Dir(p))
-	if len(entries) != 1 {
-		t.Fatal("created database sidecars")
+	if len(entries) != 2 || entries[0].Name() != "current-target.lock" || entries[1].Name() != "history.db" {
+		t.Fatalf("unexpected files beyond migration coordination lock and original database: %v", entries)
 	}
 }
 func TestOfflineUpgradeDetectionLimits(t *testing.T) {
@@ -57,7 +57,7 @@ func TestOfflineUpgradeDiscoveryErrorBeforeOpen(t *testing.T) {
 		t.Fatalf("err=%v calls=%d", err, calls)
 	}
 	entries, err := os.ReadDir(filepath.Dir(p))
-	if err != nil || len(entries) != 0 {
+	if err != nil || len(entries) != 1 || entries[0].Name() != "current-target.lock" {
 		t.Fatalf("database opened before preflight: entries=%v err=%v", entries, err)
 	}
 }
@@ -71,7 +71,7 @@ func TestOfflineUpgradeCheckOnlyNeverOpensStore(t *testing.T) {
 		return nil
 	})
 	entries, readErr := os.ReadDir(filepath.Dir(p))
-	if err != nil || calls != 1 || readErr != nil || len(entries) != 0 {
+	if err != nil || calls != 1 || readErr != nil || len(entries) != 1 || entries[0].Name() != "current-target.lock" {
 		t.Fatalf("err=%v calls=%d entries=%v readErr=%v", err, calls, entries, readErr)
 	}
 }

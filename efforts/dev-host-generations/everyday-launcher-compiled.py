@@ -166,7 +166,7 @@ def assert_new_worker(events, pre_pids, boundary, conversation):
     assert boundary < birth['unix_nano'] < turns[0]['unix_nano'], 'startup must follow B publication and precede first turn'
     return birth, turns
 
-def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordinary_session_close=False,same_conversation_close=False,offline_upgrade=False,resume_journey=False):
+def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordinary_session_close=False,same_conversation_close=False,offline_upgrade=False,resume_journey=False,history_smoke=False):
     assert all(os.environ.get(k)==v for k,v in {"CERCANO_DISABLE_CREDENTIALS":"1","GOPROXY":"off","GOSUMDB":"off"}.items()), "required outer offline/credential guards missing"
     evidence.mkdir(parents=True,exist_ok=True)
     report={'scope':'actual shell -> real publisher -> compiled production host -> compiled CLI PTY','steps':[],'passed':False,'worker_delegation_required':worker_delegation}
@@ -198,7 +198,7 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
         wrapper.write_text('#!/usr/bin/env python3\nimport os,sys,json\na=sys.argv[1:]\nif a and a[0]=="build":\n a.insert(1,"-tags=developmentfixture,cercano_development_acceptance")\n with open('+repr(str(trace))+',"a") as f:f.write(json.dumps({"cwd":os.getcwd(),"args":a})+"\\n")\nos.execv('+repr(go)+',['+repr(go)+',*a])\n');wrapper.chmod(0o700)
         env=dict(os.environ)
         for k in list(env):
-            if k.startswith(('GO','CGO_')) or k in ('CC','CXX','PKG_CONFIG','SDKROOT','LIBRARY_PATH','CPATH','C_INCLUDE_PATH','CPLUS_INCLUDE_PATH'):env.pop(k)
+            if k.startswith(('GO','CGO_','CERCANO_')) or k in ('CC','CXX','PKG_CONFIG','SDKROOT','LIBRARY_PATH','CPATH','C_INCLUDE_PATH','CPLUS_INCLUDE_PATH'):env.pop(k)
         env.update(HOME=str(home),XDG_CONFIG_HOME=str(home/'config'),XDG_DATA_HOME=str(home/'data'),XDG_CACHE_HOME=str(home/'cache'),PATH=str(tools)+':'+env['PATH'],GOPATH=goenv('GOPATH'),GOCACHE=goenv('GOCACHE'),GOPROXY='off',GOSUMDB='off',CGO_ENABLED='0',VERSION='compiled-acceptance',TERM='xterm-256color',CERCANO_DISABLE_CREDENTIALS='1',CERCANO_OUTER_ENABLED='1',CERCANO_REPO=str(copy),CERCANO_DEVELOPMENT_STATE=str(state),CERCANO_RUNTIME_ROOT=str(runtime),CERCANO_FIXTURE_BARRIER=str(barrier))
         # Exercise the exact installed command shape, not the source shell path.
         install_dir=root/'bin'; install_dir.mkdir(mode=0o700)
@@ -337,6 +337,38 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
             spare,ss,S=launch('A-unstarted')
             assert S['Identity']['host']==A['Identity']['host']
             assert not any(e.get('conversation')==S['Conversation'] for e in worker_events())
+            if history_smoke:
+                # Bounded ordinary-launch history journey, without background work,
+                # takeover, real inference, or the broader acceptance scenarios.
+                conversation=A['Conversation']
+                wait(lambda:rows("select content from turns where conversation_id='"+conversation+"' and role='assistant'") != [], 'A history durable')
+                intentional_quit(a)
+                a.stop(); terminals.remove(a)
+                change=copy/'source/server/cmd/cercano/development_provider_fixture.go'
+                change.write_text(change.read_text()+'\n// history smoke generation B\n')
+                b,sb,B=launch('B-history-smoke')
+                assert B['Identity']['host']!=A['Identity']['host']
+                assert json.loads((state/'current-target.json').read_bytes())['Identity']==B['Identity']
+                # Close A's remaining ordinary terminal; its host must retire.
+                # Resume cannot secretly attach A: that process no longer exists.
+                intentional_quit(spare); terminals.remove(spare)
+                wait(lambda:owned.identity(pidA) is None, 'old A retired before B resume')
+                before=len(b.data)
+                b.send('/resume '+conversation+'\r')
+                wait(lambda:b'FIXTURE_ORIGINAL_HISTORY' in b.data[before:], 'A history on selected B')
+                assert b'Take over here?' not in b.data[before:]
+                assert rows("select owner from conversation_ownership where conversation_id='"+conversation+"'")==[(B['Identity']['host'],)]
+                offset=len(events())
+                b.send('FIXTURE_HISTORY_SMOKE_ON_B\r')
+                wait(lambda:rows("select conversation_id from turns where role='user' and content='FIXTURE_HISTORY_SMOKE_ON_B'")==[(conversation,)], 'resumed B turn durable')
+                wait(lambda:any('FIXTURE_HISTORY_SMOKE_ON_B' in json.dumps(e.get('request',{}).get('Messages')) for e in events()[offset:] if e['event']=='call'), 'B inference')
+                calls=[e for e in events()[offset:] if e['event']=='call']
+                assert calls and all(e['pid']!=pidA for e in calls),calls
+                turns=[e for e in calls if any(m.get('role')=='user' and m.get('content')==[{'type':'text','text':'FIXTURE_HISTORY_SMOKE_ON_B'}] for m in e['request']['Messages'])]
+                assert turns and all('FIXTURE_ORIGINAL_HISTORY' in json.dumps(e['request']['Messages']) for e in turns),calls
+                record('PASS bounded A history -> selected B -> resume on B without old-host attachment', A=A, B=B, conversation=conversation, calls=calls)
+                report['passed']=True
+                return
             a.send('FIXTURE_DISPATCH\r')
             wait(lambda:any(x['event']=='child-entered' for x in events()),'original independent task active before B',40)
             assert b'wants to run a delegated agent' not in a.data
@@ -687,4 +719,4 @@ def run(repo,evidence,worker_delegation=False,ordinary_closure_probe=False,ordin
     assert report['passed']
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');p.add_argument('--ordinary-closure-probe',action='store_true',help='check ordinary PTY quit and automatic retirement without management release');p.add_argument('--ordinary-session-close',action='store_true',help='close A session via /quit while independent work runs; contrast unexpected disconnect');p.add_argument('--same-conversation-close',action='store_true',help='preserve disconnect/reopen then quit the exact A conversation owning a second independent task');p.add_argument('--offline-upgrade',action='store_true',help='run real UpgradeOffline on private synthetic history/tasks; excludes production discovery');p.add_argument('--resume-journey',action='store_true',help='drive live-owner resume and takeover through compiled CLI PTYs');a=p.parse_args();assert not (a.same_conversation_close and (a.worker_delegation or a.ordinary_session_close or a.ordinary_closure_probe));assert not (a.ordinary_closure_probe and a.ordinary_session_close);run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation,a.ordinary_closure_probe,a.ordinary_session_close,a.same_conversation_close,a.offline_upgrade,a.resume_journey)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=P,required=True);p.add_argument('--evidence',type=P,required=True);p.add_argument('--worker-delegation',action='store_true',help='require real worker-local review delegation and final-write barrier');p.add_argument('--ordinary-closure-probe',action='store_true',help='check ordinary PTY quit and automatic retirement without management release');p.add_argument('--ordinary-session-close',action='store_true',help='close A session via /quit while independent work runs; contrast unexpected disconnect');p.add_argument('--same-conversation-close',action='store_true',help='preserve disconnect/reopen then quit the exact A conversation owning a second independent task');p.add_argument('--offline-upgrade',action='store_true',help='run real UpgradeOffline on private synthetic history/tasks; excludes production discovery');p.add_argument('--resume-journey',action='store_true',help='drive live-owner resume and takeover through compiled CLI PTYs');p.add_argument('--history-smoke',action='store_true',help='bounded ordinary A history to selected B resume, synthetic inference');a=p.parse_args();assert not (a.same_conversation_close and (a.worker_delegation or a.ordinary_session_close or a.ordinary_closure_probe));assert not (a.ordinary_closure_probe and a.ordinary_session_close);run(a.repo.resolve(),a.evidence.resolve(),a.worker_delegation,a.ordinary_closure_probe,a.ordinary_session_close,a.same_conversation_close,a.offline_upgrade,a.resume_journey,a.history_smoke)

@@ -21,7 +21,9 @@ func sourceFirstPeer(t *testing.T, s *Server, interceptor grpc.UnaryServerInterc
 		return grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 	s.coexistence.options.ControlAuthorize = func(context.Context) error { return nil } // synthetic trust only
-	s.coexistence.options.ControlDial = dial
+	s.coexistence.options.ControlDial = func(ctx context.Context, endpoint string, _ *pb.LifecycleIdentity) (*grpc.ClientConn, error) {
+		return dial(ctx, endpoint)
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

@@ -52,6 +52,9 @@ func (s *Server) BeginTerminalStream(ctx context.Context, conversation string, k
 	}
 	var attachment *broker.Attachment
 	md, _ := metadata.FromIncomingContext(ctx)
+	if err := l.observeLaunchLocked(owner); err != nil {
+		return nil, nil, nil, terminalStatus(err)
+	}
 	takeover := md.Get("cercano-takeover-terminal")
 	if len(takeover) != 0 {
 		if kind != 0 || len(takeover) != 1 || takeover[0] == "" {
@@ -87,6 +90,11 @@ func (s *Server) ValidateTerminalPane(ctx context.Context, conversation string) 
 	}
 	l, err := s.lifecycle()
 	if err != nil {
+		return err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.observeLaunchLocked(owner); err != nil {
 		return err
 	}
 	return l.admission.ValidateTerminal(owner, id)

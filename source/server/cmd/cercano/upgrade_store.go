@@ -81,6 +81,13 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 	if fs.NArg() != 0 || !*stopped || !filepath.IsAbs(*db) {
 		return fmt.Errorf("usage: cercano upgrade-store --database /absolute/path/conversations.db --all-legacy-agents-stopped; prerequisite: stop ALL legacy Cercano agents")
 	}
+	// Include all generation instances and intent-only attempts before any stop,
+	// backup authorization, or database open. Discovery alone is not inventory.
+	release, err := developmentUpgradeGuard(ctx, *db)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if *stopConfig != "" {
 		// Match ordinary configuration port selection, but never treat a missing
 		// authority as permission to stop the default listener.

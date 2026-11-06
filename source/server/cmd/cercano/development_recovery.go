@@ -4,7 +4,6 @@ import (
 	"cercano/source/server/internal/brewrestart"
 	pb "cercano/source/server/pkg/proto"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,7 +72,7 @@ func developmentRecoveryGuardWithVerifier(state string, destination *pb.Lifecycl
 		if err = launchRead(base+".starting", &intent); err != nil {
 			return nil, err
 		}
-		if intent["host"] != host || intent["generation"] == "" || filepath.Base(base) != fmt.Sprintf("%x", sha256.Sum256([]byte(intent["generation"]))) {
+		if intent["host"] != host || !developmentInstanceMatches(base, intent) {
 			return nil, fmt.Errorf("source start intent does not match exact host record")
 		}
 		var again launchSelection

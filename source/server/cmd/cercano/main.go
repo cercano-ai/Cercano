@@ -1130,6 +1130,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "development-launch-receipt":
+			if err := runDevelopmentLaunchReceipt(context.Background(), os.Args[2:], os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
 		case "development-launch":
 			if err := runDevelopmentLaunch(context.Background(), os.Args[2:], os.Stdout); err != nil {
 				fmt.Fprintln(os.Stderr, "development-launch:", err)

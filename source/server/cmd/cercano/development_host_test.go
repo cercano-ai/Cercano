@@ -96,7 +96,7 @@ func TestDevelopmentPeerRequiresPrivateRecord(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "hosts"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := developmentPeerDial(root, nil)(context.Background(), "127.0.0.1:1"); err == nil {
+	if _, err := developmentPeerDial(root, nil)(context.Background(), "127.0.0.1:1", nil); err == nil {
 		t.Fatal("dialed unregistered caller endpoint")
 	}
 }
@@ -222,5 +222,67 @@ func TestDevelopmentSourceResolverExactPrivateRecord(t *testing.T) {
 	}
 	if _, _, err := resolver(context.Background(), "source"); err == nil {
 		t.Fatal("accepted public source record")
+	}
+}
+
+func TestDevelopmentExactSuccessorReusedEndpoint(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "hosts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	own := &proto.LifecycleIdentity{Host: "local", Store: "/store", Contract: "contract", Schema: 2}
+	live := gproto.Clone(own).(*proto.LifecycleIdentity)
+	live.Host = "successor"
+	token := filepath.Join(root, "live.token")
+	if err := devhostauth.Create(token); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := devhostauth.Load(live.Host, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := grpc.NewServer(auth.ServerOptions()...)
+	defer srv.Stop()
+	proto.RegisterAgentServer(srv, &developmentIdentityFake{identity: live})
+	go srv.Serve(listener)
+	dead := gproto.Clone(live).(*proto.LifecycleIdentity)
+	dead.Host = "predecessor"
+	for name, id := range map[string]*proto.LifecycleIdentity{"dead": dead, "live": live} {
+		if err := publishDevelopmentRecord(filepath.Join(root, "hosts", name+".json"), developmentHostSelection{Identity: id, Endpoint: listener.Addr().String(), TokenFile: token}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, endpoint, err := developmentSourceResolver(root, own)(ctx, live.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := developmentPeerDial(root, own)(ctx, endpoint, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	// The predecessor record points at the same socket and token, but its exact
+	// host identity must still fail authentication rather than select the live peer.
+	if conn, err := developmentPeerDial(root, own)(ctx, endpoint, dead); err == nil {
+		conn.Close()
+		t.Fatal("authenticated wrong host")
+	}
+	wrong := gproto.Clone(live).(*proto.LifecycleIdentity)
+	wrong.Build = "wrong-build"
+	if conn, err := developmentPeerDial(root, own)(ctx, endpoint, wrong); err == nil {
+		conn.Close()
+		t.Fatal("accepted changed exact identity")
 	}
 }
