@@ -40,16 +40,17 @@ and can interrupt work. See [self-development build instructions](self-dev.md#la
 for module builds and build-only publication, and [development generations](development-generations.md)
 for preparation, exact reconnect, and replacement review.
 
-Generate a new wrapper (the absolute destination's parent must already exist):
+Generate (or update) a wrapper (the absolute destination's parent must already exist):
 
 ```bash
-make -C source/server launcher LAUNCHER_DEST=/absolute/new/path/cercano
+make -C source/server launcher LAUNCHER_DEST=/absolute/path/cercano
 ```
 
-The no-clobber installer embeds this checkout's root, overridable with
-`CERCANO_REPO`. It will not overwrite an existing file/symlink and has no
-`--force`; generate a new candidate for review rather than deleting an existing
-`~/bin/cercano`. Generation does not launch anything or add it to `PATH`.
+The installer embeds this checkout's root, overridable with `CERCANO_REPO`. It
+atomically installs — or replaces — the destination file/symlink, so the same
+path can be updated in place; generate a fresh candidate path if you want to
+review a new launcher before replacing `~/bin/cercano`. Generation does not
+launch anything or add it to `PATH`.
 
 ### 3. Run it
 
@@ -112,7 +113,7 @@ piece.
 ### Install the dev launcher
 
 Follow [Build the dev launcher](#2-build-the-dev-launcher) above for explicit
-no-clobber generation (`LAUNCHER_DEST` is required), and
+launcher install/update (`LAUNCHER_DEST` is required), and
 [self-development](self-dev.md#layout--build) for module build outputs and
 checkout launch examples. The wrapper runs the CLI; invoke the server module
 binary directly for server subcommands. The default `~/.config/cercano` is not

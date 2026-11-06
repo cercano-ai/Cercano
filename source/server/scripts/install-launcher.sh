@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# Explicit, no-clobber installation only. Never updates an existing launcher.
+# Explicit installation to an absolute destination; installs or updates the
+# launcher there.
 # Usage: scripts/install-launcher.sh --destination /absolute/path/to/cercano
 set -euo pipefail
 if [[ $# -ne 2 || "$1" != "--destination" || "$2" != /* ]]; then
-    echo 'usage: install-launcher.sh --destination /absolute/path/to/cercano (must not exist)' >&2
+    echo 'usage: install-launcher.sh --destination /absolute/path/to/cercano' >&2
     exit 2
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-# Python handles repository paths containing shell/sed metacharacters. Publish
-# with an exclusive hard link so an existing file, symlink or racing installer
-# is never overwritten; failed staging files are the only files removed.
+# Python handles repository paths containing shell/sed metacharacters. Stage the
+# generated launcher privately in the destination directory and publish with
+# os.replace, so an existing file or symlink is replaced atomically and readers
+# always see a complete launcher. Destination symlinks are replaced, never
+# followed; failed staging files are the only files removed.
 python3 - "$SCRIPT_DIR/cercano-launcher.sh" "$REPO_ROOT" "$2" <<'PY'
 import os
 from pathlib import Path
@@ -22,8 +25,8 @@ template, repo, destination = sys.argv[1:]
 dest = Path(destination)
 if not dest.parent.is_dir():
     sys.exit('install-launcher: destination parent must already exist')
-if os.path.lexists(dest):
-    sys.exit('install-launcher: destination exists; choose a new explicit path (no overwrite supported)')
+if dest.is_dir():
+    sys.exit('install-launcher: destination is a directory')
 lines = Path(template).read_text().splitlines()
 replacement = 'REPO="${CERCANO_REPO:-}"\nif [[ -z "$REPO" ]]; then REPO=' + shlex.quote(repo) + '; fi'
 if sum(line.startswith('REPO=') for line in lines) != 1:
@@ -37,8 +40,11 @@ try:
         f.flush()
         os.fchmod(f.fileno(), 0o755)
         os.fsync(f.fileno())
-    os.link(staging, dest)
+    os.replace(staging, dest)
 finally:
-    os.unlink(staging)
+    try:
+        os.unlink(staging)
+    except FileNotFoundError:
+        pass
 print(f'installed {dest} (repo: {repo})')
 PY
