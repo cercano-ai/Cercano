@@ -9,14 +9,14 @@ E=ROOT/'native-evidence'
 E.mkdir(exist_ok=True)
 def sha(p): return hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
 env=dict(PATH='/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',HOME=str(BASE/'home'),XDG_CONFIG_HOME=str(BASE/'config'),XDG_DATA_HOME=str(BASE/'data'),XDG_CACHE_HOME=str(BASE/'cache'),GOCACHE=str(BASE/'gocache'),GOMODCACHE=str(BASE/'gomodcache'),GOPROXY='off',GOSUMDB='off',GOTOOLCHAIN='local',GOENV='off',GOFLAGS='-p=2',GOMAXPROCS='2',HOMEBREW_NO_AUTO_UPDATE='1',HOMEBREW_NO_INSTALL_FROM_API='1',HOMEBREW_NO_ANALYTICS='1',CERCANO_DISABLE_CREDENTIALS='1')
-def run(name,args,cwd=None,extra=None,timeout=300):
+def run(name,args,cwd=None,extra=None,timeout=300,ok=(0,)):
     print(name,repr(args),flush=True)
     log=E/(name+'.log')
     with log.open('x') as f:
         f.write(repr(args)+'\n');f.flush()
         p=subprocess.run(args,cwd=cwd,env=env| (extra or {}),stdout=f,stderr=subprocess.STDOUT,timeout=timeout)
     print(log.read_text(),flush=True)
-    assert p.returncode==0,(name,p.returncode)
+    assert p.returncode in ok,(name,p.returncode)
     return log.read_text()
 def brew(name,*args): return run(name,['/opt/homebrew/bin/brew',*args])
 def policy(name):
@@ -40,7 +40,7 @@ if len(sys.argv)>1 and sys.argv[1]=='upgrade':
     stage('0.0.904')
     brew('upgrade-B','upgrade','--formula','fixture/cercano/cercano-agent')
     assert (A.stat().st_dev,A.stat().st_ino,sha(A))==before
-    cleanup=brew('explicit-agent-cleanup','cleanup','fixture/cercano/cercano-agent')
+    cleanup=run('explicit-agent-cleanup',['/opt/homebrew/bin/brew','cleanup','fixture/cercano/cercano-agent'],ok=(1,))
     assert 'Refusing to clean' in cleanup
     assert (A.stat().st_dev,A.stat().st_ino,sha(A))==before
     assert pathlib.Path('/opt/homebrew/bin/cercano').resolve()==pathlib.Path('/opt/homebrew/Cellar/cercano-agent/0.0.904/bin/cercano')
@@ -59,7 +59,11 @@ for v in ('0.0.903','0.0.904'):
     run('metadata-'+v,['/opt/homebrew/bin/go','version','-m',str(binary)])
     run('version-'+v,[str(binary),'--version'])
     archive=E/('cercano-'+v+'.tar.gz')
-    with tarfile.open(archive,'w:gz') as tar: tar.add(binary,arcname='bin/cercano')
+    with tarfile.open(archive,'w:gz') as tar:
+        tar.add(binary,arcname='fixture/bin/cercano')
+        body=b'Disposable current-source agent fixture only.\n'
+        entry=tarfile.TarInfo('fixture/README.txt');entry.size=len(body)
+        tar.addfile(entry,io.BytesIO(body))
     formula=(T/'Formula/cercano-agent.rb').read_text()
     import re
     formula=re.sub(r'  url ".*"','  url "file://'+str(archive)+'"',formula)
