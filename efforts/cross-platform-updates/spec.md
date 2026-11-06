@@ -8,6 +8,20 @@ Cercano needs straightforward installation and upgrades across macOS, Windows, a
 
 This specification defines product behavior and ownership. File layouts, locks, endpoints, retention bookkeeping, and other implementation mechanics belong in the execution plan and code review rather than additional product-design checkpoints.
 
+## Approved Windows scope amendment — 2026-11-06
+
+The user explicitly chose ordinary Chocolatey replacement upgrades for Windows instead of rolling updates. This amendment takes precedence over the original cross-platform continuity language below: retained generations, concurrent A/B sessions, deferred incompatible-runtime activation, and generation-retirement acceptance apply to macOS and Linux, not Windows. Their requirements are unchanged.
+
+Windows uses machine-wide, Chocolatey-owned program files and per-user configuration, conversations, and credentials. Keep independently installable `cercano-cli` and `cercano-agent` and the `cercano` convenience package, remote-only CLI use, and exclusive public command ownership. No per-user executable copies, release-specific runtime package families, retained-version selector, or cross-version session coexistence are required or authorized for Windows.
+
+Users must exit the Cercano components being upgraded on Windows; terminal windows may stay open at the shell prompt. An agent upgrade requires the affected agent and workers to exit; a CLI upgrade requires the affected CLI to exit. For an agent-only upgrade, keeping an unaffected CLI open in its disconnected state is a validation case, not yet a support guarantee: reconnect must not automatically relaunch the old agent during replacement, and later reconnection requires supported protocol compatibility. Existing disconnected-state handling alone does not prove this coordination. No preservation of an in-flight agent turn is promised. Running processes or locked files must cause a clear failure or request to exit the affected component, without forced termination or misleading success. After a successful replacement, new launches use the installed version. Install, upgrade, and uninstall preserve user data; an elevated installer must not launch a user agent or modify another account's state. Cercano does not become an installer, updater, or privileged cleanup service.
+
+Windows acceptance replaces the rolling A-to-B scenario with native Chocolatey installation, closed-application replacement upgrade, launch of the new version, and uninstall. Verify standalone components and convenience installation, remote-only client use, command ownership, user-data preservation, elevation/account boundaries, partial upgrades, paths with spaces and Unicode, and actionable failure with running/locked files. Interrupted or failed replacement must not be reported as successful activation. Closing the application is a documented prerequisite, not evidence that concurrent launch and locked-file handling are correct.
+
+This choice deliberately trades uninterrupted Windows sessions for a smaller implementation and support surface. It does not relax integrity, signing, data safety, or native acceptance requirements. Existing experimental ZIP archives and Windows cross-compilation are not evidence of Chocolatey installation support. The shared model-runtime delivery scope below remains unchanged; this amendment does not claim a complete bundled runtime exists.
+
+The older execution plan's Windows retention/coexistence tasks are superseded and are not authorization to implement them. A Windows replacement execution plan must be reviewed separately before implementation. Package publication, credentials, live-installation changes, and production release operations remain separately gated.
+
 ## Goals
 
 Provide native packages through Homebrew on macOS, Chocolatey on Windows, and APT on Linux. Keep the command-line client and agent independently installable, with a convenient installation of both for everyday users.

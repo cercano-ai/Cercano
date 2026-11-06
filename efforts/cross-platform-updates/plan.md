@@ -1,5 +1,59 @@
 # Native packages and session-safe upgrades
 
+## Windows replacement execution scope — approved specification amendment
+
+The next execution is limited to Windows ordinary Chocolatey replacement packaging under the 2026-11-06 spec amendment. The phases below are the current Windows checklist, in execution order. Historical cross-platform phases following them preserve prior progress but do not authorize Windows retention, rolling upgrades, or concurrent-version sessions. macOS/Linux requirements are unchanged and are not implementation work in this Windows slice. Terminal windows need not close: only the components being upgraded must exit. No forced termination, custom updater, new privileged service, or per-user executable copies.
+
+## Windows phase 1 — Establish native replacement safety
+
+Objective: verify Chocolatey transaction behavior before choosing hook details or claiming locked-file safety. Files: new isolated fixtures under release/chocolatey/tests/ and recorded effort verification evidence; read existing Windows artifact builders, agentclient discovery/reconnect and Chocolatey lifecycle documentation/source. Tests: harmless fixture packages on a disposable native Windows runner, never the developer's installation. Obtain runner access authorization if none is available; do not start or modify an existing VM merely because it exists.
+
+- [ ] Create an isolated worktree from the approved planning checkpoint and record baseline identity; preserve unrelated worktrees and artifacts
+- [ ] Establish an authorized disposable Windows environment and record Chocolatey, OS and architecture versions; mark native checks blocked if unavailable
+- [ ] Trace and probe actual upgrade/uninstall ordering, payload replacement and shim handling; do not treat BeforeModify failure as a reliable veto
+- [ ] Reproduce running-executable and stopped-but-locked-file replacement using harmless fixture binaries, including concurrent relaunch and inaccessible process information
+- [ ] Establish manager-native safe failure and actionable retry behavior without killing processes or silently accepting partial installation; record exact observed old-payload and shim state
+- [ ] If ordinary package replacement cannot satisfy the approved safety boundary, report that concrete conflict before adopting a different installer architecture
+
+## Windows phase 2 — Component packages and command discovery
+
+Objective: generate independently installable component packages and a dependency-only convenience package from verified release artifacts. Files: release/chocolatey/ package definitions, builder and tests; scripts/build-windows-release.py and scripts/test-windows-release-build.py only where needed; source/server/pkg/agentclient discovery tests. Tests: package membership, identity/checksum validation, dependencies, command ownership and remote-only startup. Shared model runtime remains within agent delivery scope, but the current ZIP has no bundled llama; record that delivery gap rather than silently treating the two-binary package as complete local-runtime support.
+
+- [ ] Add cercano-agent owning cercano.exe and its public shim, cercano-cli owning cercano-cli.exe and its shim, and cercano depending on both without command ownership
+- [ ] Preserve independent component installation and per-user data; package scripts must not launch elevated user agents or enumerate/delete other users' data
+- [ ] Implement only replacement/error handling supported by phase 1 evidence, covering all package-owned executables/resources rather than process-name-only detection
+- [ ] Test checksum/layout failures, partial component upgrades and repository lag; avoid assuming atomic installation or arbitrary cross-version compatibility
+- [ ] Verify separate package directory and shim-based agent discovery, missing/stale shims, and spaces/Unicode paths; preserve remote-only CLI no-launch behavior
+- [ ] Document external llama delivery limitations and keep local-runtime qualification pending unless a supported delivery path is established within scope
+- [ ] Run focused fixture and interface integration tests, review changes and checkpoint explicit paths
+
+## Windows phase 3 — Exit and reconnect behavior
+
+Objective: distinguish terminal lifetime from executable lifetime and prevent reconnect racing agent replacement. Files: source/server/pkg/agentclient/{client.go,reconnect.go}, source/clients/cli startup/UI and Windows installation documentation only as required by observed probes. Tests: disconnected client, automatic recovery, unavailable endpoint and compatible restored endpoint. Reuse existing behavior where correct; reproduce failures before changing it.
+
+- [ ] Verify CLI exit is required only when its own component is replaced; terminal shells may remain open
+- [ ] Probe agent-only replacement with a disconnected CLI, including watcher-driven local relaunch during the replacement interval
+- [ ] Keep CLI-open agent upgrades unsupported if existing coordination cannot safely prevent relaunch; document exiting the CLI as well for that case rather than inventing an update service
+- [ ] Where supported, verify reconnect after successful replacement and protocol compatibility checks without claiming in-flight turn preservation
+- [ ] Add focused regressions for demonstrated defects, preserving remote connect-only behavior and avoiding Windows generation admission/retention changes
+
+## Windows phase 4 — Native acceptance and nonpublishing integration
+
+Objective: prove ordinary package lifecycle and failure reporting before advertising Windows installation support. Files: release/chocolatey/tests/, scripts/test-release-workflow.py, .github/workflows/release-macos.yml, docs/windows-artifact.md and Windows installation guidance. Tests: native install/upgrade/uninstall, preservation and lock matrix; artifact and workflow tests remain distinct from installed-system acceptance.
+
+- [ ] Exercise standalone agent, remote-only client and convenience installation on the authorized disposable runner
+- [ ] Perform a real A-to-B replacement with affected components exited; verify selected executable versions, shims and usable new startup
+- [ ] Exercise running/locked files, cross-user processes, concurrent relaunch, interruption, insufficient permissions and partial packages; verify errors and recovery guidance without forced termination
+- [ ] Verify configuration/conversation/model sentinels and synthetic credentials survive upgrade and uninstall, including alternate elevated account boundaries
+- [ ] Integrate package generation and nonpublishing validation into the existing workflow without weakening macOS gates or enabling publication
+- [ ] Record exact versions, commands, hashes, test counts, failures and limitations; distinguish same-source fixture upgrades from changed-release compatibility and real inference
+- [ ] Obtain independent review, resolve findings, rerun affected focused/native tests and checkpoint completed units
+- [ ] Keep signing, publishing, credentials, release tags, live installations and unsupported runtime claims gated separately; do not push or merge without authorization
+
+## Historical cross-platform scope and progress
+
+The following records pre-amendment work. Windows rolling/retention and deferred-activation tasks below are superseded by the Windows phases above, not pending Windows requirements. Existing macOS/Linux work is not reopened by this execution plan.
+
 Execute the revised spec.md, approved by the user in conversation. This plan supersedes the previous custom-updater plan entirely. All tasks are pending; existing code, prototypes and historical audit results are reuse candidates, not acceptance evidence.
 
 Native managers own package delivery. Cercano owns only runtime continuity, selection and retirement. No TUF feed, custom installer, self-managed enrollment, package rollback engine or mandatory stop-all upgrade is authorized. Incompatible shared-runtime activation waits for existing sessions to finish. Routine implementation details are resolved during execution within these approved boundaries, not through another round of product-design questions. Escalate only genuine conflicts with the specification.
