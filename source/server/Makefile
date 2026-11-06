@@ -30,9 +30,9 @@ dev: build
 proto:
 	../proto/generate.sh
 
-# Explicit no-clobber install: make launcher LAUNCHER_DEST=/absolute/new/path
+# Explicit install/update: make launcher LAUNCHER_DEST=/absolute/path/cercano
 launcher:
-	@test -n "$(LAUNCHER_DEST)" || { echo 'LAUNCHER_DEST must name an explicit new absolute path' >&2; exit 2; }
+	@test -n "$(LAUNCHER_DEST)" || { echo 'LAUNCHER_DEST must name an explicit absolute path' >&2; exit 2; }
 	scripts/install-launcher.sh --destination "$(LAUNCHER_DEST)"
 
 clean:
