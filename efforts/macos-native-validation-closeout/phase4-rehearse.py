@@ -40,7 +40,7 @@ if len(sys.argv)>1 and sys.argv[1]=='upgrade':
     stage('0.0.904')
     brew('upgrade-B','upgrade','--formula','fixture/cercano/cercano-agent')
     assert (A.stat().st_dev,A.stat().st_ino,sha(A))==before
-    cleanup=run('explicit-agent-cleanup',['/opt/homebrew/bin/brew','cleanup','fixture/cercano/cercano-agent'],ok=(1,))
+    cleanup=run('explicit-agent-cleanup',['/opt/homebrew/bin/brew','cleanup','fixture/cercano/cercano-agent'])
     assert 'Refusing to clean' in cleanup
     assert (A.stat().st_dev,A.stat().st_ino,sha(A))==before
     assert pathlib.Path('/opt/homebrew/bin/cercano').resolve()==pathlib.Path('/opt/homebrew/Cellar/cercano-agent/0.0.904/bin/cercano')
@@ -52,6 +52,10 @@ print('ALL SOURCE FILE HASHES VERIFIED',manifest['revision'],flush=True)
 policy('policy-before-build')
 run('go-version',['/opt/homebrew/bin/go','version'])
 brew('initial-packages','list','--versions','cercano','cercano-agent','cercano-cli')
+# Never mistake an already-installed B/no-op upgrade for this rehearsal.
+assert not pathlib.Path('/opt/homebrew/Cellar/cercano-agent/0.0.904').exists(), (
+    'B already installed: preserve evidence; a clean disposable package baseline is required '
+    'before repeating the actual .903 -> .904 transition (no automatic rollback)')
 source=ROOT/'source/server'
 for v in ('0.0.903','0.0.904'):
     binary=E/('cercano-'+v)

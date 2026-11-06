@@ -73,3 +73,103 @@ A local transfer helper attempted a tracked-source snapshot at revision `5192771
 Transfer failed with exit 255, `PrlJob_GetResult: Invalid argument. An invalid argument was passed.` Retries with smaller chunks also failed. The last observed guest archive length was 1,206,000 bytes, with its prefix hash checked against the locally generated archive before retry. The partial `/tmp/cnp.h8sjTc/phase4-source.tar.gz` remains; it was not extracted or built. The transfer helper used quoted Python `-c` snippets with UID assertions, rather than the requested absolute guest-script entrypoint. This was a procedural deviation, not accepted rehearsal execution; the failed helper is not checkpointed as a supported harness. No multi-command shell body or subprocess shell execution was used.
 
 No harness extension, offline dependency build, .903/.904 packaging or installation, automatic/explicit cleanup, worker dispatch, persistence assertion, B coexistence, or A reconnect ran. No modelhost or product process was started; authenticated release/retire was consequently not needed, and no PID signals were sent. No package mutation command ran. The .901/.902 inventory above remains historical, not freshly reverified; no new residual package inventory claim is made. No production files, host Homebrew, live state, credentials, or policy were modified. The parent-owned plan remains untouched. This checkpoint preserves only evidence and the read-only guest probe, not a completed native harness.
+
+
+## Continuation — verified transferred archive; guest upgrade reached B, controller failed
+
+2026-11-05. This section supersedes the earlier transfer-blocked status, not its
+preserved observations. **Phase 4 remains incomplete.** This continuation read the
+actual preserved guest logs, checked complete archive hashes and current guest
+inventory; it did not rerun the build or claim a passing rehearsal.
+
+### Transfer/source and command provenance
+
+All guest commands used `prlctl exec d5633dbc-c8a1-49fc-a420-df6d5d60d952`.
+Read-only `prlctl list -i` reports host folders and host-defined sharing off;
+`/bin/ls -la /Volumes` shows only Macintosh HD -> /. No sharing was enabled.
+No transfer was repeated and no listener was opened in this continuation.
+
+Host hashlib SHA-256 of `.phase4-d33af63ef86c9c6bf37a4110bfa09eef2bcb40396f29469f740156d5ecb01ee4.tar.gz`
+and guest `/usr/bin/shasum -a 256 /tmp/cnp.h8sjTc/phase4-d33af63ef86c9c6bf37a4110bfa09eef2bcb40396f29469f740156d5ecb01ee4.tar.gz`
+both returned `d33af63ef86c9c6bf37a4110bfa09eef2bcb40396f29469f740156d5ecb01ee4`.
+This is a fresh complete-byte equivalence check (guest checksum read as root),
+not a claim that this continuation performed extraction or a UID501 build.
+The partial `phase4-source.tar.gz` was not used. Host archive inspection found
+1,925 manifest files, revision `6b1083073baa9f25736194d324f1a3d78420a7a8`,
+and the required `source/server/internal/compaction/testdata/real_conversation.json`.
+Git history confirms harness checkpoints `3bf23e41` and `6b108307` precede this snapshot.
+
+Preserved evidence directory: `/tmp/cnp.h8sjTc/phase4-6b1083073baa/native-evidence`.
+Individual `/bin/cat` reads of `controller.log`, `upgrade-A.log`, `upgrade-B.log`,
+`explicit-agent-cleanup.log`, both formula files, and residual logs succeeded.
+Commands recorded in those logs include actual `brew upgrade --formula
+fixture/cercano/cercano-agent` for .902 -> .903 and .903 -> .904, and
+`brew cleanup fixture/cercano/cercano-agent`.
+Controller invocation was `controller.test
+-test.run=^TestNative(ProductionController|ControllerAssertions)$ -test.v
+-test.timeout=360s`.
+
+Fresh `/usr/bin/shasum -a 256` of preserved built binaries:
+
+| Binary | SHA-256 |
+| --- | --- |
+| cercano-0.0.903 | bf8d600c8d2a88ac2037e75107a24b6ce47fc73f4a16a494589cd342efc3e123 |
+| cercano-0.0.904 | 90a53dfe91c4e5aa59edc2dba869e72eaff84cc0372dfe7ca6974af3fd96d26d |
+
+Preserved formula archive digests (read from formulas, not freshly hashed archives):
+A `97a8ad5d4636c67ea8f99550c5641cc450779cbfdb8271fce2d71c0f32e31400`;
+B `dedd9c2b8eb20d50de578ddb7ffde41099ac847f08a0488abf7876f725ab2666`.
+SHA-256 of retrieved controller.log bytes:
+`0ccf50519b297597a8f254f87925ee5eb67d6bbb29c1c40b17f933449842599e`.
+
+### Actual failure and bounded correction
+
+The controller logged A host PID 34641 before its first turn and the matching
+A binary digest. Effective `brew config` in the hook reported
+`HOMEBREW_NO_CLEANUP_FORMULAE: cercano-agent`, without a blanket cleanup disable.
+Upgrade installed B. Explicit cleanup printed
+`Error: Refusing to clean cercano-agent because it is listed in HOMEBREW_NO_CLEANUP_FORMULAE!`
+but returned **0**. The harness incorrectly expected **1**, so the hook failed
+and the controller stopped before normal fresh-worker dispatch. Assertion helper
+subtests passed, but they are not native continuity acceptance.
+
+Corrected the harness to require status 0 and retain its refusal-text and
+A device/inode/hash assertions. Added a pre-build guard rejecting already-installed
+B: a no-op upgrade must never masquerade as the required transition. Python AST
+syntax check passed; corrected harness SHA-256:
+`1c085a2a6f9cbb5384990ac36cd6f940b831ae9deb173bfee6e02b69371fd55c`.
+This correction has not been executed in the guest.
+
+### Teardown, residuals, and precise blocker
+
+The preserved controller log reports `owned process cleanup complete (no signals)`
+and preserved failed fixture `/private/tmp/nc-2173132018`. The current read-only
+`/bin/ps -axo pid=,command=` inventory contained no cercano or that fixture path.
+No signal fallback, new service, production change, package reset, host install,
+configuration change, external llama action, push or merge occurred here.
+
+Fresh UID501 inventory command:
+`/usr/bin/sudo -u test /usr/bin/env HOME=/tmp/cnp.h8sjTc/home
+XDG_CONFIG_HOME=/tmp/cnp.h8sjTc/config HOMEBREW_NO_AUTO_UPDATE=1
+/opt/homebrew/bin/brew list --versions cercano cercano-agent cercano-cli`
+returned:
+
+```
+cercano 0.0.902
+cercano-agent 0.0.901 0.0.902 0.0.903 0.0.904
+cercano-cli 0.0.902
+```
+
+The precise remaining execution prerequisite is a disposable package baseline
+without already-installed B. Ordinary `brew upgrade` cannot recreate .903 -> .904
+with .904 already installed. This task authorizes that deliberate upgrade, not
+manual manager-owned file/link rewriting, rollback, uninstall of retained kegs,
+or a different VM. None was silently substituted. Existing archives, packages,
+synthetic exclusion, caches, fixture state and logs remain preserved. A clean
+baseline/reset decision is required before repeating the actual transition.
+
+Still unverified: post-explicit-cleanup A inode/hash assertion, FIRST normal
+fresh A worker turn and mapped executable, exact final/history/completion counts,
+eligible B session while A lives, authenticated A reconnect and later turn, and
+successful-scenario authenticated teardown. The failed run's cleanup result does
+not establish those successes. Parent-owned plan was not edited.
