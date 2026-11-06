@@ -1,0 +1,12 @@
+# Selection-only fixture; not a resource/inference acceptance configuration.
+ollama_url: http://127.0.0.1:11434
+open_runtime: ollama
+open_model: qwen2.5:0.5b
+locus_mode: open_only
+port: "50083"
+cloud_profiles: []
+# Legacy open_model migrates to everyday, NOT the default premium Chat tier.
+task_assignments:
+  chat:
+    destination: primary
+    quality: standard
