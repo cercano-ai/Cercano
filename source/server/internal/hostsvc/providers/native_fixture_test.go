@@ -4,11 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"cercano/source/server/internal/dispatch"
 	cfgsvc "cercano/source/server/internal/hostsvc/config"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/localruntime/catalogdefaults"
+	"cercano/source/server/internal/locus"
 	"cercano/source/server/internal/openmodels"
 	"cercano/source/server/pkg/config"
 )
@@ -27,9 +30,9 @@ func TestNativeFixtureSelection(t *testing.T) {
 		name, yaml, want string
 		invoke           bool
 	}{
-		{"historical_missing_chat_quality", legacy, catalog, false},
+		{"historical_missing_chat_quality", legacy, "", false},
 		{"corrected_standard_chat", string(corrected), "qwen2.5:0.5b", true},
-		{"explicit_premium_override", legacy + "models:\n  open:\n    overrides:\n      ollama:\n        most_capable: qwen2.5:0.5b\n", "qwen2.5:0.5b", true},
+		{"explicit_premium_override", legacy + "models:\n  open:\n    overrides:\n      ollama:\n        most_capable: qwen3:8b\n", "qwen3:8b", true},
 		{"native_catalog_default", "open_runtime: llama_server\nlocus_mode: open_only\n", catalog, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -51,6 +54,22 @@ func TestNativeFixtureSelection(t *testing.T) {
 			// StreamProcessRequest uses PrimaryModel to seed a worker conversation.
 			if got := s.PrimaryModel(); got != tt.want {
 				t.Fatalf("conversation seed model=%q, want %q", got, tt.want)
+			}
+			if tt.want == "" {
+				if models.ChatModel() != "qwen2.5:0.5b" || c.TaskAssignment(config.TaskChat).Quality != "premium" {
+					t.Fatal("missing premium model must not change everyday or task quality")
+				}
+				if p, cloud, fallback, err := s.Main(); err == nil || p != nil || cloud || fallback {
+					t.Fatalf("Main must reject unavailable local model: provider=%v cloud=%v fallback=%v err=%v", p, cloud, fallback, err)
+				} else {
+					t.Logf("Main rejected missing model: %v", err)
+				}
+				engine := dispatch.NewEngine(s.Candidates, func() locus.Mode { return locus.OpenOnly }, nil)
+				_, err := engine.Dispatch(context.Background(), dispatch.Spec{RoutingTask: config.TaskChat})
+				if err == nil || !strings.Contains(err.Error(), "selected task model unavailable") {
+					t.Fatalf("Dispatch must propagate missing model error, got %v", err)
+				}
+				t.Logf("Dispatch rejected missing model: %v", err)
 			}
 			if !tt.invoke {
 				return

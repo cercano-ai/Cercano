@@ -4,12 +4,15 @@ import (
 	"strings"
 	"testing"
 
+	"cercano/source/server/internal/inference"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 )
 
 func TestResolveTierModel_OverrideBeatsCatalogDefault(t *testing.T) {
 	s, _ := newTestServer()
+	// Catalog defaults belong to a native runtime, not the helper's empty runtime.
+	s.cfgSvc.Mutate(func(c *config.Config) { c.OpenRuntime = "llama_server" })
 
 	catalogDefault := s.resolveTierModel(config.TierEveryday)
 	if catalogDefault == "" {
@@ -27,6 +30,8 @@ func TestResolveTierModel_OverrideBeatsCatalogDefault(t *testing.T) {
 
 func TestResolveTierModel_CatalogFallback(t *testing.T) {
 	s, _ := newTestServer()
+	// Catalog defaults belong to a native runtime, not the helper's empty runtime.
+	s.cfgSvc.Mutate(func(c *config.Config) { c.OpenRuntime = "llama_server" })
 	if got := s.resolveTierModel(config.TierFastLightText); got == "" {
 		t.Error("unconfigured fast_light_text should resolve from the catalog default")
 	}
@@ -108,6 +113,8 @@ func TestUpdateConfig_ModelTierInvalid(t *testing.T) {
 
 func TestDispatchModelFor(t *testing.T) {
 	s, _ := newTestServer()
+	// Catalog defaults belong to a native runtime, not the helper's empty runtime.
+	s.cfgSvc.Mutate(func(c *config.Config) { c.OpenRuntime = "llama_server" })
 	s.cfgSvc.Mutate(func(c *config.Config) {
 		c.Models.SetOverride(c.OpenRuntime, config.TierFastLightText, "phi4:14b")
 		c.Models.SetOverride(c.OpenRuntime, config.TierEveryday, "qwen3-coder-next")
@@ -130,5 +137,23 @@ func TestDispatchModelFor(t *testing.T) {
 	// Cloud side: everyday cloud resolves through the active profile model.
 	if got := s.DispatchModelFor(true, config.TierEveryday); got != s.activeCloudModel() {
 		t.Errorf("everyday cloud = %q, want active profile model %q", got, s.activeCloudModel())
+	}
+}
+
+func TestResolveTierModel_OllamaRequiresExplicitTier(t *testing.T) {
+	s, _ := newTestServer()
+	s.cfgSvc.Mutate(func(c *config.Config) {
+		c.OpenRuntime = "ollama"
+		c.Models.SetOverride("ollama", config.TierEveryday, "qwen2.5:0.5b")
+	})
+	if got := s.resolveTierModel(config.TierMostCapable); got != "" {
+		t.Fatalf("unconfigured Ollama premium=%q", got)
+	}
+	if got := s.DestinationModelFor(inference.Selection{}, config.TierMostCapable); got != "" {
+		t.Fatalf("task-bound premium must not downgrade to everyday: %q", got)
+	}
+	s.cfgSvc.Mutate(func(c *config.Config) { c.Models.SetOverride("ollama", config.TierMostCapable, "qwen3:8b") })
+	if got := s.DestinationModelFor(inference.Selection{}, config.TierMostCapable); got != "qwen3:8b" {
+		t.Fatalf("explicit premium=%q", got)
 	}
 }

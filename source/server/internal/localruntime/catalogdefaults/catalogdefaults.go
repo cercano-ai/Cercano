@@ -16,7 +16,8 @@ import (
 // ForRuntime returns the curated open-model recommendation (tier → model id)
 // for a runtime at a RAM size. mistral.rs recommends its own curated chat tiers
 // but keeps the embedding tier on the shared llama-served nomic (it does not
-// serve embeddings); every other runtime uses the llama-server recommendation.
+// serve embeddings). llama_server uses its own catalog; runtimes without a
+// curated catalog (including Ollama) have no automatic defaults.
 // The signature matches openmodels.CatalogDefaults so it can be passed directly.
 func ForRuntime(runtime string, ramBytes uint64) map[string]string {
 	if strings.EqualFold(runtime, "mistralrs") {
@@ -29,5 +30,10 @@ func ForRuntime(runtime string, ramBytes uint64) map[string]string {
 		}
 		return recs
 	}
-	return llamaserver.RecommendedOpenModels(ramBytes)
+	if strings.EqualFold(runtime, "llama_server") {
+		return llamaserver.RecommendedOpenModels(ramBytes)
+	}
+	// Native catalog IDs are not portable model names. Let the resolver's
+	// existing absent-model path require an explicit per-runtime override.
+	return nil
 }
