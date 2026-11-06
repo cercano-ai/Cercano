@@ -1,0 +1,22 @@
+['/opt/homebrew/bin/brew', 'upgrade', '--formula', 'fixture/cercano/cercano-agent']
+==> Fetching downloads for: fixture/cercano/cercano-agent
+✔︎ Formula cercano-agent (0.0.906)
+==> Upgrading fixture/cercano/cercano-agent
+  0.0.905 -> 0.0.906 
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+
+This is a Tier 2 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-2
+You can report issues with Tier 2 configurations to Homebrew/* repositories!
+  https://docs.brew.sh/Troubleshooting
+Read the above document before opening any issues or PRs.
+🍺  /opt/homebrew/Cellar/cercano-agent/0.0.906: 5 files, 66.3MB, built in 0 seconds

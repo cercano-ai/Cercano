@@ -1,0 +1,4 @@
+['/opt/homebrew/bin/brew', 'list', '--versions', 'cercano', 'cercano-agent', 'cercano-cli']
+cercano 0.0.902
+cercano-agent 0.0.901 0.0.906 0.0.905 0.0.902 0.0.903 0.0.904
+cercano-cli 0.0.902

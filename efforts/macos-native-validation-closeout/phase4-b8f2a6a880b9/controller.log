@@ -1,0 +1,102 @@
+['/private/tmp/cnp.h8sjTc/phase4-b8f2a6a880b9/native-evidence/controller.test', '-test.run=^TestNative(ProductionController|ControllerAssertions)$', '-test.v', '-test.timeout=360s']
+=== RUN   TestNativeProductionController
+    native_controller_test.go:341: before turn owned PIDs=[{35939 development-host}] binary_sha256=ea3ba36534afc5babe184cdd0bb67f2c0d53d9834b74735b36b3d3cb2015ea1b
+    native_controller_test.go:354: external upgrade/cleanup: policy-before-B ['/opt/homebrew/bin/brew', 'config']
+        ['/opt/homebrew/bin/brew', 'config']
+        HOMEBREW_VERSION: 7.0.12
+        ORIGIN: https://github.com/Homebrew/brew
+        HEAD: bf464f57275cae0be106b43d190c98564ac59b0e
+        Last commit: 4 days ago
+        Branch: stable
+        Core tap HEAD: 55711ea862c695b69a38a8b44ee72ef817ec364a
+        Core tap last commit: 2 days ago
+        Core cask tap: N/A
+        HOMEBREW_PREFIX: /opt/homebrew
+        HOMEBREW_NO_ANALYTICS: set
+        HOMEBREW_NO_AUTO_UPDATE: set
+        HOMEBREW_NO_CLEANUP_FORMULAE: cercano-agent
+        HOMEBREW_NO_INSTALL_FROM_API: set
+        Homebrew Ruby: 4.0.9 => /opt/homebrew/Library/Homebrew/vendor/portable-ruby/4.0.9/bin/ruby
+        CPU: quad-core 64-bit dunno
+        Clang: 21.0.0 build 2100
+        Git: 2.50.1 => /Library/Developer/CommandLineTools/usr/bin/git
+        Curl: 8.7.1 => /usr/bin/curl
+        macOS: 26.5.2-arm64
+        CLT: 26.6.0.0.1781586589
+        Xcode: N/A
+        Rosetta 2: false
+        
+        tap-add-0.0.906 ['/usr/bin/git', '-C', '/tmp/cnp-homebrew-evidence/tap', 'add', 'Formula/cercano-agent.rb']
+        ['/usr/bin/git', '-C', '/tmp/cnp-homebrew-evidence/tap', 'add', 'Formula/cercano-agent.rb']
+        
+        tap-commit-0.0.906 ['/usr/bin/git', '-C', '/tmp/cnp-homebrew-evidence/tap', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid', 'commit', '-m', 'phase4-agent-0.0.906']
+        ['/usr/bin/git', '-C', '/tmp/cnp-homebrew-evidence/tap', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid', 'commit', '-m', 'phase4-agent-0.0.906']
+        [main e181dee] phase4-agent-0.0.906
+         1 file changed, 3 insertions(+), 3 deletions(-)
+        
+        tap-pull-0.0.906 ['/usr/bin/git', '-C', '/opt/homebrew/Library/Taps/fixture/homebrew-cercano', 'pull', '--ff-only']
+        ['/usr/bin/git', '-C', '/opt/homebrew/Library/Taps/fixture/homebrew-cercano', 'pull', '--ff-only']
+        From /tmp/cnp-homebrew-evidence/tap
+           d83277d..e181dee  main       -> origin/main
+        Updating d83277d..e181dee
+        Fast-forward
+         Formula/cercano-agent.rb | 6 +++---
+         1 file changed, 3 insertions(+), 3 deletions(-)
+        
+        upgrade-B ['/opt/homebrew/bin/brew', 'upgrade', '--formula', 'fixture/cercano/cercano-agent']
+        ['/opt/homebrew/bin/brew', 'upgrade', '--formula', 'fixture/cercano/cercano-agent']
+        ==> Fetching downloads for: fixture/cercano/cercano-agent
+        ✔︎ Formula cercano-agent (0.0.906)
+        ==> Upgrading fixture/cercano/cercano-agent
+          0.0.905 -> 0.0.906 
+        Warning: A newer Command Line Tools release is available.
+        Update them from Software Update in System Settings.
+        
+        If that doesn't show you any updates, run:
+          sudo rm -rf /Library/Developer/CommandLineTools
+          sudo xcode-select --install
+        
+        Alternatively, manually download them from:
+          https://developer.apple.com/download/all/.
+        You should download the Command Line Tools for Xcode 27.0.
+        
+        This is a Tier 2 configuration:
+          https://docs.brew.sh/Support-Tiers#tier-2
+        You can report issues with Tier 2 configurations to Homebrew/* repositories!
+          https://docs.brew.sh/Troubleshooting
+        Read the above document before opening any issues or PRs.
+        🍺  /opt/homebrew/Cellar/cercano-agent/0.0.906: 5 files, 66.3MB, built in 0 seconds
+        
+        explicit-agent-cleanup ['/opt/homebrew/bin/brew', 'cleanup', 'fixture/cercano/cercano-agent']
+        ['/opt/homebrew/bin/brew', 'cleanup', 'fixture/cercano/cercano-agent']
+        Error: Refusing to clean cercano-agent because it is listed in HOMEBREW_NO_CLEANUP_FORMULAE!
+        
+        A retained device/inode/SHA (16777229, 466499, 'ea3ba36534afc5babe184cdd0bb67f2c0d53d9834b74735b36b3d3cb2015ea1b')
+    native_controller_test.go:376: A inode/hash unchanged after automatic and explicit cleanup; still zero workers
+    native_controller_test.go:385: stream: {Authentication:<nil> Type:9 Token: Note: ProgressKind:PROGRESS_KIND_UNSPECIFIED Final: Notice: Model: TokIn:0 TokOut:0 Err:<nil> ToolUseID: ToolName: ArgsSummary: ArgsJSON: Summary: Detail: StartLine:0 IsError:false RouteModel:m1 RouteCloud:false Tier: Disclosure: Destructive:false WatchdogKind: Protocol: Thread: SubAgentID: SubAgentParentID: SubAgentTitle: SubAgentKind: GrantedTools:[] IgnoredTools:[] SubAgentText: SubAgentToolID: OfferID: ConvID: RolloverReason: RawTokens:0 HandoffPreview: TaskChangeKind: Task:<nil>}
+    native_controller_test.go:385: stream: {Authentication:<nil> Type:0 Token:native-controller-ok Note: ProgressKind:PROGRESS_KIND_UNSPECIFIED Final: Notice: Model: TokIn:0 TokOut:0 Err:<nil> ToolUseID: ToolName: ArgsSummary: ArgsJSON: Summary: Detail: StartLine:0 IsError:false RouteModel: RouteCloud:false Tier: Disclosure: Destructive:false WatchdogKind: Protocol: Thread: SubAgentID: SubAgentParentID: SubAgentTitle: SubAgentKind: GrantedTools:[] IgnoredTools:[] SubAgentText: SubAgentToolID: OfferID: ConvID: RolloverReason: RawTokens:0 HandoffPreview: TaskChangeKind: Task:<nil>}
+    native_controller_test.go:385: stream: {Authentication:<nil> Type:2 Token: Note: ProgressKind:PROGRESS_KIND_UNSPECIFIED Final:native-controller-ok Notice: Model:llama_server TokIn:0 TokOut:0 Err:<nil> ToolUseID: ToolName: ArgsSummary: ArgsJSON: Summary: Detail: StartLine:0 IsError:false RouteModel: RouteCloud:false Tier: Disclosure: Destructive:false WatchdogKind: Protocol: Thread: SubAgentID: SubAgentParentID: SubAgentTitle: SubAgentKind: GrantedTools:[] IgnoredTools:[] SubAgentText: SubAgentToolID: OfferID: ConvID: RolloverReason: RawTokens:0 HandoffPreview: TaskChangeKind: Task:<nil>}
+    native_controller_test.go:403: persisted=[{ID:3ef4a03908749fa3b36cad31 ConversationID:4f7ba100b6a4034e3e075fee57f11dac Role:user Content:Reply with native-controller-ok TokensIn:0 TokensOut:0 LatencyMs:0 CreatedAt:2026-11-05 18:06:13 -0800 PST ContentJSON:[{"type":"text","text":"Reply with native-controller-ok"}]} {ID:ee8db63af261d338b1dacea4 ConversationID:4f7ba100b6a4034e3e075fee57f11dac Role:assistant Content:native-controller-ok TokensIn:0 TokensOut:0 LatencyMs:0 CreatedAt:2026-11-05 18:06:13 -0800 PST ContentJSON:[{"type":"text","text":"native-controller-ok"}]}] calls=1 owned=[{pid:35939 role:development-host} {pid:36299 role:worker}]
+    native_controller_test.go:432: fresh worker PID=36299 canonical executable=/opt/homebrew/Cellar/cercano-agent/0.0.905/bin/cercano mapped=p36299
+        ftxt
+        n/opt/homebrew/Cellar/cercano-agent/0.0.905/bin/cercano
+        ftxt
+        n/usr/lib/dyld
+    native_controller_test.go:470: host=b69df98d8e66bcbe769311002b452b4e generation=/opt/homebrew/Cellar/cercano-agent/0.0.906 exact final=1 history=2 completion_count=2
+    native_controller_test.go:470: host=5c52e57eeba3d5d73092ea0ebb2a27fc generation=/opt/homebrew/Cellar/cercano-agent/0.0.905 exact final=1 history=4 completion_count=3
+    native_controller_test.go:494: A authenticated reconnect and later turn; A/B coexistence=[{pid:35939 role:development-host} {pid:36299 role:worker} {pid:36305 role:development-host} {pid:36306 role:worker}]
+    native_controller_test.go:198: owned process cleanup complete (no signals)
+--- PASS: TestNativeProductionController (4.79s)
+=== RUN   TestNativeControllerAssertions
+=== RUN   TestNativeControllerAssertions/empty_final
+=== RUN   TestNativeControllerAssertions/error_after_final
+=== RUN   TestNativeControllerAssertions/token_only
+=== RUN   TestNativeControllerAssertions/substring
+=== RUN   TestNativeControllerAssertions/duplicate
+--- PASS: TestNativeControllerAssertions (0.00s)
+    --- PASS: TestNativeControllerAssertions/empty_final (0.00s)
+    --- PASS: TestNativeControllerAssertions/error_after_final (0.00s)
+    --- PASS: TestNativeControllerAssertions/token_only (0.00s)
+    --- PASS: TestNativeControllerAssertions/substring (0.00s)
+    --- PASS: TestNativeControllerAssertions/duplicate (0.00s)
+PASS

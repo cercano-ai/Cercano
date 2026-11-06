@@ -173,3 +173,116 @@ fresh A worker turn and mapped executable, exact final/history/completion counts
 eligible B session while A lives, authenticated A reconnect and later turn, and
 successful-scenario authenticated teardown. The failed run's cleanup result does
 not establish those successes. Parent-owned plan was not edited.
+
+
+## Continuation — authorized .905 → .906 rehearsal PASSED
+
+2026-11-05. This new attempt supersedes the execution blocker above, not the
+chronological failures. User explicitly authorized fresh monotonic .905/.906
+fixture names without uninstall/reset/rollback. A fresh direct guest Cellar
+listing contained only .901–.904; the harness also asserted both new versions
+absent before building. The old .903 → .904 transition was not repeated.
+
+### Provenance and exact snapshot
+
+Read current spec, plan, notes, evidence, transfer/rehearsal scripts and controller.
+Git history attributes native Homebrew controller integration to `3bf23e41`,
+archive-root correction to `6b108307`, and cleanup-exit correction to `f1a8b943`;
+this continuation did not invent or claim those changes as newly implemented.
+Inspection confirmed zero-worker A setup, post-cleanup first dispatch, exact
+final/history/count validators, eligible B admission and pinned A reconnect were
+already present. Only fixture literals and the both-versions-absent guard changed.
+No production file changed. Parent-owned plan remains untouched.
+
+Harness checkpoint **b8f2a6a880b90d2f1e33efcd6738ae1ebe742724** preceded snapshot/build.
+Python AST parsing passed. SHA-256:
+
+- rehearsal script: `964322c29b6b55479151001ca5e91f264866ed0938a0912c9ca4fe4df343d3c8`
+- controller test: `de23cd24ebb72420ac61fa2f1b5715ad64787177bb8a9f4148fe52d78df4e171`
+
+The already-complete d33af63e archive was not retransferred. A **new** committed
+snapshot containing the corrected harness was created by
+`python3 efforts/macos-native-validation-closeout/phase4-transfer.py`: 1,925 files,
+6,280,630 bytes, SHA-256
+`05bc753526edf56caedec36a20e92cbdf7085dae1c907261e6e95ce85aaf8c75`.
+Prior continuation recorded successful hash-verified transfer and extraction;
+this execution freshly rehashed the complete local and guest archives and confirmed
+the SHA above, manifest revision and file count. Guest script verified every
+manifest file before building. This execution did not repeat any transfer.
+
+### Commands and outcome
+
+All guest commands used `prlctl exec d5633dbc-c8a1-49fc-a420-df6d5d60d952`.
+Direct UID501 `mkdir` created `/tmp/cnp.h8sjTc/phase4-b8f2a6a880b9`, then direct
+UID501 `tar -xzf /tmp/cnp.h8sjTc/phase4-05bc753526edf56caedec36a20e92cbdf7085dae1c907261e6e95ce85aaf8c75.tar.gz -C /tmp/cnp.h8sjTc/phase4-b8f2a6a880b9`
+exited 0. Execution (exit 0, 26.713 seconds):
+
+```sh
+prlctl exec d5633dbc-c8a1-49fc-a420-df6d5d60d952 /usr/bin/sudo -u test /usr/bin/env HOME=/tmp/cnp.h8sjTc/home XDG_CONFIG_HOME=/tmp/cnp.h8sjTc/config /opt/homebrew/bin/python3 /tmp/cnp.h8sjTc/phase4-b8f2a6a880b9/efforts/macos-native-validation-closeout/phase4-rehearse.py
+```
+
+Script asserted UID/HOME/XDG and built with its allowlisted offline environment:
+GOPROXY=off, GOSUMDB=off, GOTOOLCHAIN=local, GOENV=off, caches under
+`/tmp/cnp.h8sjTc/{gocache,gomodcache}`, Go 1.27.3 darwin/arm64.
+For each version: `go build -tags= -ldflags=-X main.version=VERSION -o BINARY ./cmd/cercano`,
+then `go version -m BINARY` and `BINARY --version`. Controller compiled with
+`go test -c -o .../native-evidence/controller.test ./cmd/cercano` before package changes.
+Product build metadata shows shipping entrypoint, no test build tags.
+Both binaries share exact production source; only version linker values differ.
+
+Actual `brew upgrade --formula fixture/cercano/cercano-agent` installed
+.904 → .905, then .905 → .906 while A lived. Policy before build and B upgrade
+reported `HOMEBREW_NO_CLEANUP_FORMULAE: cercano-agent`, no blanket cleanup disable.
+Automatic upgrade cleanup was subject to that exclusion; explicit
+`brew cleanup fixture/cercano/cercano-agent` printed refusal but returned 0.
+No claim of actual old-keg deletion is made. A device/inode/SHA remained
+`(16777229, 466499, ea3ba36534afc5babe184cdd0bb67f2c0d53d9834b74735b36b3d3cb2015ea1b)`
+after both operations, independently checked by Python and controller SameFile/hash.
+
+Controller command: `controller.test -test.run=^TestNative(ProductionController|ControllerAssertions)$ -test.v -test.timeout=360s`.
+**PASS**, production-controller 4.79s; assertion helper tests also passed.
+
+- A host 35939 had zero workers before upgrade and still zero after cleanup.
+- First normal StreamChat after cleanup spawned fresh worker 36299; lsof mapped
+  `/opt/homebrew/Cellar/cercano-agent/0.0.905/bin/cercano`.
+- Exactly one successful final `native-controller-ok`, exact ordered user/assistant
+  persisted contents, history 2, completion count 1; no stream errors.
+- Distinct B host/conversation admitted while A lived; B exact final 1, history 2,
+  cumulative completion count 2. B host 36305, worker 36306.
+- Closed A client, authenticated pinned reconnect to A, later exact final 1,
+  exact history 4, cumulative completion count 3. Synthetic provider start count
+  remained exactly one. Final inventory had both hosts and both workers.
+- Authenticated LifecycleRelease/Retire teardown passed; controller logged
+  `owned process cleanup complete (no signals)`. Successful private nc-* state
+  was removed by controller only after passing cleanup. Residual ps log contains
+  no cercano or /nc- process. Prior failed fixture evidence was not removed.
+
+### Hashes, evidence and residuals
+
+Fresh guest shasum matched built and installed binaries:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| .905 binary | ea3ba36534afc5babe184cdd0bb67f2c0d53d9834b74735b36b3d3cb2015ea1b |
+| .906 binary | 5ea66fe1f7b7fbac408358561dcdf98fc61efc783f6f6a61480986d8950853be |
+| .905 formula archive | 8dc216182a03fb69d4c335912b21be70739024194cb6d6066a20f7a506244dfa |
+| .906 formula archive | 76f9790daa7b14608cbbeab1bf305c6afe8b12703e749144badbc2435c0ed1db |
+| controller.log (guest and retrieved bytes) | 509d652af595789964860b3fdcca5ca506ed536301920be326ecb4a50ca0860a |
+
+Full guest evidence: `/tmp/cnp.h8sjTc/phase4-b8f2a6a880b9/native-evidence/`.
+Retrieved bounded logs/formulas/hashes: `efforts/macos-native-validation-closeout/phase4-b8f2a6a880b9/`.
+Each command log begins with exact argv. Build/metadata/tap logs remain in guest.
+The initial shell-wrapped read-only ls and one later log retrieval returned
+transport error 255; direct read-only retries succeeded. No mutating operation
+was retried and no partial observation was used as success.
+
+Residual packages: agent .901/.902/.903/.904/.905/.906; CLI and convenience .902.
+Synthetic persistent exclusion, local fixture tap now at .906, archives, build
+caches, source/evidence directories and previous failed fixture state remain.
+Public agent selection is .906 (asserted by upgrade hook). No uninstall, rollback,
+manual manager link rewriting, PID signal, host install/config/auth/store action,
+external llama action, real credentials/model acquisition, push or merge occurred.
+Runtime was loopback deterministic SSE plus authenticated coexistence-protected
+synthetic modelhost, not real llama inference. This passes the bounded same-source
+native agent continuity rehearsal only; it does not establish external llama
+retention, changed-source compatibility, human acceptance or release qualification.

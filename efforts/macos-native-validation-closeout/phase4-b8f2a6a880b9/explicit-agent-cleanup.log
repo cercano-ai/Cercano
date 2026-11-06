@@ -1,0 +1,2 @@
+['/opt/homebrew/bin/brew', 'cleanup', 'fixture/cercano/cercano-agent']
+Error: Refusing to clean cercano-agent because it is listed in HOMEBREW_NO_CLEANUP_FORMULAE!

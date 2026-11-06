@@ -1,0 +1,23 @@
+['/opt/homebrew/bin/brew', 'config']
+HOMEBREW_VERSION: 7.0.12
+ORIGIN: https://github.com/Homebrew/brew
+HEAD: bf464f57275cae0be106b43d190c98564ac59b0e
+Last commit: 4 days ago
+Branch: stable
+Core tap HEAD: 55711ea862c695b69a38a8b44ee72ef817ec364a
+Core tap last commit: 2 days ago
+Core cask tap: N/A
+HOMEBREW_PREFIX: /opt/homebrew
+HOMEBREW_NO_ANALYTICS: set
+HOMEBREW_NO_AUTO_UPDATE: set
+HOMEBREW_NO_CLEANUP_FORMULAE: cercano-agent
+HOMEBREW_NO_INSTALL_FROM_API: set
+Homebrew Ruby: 4.0.9 => /opt/homebrew/Library/Homebrew/vendor/portable-ruby/4.0.9/bin/ruby
+CPU: quad-core 64-bit dunno
+Clang: 21.0.0 build 2100
+Git: 2.50.1 => /Library/Developer/CommandLineTools/usr/bin/git
+Curl: 8.7.1 => /usr/bin/curl
+macOS: 26.5.2-arm64
+CLT: 26.6.0.0.1781586589
+Xcode: N/A
+Rosetta 2: false

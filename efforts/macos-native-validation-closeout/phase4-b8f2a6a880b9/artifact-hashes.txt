@@ -1,0 +1,4 @@
+ea3ba36534afc5babe184cdd0bb67f2c0d53d9834b74735b36b3d3cb2015ea1b  /tmp/cnp.h8sjTc/phase4-b8f2a6a880b9/native-evidence/cercano-0.0.905
+5ea66fe1f7b7fbac408358561dcdf98fc61efc783f6f6a61480986d8950853be  /tmp/cnp.h8sjTc/phase4-b8f2a6a880b9/native-evidence/cercano-0.0.906
+8dc216182a03fb69d4c335912b21be70739024194cb6d6066a20f7a506244dfa  /tmp/cnp.h8sjTc/phase4-b8f2a6a880b9/native-evidence/cercano-0.0.905.tar.gz
+76f9790daa7b14608cbbeab1bf305c6afe8b12703e749144badbc2435c0ed1db  /tmp/cnp.h8sjTc/phase4-b8f2a6a880b9/native-evidence/cercano-0.0.906.tar.gz
