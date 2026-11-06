@@ -35,15 +35,15 @@ def stage(v):
     run('tap-pull-'+v,['/usr/bin/git','-C',str(INST),'pull','--ff-only'])
 if len(sys.argv)>1 and sys.argv[1]=='upgrade':
     policy('policy-before-B')
-    A=pathlib.Path('/opt/homebrew/Cellar/cercano-agent/0.0.903/bin/cercano')
+    A=pathlib.Path('/opt/homebrew/Cellar/cercano-agent/0.0.905/bin/cercano')
     before=(A.stat().st_dev,A.stat().st_ino,sha(A))
-    stage('0.0.904')
+    stage('0.0.906')
     brew('upgrade-B','upgrade','--formula','fixture/cercano/cercano-agent')
     assert (A.stat().st_dev,A.stat().st_ino,sha(A))==before
     cleanup=run('explicit-agent-cleanup',['/opt/homebrew/bin/brew','cleanup','fixture/cercano/cercano-agent'])
     assert 'Refusing to clean' in cleanup
     assert (A.stat().st_dev,A.stat().st_ino,sha(A))==before
-    assert pathlib.Path('/opt/homebrew/bin/cercano').resolve()==pathlib.Path('/opt/homebrew/Cellar/cercano-agent/0.0.904/bin/cercano')
+    assert pathlib.Path('/opt/homebrew/bin/cercano').resolve()==pathlib.Path('/opt/homebrew/Cellar/cercano-agent/0.0.906/bin/cercano')
     print('A retained device/inode/SHA',before,flush=True)
     sys.exit(0)
 manifest=json.loads((ROOT/'phase4-manifest.json').read_text())
@@ -52,12 +52,12 @@ print('ALL SOURCE FILE HASHES VERIFIED',manifest['revision'],flush=True)
 policy('policy-before-build')
 run('go-version',['/opt/homebrew/bin/go','version'])
 brew('initial-packages','list','--versions','cercano','cercano-agent','cercano-cli')
-# Never mistake an already-installed B/no-op upgrade for this rehearsal.
-assert not pathlib.Path('/opt/homebrew/Cellar/cercano-agent/0.0.904').exists(), (
-    'B already installed: preserve evidence; a clean disposable package baseline is required '
-    'before repeating the actual .903 -> .904 transition (no automatic rollback)')
+# Both monotonic fixture versions must be absent: never accept a no-op upgrade.
+for v in ('0.0.905','0.0.906'):
+    assert not pathlib.Path('/opt/homebrew/Cellar/cercano-agent',v).exists(), (
+        'fixture already installed: preserve state; no rollback or no-op rehearsal')
 source=ROOT/'source/server'
-for v in ('0.0.903','0.0.904'):
+for v in ('0.0.905','0.0.906'):
     binary=E/('cercano-'+v)
     run('build-'+v,['/opt/homebrew/bin/go','build','-tags=','-ldflags=-X main.version='+v,'-o',str(binary),'./cmd/cercano'],cwd=source,timeout=600)
     run('metadata-'+v,['/opt/homebrew/bin/go','version','-m',str(binary)])
@@ -77,10 +77,10 @@ for v in ('0.0.903','0.0.904'):
     print('ARTIFACT',v,'binary_sha256',sha(binary),'archive_sha256',sha(archive),flush=True)
 # Compile controller before any package mutation. Missing deps are a hard stop.
 run('compile-controller',['/opt/homebrew/bin/go','test','-c','-o',str(E/'controller.test'),'./cmd/cercano'],cwd=source,timeout=600)
-stage('0.0.903')
+stage('0.0.905')
 brew('upgrade-A','upgrade','--formula','fixture/cercano/cercano-agent')
 try:
-    run('controller',[str(E/'controller.test'),'-test.run=^TestNative(ProductionController|ControllerAssertions)$','-test.v','-test.timeout=360s'],cwd=source/'cmd/cercano',extra=dict(CERCANO_NATIVE_CONTROLLER='1',CERCANO_NATIVE_BREW='1',CERCANO_NATIVE_AGENT='/opt/homebrew/Cellar/cercano-agent/0.0.903/bin/cercano',CERCANO_NATIVE_BREW_HOOK=str(pathlib.Path(__file__).resolve()),CERCANO_NATIVE_STATE_PARENT='/tmp'),timeout=390)
+    run('controller',[str(E/'controller.test'),'-test.run=^TestNative(ProductionController|ControllerAssertions)$','-test.v','-test.timeout=360s'],cwd=source/'cmd/cercano',extra=dict(CERCANO_NATIVE_CONTROLLER='1',CERCANO_NATIVE_BREW='1',CERCANO_NATIVE_AGENT='/opt/homebrew/Cellar/cercano-agent/0.0.905/bin/cercano',CERCANO_NATIVE_BREW_HOOK=str(pathlib.Path(__file__).resolve()),CERCANO_NATIVE_STATE_PARENT='/tmp'),timeout=390)
 finally:
     brew('residual-packages','list','--versions','cercano','cercano-agent','cercano-cli')
     run('residual-processes',['/bin/ps','-axo','pid=,command='])

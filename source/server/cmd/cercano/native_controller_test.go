@@ -121,7 +121,7 @@ func TestNativeProductionController(t *testing.T) {
 		kegs[i] = filepath.Join(root, "Cellar", "cercano-agent", version, "bin", "cercano")
 		if nativeBrew {
 			kegs[i], err = filepath.EvalSymlinks(binary)
-			if err != nil || kegs[i] != "/opt/homebrew/Cellar/cercano-agent/0.0.903/bin/cercano" {
+			if err != nil || kegs[i] != "/opt/homebrew/Cellar/cercano-agent/0.0.905/bin/cercano" {
 				t.Fatalf("installed A: %s %v", kegs[i], err)
 			}
 			continue
@@ -144,7 +144,7 @@ func TestNativeProductionController(t *testing.T) {
 		var processes []nativeControllerProcess
 		for _, line := range strings.Split(string(out), "\n") {
 			f := strings.Fields(line)
-			if len(f) < 3 || (f[1] != kegs[0] && (!nativeBrew || f[1] != "/opt/homebrew/Cellar/cercano-agent/0.0.904/bin/cercano")) {
+			if len(f) < 3 || (f[1] != kegs[0] && (!nativeBrew || f[1] != "/opt/homebrew/Cellar/cercano-agent/0.0.906/bin/cercano")) {
 				continue
 			}
 			pid, err := strconv.Atoi(f[0])
@@ -433,7 +433,7 @@ data: [DONE]
 	}
 
 	if nativeBrew {
-		bKeg := "/opt/homebrew/Cellar/cercano-agent/0.0.904/bin/cercano"
+		bKeg := "/opt/homebrew/Cellar/cercano-agent/0.0.906/bin/cercano"
 		selectKeg(bKeg)
 		_, b := launch(bKeg)
 		if b.Identity.Host == a.Identity.Host || b.Conversation == a.Conversation {
