@@ -1,6 +1,6 @@
 # macOS upgrade: human acceptance handoff
 
-**Status: all human checks below are PENDING; none has been executed for this handoff.** Phase 4's current-code native rehearsal is running; this document claims no rehearsal result or engineering/release completion. Recorded focused tests cover worker selection, admission/reconnect and synthetic runtime holds, not full human usability, real inference or arbitrary released-version compatibility. See [verification](verification.md), [scope](spec.md) and [worker/retention policy](../../docs/homebrew-worker-selection.md).
+**Status: all human checks below are PENDING; none has been executed for this handoff.** Phase 4's bounded same-source .905 → .906 synthetic-runtime native rehearsal is completed; see the [passing rehearsal evidence](phase4-evidence.md#continuation--authorized-905--906-rehearsal-passed) and [closeout summary](verification.md#engineering-closeout-and-human-handoff--2026-11-05). This is not human acceptance or release qualification. Recorded focused tests cover worker selection, admission/reconnect and synthetic runtime holds, not full human usability, real inference or arbitrary released-version compatibility. See [verification](verification.md), [scope](spec.md) and [worker/retention policy](../../docs/homebrew-worker-selection.md).
 
 ## Preconditions — PENDING
 

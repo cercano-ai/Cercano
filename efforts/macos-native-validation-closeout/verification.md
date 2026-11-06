@@ -178,3 +178,29 @@ The user explicitly accepted this support limitation ("that's fine") on 2026-11-
 The four Phase 3 modelhost tests above already passed normally and under the race detector; they were not rerun for this acceptance record. Their fake-runtime/synthetic hold checks demonstrate control and hold accounting, not loaded weights or real inference. The human checklist must cover actual local inference after an idle interval across the Cercano A-to-B upgrade, with the external runtime/dependency/model paths unchanged, and later work/restart usability. That actual idle-inference qualification, native rehearsal, human execution/acceptance results and release qualification remain outstanding; accepting the boundary does not complete Phase 3.
 
 No new installer/runtime manager, external dependency retention or cleanup safety claim, or live policy/configuration change is introduced. Automatic retirement remains deferred; no specification or plan was edited.
+
+
+## Engineering closeout and human handoff — 2026-11-05
+
+Documentation-only closeout following independent review `task_a5c97bd15bfbe8f7e798ea18c8015c74`. The review reported **no blocking defect** in the bounded same-source .905 → .906 synthetic-runtime native rehearsal. This summary supersedes earlier outstanding/incomplete status statements for the engineering deliverables only; the chronological failures and earlier evidence remain preserved in [Phase 4 evidence](phase4-evidence.md).
+
+### Reviewed result and provenance limits
+
+- The independent review matched all **1,925 archive files** against the manifest and current source snapshot `b8f2a6a880b90d2f1e33efcd6738ae1ebe742724`; archive SHA-256 is `05bc753526edf56caedec36a20e92cbdf7085dae1c907261e6e95ce85aaf8c75`. A/B are the same production source with version-only linker differences, not a changed-source compatibility test.
+- Preserved raw logs establish the actual Homebrew .905 → .906 upgrade, effective synthetic-context agent exclusion, explicit cleanup refusal with exit 0, and unchanged A device/inode/hash. Automatic cleanup is evidenced as **upgrade under the exclusion**, not independently observed cleanup traversal or deletion.
+- Controller evidence establishes zero A workers before upgrade and after cleanup, then a fresh normal-dispatch worker mapped to canonical .905; exact final `native-controller-ok`, ordered persisted history and completion counts; an eligible B session while A lives; and authenticated pinned A reconnect with a later successful turn. Authenticated release/retire and no-signal cleanup passed. These are synthetic provider/modelhost results, not real inference or human usability acceptance.
+- Build/metadata/tap logs remain **guest-only** and were not independently reverified by the review. The review's archive/source and retrieved raw-log checks must not be described as independent reproduction of the guest builds or metadata.
+
+### Engineering disposition and handoff
+
+Phases 1–3 retain their recorded scoped implementation, focused normal/race coverage, and accepted local-runtime boundary. Phase 4 is complete only as the bounded native rehearsal above. Package ownership/lifecycle checks were **not rerun**: relevant packaging is unchanged, so existing evidence at `efforts/cross-platform-updates/verification.md` (lines 920–965) remains reused. Historical monolithic-package migration was omitted, not tested. Earlier baseline wording that exclusion “resolves applicability” records a scope decision, not distribution evidence: whether historical users require migration remains **unresolved** and explicitly pending in the human handoff; no supported-migration claim is made.
+
+Phase 5 completes checklist writing and handoff, **not execution of that checklist**. [Human acceptance](human-acceptance.md) supplies expected outcomes and a sanitized failure template for normal/in-flight conversations, later turns/delegation, A reconnect and simultaneous A/B use, real local inference after idle, and version/deferred-state reporting. Every human check remains pending. The next actual changed-source release transition and final signed/notarized package smoke test belong to human testing and the [existing release process](../../docs/macos-release-build.md), including trust and supported architecture/macOS qualification. No new release pipeline or credentials are required for this engineering handoff.
+
+The accepted support boundary is Cercano-only upgrades with external llama executable, libraries, backends/resources and models unchanged for active dependent sessions, including idle/later work/restarts. No external runtime retention, arbitrary cross-version compatibility, automatic keg retirement, real inference qualification, release approval, or full cross-platform completion is established.
+
+### Residue and closeout safety
+
+The rehearsal reports retained guest agent kegs **.901–.906**, CLI/convenience **.902**, local fixture tap at .906, synthetic persistent `HOMEBREW_NO_CLEANUP_FORMULAE=cercano-agent`, caches, source/evidence directories, archives and prior failed fixture state. The exclusion is effective in the recorded synthetic invocation context, not a system-wide guarantee. Controller/residual logs report **no owned processes remaining** and cleanup without signals; this closeout did not perform a new live inventory. Active worktree is retained. Untracked `.phase4-*.tar.gz` archives remain as evidence; no deletion, guest teardown, uninstall, rollback or policy change is authorized here.
+
+This closeout read the effort plan/spec, human checklist, native evidence and verification, and reconciled documentation/status only. No live operations, builds or tests were run. The documentation checkpoint includes existing parent-owned plan status edits; no push, merge or landing is performed.

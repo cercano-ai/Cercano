@@ -1,6 +1,6 @@
 # macOS session-safe upgrade closeout
 
-Execute the scope approved in spec.md. Deliver minimal integration, focused regression tests, one native rehearsal, and a human acceptance checklist. Reuse existing evidence. Do not duplicate Homebrew transactions or release qualification. Tasks below are pending; historical successes are baseline evidence, not completion of these tasks. No publication, push, landing, host installation changes, or automatic old-keg retirement is authorized.
+Execute the scope approved in spec.md. Deliver minimal integration, focused regression tests, one native rehearsal, and a human acceptance checklist. Reuse existing evidence. Do not duplicate Homebrew transactions or release qualification. Engineering tasks below are complete within the bounded scope recorded in [closeout verification](verification.md#engineering-closeout-and-human-handoff--2026-11-05); all human checks and separate release gates remain pending. Historical successes remain baseline evidence, not substitute execution results. No publication, push, landing, host installation changes, or automatic old-keg retirement is authorized.
 
 ## Phase 1 — Establish the execution baseline
 
@@ -37,19 +37,19 @@ Objective: answer the real dependency-safety question without creating a custom 
 
 Objective: connect the current implementation to Homebrew retention evidence. Files: a bounded reproducible rehearsal script under this effort if needed, verification.md, and only affected packaging fixtures. Tests: current-code versioned A/B packages in the disposable guest, not Homebrew fault injection.
 
-- [ ] Build current-code A/B fixtures containing the fixes; record source revision and artifact hashes. Do not manufacture a source change for a compatibility claim.
-- [ ] Establish isolated synthetic state, effective agent cleanup exclusion, and an ordinary A agent/conversation. Record how a genuinely fresh worker will be distinguished from warm-worker reuse.
-- [ ] Upgrade externally using Homebrew and exercise automatic and explicit cleanup. Assert A remains present by identity; account for the known cleanup refusal message with exit 0 rather than relying on exit status alone.
-- [ ] Have A complete a normal dispatched turn through a fresh A worker; verify worker identity. Verify a new eligible session reaches B and the existing A conversation still works.
-- [ ] Rerun package ownership/lifecycle checks only if relevant packaging changes invalidated existing evidence. Add the actual historical migration only if its supported-user requirement was established in Phase 1; otherwise document omission or the unresolved evidence question.
-- [ ] Record failures honestly, preserve logs/hashes, terminate only owned processes, and document remaining guest packages/configuration. Review evidence against assertions and checkpoint it without claiming full human or release acceptance.
+- [x] Build current-code A/B fixtures containing the fixes; record source revision and artifact hashes. Do not manufacture a source change for a compatibility claim.
+- [x] Establish isolated synthetic state, effective agent cleanup exclusion, and an ordinary A agent/conversation. Record how a genuinely fresh worker will be distinguished from warm-worker reuse.
+- [x] Upgrade externally using Homebrew and exercise automatic and explicit cleanup. Assert A remains present by identity; account for the known cleanup refusal message with exit 0 rather than relying on exit status alone.
+- [x] Have A complete a normal dispatched turn through a fresh A worker; verify worker identity. Verify a new eligible session reaches B and the existing A conversation still works.
+- [x] Rerun package ownership/lifecycle checks only if relevant packaging changes invalidated existing evidence. Add the actual historical migration only if its supported-user requirement was established in Phase 1; otherwise document omission or the unresolved evidence question.
+- [x] Record failures honestly, preserve logs/hashes, terminate only owned processes, and document remaining guest packages/configuration. Review evidence against assertions and checkpoint it without claiming full human or release acceptance.
 
 ## Phase 5 — Hand off human acceptance
 
 Objective: make remaining human testing straightforward and separate from engineering completion. Files: this effort's human-acceptance.md and verification.md; link existing release qualification rather than duplicate it. Tests: human-executed workflows, explicitly pending until results are supplied.
 
-- [ ] Write a short checklist for normal and in-flight conversations, subsequent turns/delegation, reconnects, simultaneous A/B sessions, local inference after idle within the supported boundary, and understandable version/deferred-state reporting.
-- [ ] Include expected outcomes and a compact failure-report template with versions, session/worker identities, reproduction steps, and relevant logs, excluding secrets.
-- [ ] Hand off the next real changed-source release transition and final signed-package smoke test to human testing and the existing release process. Do not require new credentials/runners or another release pipeline for this engineering closeout.
-- [ ] Summarize engineering results, approved limitations, pending human checks, and separate release gates. Inspect final delegated review and repository results before reporting completion; keep human checks pending until actually performed.
+- [x] Write a short checklist for normal and in-flight conversations, subsequent turns/delegation, reconnects, simultaneous A/B sessions, local inference after idle within the supported boundary, and understandable version/deferred-state reporting.
+- [x] Include expected outcomes and a compact failure-report template with versions, session/worker identities, reproduction steps, and relevant logs, excluding secrets.
+- [x] Hand off the next real changed-source release transition and final signed-package smoke test to human testing and the existing release process. Do not require new credentials/runners or another release pipeline for this engineering closeout.
+- [x] Summarize engineering results, approved limitations, pending human checks, and separate release gates. Inspect final delegated review and repository results before reporting completion; keep human checks pending until actually performed.
   Engineering completion stops at the handoff above. Any human-reported defect is handled with a concrete reproduction and scoped fix, not by expanding this effort into an exhaustive platform qualification program.
