@@ -4,6 +4,7 @@ import (
 	"cercano/source/server/internal/localruntime"
 	"cercano/source/server/internal/localruntime/localruntimetest"
 	"cercano/source/server/internal/modelhost"
+	pb "cercano/source/server/pkg/proto"
 	"context"
 	"crypto/sha256"
 	"debug/buildinfo"
@@ -18,7 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -40,7 +40,15 @@ func TestNativeProductionController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(root) })
+	// Preserve evidence on any failure, especially uncertain detached-host cleanup.
+	cleanupComplete := false
+	t.Cleanup(func() {
+		if cleanupComplete && !t.Failed() {
+			_ = os.RemoveAll(root)
+		} else {
+			t.Logf("preserved fixture state/logs: %s", root)
+		}
+	})
 	root, err = filepath.EvalSymlinks(root)
 	if err != nil {
 		t.Fatal(err)
@@ -111,49 +119,71 @@ func TestNativeProductionController(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The production launcher detaches its host. Identify only exact owned keg
-	// commands, even on a readiness failure before a record exists. Never pkill.
-	owned := func() []int {
+	// Inventory is observation only: never use discovered PIDs as signal authority.
+	owned := func() ([]nativeControllerProcess, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		out, err := exec.CommandContext(ctx, "/bin/ps", "-axo", "pid=,command=").Output()
 		if err != nil {
-			t.Errorf("owned PID inventory: %v", err)
-			return nil
+			return nil, err
 		}
-		var pids []int
+		var processes []nativeControllerProcess
 		for _, line := range strings.Split(string(out), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) < 3 {
+			f := strings.Fields(line)
+			if len(f) < 3 || f[1] != kegs[0] {
 				continue
 			}
-			if (fields[1] == kegs[0]) && (fields[2] == "development-host" || fields[2] == "worker") {
-				pid, err := strconv.Atoi(fields[0])
+			pid, err := strconv.Atoi(f[0])
+			if err != nil {
+				return nil, err
+			}
+			processes = append(processes, nativeControllerProcess{pid, f[2]})
+		}
+		return processes, nil
+	}
+	var selected *launchSelection
+	var closeFixtures []func()
+	t.Cleanup(func() {
+		defer func() {
+			for i := len(closeFixtures) - 1; i >= 0; i-- {
+				closeFixtures[i]()
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if selected != nil && selected.Identity != nil {
+			controls, err := launchControls(ctx, *selected)
+			if err == nil {
+				defer controls.Close()
+				_, err = controls.LifecycleRelease(ctx, &pb.LifecycleControlRequest{Target: selected.Identity, Owner: &pb.LifecycleOwner{Host: selected.Identity.Host, Conversation: selected.Conversation, Epoch: selected.Epoch}, Management: true})
 				if err == nil {
-					pids = append(pids, pid)
+					var response *pb.LifecycleControlResponse
+					response, err = controls.LifecycleRetire(ctx, &pb.LifecycleControlRequest{Target: selected.Identity})
+					if err == nil && !response.GetReady() {
+						err = fmt.Errorf("retirement not ready")
+					}
 				}
 			}
+			if err != nil {
+				t.Errorf("authenticated release/retire failed: %v; escalation required, no signals sent", err)
+			}
 		}
-		return pids
-	}
-	t.Cleanup(func() {
-		for _, pid := range owned() {
-			_ = syscall.Kill(pid, syscall.SIGTERM)
-		}
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			if len(owned()) == 0 {
-				t.Log("owned process cleanup complete")
+		for {
+			processes, err := owned()
+			if err != nil {
+				t.Errorf("cleanup inventory failed: %v; escalation required", err)
+				return
+			}
+			if len(processes) == 0 {
+				cleanupComplete = true
+				t.Log("owned process cleanup complete (no signals)")
+				return
+			}
+			if ctx.Err() != nil || selected == nil {
+				t.Errorf("residual processes=%+v; state=%s; escalation required, no signals sent", processes, root)
 				return
 			}
 			time.Sleep(50 * time.Millisecond)
-		}
-		for _, pid := range owned() {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
-		}
-		time.Sleep(100 * time.Millisecond)
-		if pids := owned(); len(pids) != 0 {
-			t.Errorf("owned hosts remain: %v", pids)
 		}
 	})
 	alias := filepath.Join(root, "cercano")
@@ -189,6 +219,7 @@ func TestNativeProductionController(t *testing.T) {
 		if err := launchRead(path, &s); err != nil {
 			t.Fatalf("persisted selection %q: %v", out, err)
 		}
+		selected = &s
 		if s.Fixture || s.Identity == nil || s.Identity.Host == "" || s.Conversation == "" || s.Epoch == "" || s.Generation != generation {
 			t.Fatalf("invalid production selection: %+v", s)
 		}
@@ -235,7 +266,7 @@ data: [DONE]
 
 `)
 	}))
-	defer endpoint.Close()
+	closeFixtures = append(closeFixtures, endpoint.Close)
 	cfgPath := filepath.Join(state, "config.yaml")
 	cfgBody, _ := os.ReadFile(cfgPath)
 	cfgBody = append(cfgBody, []byte("ollama_url: "+endpoint.URL+"\n")...)
@@ -259,7 +290,7 @@ data: [DONE]
 	g := grpc.NewServer()
 	modelhost.NewServer(nativeControllerManager{manager}, modelhost.ServerOptions{Token: "native-controller-owned-token", CoexistenceProtection: true}).Register(g)
 	go g.Serve(listener)
-	defer g.Stop()
+	closeFixtures = append(closeFixtures, g.Stop)
 	modelDir := filepath.Join(root, ".cercano", "run", "modelhost")
 	if err := modelhost.WriteRecord(modelDir, modelhost.Record{PID: os.Getpid(), Addr: listener.Addr().String(), Token: "native-controller-owned-token", APIVersion: modelhost.APIVersion, Version: version, StartedAt: time.Now()}); err != nil {
 		t.Fatal(err)
@@ -270,16 +301,21 @@ data: [DONE]
 	selectKeg(kegs[0])
 	_, a := launch(kegs[0])
 	c := dial(a)
-	before := owned()
+	before, err := owned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nativeControllerInventory(before, nil); err != nil {
+		t.Fatal(err)
+	}
 	t.Logf("before turn owned PIDs=%v binary_sha256=%x", before, sha256.Sum256(body))
-	var output strings.Builder
+	var messages []agentclient.StreamMsg
 	stream, err := c.StreamChat(ctx, a.Conversation, "Reply with native-controller-ok", root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for msg := range stream {
-		output.WriteString(msg.Token)
-		output.WriteString(msg.Final)
+		messages = append(messages, msg)
 		t.Logf("stream: %+v", msg)
 		if msg.Err != nil {
 			t.Errorf("turn: %v", msg.Err)
@@ -294,57 +330,42 @@ data: [DONE]
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("persisted=%+v calls=%d owned=%v", turns, calls.Load(), owned())
+	after, err := owned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("persisted=%+v calls=%d owned=%+v", turns, calls.Load(), after)
 	if provider.StartCalls() != 1 {
 		t.Fatal("unexpected synthetic runtime restart")
 	}
-	if calls.Load() == 0 {
-		t.Fatal("no completion calls")
+	if calls.Load() != 1 {
+		t.Fatalf("completion calls=%d, want exactly one", calls.Load())
 	}
-	if !strings.Contains(output.String(), "native-controller-ok") {
-		t.Fatalf("missing output: %q", output.String())
+	if err := nativeControllerFinal(messages); err != nil {
+		t.Error(err)
 	}
-	found := false
-	for _, turn := range turns {
-		if turn.Role == "assistant" && turn.Content == "native-controller-ok" {
-			found = true
+	if err := nativeControllerTurns(turns); err != nil {
+		t.Error(err)
+	}
+	if err := nativeControllerInventory(after, before); err != nil {
+		t.Fatal(err)
+	}
+	for _, process := range after {
+		if process.role != "worker" {
+			continue
 		}
-	}
-	if !found {
-		t.Fatal("assistant turn not persisted")
-	}
-	fresh := false
-	for _, pid := range owned() {
-		old := false
-		for _, prior := range before {
-			if prior == pid {
-				old = true
-			}
+		probeCtx, stopProbe := context.WithTimeout(context.Background(), 3*time.Second)
+		mapped, probeErr := exec.CommandContext(probeCtx, "/usr/sbin/lsof", "-a", "-p", strconv.Itoa(process.pid), "-d", "txt", "-Fn").Output()
+		stopProbe()
+		if probeErr != nil {
+			t.Fatalf("mapped executable probe: %v", probeErr)
 		}
-		if !old {
-			identity, err := exec.Command("/bin/ps", "-p", strconv.Itoa(pid), "-o", "comm=,command=").Output()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(string(identity), kegs[0]+" worker") {
-				t.Fatalf("unexpected fresh executable: %s", identity)
-			}
-			probeCtx, stopProbe := context.WithTimeout(context.Background(), 3*time.Second)
-			mapped, probeErr := exec.CommandContext(probeCtx, "/usr/sbin/lsof", "-a", "-p", strconv.Itoa(pid), "-d", "txt", "-Fn").Output()
-			stopProbe()
-			if probeErr != nil {
-				t.Fatalf("mapped executable probe: %v", probeErr)
-			}
-			if !strings.Contains(string(mapped), "n"+kegs[0]+"\n") {
-				t.Fatalf("worker executable mapping mismatch: %s", mapped)
-			}
-			t.Logf("fresh worker PID=%d executable=%s mapped=%s", pid, identity, mapped)
-			fresh = true
+		if !strings.Contains(string(mapped), "n"+kegs[0]+"\n") {
+			t.Fatalf("worker executable mapping mismatch: %s", mapped)
 		}
+		t.Logf("fresh worker PID=%d canonical executable=%s mapped=%s", process.pid, kegs[0], mapped)
 	}
-	if !fresh {
-		t.Fatal("no fresh owned worker")
-	}
+
 }
 
 // Resolve synthetic metadata without asking a real on-disk model catalog.
@@ -364,4 +385,114 @@ func (m nativeControllerManager) EnsureModelsPresent(ctx context.Context, runtim
 		}
 	}
 	return nil
+}
+
+// These assertions deliberately do not infer successful completion from tokens.
+func nativeControllerFinal(messages []agentclient.StreamMsg) error {
+	finals := 0
+	for _, msg := range messages {
+		if msg.Err != nil || msg.Type == agentclient.TypeError {
+			return fmt.Errorf("stream error: %v", msg.Err)
+		}
+		if msg.Type == agentclient.TypeDone {
+			finals++
+			if msg.Final != "native-controller-ok" {
+				return fmt.Errorf("unexpected final: %q", msg.Final)
+			}
+		}
+	}
+	if finals != 1 {
+		return fmt.Errorf("final count=%d, want one", finals)
+	}
+	return nil
+}
+func nativeControllerTurns(turns []agentclient.PersistedTurn) error {
+	if len(turns) != 2 || turns[0].Role != "user" || turns[0].Content != "Reply with native-controller-ok" || turns[1].Role != "assistant" || turns[1].Content != "native-controller-ok" {
+		return fmt.Errorf("unexpected ordered turns: %+v", turns)
+	}
+	return nil
+}
+
+type nativeControllerProcess struct {
+	pid  int
+	role string
+}
+
+func nativeControllerInventory(now, before []nativeControllerProcess) error {
+	hosts, workers := 0, 0
+	for _, p := range now {
+		switch p.role {
+		case "development-host":
+			hosts++
+		case "worker":
+			workers++
+		default:
+			return fmt.Errorf("unexpected role: %+v", p)
+		}
+	}
+	wantWorkers := 0
+	if before != nil {
+		wantWorkers = 1
+	}
+	if hosts != 1 || workers != wantWorkers {
+		return fmt.Errorf("inventory=%+v, want one host and %d workers", now, wantWorkers)
+	}
+	if before != nil {
+		if err := nativeControllerInventory(before, nil); err != nil {
+			return err
+		}
+		for _, p := range now {
+			if p.role == "development-host" && p.pid != before[0].pid {
+				return fmt.Errorf("host changed: %+v", now)
+			}
+			if p.role == "worker" && p.pid == before[0].pid {
+				return fmt.Errorf("worker not fresh: %+v", now)
+			}
+		}
+	}
+	return nil
+}
+func TestNativeControllerAssertions(t *testing.T) {
+	good := agentclient.StreamMsg{Type: agentclient.TypeDone, Final: "native-controller-ok"}
+	for name, messages := range map[string][]agentclient.StreamMsg{
+		"token only": {{Type: agentclient.TypeToken, Token: "native-controller-ok"}},
+		"substring":  {{Type: agentclient.TypeDone, Final: "not native-controller-ok"}},
+		"duplicate":  {good, good}, "empty final": {{Type: agentclient.TypeDone}},
+		"error after final": {good, {Type: agentclient.TypeError, Err: fmt.Errorf("failed")}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if nativeControllerFinal(messages) == nil {
+				t.Fatal("accepted invalid stream")
+			}
+		})
+	}
+	if err := nativeControllerFinal([]agentclient.StreamMsg{{Type: agentclient.TypeToken, Token: "native-controller-ok"}, good}); err != nil {
+		t.Fatal(err)
+	}
+	turns := []agentclient.PersistedTurn{{Role: "user", Content: "Reply with native-controller-ok"}, {Role: "assistant", Content: "native-controller-ok"}}
+	if err := nativeControllerTurns(turns); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range [][]agentclient.PersistedTurn{turns[1:], {turns[1], turns[0]}, append(append([]agentclient.PersistedTurn{}, turns...), turns[1]), {{Role: "user", Content: "wrong"}, turns[1]}} {
+		if nativeControllerTurns(bad) == nil {
+			t.Fatal("accepted invalid persistence")
+		}
+	}
+	host := []nativeControllerProcess{{1, "development-host"}}
+	if err := nativeControllerInventory(host, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := nativeControllerInventory([]nativeControllerProcess{{1, "development-host"}, {2, "worker"}}, host); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range [][]nativeControllerProcess{nil, {{1, "worker"}}, {{1, "development-host"}, {2, "development-host"}}, {{1, "development-host"}, {2, "worker"}}} {
+		if nativeControllerInventory(bad, nil) == nil {
+			t.Fatal("accepted invalid preturn inventory")
+		}
+	}
+	for _, bad := range [][]nativeControllerProcess{host, {{2, "development-host"}, {1, "worker"}}, {{1, "development-host"}, {2, "worker"}, {3, "worker"}}} {
+		if nativeControllerInventory(bad, host) == nil {
+			t.Fatal("accepted invalid postturn inventory")
+		}
+	}
 }
