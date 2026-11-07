@@ -41,6 +41,8 @@ func accountingBatchToWire(id string, observations []usage.AttemptObservation) (
 		out.Observations = append(out.Observations, &wire.AccountingAttemptObservation{
 			Id: a.ID, Revision: a.Revision, OperationId: a.Attribution.OperationID, ConversationId: a.Attribution.ConversationID, SessionId: a.Attribution.SessionID, WorkerId: a.Attribution.WorkerID, Source: a.Attribution.Source,
 			Provider: a.Provider, Model: a.Model, Profile: a.Profile, Destination: a.Destination, StartedAtUtcMicros: optionalMicros(a.StartedAt), EndedAtUtcMicros: optionalMicros(a.EndedAt), Outcome: string(a.Outcome),
+			RequestedProvider: a.RequestedProvider, RequestedModel: a.RequestedModel, RouteId: a.RouteID, SourceConnectionId: a.SourceConnectionID,
+			ReportOrganizationId: a.Report.OrganizationID, ReportHostId: a.Report.HostID, ReportProfileVersion: a.Report.ProfileVersion, ReportTaskType: a.Report.TaskType, RequestedRouteId: a.Report.RequestedRouteID, RequestedSourceConnectionId: a.Report.RequestedSourceConnectionID,
 			UsageFinal: a.Tokens.Final, InputTokens: optionalCount(a.Tokens.Input), OutputTokens: optionalCount(a.Tokens.Output), CacheReadTokens: optionalCount(a.Tokens.CacheRead), CacheWriteTokens: optionalCount(a.Tokens.CacheWrite), ReasoningTokens: optionalCount(a.Tokens.Reasoning), ReasoningChunks: optionalCount(a.Tokens.ReasoningChunks), ReasoningBytes: optionalCount(a.Tokens.ReasoningBytes),
 		})
 	}
@@ -61,7 +63,7 @@ func accountingBatchFromWire(batch *wire.WorkerAccountingBatch) ([]usage.Attempt
 		if v == nil || v.StartedAtUtcMicros == nil {
 			return nil, fmt.Errorf("accounting observation missing start")
 		}
-		a := usage.AttemptObservation{ID: v.Id, Revision: v.Revision, Attribution: usage.Attribution{OperationID: v.OperationId, ConversationID: v.ConversationId, SessionID: v.SessionId, WorkerID: v.WorkerId, Source: v.Source}, Provider: v.Provider, Model: v.Model, Profile: v.Profile, Destination: v.Destination, StartedAt: time.UnixMicro(*v.StartedAtUtcMicros).UTC(), Outcome: usage.Outcome(v.Outcome)}
+		a := usage.AttemptObservation{ID: v.Id, Revision: v.Revision, Attribution: usage.Attribution{OperationID: v.OperationId, ConversationID: v.ConversationId, SessionID: v.SessionId, WorkerID: v.WorkerId, Source: v.Source}, Provider: v.Provider, Model: v.Model, RequestedProvider: v.RequestedProvider, RequestedModel: v.RequestedModel, RouteID: v.RouteId, SourceConnectionID: v.SourceConnectionId, Report: usage.ReportIdentity{OrganizationID: v.ReportOrganizationId, HostID: v.ReportHostId, ProfileVersion: v.ReportProfileVersion, TaskType: v.ReportTaskType, RequestedRouteID: v.RequestedRouteId, RequestedSourceConnectionID: v.RequestedSourceConnectionId}, Profile: v.Profile, Destination: v.Destination, StartedAt: time.UnixMicro(*v.StartedAtUtcMicros).UTC(), Outcome: usage.Outcome(v.Outcome)}
 		a.Tokens.Final = v.UsageFinal
 		if v.EndedAtUtcMicros != nil {
 			a.EndedAt = time.UnixMicro(*v.EndedAtUtcMicros).UTC()

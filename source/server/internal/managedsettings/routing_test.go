@@ -23,6 +23,7 @@ func routeFixture(unlocked bool) managedsettings.Snapshot {
 }
 func TestManagedRoutePlanUsesOnlyExplicitOrderedFallbacks(t *testing.T) {
 	s := routeFixture(false)
+	s.Policy.AllowedRoutes[0].AllowedSourceConnectionIDs = []string{"physical-one"}
 	ctx := managedsettings.WithSnapshot(context.Background(), s)
 	p, managed, err := managedsettings.PlanRoute(ctx, "chat", managedsettings.RouteOverride{})
 	if err != nil || !managed {
@@ -36,8 +37,9 @@ func TestManagedRoutePlanUsesOnlyExplicitOrderedFallbacks(t *testing.T) {
 		t.Fatalf("unexpected plan: %+v", p)
 	}
 	p.Routes[0].Model = "mutated"
+	p.Routes[0].AllowedSourceConnectionIDs[0] = "mutated"
 	again, _, _ := managedsettings.PlanRoute(ctx, "chat", managedsettings.RouteOverride{})
-	if again.Routes[0].Model != "approved" {
+	if again.Routes[0].Model != "approved" || again.Routes[0].AllowedSourceConnectionIDs[0] != "physical-one" {
 		t.Fatal("route plan mutated turn snapshot")
 	}
 }

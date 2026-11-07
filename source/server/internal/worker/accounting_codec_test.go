@@ -13,7 +13,7 @@ import (
 )
 
 func wireAttemptFixture() usage.AttemptObservation {
-	return usage.AttemptObservation{ID: "attempt", Revision: 2, Attribution: usage.Attribution{OperationID: "operation", ConversationID: "conversation", SessionID: "session", WorkerID: "worker", Source: "main"}, Provider: "provider", Model: "model", Profile: "profile", Destination: "local", StartedAt: time.Unix(100, 123456000).UTC(), EndedAt: time.Unix(101, 654321000).UTC(), Outcome: usage.Completed, Tokens: llm.TokenUsage{Final: true, Input: llm.ReportedTokens(0), Output: llm.ReportedTokens(17), CacheRead: llm.ReportedTokens(3), CacheWrite: llm.ReportedTokens(0), ReasoningChunks: llm.ReportedTokens(0), ReasoningBytes: llm.ReportedTokens(8383)}}
+	return usage.AttemptObservation{ID: "attempt", Revision: 2, Attribution: usage.Attribution{OperationID: "operation", ConversationID: "conversation", SessionID: "session", WorkerID: "worker", Source: "main"}, Provider: "provider", Model: "model", RequestedProvider: "requested", RequestedModel: "requested-model", RouteID: "shared", SourceConnectionID: "source-api", Report: usage.ReportIdentity{OrganizationID: "org", HostID: "host", ProfileVersion: 7, TaskType: "chat", RequestedRouteID: "initial", RequestedSourceConnectionID: "source-original"}, Profile: "profile", Destination: "local", StartedAt: time.Unix(100, 123456000).UTC(), EndedAt: time.Unix(101, 654321000).UTC(), Outcome: usage.Completed, Tokens: llm.TokenUsage{Final: true, Input: llm.ReportedTokens(0), Output: llm.ReportedTokens(17), CacheRead: llm.ReportedTokens(3), CacheWrite: llm.ReportedTokens(0), ReasoningChunks: llm.ReportedTokens(0), ReasoningBytes: llm.ReportedTokens(8383)}}
 }
 func TestAccountingWireRoundTrip(t *testing.T) {
 	original := wireAttemptFixture()
@@ -38,6 +38,28 @@ func TestAccountingWireRoundTrip(t *testing.T) {
 	}
 	if received.Observations[0].InputTokens == nil || received.Observations[0].ReasoningTokens != nil || received.Observations[0].ReasoningChunks == nil || *received.Observations[0].ReasoningChunks != 0 {
 		t.Fatal("zero and unknown lost their distinction")
+	}
+}
+
+func TestAccountingWireLegacyPeerKeepsSourceUnknown(t *testing.T) {
+	legacy := wireAttemptFixture()
+	legacy.RequestedProvider, legacy.RequestedModel, legacy.RouteID, legacy.SourceConnectionID = "", "", "", ""
+	legacy.Report = usage.ReportIdentity{}
+	batch, err := accountingBatchToWire("legacy", []usage.AttemptObservation{legacy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := pb.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var received wire.WorkerAccountingBatch
+	if err := pb.Unmarshal(raw, &received); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := accountingBatchFromWire(&received)
+	if err != nil || len(decoded) != 1 || decoded[0].SourceConnectionID != "" || decoded[0].RouteID != "" {
+		t.Fatalf("legacy source was inferred: %+v %v", decoded, err)
 	}
 }
 func TestAccountingWireEpochAndTimezone(t *testing.T) {

@@ -57,6 +57,10 @@ type Route struct {
 	Endpoint  string `json:"endpoint"`
 	Model     string `json:"model"`
 	Placement string `json:"placement"`
+	// AllowedSourceConnectionIDs binds non-secret physical connection identities
+	// to this signed route. Empty is legacy/unknown attribution, not approval
+	// to infer a source from the route or a profile display name.
+	AllowedSourceConnectionIDs []string `json:"allowed_source_connection_ids,omitempty"`
 }
 
 // TaskDefault retains Cercano's persisted task, destination, and quality

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"cercano/source/server/internal/usage"
 )
 
 func TestCollectorOwnsAccountingLane(t *testing.T) {
@@ -82,5 +84,36 @@ func TestProducerCoverageGapSurvivesSuccessfulWrites(t *testing.T) {
 	}
 	if !persisted.CoverageIncomplete {
 		t.Fatal("coverage gap not persisted")
+	}
+}
+
+func TestManagedOldWorkerBatchMarksCoverageIncomplete(t *testing.T) {
+	s := accountingTestStore(t)
+	c := NewCollector(s, 8)
+	if err := c.EnableAccounting(testAccountingOptions()); err != nil {
+		t.Fatal(err)
+	}
+	c.SetManagedIdentityRequired(func() bool { return true })
+	old := accountingFixture("old-worker")
+	old.Report = usage.ReportIdentity{}
+	old.RouteID, old.SourceConnectionID = "", ""
+	receipt, err := c.TryAttemptBatch([]usage.AttemptObservation{old})
+	if err != nil || !<-receipt {
+		t.Fatalf("legacy batch not persisted: %v", err)
+	}
+	c.Close()
+	if h := c.AccountingHealth(); !h.CoverageIncomplete {
+		t.Fatalf("managed old worker gap hidden: %+v", h)
+	}
+	if _, err := s.AccountingAttempt(t.Context(), old.ID); err != nil {
+		t.Fatalf("old worker local history lost: %v", err)
+	}
+	var raw string
+	if err := s.db.QueryRow(`SELECT snapshot FROM accounting_health`).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var persisted AccountingHealth
+	if err := json.Unmarshal([]byte(raw), &persisted); err != nil || !persisted.CoverageIncomplete {
+		t.Fatalf("old worker gap not durable: %+v %v", persisted, err)
 	}
 }

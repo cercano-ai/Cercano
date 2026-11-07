@@ -41,9 +41,10 @@ type Tiers struct {
 
 // Candidate retains logical profile identity separately from physical placement.
 type Candidate struct {
-	Provider Provider
-	Profile  string
-	IsCloud  bool
+	Provider           Provider
+	Profile            string
+	IsCloud            bool
+	SourceConnectionID string
 }
 
 // Selection is the resolved provider for a unit of work.

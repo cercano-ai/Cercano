@@ -11,6 +11,8 @@ import (
 func TestAttemptLifecycleSnapshots(t *testing.T) {
 	var got []AttemptObservation
 	ctx := WithAttempts(context.Background(), func(o AttemptObservation) bool { got = append(got, o); return true }, Attribution{Source: "vision", OperationID: "op", SessionID: "session", ConversationID: "conversation", WorkerID: "worker"})
+	ctx = WithAttemptSource(ctx, "route-one", "connection-one")
+	ctx = WithReportIdentity(ctx, ReportIdentity{OrganizationID: "org", HostID: "host", ProfileVersion: 4, TaskType: "chat", RequestedRouteID: "original", RequestedSourceConnectionID: "connection-original"})
 	a := StartAttempt(ctx, "requested-provider", "requested-model")
 	snapshot := llm.TokenUsage{Input: llm.ReportedTokens(11), Output: llm.ReportedTokens(7)}
 	route := &llm.ServingRoute{Provider: "actual-provider", Model: "actual-model", Profile: "backup", Destination: "cloud"}
@@ -33,10 +35,39 @@ func TestAttemptLifecycleSnapshots(t *testing.T) {
 	if last.Attribution.Source != "vision" || last.StartedAt.Location() != last.EndedAt.Location() || last.EndedAt.Before(last.StartedAt) {
 		t.Fatalf("metadata=%+v", last)
 	}
+	if last.RouteID != "route-one" || last.SourceConnectionID != "connection-one" || last.RequestedProvider != "requested-provider" || last.RequestedModel != "requested-model" || last.Report.ProfileVersion != 4 || last.Report.RequestedSourceConnectionID != "connection-original" {
+		t.Fatalf("physical source or requested identity changed with provider observation: %+v", last)
+	}
 	for i, o := range got {
 		if o.ID == "" || o.ID != last.ID || o.Revision != uint64(i+1) {
 			t.Fatalf("unstable identity/revision %+v", got)
 		}
+	}
+}
+
+func TestSignedRouteProviderOverridesCustomAdapterLabel(t *testing.T) {
+	var got AttemptObservation
+	ctx := WithAttempts(t.Context(), func(a AttemptObservation) bool { got = a; return true }, Attribution{})
+	ctx = WithAttemptRoute(ctx, "route", "source", "openai", "signed-model")
+	StartAttempt(ctx, "openrouter-custom", "wire-model")
+	if got.Provider != "openrouter-custom" || got.RequestedProvider != "openai" || got.RequestedModel != "signed-model" || got.SourceConnectionID != "source" {
+		t.Fatalf("signed provider was confused with adapter label: %+v", got)
+	}
+	ctx = WithAttemptRoute(ctx, "anthropic-route", "source", "anthropic", "claude")
+	StartAttempt(ctx, "", "wire-model")
+	if got.RequestedProvider != "anthropic" || got.Provider != "" {
+		t.Fatalf("empty custom adapter label hid signed provider: %+v", got)
+	}
+}
+
+func TestPhysicalAttemptsKeepDistinctConnectionOnSameRoute(t *testing.T) {
+	var got []AttemptObservation
+	base := WithAttempts(t.Context(), func(a AttemptObservation) bool { got = append(got, a); return true }, Attribution{})
+	for _, id := range []string{"api-key", "subscription"} {
+		StartAttempt(WithAttemptSource(base, "shared-route", id), "provider", "model").Finish(Completed)
+	}
+	if len(got) != 4 || got[0].ID == got[2].ID || got[0].SourceConnectionID == got[2].SourceConnectionID || got[1].SourceConnectionID != got[0].SourceConnectionID || got[3].SourceConnectionID != got[2].SourceConnectionID {
+		t.Fatalf("physical connection attribution collapsed: %+v", got)
 	}
 }
 
