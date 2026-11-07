@@ -115,44 +115,50 @@ func TestApplyHardwareProbesRAMProbeFailedWireResponse(t *testing.T) {
 // and only internal consistency is asserted — the topology verdict, the
 // RAM number, and the recommendation band must all agree).
 func TestListRuntimeModelsHandlerWiresProbeConsistently(t *testing.T) {
-	srv := NewServer(nil, nil, nil, nil, nil)
-	srv.SetRuntimeManager(localruntime.NewManager())
-	resp, err := srv.ListRuntimeModels(context.Background(), &proto.ListRuntimeModelsRequest{})
-	if err != nil {
-		t.Fatalf("ListRuntimeModels: %v", err)
-	}
-	wantHardwareOk := resp.SystemRamBytes > 0 && resp.MemoryTopology != sysram.TopologyUnknown
-	if resp.HardwareOk != wantHardwareOk {
-		t.Errorf("HardwareOk = %v, want %v (ram=%d, topology=%q)",
-			resp.HardwareOk, wantHardwareOk, resp.SystemRamBytes, resp.MemoryTopology)
-	}
-	switch resp.MemoryTopology {
-	case sysram.TopologyUnified:
-		// Unified reuses the RAM probe: one pool, one number.
-		if resp.UnifiedMemoryBytes != resp.SystemRamBytes {
-			t.Errorf("unified: UnifiedMemoryBytes %d != SystemRamBytes %d",
-				resp.UnifiedMemoryBytes, resp.SystemRamBytes)
-		}
-	case sysram.TopologyDiscrete:
-		if len(resp.Gpus) == 0 {
-			t.Errorf("discrete: no GPU entries reported")
-		}
-	case sysram.TopologyUnknown:
-		// Nothing claimed — that is the honest result.
-	default:
-		t.Errorf("unexpected MemoryTopology %q", resp.MemoryTopology)
-	}
-	// The RAM-band recommendations must be keyed on the same RAM number
-	// the response reports, for the server's configured runtime.
-	wantRecs := catalogdefaults.ForRuntime(config.Defaults().OpenRuntime, uint64(resp.SystemRamBytes))
-	if len(resp.RecommendedOpenModels) != len(wantRecs) {
-		t.Errorf("RecommendedOpenModels has %d entries, want %d for %d bytes",
-			len(resp.RecommendedOpenModels), len(wantRecs), resp.SystemRamBytes)
-	}
-	for tier, model := range wantRecs {
-		if got := resp.RecommendedOpenModels[tier]; got != model {
-			t.Errorf("RecommendedOpenModels[%s] = %q, want %q", tier, got, model)
-		}
+	for _, runtime := range []string{"", "ollama", "llama_server", "mistralrs"} {
+		t.Run("runtime="+runtime, func(t *testing.T) {
+			srv := NewServer(nil, nil, nil, nil, nil)
+			c := config.Config{OpenRuntime: runtime}
+			srv.cfgSvc.Set(c)
+			srv.SetRuntimeManager(localruntime.NewManager())
+			resp, err := srv.ListRuntimeModels(context.Background(), &proto.ListRuntimeModelsRequest{})
+			if err != nil {
+				t.Fatalf("ListRuntimeModels: %v", err)
+			}
+			wantHardwareOk := resp.SystemRamBytes > 0 && resp.MemoryTopology != sysram.TopologyUnknown
+			if resp.HardwareOk != wantHardwareOk {
+				t.Errorf("HardwareOk = %v, want %v (ram=%d, topology=%q)",
+					resp.HardwareOk, wantHardwareOk, resp.SystemRamBytes, resp.MemoryTopology)
+			}
+			switch resp.MemoryTopology {
+			case sysram.TopologyUnified:
+				// Unified reuses the RAM probe: one pool, one number.
+				if resp.UnifiedMemoryBytes != resp.SystemRamBytes {
+					t.Errorf("unified: UnifiedMemoryBytes %d != SystemRamBytes %d",
+						resp.UnifiedMemoryBytes, resp.SystemRamBytes)
+				}
+			case sysram.TopologyDiscrete:
+				if len(resp.Gpus) == 0 {
+					t.Errorf("discrete: no GPU entries reported")
+				}
+			case sysram.TopologyUnknown:
+				// Nothing claimed — that is the honest result.
+			default:
+				t.Errorf("unexpected MemoryTopology %q", resp.MemoryTopology)
+			}
+			// The RAM-band recommendations must be keyed on the same RAM number
+			// the response reports, for the server's configured runtime.
+			wantRecs := catalogdefaults.ForRuntime(runtime, uint64(resp.SystemRamBytes))
+			if len(resp.RecommendedOpenModels) != len(wantRecs) {
+				t.Errorf("RecommendedOpenModels has %d entries, want %d for %d bytes",
+					len(resp.RecommendedOpenModels), len(wantRecs), resp.SystemRamBytes)
+			}
+			for tier, model := range wantRecs {
+				if got := resp.RecommendedOpenModels[tier]; got != model {
+					t.Errorf("RecommendedOpenModels[%s] = %q, want %q", tier, got, model)
+				}
+			}
+		})
 	}
 }
 

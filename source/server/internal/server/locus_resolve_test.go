@@ -28,7 +28,10 @@ func TestResolveMainProvider(t *testing.T) {
 
 	mk := func(mode string, c, l inference.Provider) *Server {
 		s, _ := newTestServer()
-		s.cfgSvc.Set(config.Config{LocusMode: mode})
+		// A wired provider also needs an explicit model on a non-curated runtime.
+		conf := config.Config{LocusMode: mode, OpenRuntime: "ollama"}
+		conf.Models.SetOverride("ollama", conf.TaskAssignment(config.TaskChat).Quality.CapabilityTier(), "fixture-model")
+		s.cfgSvc.Set(conf)
 		s.providerSvc.SetCloudLLMProvider(c)
 		s.providerSvc.SetOpenLLMProvider(l)
 		return s
@@ -53,5 +56,27 @@ func TestResolveMainProvider(t *testing.T) {
 	// Local Only, local missing → hard error (no cross even though cloud present).
 	if _, _, _, err := mk("open_only", cloud, nil).resolveMainProvider(); err == nil {
 		t.Error("local_only with no local should error")
+	}
+}
+
+// A provider alone must not make an unconfigured non-curated runtime ready.
+func TestResolveMainProviderOllamaWithoutModel(t *testing.T) {
+	for _, mode := range []string{"open_primary", "cloud_primary", "open_only"} {
+		t.Run(mode, func(t *testing.T) {
+			s, _ := newTestServer()
+			s.cfgSvc.Set(config.Config{LocusMode: mode, OpenRuntime: "ollama"})
+			s.providerSvc.SetCloudLLMProvider(stubProv{"anthropic"})
+			s.providerSvc.SetOpenLLMProvider(stubProv{"ollama"})
+			p, isCloud, fallback, err := s.resolveMainProvider()
+			if mode == "open_only" {
+				if err == nil {
+					t.Fatal("open_only without a configured model should error")
+				}
+				return
+			}
+			if err != nil || p == nil || !isCloud || p.Name() != "anthropic" || fallback != (mode == "open_primary") {
+				t.Fatalf("provider=%v isCloud=%v fallback=%v err=%v", p, isCloud, fallback, err)
+			}
+		})
 	}
 }
