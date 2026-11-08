@@ -36,6 +36,9 @@ class PublicationTests(unittest.TestCase):
         self.fake.write_text(f"#!{sys.executable}\n" + '''import os, sys
 from pathlib import Path
 if sys.argv[1] == "env":
+    if os.environ.get("FAIL_FINAL_ENV") and Path(os.environ["FAIL_FINAL_ENV"]).exists():
+        print("SECRET_TOOL_STDERR", file=sys.stderr)
+        sys.exit(42)
     import json
     print(json.dumps({"CGO_ENABLED": os.environ.get("CGO_ENABLED", "0"),
                       "GOARCH": os.environ.get("GOARCH", "native"),
@@ -52,6 +55,8 @@ if sys.argv[1:] == ["version"]:
     print("go version fixture")
     sys.exit(0)
 assert sys.argv[1] == "build", sys.argv
+if os.environ.get("FAIL_FINAL_ENV"):
+    Path(os.environ["FAIL_FINAL_ENV"]).touch()
 if os.environ.get("MUTATE_SOURCE"):
     Path(os.environ["MUTATE_SOURCE"]).write_text("mutation")
 output = Path(sys.argv[sys.argv.index("-o") + 1])
@@ -235,6 +240,180 @@ output.chmod(0o755)
         result = self.publish()
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / "test-gen").exists())
+        self.assertIn('added (1): ["source/server/new.go"]', result.stderr)
+        self.assertNotIn("mutation", result.stderr)
+
+    def test_final_collection_failure_does_not_forward_tool_stderr(self):
+        self.env["FAIL_FINAL_ENV"] = str(self.home / "fail-env-after-build")
+        result = self.publish()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unable to collect final source/build inputs (CalledProcessError)", result.stderr)
+        self.assertIn("no input diff available", result.stderr)
+        self.assertNotIn("SECRET_TOOL_STDERR", result.stdout + result.stderr)
+        self.assertFalse((self.root / "test-gen").exists())
+
+    def test_final_input_diagnostics(self):
+        import argparse
+        import importlib.util
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(publisher)
+        args = argparse.Namespace(repo=str(self.repo), go=str(self.fake), sign=False,
+                                  root=str(self.root), generation="test-gen",
+                                  fingerprint=None, reuse=False)
+        source = self.repo / "source/server/input.txt"
+        secret = "SECRET_CONTENT_ENV_IDENTITY_DISCOVERY"
+
+        for change in ("added", "removed", "content", "mode", "metadata",
+                       "unchanged", "mtime", "failure", "missing", "tool-error", "symlink"):
+            with self.subTest(change=change):
+                source.write_text("original")
+                source.chmod(0o644)
+                calls = 0
+                original_inputs = publisher.inputs
+
+                def collect(*a, **kw):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 3 and change in {"failure", "missing", "tool-error"}:
+                        kw["inventory"]["source/partial.txt"] = (b"partial", 0)
+                        if change == "missing":
+                            raise FileNotFoundError(secret)
+                        if change == "tool-error":
+                            raise subprocess.CalledProcessError(1, [secret], output=secret, stderr=secret)
+                        raise ValueError(secret)
+                    result = original_inputs(*a, **kw)
+                    if calls == 3 and change == "metadata":
+                        metadata = dict(result[1], version=secret,
+                                        flags={"GOARCH": secret},
+                                        signing={secret: secret})
+                        return "different", metadata, result[2]
+                    return result
+
+                builds = 0
+                original_run = publisher.subprocess.run
+
+                def build(command, **kwargs):
+                    nonlocal builds
+                    if command[1] != "build":
+                        return original_run(command, **kwargs)
+                    builds += 1
+                    output = Path(command[command.index("-o") + 1])
+                    output.write_bytes(b"\x7fELF" + b"fixture" * 16)
+                    output.chmod(0o755)
+                    if builds == 2:
+                        if change == "added":
+                            (source.parent / "added.txt").write_text(secret)
+                        elif change == "removed":
+                            source.unlink()
+                        elif change == "content":
+                            source.write_text(secret)
+                        elif change == "mode":
+                            source.chmod(0o755)
+                        elif change == "mtime":
+                            os.utime(source, (1, 1))
+                        elif change == "symlink":
+                            source.unlink()
+                            source.symlink_to(source.parent / "go.mod")
+
+                with patch.dict(os.environ, self.env, clear=True), \
+                        patch.object(publisher, "inputs", side_effect=collect), \
+                        patch.object(publisher.subprocess, "run", side_effect=build), \
+                        patch.object(publisher, "rename_exclusive") as rename:
+                    if change in {"unchanged", "mtime"}:
+                        publisher.publish(args)
+                        rename.assert_called_once()
+                    else:
+                        with self.assertRaises(ValueError) as caught:
+                            publisher.publish(args)
+                        message = str(caught.exception)
+                        self.assertNotIn(secret, message)
+                        self.assertNotIn(str(self.repo), message)
+                        rename.assert_not_called()
+                        if change in {"failure", "missing", "tool-error", "symlink"}:
+                            self.assertIn("unable to collect final", message)
+                            error_type = {"missing": "FileNotFoundError",
+                                          "tool-error": "CalledProcessError"}.get(change, "ValueError")
+                            self.assertIn(error_type, message)
+                            self.assertIn("no input diff available", message)
+                            self.assertNotIn("partial.txt", message)
+                        elif change == "metadata":
+                            self.assertIn('metadata keys (3): ["flags", "signing", "version"]', message)
+                            self.assertIn("changed (0)", message)
+                        else:
+                            category = change if change in {"added", "removed"} else "changed"
+                            name = "added.txt" if change == "added" else "input.txt"
+                            self.assertIn(f'{category} (1): ["source/server/{name}"]', message)
+                self.assertEqual(calls, 3)
+                self.assertEqual(builds, 2)
+                self.assertFalse((self.root / "test-gen").exists())
+                self.assertEqual(list(self.root.iterdir()), [])
+                (source.parent / "added.txt").unlink(missing_ok=True)
+                if source.is_symlink():
+                    source.unlink()
+
+    def test_inventory_matches_legacy_fingerprint_and_ignores_mtime(self):
+        import argparse
+        import importlib.util
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(publisher)
+        args = argparse.Namespace(repo=str(self.repo), go=str(self.fake), sign=False)
+        with patch.dict(os.environ, self.env, clear=True):
+            before = {}
+            fingerprint, metadata, _ = publisher.inputs(args, inventory=before)
+            legacy = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode())
+            for path in sorted((self.repo / "source").rglob("*")):
+                if path.is_file():
+                    legacy.update(str(path.relative_to(self.repo)).encode() + b"\0" +
+                                  hashlib.sha256(path.read_bytes()).digest())
+                    legacy.update(str(path.stat().st_mode & 0o111).encode() + b"\0")
+            self.assertEqual(fingerprint, legacy.hexdigest())
+            self.assertEqual(len(publisher.inputs(args)), 3)
+            for path in (self.repo / "source").rglob("*"):
+                os.utime(path, (1, 1))
+            after = {}
+            final, final_metadata, _ = publisher.inputs(args, inventory=after)
+            self.assertEqual(fingerprint, final)
+            self.assertEqual(before, after)
+            self.assertEqual(publisher.input_changes(before, after, metadata, final_metadata),
+                             "added (0): []; removed (0): []; changed (0): []; metadata keys (0): []")
+
+    def test_diagnostics_bounded_sorted_escaped_and_redacted(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(publisher)
+        secret = "SECRET_VALUE_NOT_A_PATH"
+        paths = [f"source/{index:03d}-" + "x" * 300 for index in range(25)]
+        before = {"source/removed.txt": (secret, 1), "source/changed.txt": (secret, 0)}
+        after = {path: (secret, 1) for path in reversed(paths)}
+        after["source/changed.txt"] = (secret, 1)
+        after['source/line\n".txt'] = (secret, 0)
+        message = publisher.input_changes(before, after, {"effective": {secret: secret}},
+                                          {"effective": {"other": secret}})
+        self.assertNotIn(secret, message)
+        self.assertNotIn("\n", message)
+        self.assertIn("added (26)", message)
+        self.assertIn("+16 more", message)
+        self.assertNotIn("source/010-", message)
+        self.assertLess(message.index("source/000-"), message.index("source/009-"))
+        self.assertLess(len(message), 2200)
+        self.assertEqual(message, publisher.input_changes(before, dict(reversed(list(after.items()))),
+                                                         {"effective": {secret: secret}},
+                                                         {"effective": {"other": secret}}))
+        escaped = publisher.input_changes({}, {'source/line\n".txt': (secret, 0)}, {}, {})
+        self.assertIn('source/line\\n\\".txt', escaped)
+        many = {f"source/{index:03d}": (secret, 0) for index in range(25)}
+        self.assertIn("removed (25):", publisher.input_changes(many, {}, {}, {}))
+        changed = publisher.input_changes(many, {key: (secret, 1) for key in many}, {}, {})
+        self.assertIn("changed (25):", changed)
+        self.assertIn("+15 more", changed)
+        removed = publisher.input_changes(many, {}, {}, {})
+        self.assertIn("+15 more", removed)
+        self.assertNotIn("source/010", removed + changed)
 
     def test_signing_not_applicable_never_discovers(self):
         import importlib.util

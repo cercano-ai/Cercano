@@ -32,6 +32,10 @@ Darwin cgo fingerprints SDK and developer-toolchain contents; other cgo platform
 fail closed pending system-header/library identity support. Trusted installations
 are assumed, not concurrent adversarial toolchain mutation.
 Builds use a private content snapshot and recheck live inputs before publication.
+Final mismatches report sorted added/removed/changed repo-relative source paths
+and top-level metadata key names only (10 names per category, 160 characters per
+name, with truncation/counts). No file contents or metadata values are reported.
+Failed final collection refuses publication without claiming a partial input diff.
 Known performance limitation: full SDK/toolchain hashing is repeated (two passes
 on reuse, four for a new generation including the launcher's fingerprint query).
 No persistent identity cache is used.
@@ -155,9 +159,11 @@ def tree_identity(root):
 
 
 def effective_identity(go, env, module):
+    # Capture diagnostic stderr too: failed final collection must not leak tool
+    # output (potential environment/signing data) before its safe refusal.
     # Query in the fixed source module, not the launcher's runtime caller cwd.
     effective = json.loads(subprocess.check_output(
-        [go, "env", "-json"], env=env, cwd=module, text=True))
+        [go, "env", "-json"], env=env, cwd=module, text=True, stderr=subprocess.PIPE))
     # Diagnostic module location is not a build input; source module bytes are
     # already hashed below. Retain all other effective toolchain/native inputs.
     effective.pop("GOMOD", None)
@@ -179,10 +185,10 @@ def effective_identity(go, env, module):
             if not tool:
                 raise ValueError("compiler unavailable: " + command[0])
             identity[key] = {"path": str(Path(tool).resolve()), "sha256": tree_identity(tool),
-                             "version": subprocess.check_output([tool, "--version"], env=env, text=True)}
+                             "version": subprocess.check_output([tool, "--version"], env=env, text=True, stderr=subprocess.PIPE)}
         if sys.platform == "darwin":
             def xcrun(*args):
-                return subprocess.check_output(["/usr/bin/xcrun", *args], env=env, text=True).strip()
+                return subprocess.check_output(["/usr/bin/xcrun", *args], env=env, text=True, stderr=subprocess.PIPE).strip()
             sdk = env.get("SDKROOT") or xcrun("--show-sdk-path")
             if not Path(sdk).is_absolute() or not Path(sdk).is_dir():
                 raise ValueError("SDKROOT must be an existing absolute SDK directory")
@@ -205,7 +211,7 @@ def check_replacements(data, path, repo, go, env):
         temporary = Path(directory) / "go.mod"
         temporary.write_bytes(data)
         parsed = json.loads(subprocess.check_output(
-            [go, "mod", "edit", "-json", str(temporary)], env=env, text=True))
+            [go, "mod", "edit", "-json", str(temporary)], env=env, text=True, stderr=subprocess.PIPE))
     for replacement in parsed.get("Replace") or []:
         new = replacement["New"]
         if new.get("Version"):
@@ -222,7 +228,7 @@ def signing_identity(repo, requested, env):
         return {"policy": "not-applicable"}
     helper = repo / "source/server/scripts/codesign-if-available.sh"
     resolution = subprocess.check_output(
-        ["/bin/bash", str(helper), "--resolve-identity"], env=env, text=True)
+        ["/bin/bash", str(helper), "--resolve-identity"], env=env, text=True, stderr=subprocess.PIPE)
     identity = resolution.split("\n", 1)[0].strip()
     if identity and not shutil.which("codesign", path=env.get("PATH")):
         raise ValueError("requested Darwin signing unavailable")
@@ -234,7 +240,12 @@ def signing_identity(repo, requested, env):
             "helper_sha256": hashlib.sha256(helper.read_bytes()).hexdigest()}
 
 
-def inputs(args, snapshot=None):
+def inputs(args, snapshot=None, *, inventory=None):
+    """Return the existing fingerprint/metadata/env tuple; optionally record file identities.
+
+    Inventory is diagnostic only and uses exactly the bytes/mode fed to the digest.
+    It must only be used after a successful collection.
+    """
     repo = Path(args.repo).resolve()
     env, flags = build_environment()
     go = args.go or shutil.which("go")
@@ -249,7 +260,7 @@ def inputs(args, snapshot=None):
                 "effective": effective_identity(go, env, repo / "source/server"),
                 "policy": "native-cgo GOENV=off GOWORK=off GOTOOLCHAIN=local -mod=readonly -buildvcs=false",
                 "go": go, "go_sha256": hashlib.sha256(Path(go).read_bytes()).hexdigest(),
-                "toolchain": subprocess.check_output([go, "version"], env=env, text=True).strip(),
+                "toolchain": subprocess.check_output([go, "version"], env=env, text=True, stderr=subprocess.PIPE).strip(),
                 "sign": bool(args.sign), "signing": signing_identity(repo, args.sign, env),
                 "platform": sys.platform, "machine": os.uname().machine,
                 "publisher": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
@@ -266,14 +277,44 @@ def inputs(args, snapshot=None):
         data = path.read_bytes()
         if path.name == "go.mod":
             check_replacements(data, path, repo, go, env)
-        digest.update(str(relative).encode() + b"\0" + hashlib.sha256(data).digest())
-        digest.update(str(path.stat().st_mode & 0o111).encode() + b"\0")
+        content_identity = hashlib.sha256(data).digest()
+        mode = path.stat().st_mode & 0o111
+        digest.update(str(relative).encode() + b"\0" + content_identity)
+        digest.update(str(mode).encode() + b"\0")
+        if inventory is not None:
+            inventory[str(relative)] = (content_identity, mode)
         if snapshot is not None:
             output = snapshot / relative
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_bytes(data)
             output.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
     return digest.hexdigest(), metadata, env
+
+
+def input_changes(before, after, old_metadata, new_metadata):
+    """Bounded, deterministic diagnostics: names only, never identities or values.
+
+    Only top-level metadata keys are reported: nested Go/signing discovery data
+    may contain sensitive values (and even caller-controlled dictionary keys).
+    JSON quoting prevents control characters in filenames from becoming log lines.
+    """
+    limit, width = 10, 160
+
+    def names(label, values):
+        values = sorted(values)
+        shown = [json.dumps(value if len(value) <= width else value[:width] + "…",
+                            ensure_ascii=True) for value in values[:limit]]
+        suffix = f", +{len(values) - limit} more" if len(values) > limit else ""
+        return f"{label} ({len(values)}): [" + ", ".join(shown) + suffix + "]"
+
+    return "; ".join((
+        names("added", after.keys() - before.keys()),
+        names("removed", before.keys() - after.keys()),
+        names("changed", (key for key in before.keys() & after.keys()
+                          if before[key] != after[key])),
+        names("metadata keys", (key for key in old_metadata.keys() | new_metadata.keys()
+                                if key not in old_metadata or key not in new_metadata
+                                or old_metadata[key] != new_metadata[key]))))
 
 
 def reusable(destination, fingerprint):
@@ -305,7 +346,8 @@ def publish(args):
     for _, module, _ in TARGETS:
         if not (repo / module / "go.mod").is_file():
             raise ValueError(f"missing module: {module}")
-    fingerprint, metadata, env = inputs(args)
+    initial_inventory = {}
+    fingerprint, metadata, env = inputs(args, inventory=initial_inventory)
     if args.fingerprint and args.fingerprint != fingerprint:
         raise ValueError("source/build fingerprint changed before publication")
     root.mkdir(parents=True, exist_ok=True)
@@ -350,8 +392,19 @@ def publish(args):
         for name, _, _ in TARGETS:
             if validate(stage / name)["sha256"] != manifest["binaries"][name]["sha256"]:
                 raise ValueError(f"output changed during build: {name}")
-        if inputs(args)[0] != fingerprint:
-            raise ValueError("source/build inputs changed during build")
+        final_inventory = {}
+        try:
+            final_fingerprint, final_metadata, _ = inputs(args, inventory=final_inventory)
+        except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError) as error:
+            # No partial inventory or exception text: errors can contain source
+            # contents, environment values or signing discovery output.
+            raise ValueError("unable to collect final source/build inputs "
+                             f"({type(error).__name__}); publication refused; "
+                             "no input diff available") from None
+        if final_fingerprint != fingerprint:
+            raise ValueError("source/build inputs changed during build; " +
+                             input_changes(initial_inventory, final_inventory,
+                                           metadata, final_metadata))
         (stage / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         for child in stage.iterdir():
             child.chmod(0o444 if child.name == "manifest.json" else 0o555)
