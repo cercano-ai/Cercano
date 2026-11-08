@@ -30,8 +30,8 @@ For a known owner it reports readiness, acquisition stage, admission open/closed
 draining/retired flags, attachment count, work counts by kind, and unresolved
 persistence ticket counts. Host work/unresolved counts and retained-session count
 are explicitly host-wide, **not attributed to this conversation**. Work-kind JSON
-map keys are: 0 foreground, 1 task acceptance, 2 task execution, 3 callback,
-4 persistence. Maps are independent copies. No ticket or attachment identities
+map keys are: 1 foreground, 2 task acceptance, 3 task execution, 4 callback,
+5 persistence. Maps are independent copies. No ticket or attachment identities
 are exposed.
 
 `Reason` is a prioritized summary, not a list of every blocker: incomplete
