@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"cercano/source/server/internal/conversation"
 	pb "cercano/source/server/pkg/proto"
@@ -91,24 +92,41 @@ func saveResumeWithSync(path string, r *pb.LifecycleControlRequest, syncDirector
 // LifecycleResume runs only on the launcher-selected destination. It never
 // discovers a destination or treats an unavailable RPC as death. Legacy stops
 // require a durable, exact approval and a trusted platform adapter.
-func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequest) (result *pb.LifecycleControlResponse, finalErr error) {
+	stage, refusalCheck := "control", ""
+	var diagnosticLifecycle *coexistenceLifecycle
+	mark := func() { _, _, line, _ := runtime.Caller(1); refusalCheck = fmt.Sprintf("resume.go:%d", line) }
+	refusal := func(err error) error {
+		_, _, line, _ := runtime.Caller(1)
+		refusalCheck = fmt.Sprintf("resume.go:%d", line)
+		return err
+	}
+	defer func() {
+		if finalErr != nil {
+			s.logLifecycleResumeRefusal(diagnosticLifecycle, r, stage, refusalCheck, finalErr)
+		}
+	}()
 	l, err := s.control(ctx, r)
 	if err != nil {
-		return nil, err
+		return nil, refusal(err)
 	}
+	diagnosticLifecycle = l
+	stage = "validate_conversation"
 	id := r.GetOwner().GetConversation()
 	if id == "" {
-		return nil, status.Error(codes.InvalidArgument, "conversation required")
+		return nil, refusal(status.Error(codes.InvalidArgument, "conversation required"))
 	}
 	l.resumeMu.Lock()
 	defer l.resumeMu.Unlock()
 	var approved *pb.LifecycleControlRequest
 	if r.ConfirmLegacyStop {
+		stage = "validate_legacy_approval"
 		approved, err = validateLegacyApproval(l, r)
 		if err != nil {
-			return nil, err
+			return nil, refusal(err)
 		}
 	}
+	stage = "acquire"
 	acquired, acquireErr := s.LifecycleAcquire(ctx, r)
 	if acquireErr == nil {
 		acquired.Ready = true
@@ -125,46 +143,54 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		}
 		return acquired, nil
 	}
+	stage = "read_ownership"
 	v, err := conversation.ReadOwnership(ctx, l.store, id)
 	if err != nil {
-		return nil, err
+		return nil, refusal(err)
 	}
+	stage = "confirmed_legacy"
 	if approved != nil {
 		// If a response was lost after the stop, guarded recovery can finish
 		// without signalling again. Never retry a signal against a changed PID.
 		if l.options.RecoveryGuard != nil {
 			if inspected, e := s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id}); e == nil && proto.Equal(inspected.Owner, approved.Owner) {
+				mark()
 				return s.resumeRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: approved.Owner, Confirm: true})
 			}
 		}
+		mark()
 		return s.resumeConfirmedLegacy(ctx, r, approved)
 	}
 	// Recovery repeats both the guarded death check and exact owner/epoch check.
+	stage = "guarded_recovery"
 	if v.State == "owned" && v.Owner != l.options.Host && l.options.RecoveryGuard != nil {
 		inspected, e := s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id})
 		if e == nil {
+			mark()
 			return s.resumeRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: inspected.Owner, Confirm: true})
 		}
 	}
+	stage = "validate_destination"
 	if !controlLoopback(r.DestinationEndpoint) {
-		return nil, status.Error(codes.InvalidArgument, "selected destination endpoint required")
+		return nil, refusal(status.Error(codes.InvalidArgument, "selected destination endpoint required"))
 	}
+	stage = "resume_journal"
 	path := resumeJournal(l, id)
 	op := new(pb.LifecycleControlRequest)
 	b, readErr := os.ReadFile(path)
 	if readErr == nil {
 		if err = json.Unmarshal(b, op); err != nil {
-			return nil, err
+			return nil, refusal(err)
 		}
 		if !proto.Equal(op.Destination, l.controlIdentity()) || op.GetOwner().GetConversation() != id || op.HandoverId == "" || op.Receipt == "" || op.Source == nil || op.Owner.Host == "" || op.Owner.Epoch == "" {
-			return nil, status.Error(codes.FailedPrecondition, "resume journal selection mismatch")
+			return nil, refusal(status.Error(codes.FailedPrecondition, "resume journal selection mismatch"))
 		}
 		// Routing can change on restart; the exact authenticated identity cannot.
 		op.DestinationEndpoint = r.DestinationEndpoint
 		// Reaffirm durability before source mutation, including a retry after
 		// rename succeeded but the previous directory sync was uncertain.
 		if err = saveResumeWithSync(path, op, l.resumeJournalSync); err != nil {
-			return nil, err
+			return nil, refusal(err)
 		}
 		// A completed historical operation may be replaced for a new foreign
 		// epoch. An incomplete operation is never silently abandoned.
@@ -175,31 +201,33 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		}
 	}
 	if readErr != nil && !os.IsNotExist(readErr) {
-		return nil, readErr
+		return nil, refusal(readErr)
 	}
+	stage = "new_resume_operation"
 	if os.IsNotExist(readErr) {
 		if v.State != "owned" || v.Owner == l.options.Host {
-			return nil, acquireErr
+			stage = "acquire"
+			return nil, refusal(acquireErr)
 		}
 		if l.options.ResolveSource == nil || l.options.ControlDial == nil {
-			return nil, status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable")
+			return nil, refusal(status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable"))
 		}
 		source, endpoint, e := l.options.ResolveSource(ctx, v.Owner)
 		if e != nil {
-			return nil, e
+			return nil, refusal(e)
 		}
 		if source == nil || source.Host != v.Owner || source.Store != l.options.StorePath || source.Contract != l.options.Contract.Contract || source.Schema != int32(l.options.Contract.SchemaVersion) || source.Build == "" || !controlLoopback(endpoint) {
-			return nil, status.Error(codes.FailedPrecondition, "exact compatible source required")
+			return nil, refusal(status.Error(codes.FailedPrecondition, "exact compatible source required"))
 		}
 		var token [32]byte
 		if _, err = rand.Read(token[:]); err != nil {
-			return nil, err
+			return nil, refusal(err)
 		}
 		op = &pb.LifecycleControlRequest{Target: source, Source: source, Destination: l.controlIdentity(), DestinationEndpoint: r.DestinationEndpoint, Owner: &pb.LifecycleOwner{Conversation: id, Host: v.Owner, Epoch: v.Epoch}, HandoverId: hex.EncodeToString(token[:]), Management: true}
 		// Receipt and exact source identity are journaled before the first source mutation.
 		a, e := s.AcceptIncoming(controlOwner(op), op.HandoverId, source.Build, l.options.Contract)
 		if e != nil {
-			return nil, e
+			return nil, refusal(e)
 		}
 		op.Receipt = a.receipt
 		if err = saveResumeWithSync(path, op, l.resumeJournalSync); err != nil {
@@ -210,28 +238,31 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 				cleanupErr := l.resolveResumeAcceptanceLocked(a)
 				l.mu.Unlock()
 				if cleanupErr != nil {
-					return nil, fmt.Errorf("%w; acceptance cleanup: %v", err, cleanupErr)
+					return nil, refusal(fmt.Errorf("%w; acceptance cleanup: %v", err, cleanupErr))
 				}
 			}
-			return nil, err
+			return nil, refusal(err)
 		}
 		// Resolve again below and require the same authenticated exact identity.
 		_ = endpoint
 	}
+	stage = "validate_operation_owner"
 	claimedEpoch, _ := conversation.HandoverResult(ctx, l.store, id, l.options.Host, op.HandoverId)
 	localClaim := v.State == "owned" && v.Owner == l.options.Host && v.Epoch == claimedEpoch && claimedEpoch != ""
 	if (!localClaim && v.State == "owned" && (v.Owner != op.Owner.Host || v.Epoch != op.Owner.Epoch)) || (v.State == "reserved" && (v.Owner != op.Owner.Host || v.Epoch != op.Owner.Epoch || v.Destination != l.options.Host || v.Handover != op.HandoverId)) || (v.State != "owned" && v.State != "reserved") {
-		return nil, status.Error(codes.FailedPrecondition, "resume owner changed; refusing stale operation")
+		return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed; refusing stale operation"))
 	}
+	stage = "accept_incoming"
 	a, err := s.AcceptIncoming(controlOwner(op), op.HandoverId, op.Source.Build, l.options.Contract)
 	if err != nil {
-		return nil, err
+		return nil, refusal(err)
 	}
 	l.mu.Lock()
 	a.receipt = op.Receipt
 	l.mu.Unlock() // restore the durable acceptance after a destination restart
 	claim := proto.Clone(op).(*pb.LifecycleControlRequest)
 	claim.Target = op.Destination
+	stage = "restore_local_claim"
 	if localClaim {
 		l.mu.Lock()
 		owner, e := l.acquireUsing(ctx, id, a, nil, func() (*conversation.Ownership, error) {
@@ -239,50 +270,58 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		})
 		l.mu.Unlock()
 		if e != nil {
-			return nil, e
+			return nil, refusal(e)
 		}
 		return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: wireOwner(owner), Ready: true, OperationId: op.HandoverId}, nil
 	}
+	stage = "claim_reserved"
 	if v.State == "reserved" {
+		mark()
 		return s.resumeClaim(ctx, claim)
 	}
 	if l.options.ResolveSource == nil || l.options.ControlDial == nil {
-		return nil, status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable")
+		return nil, refusal(status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable"))
 	}
+	stage = "resolve_source"
 	source, endpoint, err := l.options.ResolveSource(ctx, op.Owner.Host)
 	if err != nil {
-		return nil, err
+		return nil, refusal(err)
 	}
 	if !proto.Equal(source, op.Source) {
-		return nil, status.Error(codes.FailedPrecondition, "source identity changed")
+		return nil, refusal(status.Error(codes.FailedPrecondition, "source identity changed"))
 	}
+	stage = "dial_source"
 	conn, err := l.options.ControlDial(ctx, endpoint, source)
 	if err != nil {
-		return nil, err
+		return nil, refusal(err)
 	}
 	defer conn.Close()
 	client := pb.NewAgentClient(conn)
+	stage = "check_source"
 	check, err := client.LifecycleList(ctx, &pb.LifecycleControlRequest{Target: op.Source})
 	if err != nil {
-		return nil, err
+		return nil, refusal(err)
 	}
 	if !proto.Equal(check.Identity, op.Source) {
-		return nil, status.Error(codes.PermissionDenied, "authenticated source identity mismatch")
+		return nil, refusal(status.Error(codes.PermissionDenied, "authenticated source identity mismatch"))
 	}
+	stage = "force_relinquish"
 	response, err := client.LifecycleForceRelinquish(ctx, op)
 	if status.Code(err) == codes.Unimplemented {
+		stage = "legacy_relinquish"
 		response, err = client.LifecycleRelinquish(ctx, op)
 		if err != nil {
 			// A lost response may already have durably reserved the exact transfer.
 			current, e := conversation.ReadOwnership(ctx, l.store, id)
 			if e == nil && current.State == "reserved" && current.Owner == op.Owner.Host && current.Epoch == op.Owner.Epoch && current.Destination == l.options.Host && current.Handover == op.HandoverId {
+				mark()
 				return s.resumeClaim(ctx, claim)
 			}
 			if e != nil {
-				return nil, e
+				return nil, refusal(e)
 			}
 			if current.State != "owned" || current.Owner != op.Owner.Host || current.Epoch != op.Owner.Epoch {
-				return nil, status.Error(codes.FailedPrecondition, "resume owner changed before legacy confirmation; refusing stale source")
+				return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed before legacy confirmation; refusing stale source"))
 			}
 			if status.Code(err) == codes.Unknown || status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.Unimplemented {
 				reason := err.Error()
@@ -299,12 +338,12 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 							op.Requester = proto.Clone(r.Requester).(*pb.LifecycleIdentity)
 						}
 						if err := saveResume(path, op); err != nil {
-							return nil, err
+							return nil, refusal(err)
 						}
 					}
 				}
 				if err := saveResume(path, op); err != nil {
-					return nil, err
+					return nil, refusal(err)
 				}
 				if op.LegacyProcessIdentity == "" {
 					reason += "; verified platform process stop unavailable; no stop authorized"
@@ -314,11 +353,14 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, refusal(err)
 	}
+	stage = "validate_source_receipt"
 	if !proto.Equal(response.Identity, op.Source) || response.Receipt != op.Receipt {
-		return nil, status.Error(codes.FailedPrecondition, "source receipt mismatch")
+		return nil, refusal(status.Error(codes.FailedPrecondition, "source receipt mismatch"))
 	}
+	mark()
+	stage = "claim"
 	return s.resumeClaim(ctx, claim)
 }
 func (s *Server) resumeClaim(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {

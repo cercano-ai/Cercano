@@ -49,23 +49,24 @@ type CoexistenceOptions struct {
 }
 
 type coexistenceLifecycle struct {
-	launches       map[string]*pb.LifecycleControlRequest
-	mu             sync.Mutex
-	resumeMu       sync.Mutex // serialize operation journal updates, never held by peer callbacks
-	retireMu       sync.Mutex
-	retireDone     chan struct{}
-	retired        chan struct{}
-	retireErr      error
-	storeCloseOnce sync.Once
-	storeCloseErr  error
-	options        CoexistenceOptions
-	store          conversation.Store
-	admission      *broker.Admission
-	owners         map[string]*conversation.Ownership
-	incoming       map[broker.IncomingHandover]*IncomingAcceptance
-	ready          map[broker.Owner]bool
-	closures       map[broker.Owner]*relinquishReservation
-	forced         map[broker.Owner]bool
+	launches         map[string]*pb.LifecycleControlRequest
+	mu               sync.Mutex
+	resumeMu         sync.Mutex // serialize operation journal updates, never held by peer callbacks
+	retireMu         sync.Mutex
+	retireDone       chan struct{}
+	retired          chan struct{}
+	retireErr        error
+	storeCloseOnce   sync.Once
+	storeCloseErr    error
+	options          CoexistenceOptions
+	store            conversation.Store
+	admission        *broker.Admission
+	owners           map[string]*conversation.Ownership
+	incoming         map[broker.IncomingHandover]*IncomingAcceptance
+	ready            map[broker.Owner]bool
+	acquisitionStage map[broker.Owner]string // diagnostic only; guarded by mu
+	closures         map[broker.Owner]*relinquishReservation
+	forced           map[broker.Owner]bool
 
 	// nil uses directory Sync; testable publication boundary.
 	resumeJournalSync func(*os.File) error
@@ -136,6 +137,10 @@ func (l *coexistenceLifecycle) acquireUsing(ctx context.Context, id string, acce
 	}
 	if o != nil {
 		l.owners[id] = o
+		if l.acquisitionStage == nil {
+			l.acquisitionStage = make(map[broker.Owner]string)
+		}
+		l.acquisitionStage[ownerOf(o)] = "ownership_commit"
 	}
 	if e != nil {
 		if o != nil {
@@ -146,6 +151,10 @@ func (l *coexistenceLifecycle) acquireUsing(ctx context.Context, id string, acce
 		return broker.Owner{}, e
 	}
 	identity := ownerOf(o)
+	if l.acquisitionStage == nil {
+		l.acquisitionStage = make(map[broker.Owner]string)
+	}
+	l.acquisitionStage[identity] = "conversation_creation"
 	ctx = conversation.WithOwnership(ctx, o)
 	// Production development acquisition explicitly creates a new row under
 	// its exact capability, before reload or dependent writes. Fixture and
@@ -162,6 +171,7 @@ func (l *coexistenceLifecycle) acquireUsing(ctx context.Context, id string, acce
 			return broker.Owner{}, fmt.Errorf("acquired but conversation creation unresolved: %w", e)
 		}
 	}
+	l.acquisitionStage[identity] = "reload"
 	var schedule func(context.Context) error
 	if l.options.StageReload != nil {
 		schedule, e = l.options.StageReload(ctx, l.store, o)
@@ -172,6 +182,7 @@ func (l *coexistenceLifecycle) acquireUsing(ctx context.Context, id string, acce
 		_ = t.PersistenceFailed()
 		return broker.Owner{}, fmt.Errorf("acquired but reload unresolved: %w", e)
 	}
+	l.acquisitionStage[identity] = "register_owner"
 	if accepted == nil {
 		e = l.admission.RegisterOwner(identity)
 	} else {
@@ -182,6 +193,7 @@ func (l *coexistenceLifecycle) acquireUsing(ctx context.Context, id string, acce
 		return broker.Owner{}, e
 	}
 	if schedule != nil {
+		l.acquisitionStage[identity] = "pending_scheduling"
 		l.mu.Unlock()
 		e = schedule(ctx)
 		l.mu.Lock()
@@ -190,6 +202,7 @@ func (l *coexistenceLifecycle) acquireUsing(ctx context.Context, id string, acce
 			return broker.Owner{}, fmt.Errorf("acquired but pending scheduling unresolved: %w", e)
 		}
 	}
+	delete(l.acquisitionStage, identity)
 	l.ready[identity] = true
 	_ = t.Complete()
 	return identity, nil
