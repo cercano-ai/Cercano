@@ -261,7 +261,12 @@ func TestExactRecoveryDestination(t *testing.T) {
 			}
 			before := f.snapshot(t)
 			got, err := f.clients[f.b].LifecycleClaim(f.ctx, r)
-			success := which == "journal-not-required" || which == "ownership-changed-after-preflight"
+			// The legacy Claim API cannot return historical success: its callers
+			// interpret a successful owner response as permission to resume.
+			success := which == "journal-not-required"
+			if which == "ownership-changed-after-preflight" && status.Code(err) != codes.FailedPrecondition {
+				t.Fatalf("historical claim must fail closed: %v %v", got, err)
+			}
 			if !success {
 				if err == nil {
 					t.Fatalf("mismatch accepted: %v", got)
@@ -273,9 +278,6 @@ func TestExactRecoveryDestination(t *testing.T) {
 			}
 			if err != nil || got.GetOwner().GetHost() != "B" {
 				t.Fatalf("claim: %v %v", got, err)
-			}
-			if which == "ownership-changed-after-preflight" && before != f.snapshot(t) {
-				t.Fatal("historical result reacquired ownership")
 			}
 			if _, err := os.Stat(resumeJournal(f.b.coexistence, "chat")); !os.IsNotExist(err) {
 				t.Fatalf("unexpected journal: %v", err)

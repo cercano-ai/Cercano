@@ -136,7 +136,25 @@ func (s *Server) LifecycleClaim(ctx context.Context, r *pb.LifecycleControlReque
 	if e != nil {
 		return nil, e
 	}
-	return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: wireOwner(o)}, nil
+	// Legacy callers interpret any successful Claim response as ownership and
+	// do not inspect CurrentOwner. A historical receipt must therefore fail
+	// closed here; the retry-only API can report it explicitly as history.
+	// Serialize this check with local release and require both the ready local
+	// capability and the exact durable owner, not merely a handover result.
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	cap := l.owners[o.Conversation]
+	if cap == nil || ownerOf(cap) != o || !l.ready[o] {
+		return nil, status.Error(codes.FailedPrecondition, "claim receipt is historical or destination is not ready; refresh conversation ownership before resuming")
+	}
+	current, err := conversation.ReadOwnership(ctx, l.store, o.Conversation)
+	if err != nil {
+		return nil, err
+	}
+	if current.State != "owned" || current.Owner != o.Host || current.Epoch != o.Epoch {
+		return nil, status.Error(codes.FailedPrecondition, "claim receipt is not current ownership; refresh conversation ownership before resuming")
+	}
+	return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: wireOwner(o), CurrentOwner: true}, nil
 }
 
 // An uncertain peer response keeps the exact closed source reservation. Only
