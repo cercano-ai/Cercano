@@ -34,7 +34,11 @@ func (s *interruptedCutoverSource) LifecycleForceRelinquish(ctx context.Context,
 
 // Synthetic identity checks and bufconn are fixture trust, not production auth.
 // Endpoint strings satisfy protocol route validation; no socket is ever opened.
-func inMemoryRecoveryControls(t *testing.T, a, b, c *Server) map[*Server]string {
+func inMemoryRecoveryControls(t *testing.T, a, b, c *Server, legacy ...bool) map[*Server]string {
+	return inMemoryRecoveryControlsWithHook(t, a, b, c, nil, legacy...)
+}
+
+func inMemoryRecoveryControlsWithHook(t *testing.T, a, b, c *Server, before func(string, any), legacy ...bool) map[*Server]string {
 	t.Helper()
 	servers := []*Server{a, b, c}
 	endpoints := map[*Server]string{a: "127.0.0.1:19001", b: "127.0.0.1:19002", c: "127.0.0.1:19003"}
@@ -45,7 +49,16 @@ func inMemoryRecoveryControls(t *testing.T, a, b, c *Server) map[*Server]string 
 		listener := bufconn.Listen(1024 * 1024)
 		listeners[endpoint], identities[endpoint] = listener, s.coexistence.controlIdentity()
 		// bufconn has no IP peer; explicitly supply synthetic fixture peer trust.
-		transport := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		transport := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+			if len(legacy) > 0 && legacy[0] && strings.Contains(info.FullMethod, "/LifecycleRetry") {
+				return nil, status.Error(codes.Unimplemented, "fixture: old peer has no retry handlers")
+			}
+			if len(legacy) > 1 && legacy[1] && strings.HasSuffix(info.FullMethod, "/LifecycleForceRelinquish") {
+				return nil, status.Error(codes.Unimplemented, "fixture: old peer has only ordinary relinquish")
+			}
+			if before != nil {
+				before(info.FullMethod, req)
+			}
 			return handler(recoveryFixturePeer(ctx), req)
 		}))
 		if s == a {
@@ -173,26 +186,15 @@ func TestResumeNewDestinationInterruptedTransfer(t *testing.T) {
 			if e := held.Complete(); e != nil {
 				t.Fatal(e)
 			}
-			// C has no journal under its own identity. Resume creates a second operation,
-			// but A's exact-operation closure remains even after the last ticket drains.
-			if resumeJournal(b.coexistence, "chat") == resumeJournal(c.coexistence, "chat") {
-				t.Fatal("destination journal keys alias")
+			// C cannot resolve the original destination in this fixture. Fail closed
+			// before minting a competing operation or acceptance.
+			_, err = c.LifecycleResume(ctx, resumeRequest(c, endpoints[c]))
+			if status.Code(err) != codes.FailedPrecondition {
+				t.Fatalf("unresolved original destination not blocked: %v", err)
 			}
 			if _, e := os.Stat(resumeJournal(c.coexistence, "chat")); !os.IsNotExist(e) {
-				t.Fatalf("unexpected C journal: %v", e)
+				t.Fatalf("competing journal created: %v", e)
 			}
-			_, err = c.LifecycleResume(ctx, resumeRequest(c, endpoints[c]))
-			if err == nil || !strings.Contains(err.Error(), broker.ErrAdmissionBusy.Error()) {
-				t.Fatalf("new destination not blocked: %v", err)
-			}
-			second := readRecoveryOperation(t, c)
-			if second.HandoverId == first.HandoverId || second.Receipt == first.Receipt || !proto.Equal(second.Destination, c.coexistence.controlIdentity()) {
-				t.Fatal("new destination reused original authority")
-			}
-			if _, e := a.LifecycleForceRelinquish(ctx, second); !errors.Is(e, broker.ErrAdmissionBusy) {
-				t.Fatalf("exact busy sentinel: %v", e)
-			}
-			t.Logf("probe: different destination minted a different operation; drained source refuses it: %v", err)
 			assertOldOwned()
 			// Knowing B's operation or receipt is not authority to claim it as C.
 			wrong := proto.Clone(claim).(*pb.LifecycleControlRequest)
@@ -201,12 +203,12 @@ func TestResumeNewDestinationInterruptedTransfer(t *testing.T) {
 				t.Fatal("C claimed B receipt")
 			}
 			wrong = proto.Clone(claim).(*pb.LifecycleControlRequest)
-			wrong.Receipt = second.Receipt
+			wrong.Receipt = "unrelated-receipt"
 			if _, e := b.LifecycleValidateReceipt(ctx, wrong); e == nil {
 				t.Fatal("B validated C receipt")
 			}
 			wrong = proto.Clone(first).(*pb.LifecycleControlRequest)
-			wrong.HandoverId = second.HandoverId
+			wrong.HandoverId = "unrelated-operation"
 			if _, e := a.LifecycleForceRelinquish(ctx, wrong); !errors.Is(e, broker.ErrAdmissionBusy) {
 				t.Fatalf("changed operation bypassed closure: %v", e)
 			}
@@ -226,9 +228,6 @@ func TestResumeNewDestinationInterruptedTransfer(t *testing.T) {
 			if e != nil || epoch != got.Owner.Epoch {
 				t.Fatalf("missing durable exact-operation result: %q %v", epoch, e)
 			}
-			if _, e := conversation.HandoverResult(ctx, c.coexistence.store, "chat", "C", second.HandoverId); e == nil {
-				t.Fatal("failed operation acquired durable result")
-			}
 			v, e := conversation.ReadOwnership(ctx, b.coexistence.store, "chat")
 			if e != nil || v.State != "owned" || v.Owner != "B" || v.Epoch != epoch {
 				t.Fatalf("bad recovered ownership: %+v %v", v, e)
@@ -237,15 +236,15 @@ func TestResumeNewDestinationInterruptedTransfer(t *testing.T) {
 				attachment.Detach()
 				t.Fatal("stale source revived")
 			}
-			if !proto.Equal(readRecoveryOperation(t, b), first) || !proto.Equal(readRecoveryOperation(t, c), second) {
+			if !proto.Equal(readRecoveryOperation(t, b), first) {
 				t.Fatal("recovery rewrote operation authority")
 			}
 			t.Log("probe: original destination recovered exact operation, one fresh durable epoch; stale source remains fenced")
 
 			// Characterize an existing-API second hop, not adoption of A's operation.
-			// C's incomplete journal must not silently become a B -> C selection.
+			// The fixture still cannot resolve the new source B.
 			if _, e := c.LifecycleResume(ctx, resumeRequest(c, endpoints[c])); e == nil {
-				t.Fatal("C silently abandoned incomplete selection")
+				t.Fatal("C resumed without trusted source resolution")
 			}
 			next := &pb.LifecycleControlRequest{Target: b.coexistence.controlIdentity(), Source: b.coexistence.controlIdentity(), Destination: c.coexistence.controlIdentity(), DestinationEndpoint: endpoints[c], Owner: got.Owner, HandoverId: "explicit-second-hop", Management: true}
 			reserved, e := b.LifecycleRelinquish(ctx, next)
@@ -261,14 +260,10 @@ func TestResumeNewDestinationInterruptedTransfer(t *testing.T) {
 			if e != nil || v.Owner != "C" || v.Epoch != last.Owner.Epoch || v.State != "owned" {
 				t.Fatalf("second hop ownership: %+v %v", v, e)
 			}
-			if !proto.Equal(readRecoveryOperation(t, c), second) {
-				t.Fatal("explicit second hop changed incomplete journal")
-			}
 			listing, e := c.LifecycleList(ctx, &pb.LifecycleControlRequest{Target: c.coexistence.controlIdentity()})
-			if e != nil || listing.GetPendingIncoming() != 1 {
-				t.Fatalf("incomplete C acceptance must remain visible: %v %v", listing, e)
+			if e != nil || listing.GetPendingIncoming() != 0 {
+				t.Fatalf("unexpected competing acceptance: %v %v", listing, e)
 			}
-			t.Log("probe: explicit fresh B -> C prepare/reserve/claim succeeds without adopting or deleting C's incomplete journal; one pending incoming remains")
 		})
 	}
 }

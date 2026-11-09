@@ -333,6 +333,20 @@ func developmentSourceResolver(state string, own *proto.LifecycleIdentity) func(
 		return r.Identity, r.Endpoint, nil // authenticated by ControlDial before any source mutation
 	}
 }
+
+// Selection is read from the same private records used by pinned peer dialing.
+func developmentRecoverySelection(state string, own *proto.LifecycleIdentity) func(context.Context, string) (*proto.LifecycleRecoverySelection, error) {
+	return func(ctx context.Context, host string) (*proto.LifecycleRecoverySelection, error) {
+		r, err := selectDevelopmentPeer(state, own, "", host)
+		if err != nil {
+			return nil, err
+		}
+		if err = developmentPrivatePath(r.TokenFile, false); err != nil {
+			return nil, err
+		}
+		return &proto.LifecycleRecoverySelection{Identity: r.Identity, Endpoint: r.Endpoint, TokenFile: r.TokenFile}, nil
+	}
+}
 func developmentPeerDial(state string, own *proto.LifecycleIdentity) func(context.Context, string, *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
 	return func(ctx context.Context, endpoint string, want *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
 		if want == nil {

@@ -389,6 +389,7 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 			Contract: conversation.DevelopmentCoexistenceDeclaration(), ControlAuthorize: g.auth.Authorize,
 			ControlDial:        developmentPeerDial(g.options.State, g.options.Identity),
 			ResolveSource:      developmentSourceResolver(g.options.State, g.options.Identity),
+			RecoverySelection:  developmentRecoverySelection(g.options.State, g.options.Identity),
 			RecoveryGuard:      developmentRecoveryGuard(g.options.State, g.options.Identity),
 			LegacyStop:         newDevelopmentLegacyStop(g.options.State, g.options.Identity),
 			Reload:             func(context.Context, conversation.Store, *conversation.Ownership) error { return nil },

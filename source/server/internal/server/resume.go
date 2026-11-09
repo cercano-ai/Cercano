@@ -75,6 +75,12 @@ func saveResumeWithSync(path string, r *pb.LifecycleControlRequest, syncDirector
 	if err = os.Rename(f.Name(), path); err != nil {
 		return err
 	}
+	return syncResumePublication(path, syncDirectory)
+}
+
+// Both new publication and cross-host reaffirmation use the same directory
+// durability barrier. A visible name alone is not proof of publication.
+func syncResumePublication(path string, syncDirectory func(*os.File) error) error {
 	d, err := os.Open(filepath.Dir(path))
 	if err != nil {
 		return &resumePublicationUncertain{err}
@@ -89,9 +95,69 @@ func saveResumeWithSync(path string, r *pb.LifecycleControlRequest, syncDirector
 	return nil
 }
 
-// LifecycleResume runs only on the launcher-selected destination. It never
-// discovers a destination or treats an unavailable RPC as death. Legacy stops
-// require a durable, exact approval and a trusted platform adapter.
+// reaffirmResumeWithSync persists an already visible original journal without
+// replacing it. In particular, a changed operation must never be overwritten by
+// an old confirmation. Sync the file, parent and publication directory just as
+// saveResumeWithSync does; preserve uncertain publications for exact retry.
+func reaffirmResumeWithSync(path string, expected *pb.LifecycleControlRequest, syncDirectory func(*os.File) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	check := func() error {
+		current, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if !current.Mode().IsRegular() || current.Mode()&0077 != 0 || !os.SameFile(info, current) {
+			return status.Error(codes.FailedPrecondition, "original journal publication changed")
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var actual pb.LifecycleControlRequest
+		if err = json.Unmarshal(b, &actual); err != nil {
+			return err
+		}
+		if !proto.Equal(&actual, expected) {
+			return status.Error(codes.FailedPrecondition, "original journal operation changed")
+		}
+		return nil
+	}
+	if err = check(); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	parent, err := os.Open(filepath.Dir(filepath.Dir(path)))
+	if err != nil {
+		return err
+	}
+	err = parent.Sync()
+	closeErr := parent.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if err = syncResumePublication(path, syncDirectory); err != nil {
+		return err
+	}
+	return check()
+}
+
+// LifecycleResume runs on the launcher-selected coordinator, which may offer
+// authenticated recovery at the exact original destination before normal resume.
+// An unavailable RPC is never death proof. Legacy stops require a durable,
+// exact approval and a trusted platform adapter.
 func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequest) (result *pb.LifecycleControlResponse, finalErr error) {
 	stage, refusalCheck := "control", ""
 	var diagnosticLifecycle *coexistenceLifecycle
@@ -118,6 +184,10 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	}
 	l.resumeMu.Lock()
 	defer l.resumeMu.Unlock()
+	stage = "original_operation_discovery"
+	if recovered, handled, e := s.originalRecovery(ctx, l, r); handled {
+		return recovered, e
+	}
 	var approved *pb.LifecycleControlRequest
 	if r.ConfirmLegacyStop {
 		stage = "validate_legacy_approval"

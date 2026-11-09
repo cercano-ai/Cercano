@@ -25,14 +25,23 @@ func reopenDevHostFrom(ctx context.Context, destination DevHostSelection, conver
 		return destination, err
 	}
 	defer dc.Close()
-	// Only the selected destination is authoritative. Never discover or dial a
-	// historical owner: endpoint availability is neither ownership nor death proof.
+	// The selected coordinator may authenticate an exact original destination.
+	// The CLI never discovers hosts or treats journal endpoints as authority.
 	result, err := dc.LifecycleResume(ctx, &proto.LifecycleControlRequest{Target: destination.Identity, Owner: &proto.LifecycleOwner{Conversation: conversation}, DestinationEndpoint: destination.Endpoint, Requester: requester})
 	if err != nil {
 		return destination, err
 	}
 	if !protobuf.Equal(result.GetIdentity(), destination.Identity) {
 		return destination, fmt.Errorf("resume returned different destination")
+	}
+	if result.GetOriginalRecovery() != nil {
+		if err := validateOriginalOffer(result.OriginalRecovery, conversation); err != nil {
+			return destination, err
+		}
+		if !result.GetConfirmationRequired() {
+			return destination, fmt.Errorf("original recovery requires fresh confirmation")
+		}
+		return destination, &forcedResumeOffer{destination: destination, original: result.OriginalRecovery, requester: requester}
 	}
 	if result.GetConfirmationRequired() {
 		if result.GetLegacyProcessIdentity() == "" {

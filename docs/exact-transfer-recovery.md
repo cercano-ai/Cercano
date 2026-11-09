@@ -7,9 +7,10 @@ It does not update running hosts or authorize live recovery.
 ## API
 
 `agentclient.(*LifecycleControls).RetryTransfer(ctx, destination, originalRequest)`
-is the narrow callable entrypoint. Both controls must already be authenticated to
-and pinned to the original source and destination identities. No discovery or
-new CLI recovery policy is introduced. The request must pin management mode,
+is the narrow retry-only callable entrypoint. Both controls must already be
+authenticated to and pinned to the original source and destination identities.
+The coordinator/CLI discovery policy described below wraps the original-operation
+journey; it does not broaden this retry-only API. The request must pin management mode,
 conversation, source owner host/epoch, source and destination identities, original
 handover ID and **nonempty original receipt**. Target is the source; the client
 clones the request to target the destination without changing the original.
@@ -49,6 +50,44 @@ move ID, Prepare/AcceptIncoming, normal Resume/Acquire/Claim/Relinquish, force
 fallback, or manual state clearing is part of this entrypoint. A normal
 `LifecycleClaim` now also rejects `Destination != Target`.
 
+## Coordinator and CLI original-operation discovery
+
+Before minting a new transfer, the selected coordinator examines private original
+operation journals. These are **hints, not authority**: journal endpoints and
+credentials are not trusted routes. Trusted private peer records select routes and
+CLI credentials, and authenticated, identity-pinned peers must validate the exact
+original destination acceptance and receipt. Missing authority, ambiguous or
+changed operations, unavailable peers, and pending or uncertain writes block
+recovery; they do not authorize a competing move, new acceptance, or fallback to
+a different operation or destination.
+
+The CLI presents the original source, epoch, operation and destination, explicitly
+warning that recovery can fence the source and cancel conversation work. The newly
+selected host does not receive the original transfer. Recovery requires fresh,
+explicit, single-use coordinator-local consent, bound to the requester and exact
+operation; offers expire and do not survive restart. Decline, Enter, Escape and
+stale UI callbacks do not authorize recovery. The coordinator revalidates peers,
+selection and operation after confirmation.
+
+Modern recovery uses retry-only controls and requires an existing source
+reservation. Unsupported retry handlers require a **separate legacy confirmation**,
+not silent fallback from modern consent. Explicit legacy consent permits ordinary
+controls to initiate or finish the **ORIGINAL** transfer, including creating its
+missing source reservation. This is deliberately not an existing-reservation-only
+retry. It cannot create a new destination acceptance or invent a competing move.
+
+Before source mutation, the coordinator reaffirms the original journal in place,
+without replacing it: the exact operation, private regular-file mode and inode
+must match before and after syncing the file, parent and publication directory.
+A failed durability barrier blocks source calls and retains the exact operation
+for retry; a concurrent journal replacement is rejected, not overwritten.
+
+A successful modern claim must report `current_owner`; both modern and legacy
+paths also require the exact durable handover result and matching current durable
+owner/state/epoch. A historical claim, clean release, fresh epoch or subsequent
+movement cannot be presented as current recovery success. This is a **current-owner
+snapshot, not a lease**; subsequent work still requires normal admission.
+
 ## Uncertainty and limitations
 
 Deadline/cancellation is an **uncertain outcome**, not permission to start a new
@@ -63,7 +102,51 @@ supply cross-host rollback, a distributed lock, or automatic convergence.
 Authentication remains the caller/dialer's existing host-pinning responsibility.
 Fixture authentication does not verify deployed credentials or older binaries.
 
-## Offline verification
+## Focused verification of original-operation discovery (2026-11-09)
+
+All runs below passed on PATH Go `go1.26.3 darwin/arm64`, with `GOPROXY=off`,
+`GOSUMDB=off`, `GOTOOLCHAIN=local`, synthetic HOME/XDG directories, and existing Go
+build/module cache paths captured before environment isolation. Full verbose
+outputs are retained outside tracked source at
+`/tmp/cercano-force-reopen-verification.ktLAFr/` in this worktree's execution
+environment; this is a local artifact path, not a portable repository artifact.
+
+From `source/server` (the first command was run normally and with `-race`):
+
+```sh
+go test ./internal/server ./pkg/agentclient -run '^(TestOriginalRecovery|TestResumeDiscoversOriginalBeforeMint|TestResumeNewDestinationInterruptedTransfer|TestRetryTransfer|TestExactRecovery)' -count=1 -v -timeout=180s
+go test -race ./internal/server ./pkg/agentclient -run '^(TestOriginalRecovery|TestResumeDiscoversOriginalBeforeMint|TestResumeNewDestinationInterruptedTransfer|TestRetryTransfer|TestExactRecovery)' -count=1 -v -timeout=180s
+go test ./cmd/cercano -run '^TestDevelopment(Peer|SourceResolver)' -count=1 -v -timeout=180s
+```
+
+Both server/client runs passed **22 top-level tests and 69 subtests** each.
+The command run selected and passed exactly two tests:
+`TestDevelopmentPeerRequiresPrivateRecord` and
+`TestDevelopmentSourceResolverExactPrivateRecord`.
+
+From `source/clients/cli`:
+
+```sh
+go test ./internal/ui -run '^(TestOriginalRecoveryUIConfirmation|TestForcedResumeConfirmationAndStaleCallbacks|TestDevHostOrdinaryReopenStartsCommand)$' -count=1 -v -timeout=180s
+go test -race ./internal/ui -run '^(TestOriginalRecoveryUIConfirmation|TestForcedResumeConfirmationAndStaleCallbacks|TestDevHostOrdinaryReopenStartsCommand)$' -count=1 -v -timeout=180s
+```
+
+Both CLI runs passed **3 top-level tests and 12 subtests** each. Zero-test
+compile-only checks also passed: server `go test ./cmd/cercano -run '^$'
+-count=1 -timeout=180s` and CLI `go test . -run '^$' -count=1 -timeout=180s`.
+Those checks ran no tests and are not additional behavioral evidence.
+
+The original-recovery cases cover historical claim release/fresh epoch/movement,
+failed journal sync with no source calls followed by exact recovery, and journal
+replacement during sync without overwrite. These are passing verification runs
+of the reviewed partial feature: **no retained new pre-fix red/green logs were
+found, and no historical red reproduction is claimed for this increment**.
+Fixtures only: no live/deployed host, credential, real recovery, or older-binary
+compatibility validation was performed. Legacy behavior is simulated by fixture
+handlers returning `Unimplemented`, not by running an older binary. No push,
+merge, deployment, or live configuration/database changes are part of this work.
+
+## Earlier offline verification
 
 Smallest regression evidence: `TestExactRecoveryDestination/destination-field-gap`
 failed against characterization checkpoint `adde5e59c6be2fed92ede3d27c28a615a6938513`

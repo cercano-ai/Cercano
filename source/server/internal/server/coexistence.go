@@ -33,7 +33,9 @@ type CoexistenceOptions struct {
 	// LegacyStop is optional: absent a verified platform implementation, fail closed.
 	LegacyStop LegacyProcessStop
 	// ResolveSource selects only the exact owner from trusted local records; ControlDial authenticates that exact identity, not merely its endpoint.
-	ResolveSource      func(context.Context, string) (*pb.LifecycleIdentity, string, error)
+	ResolveSource func(context.Context, string) (*pb.LifecycleIdentity, string, error)
+	// RecoverySelection supplies private-record CLI credentials, never journal hints.
+	RecoverySelection  func(context.Context, string) (*pb.LifecycleRecoverySelection, error)
 	ControlDial        func(context.Context, string, *pb.LifecycleIdentity) (*grpc.ClientConn, error)
 	Contract           conversation.CoexistenceDeclaration
 	CloseParticipation func(context.Context) error
@@ -51,7 +53,8 @@ type CoexistenceOptions struct {
 type coexistenceLifecycle struct {
 	launches         map[string]*pb.LifecycleControlRequest
 	mu               sync.Mutex
-	resumeMu         sync.Mutex // serialize operation journal updates, never held by peer callbacks
+	resumeMu         sync.Mutex                          // serialize operation journal updates, never held by peer callbacks
+	recoveryOffers   map[string]*originalRecoveryConsent // guarded by resumeMu, single use
 	retireMu         sync.Mutex
 	retireDone       chan struct{}
 	retired          chan struct{}

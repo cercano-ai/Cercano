@@ -11,6 +11,7 @@ import (
 )
 
 type forcedResumeOffer struct {
+	original        *proto.LifecycleOriginalRecovery
 	destination     DevHostSelection
 	owner           *proto.LifecycleOwner
 	dead            bool // retained for old fixture helpers; normal recovery is automatic
@@ -25,6 +26,9 @@ func (o *forcedResumeOffer) Error() string {
 	return "legacy source requires explicit whole-host interruption confirmation"
 }
 func (m Model) offerForcedResume(offer *forcedResumeOffer) (tea.Model, tea.Cmd) {
+	if offer.original != nil {
+		return m.offerOriginalRecovery(offer)
+	}
 	client, parent, gen := m.agent, m.convID, m.taskSubscriptionGeneration
 	decline := func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil }
 	title := "Interrupt the entire legacy source host?"

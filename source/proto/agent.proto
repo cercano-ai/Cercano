@@ -2785,6 +2785,10 @@ message LifecycleControlRequest {
  string launch_operation = 12;
  // acquire, deliver, or abort. Journal-only states are never client commands.
  string launch_action = 13;
+ // Single-use, coordinator-local consent for the exact authenticated original operation.
+ string recovery_challenge = 14;
+ bool confirm_original_recovery = 15;
+ bool confirm_legacy_recovery = 16;
 }
 message LifecycleControlResponse {
  LifecycleIdentity identity = 1;
@@ -2807,6 +2811,7 @@ message LifecycleControlResponse {
  // RetryClaim only: recorded result still owns the store at observation time.
  // Historical results never reacquire ownership; this is not a future lease.
  bool current_owner = 14;
+ LifecycleOriginalRecovery original_recovery = 15;
 }
 
 // Read-only text history in the active RunTurn conversation only. The host
@@ -2836,4 +2841,17 @@ message LifecycleRecoverRequest {
  string conversation = 2;
  LifecycleOwner expected_owner = 3;
  bool confirm = 4;
+}
+
+// Private-record selection, authenticated by the coordinator; never journal routing.
+message LifecycleRecoverySelection {
+ LifecycleIdentity identity = 1;
+ string endpoint = 2;
+ string token_file = 3;
+}
+message LifecycleOriginalRecovery {
+ LifecycleControlRequest operation = 1;
+ LifecycleRecoverySelection selection = 2;
+ string challenge = 3;
+ bool legacy = 4;
 }
