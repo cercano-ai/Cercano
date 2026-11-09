@@ -118,6 +118,9 @@ func (s *Server) LifecycleClaim(ctx context.Context, r *pb.LifecycleControlReque
 	if e != nil {
 		return nil, e
 	}
+	if !proto.Equal(r.Destination, r.Target) {
+		return nil, broker.ErrAdmissionStale
+	}
 	l.mu.Lock()
 	a := l.receiptLocked(r)
 	l.mu.Unlock()

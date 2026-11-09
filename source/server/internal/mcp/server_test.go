@@ -1569,6 +1569,18 @@ func (m *mockAgentClient) LifecycleRelinquish(context.Context, *proto.LifecycleC
 	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRelinquish in MCP mock")
 }
 
+func (m *mockAgentClient) LifecycleRetryReceipt(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRetryReceipt in MCP mock")
+}
+
+func (m *mockAgentClient) LifecycleRetryRelinquish(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRetryRelinquish in MCP mock")
+}
+
+func (m *mockAgentClient) LifecycleRetryClaim(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRetryClaim in MCP mock")
+}
+
 func (m *mockAgentClient) LifecycleClaim(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleClaim in MCP mock")
 }

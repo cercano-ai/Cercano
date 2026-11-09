@@ -1,8 +1,8 @@
 package server
 
-// Characterization only. There is deliberately no recovery helper: source
-// controls cannot require a preexisting reservation, and Claim does not compare
-// the request's Destination to Target. Prepare is used ONLY for fixture setup.
+// Characterizes the original transfer controls and supplies isolated fixtures
+// for retry-only regressions. Prepare is used ONLY for fixture setup. The
+// Destination/Target gap is now a rejection regression.
 import (
 	"context"
 	"fmt"
@@ -111,6 +111,13 @@ func (f *exactRecoveryFixture) snapshot(t *testing.T) string {
 	result := ""
 	for _, s := range []*Server{f.a, f.b, f.c} {
 		l := s.coexistence
+		journals, err := filepath.Glob(filepath.Join(l.options.StorePath+".resume-operations", "*"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(journals) != 0 {
+			t.Fatalf("exact recovery created an unexpected resume journal: %v", journals)
+		}
 		l.mu.Lock()
 		var records []string
 		for o, r := range l.closures {
@@ -254,7 +261,7 @@ func TestExactRecoveryDestination(t *testing.T) {
 			}
 			before := f.snapshot(t)
 			got, err := f.clients[f.b].LifecycleClaim(f.ctx, r)
-			success := which == "destination-field-gap" || which == "journal-not-required" || which == "ownership-changed-after-preflight"
+			success := which == "journal-not-required" || which == "ownership-changed-after-preflight"
 			if !success {
 				if err == nil {
 					t.Fatalf("mismatch accepted: %v", got)

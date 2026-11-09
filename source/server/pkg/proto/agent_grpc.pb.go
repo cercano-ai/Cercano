@@ -28,6 +28,9 @@ const (
 	Agent_LifecycleRecover_FullMethodName                      = "/agent.Agent/LifecycleRecover"
 	Agent_LifecycleForceRelinquish_FullMethodName              = "/agent.Agent/LifecycleForceRelinquish"
 	Agent_LifecycleClaim_FullMethodName                        = "/agent.Agent/LifecycleClaim"
+	Agent_LifecycleRetryReceipt_FullMethodName                 = "/agent.Agent/LifecycleRetryReceipt"
+	Agent_LifecycleRetryRelinquish_FullMethodName              = "/agent.Agent/LifecycleRetryRelinquish"
+	Agent_LifecycleRetryClaim_FullMethodName                   = "/agent.Agent/LifecycleRetryClaim"
 	Agent_LifecycleList_FullMethodName                         = "/agent.Agent/LifecycleList"
 	Agent_LifecycleRetire_FullMethodName                       = "/agent.Agent/LifecycleRetire"
 	Agent_GetDevelopmentHostIdentity_FullMethodName            = "/agent.Agent/GetDevelopmentHostIdentity"
@@ -133,6 +136,11 @@ type AgentClient interface {
 	LifecycleRecover(ctx context.Context, in *LifecycleRecoverRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleForceRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleClaim(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	// Exact existing-operation recovery only. Unsupported servers MUST NOT be
+	// retried using the older mutating controls.
+	LifecycleRetryReceipt(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleRetryRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleRetryClaim(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleList(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleRetire(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	// Read-only development identity checks; never attach or acquire ownership.
@@ -472,6 +480,36 @@ func (c *agentClient) LifecycleClaim(ctx context.Context, in *LifecycleControlRe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LifecycleControlResponse)
 	err := c.cc.Invoke(ctx, Agent_LifecycleClaim_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleRetryReceipt(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleRetryReceipt_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleRetryRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleRetryRelinquish_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleRetryClaim(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleRetryClaim_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1463,6 +1501,11 @@ type AgentServer interface {
 	LifecycleRecover(context.Context, *LifecycleRecoverRequest) (*LifecycleControlResponse, error)
 	LifecycleForceRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	// Exact existing-operation recovery only. Unsupported servers MUST NOT be
+	// retried using the older mutating controls.
+	LifecycleRetryReceipt(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleRetryRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleRetryClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleList(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleRetire(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	// Read-only development identity checks; never attach or acquire ownership.
@@ -1744,6 +1787,15 @@ func (UnimplementedAgentServer) LifecycleForceRelinquish(context.Context, *Lifec
 }
 func (UnimplementedAgentServer) LifecycleClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LifecycleClaim not implemented")
+}
+func (UnimplementedAgentServer) LifecycleRetryReceipt(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleRetryReceipt not implemented")
+}
+func (UnimplementedAgentServer) LifecycleRetryRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleRetryRelinquish not implemented")
+}
+func (UnimplementedAgentServer) LifecycleRetryClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleRetryClaim not implemented")
 }
 func (UnimplementedAgentServer) LifecycleList(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LifecycleList not implemented")
@@ -2179,6 +2231,60 @@ func _Agent_LifecycleClaim_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServer).LifecycleClaim(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleRetryReceipt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleRetryReceipt(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleRetryReceipt_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleRetryReceipt(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleRetryRelinquish_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleRetryRelinquish(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleRetryRelinquish_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleRetryRelinquish(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleRetryClaim_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleRetryClaim(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleRetryClaim_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleRetryClaim(ctx, req.(*LifecycleControlRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3664,6 +3770,18 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LifecycleClaim",
 			Handler:    _Agent_LifecycleClaim_Handler,
+		},
+		{
+			MethodName: "LifecycleRetryReceipt",
+			Handler:    _Agent_LifecycleRetryReceipt_Handler,
+		},
+		{
+			MethodName: "LifecycleRetryRelinquish",
+			Handler:    _Agent_LifecycleRetryRelinquish_Handler,
+		},
+		{
+			MethodName: "LifecycleRetryClaim",
+			Handler:    _Agent_LifecycleRetryClaim_Handler,
 		},
 		{
 			MethodName: "LifecycleList",

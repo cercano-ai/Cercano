@@ -18,6 +18,11 @@ service Agent {
   rpc LifecycleRecover(LifecycleRecoverRequest) returns (LifecycleControlResponse);
   rpc LifecycleForceRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleClaim (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  // Exact existing-operation recovery only. Unsupported servers MUST NOT be
+  // retried using the older mutating controls.
+  rpc LifecycleRetryReceipt (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecycleRetryRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecycleRetryClaim (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleList (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleRetire (LifecycleControlRequest) returns (LifecycleControlResponse) {}
 
@@ -2799,6 +2804,9 @@ message LifecycleControlResponse {
  string operation_id = 11;
  string blocked_reason = 12;
  string legacy_process_identity = 13;
+ // RetryClaim only: recorded result still owns the store at observation time.
+ // Historical results never reacquire ownership; this is not a future lease.
+ bool current_owner = 14;
 }
 
 // Read-only text history in the active RunTurn conversation only. The host
