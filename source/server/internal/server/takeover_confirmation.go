@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -20,22 +22,70 @@ func takeoverNonce() (string, error) {
 	return hex.EncodeToString(b[:]), e
 }
 
-// Called before journal discovery: journals cannot suppress a cooperative offer
-// for the current durable remote owner. No journal or client hint grants source
-// authority. Unsupported/offline sources leave the older resume paths intact;
+// Called before older resume journal discovery. Takeover journals identify exact
+// retry candidates, but no journal or client hint grants source authority.
+// Unsupported/offline source discovery leaves the older resume paths intact;
 // they may offer their own, separately confirmed recovery, never takeover.
 func (s *Server) offerTakeover(ctx context.Context, l *coexistenceLifecycle, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, bool, error) {
 	if r.RecoveryChallenge != "" || r.ConfirmOriginalRecovery || r.ConfirmLegacyRecovery || r.ConfirmLegacyStop {
 		return nil, false, nil
 	}
 	state, e := conversation.ReadOwnership(ctx, l.store, r.GetOwner().GetConversation())
-	if e != nil || state.Owner == "" || state.Owner == l.options.Host || (state.State != "owned" && state.State != "reserved") {
+	if e != nil || state.Owner == "" || (state.State != "owned" && state.State != "reserved") {
 		return nil, false, nil
 	}
 	if l.options.ResolveSource == nil || l.options.RecoverySelection == nil || l.options.ControlDial == nil || r.Requester == nil {
 		return nil, false, nil
 	}
-	src, _, e := l.options.ResolveSource(ctx, state.Owner)
+	// Journals are discovery hints only. Authenticate both retained acceptances
+	// and check durable ownership before offering an exact retry.
+	var pending *pb.LifecycleControlRequest
+	paths, _ := filepath.Glob(filepath.Join(l.options.StorePath+".takeover-operations", "*.json"))
+	for _, path := range paths {
+		b, err := os.ReadFile(path)
+		hint := new(pb.LifecycleControlRequest)
+		if err != nil || json.Unmarshal(b, hint) != nil || hint.GetOwner().GetConversation() != r.Owner.Conversation || !proto.Equal(hint.Destination, l.controlIdentity()) {
+			continue
+		}
+		if !takeoverStateMatches(state.Owner, state.Epoch, state.State, state.Handover, hint) {
+			continue
+		}
+		if state.Owner == l.options.Host && state.State == "owned" {
+			epoch, err := conversation.HandoverResult(ctx, l.store, hint.Owner.Conversation, hint.Destination.Host, hint.HandoverId)
+			if err != nil || epoch != state.Epoch {
+				continue
+			}
+		}
+		peer, conn, _, err := recoveryPeer(ctx, l, hint.Source)
+		if err != nil {
+			return nil, true, err
+		}
+		proof, err := peer.LifecycleTakeoverProbe(ctx, hint)
+		conn.Close()
+		if err != nil {
+			return nil, true, err
+		}
+		key := proto.Clone(hint).(*pb.LifecycleControlRequest)
+		key.DestinationEndpoint = ""
+		if !proto.Equal(proof.GetIdentity(), hint.Source) || !proto.Equal(proof.GetOriginalRecovery().GetOperation(), key) {
+			return nil, true, status.Error(codes.FailedPrecondition, "source did not retain exact takeover")
+		}
+		target := proto.Clone(hint).(*pb.LifecycleControlRequest)
+		target.Target = hint.Destination
+		if _, err = s.LifecycleTakeoverReceipt(ctx, target); err != nil {
+			return nil, true, err
+		}
+		pending = hint
+		break
+	}
+	if pending == nil && state.Owner == l.options.Host {
+		return nil, false, nil
+	}
+	sourceHost := state.Owner
+	if pending != nil {
+		sourceHost = pending.Owner.Host
+	}
+	src, _, e := l.options.ResolveSource(ctx, sourceHost)
 	if e != nil {
 		return nil, false, nil
 	}
@@ -45,6 +95,9 @@ func (s *Server) offerTakeover(ctx context.Context, l *coexistenceLifecycle, r *
 	}
 	defer sc.Close()
 	owner := &pb.LifecycleOwner{Conversation: r.Owner.Conversation, Host: state.Owner, Epoch: state.Epoch}
+	if pending != nil {
+		owner = pending.Owner
+	}
 	proof, e := source.LifecycleTakeoverProbe(ctx, &pb.LifecycleControlRequest{Target: src, Owner: owner})
 	if e != nil {
 		return nil, true, e
@@ -68,6 +121,15 @@ func (s *Server) offerTakeover(ctx context.Context, l *coexistenceLifecycle, r *
 		return nil, true, e
 	}
 	op := &pb.LifecycleControlRequest{Target: src, Source: src, Destination: l.controlIdentity(), DestinationEndpoint: selection.Endpoint, Owner: owner, Management: true, HandoverId: operation}
+	if pending != nil {
+		if pending.DestinationEndpoint != selection.Endpoint {
+			return nil, true, status.Error(codes.FailedPrecondition, "exact takeover endpoint changed")
+		}
+		op = pending
+		operation = op.HandoverId
+	} else if retained := proof.GetOriginalRecovery().GetOperation(); retained != nil {
+		return nil, true, status.Error(codes.FailedPrecondition, "retained takeover requires its durable exact journal and destination acceptance")
+	}
 	offer := &pb.LifecycleOriginalRecovery{Operation: op, Selection: selection, Challenge: token, Takeover: true}
 	if l.recoveryOffers == nil {
 		l.recoveryOffers = make(map[string]*originalRecoveryConsent)
@@ -104,7 +166,7 @@ func (s *Server) LifecycleTakeover(ctx context.Context, r *pb.LifecycleControlRe
 	if e != nil {
 		return nil, e
 	}
-	if state.Owner != op.Owner.Host || state.Epoch != op.Owner.Epoch || (state.State != "owned" && state.State != "reserved") {
+	if !takeoverStateMatches(state.Owner, state.Epoch, state.State, state.Handover, op) {
 		return nil, status.Error(codes.FailedPrecondition, "takeover confirmation is stale; refresh ownership")
 	}
 	selection, e := l.options.RecoverySelection(ctx, l.options.Host)
@@ -119,16 +181,31 @@ func (s *Server) LifecycleTakeover(ctx context.Context, r *pb.LifecycleControlRe
 		return nil, e
 	}
 	defer sc.Close()
-	proof, e := source.LifecycleTakeoverProbe(ctx, &pb.LifecycleControlRequest{Target: op.Source, Owner: op.Owner})
+	probe := &pb.LifecycleControlRequest{Target: op.Source, Owner: op.Owner}
+	if op.Receipt != "" {
+		probe = op
+	}
+	proof, e := source.LifecycleTakeoverProbe(ctx, probe)
 	if e != nil {
 		return nil, e
 	}
 	if !proto.Equal(proof.GetIdentity(), op.Source) {
 		return nil, status.Error(codes.FailedPrecondition, "takeover source changed")
 	}
+	if op.Receipt != "" {
+		key := proto.Clone(op).(*pb.LifecycleControlRequest)
+		key.DestinationEndpoint = ""
+		if !proto.Equal(proof.GetOriginalRecovery().GetOperation(), key) {
+			return nil, status.Error(codes.FailedPrecondition, "exact source acceptance changed")
+		}
+	}
 	target := proto.Clone(op).(*pb.LifecycleControlRequest)
 	target.Target = op.Destination
-	proof, e = s.LifecycleTakeoverPrepare(ctx, target)
+	if op.Receipt != "" {
+		proof, e = s.LifecycleTakeoverReceipt(ctx, target)
+	} else {
+		proof, e = s.LifecycleTakeoverPrepare(ctx, target)
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -140,7 +217,14 @@ func (s *Server) LifecycleTakeover(ctx context.Context, r *pb.LifecycleControlRe
 	// Separate journal namespace: conflicting old outgoing operations are not
 	// authority, and must not be overwritten to make a new takeover possible.
 	path := filepath.Join(l.options.StorePath+".takeover-operations", op.HandoverId+".json")
-	if e = saveResume(path, op); e != nil {
+	if _, err := os.Stat(path); err == nil {
+		e = reaffirmResumeWithSync(path, op, nil)
+	} else if os.IsNotExist(err) {
+		e = saveResume(path, op)
+	} else {
+		e = err
+	}
+	if e != nil {
 		return nil, e
 	}
 	proof, e = source.LifecycleTakeoverRelinquish(ctx, op)
@@ -160,4 +244,12 @@ func (s *Server) LifecycleTakeover(ctx context.Context, r *pb.LifecycleControlRe
 	// ClaimIncoming reloads durable history before exposing a ready capability.
 	// Preserve the offered operation exactly for UI challenge/result binding.
 	return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: claimed.Owner, Ready: true, CurrentOwner: true, OperationId: op.HandoverId, OriginalRecovery: offer, BlockedReason: "Interrupted work is not replayed. External effects are not rolled back; history is reloaded."}, nil
+}
+
+// A retained receipt permits retry, not replacement or obsolete replay.
+func takeoverStateMatches(host, epoch, state, handover string, op *pb.LifecycleControlRequest) bool {
+	if host == op.GetOwner().GetHost() && epoch == op.GetOwner().GetEpoch() && (state == "owned" || state == "reserved") {
+		return true
+	}
+	return op.Receipt != "" && host == op.GetDestination().GetHost() && ((state == "reserved" && handover == op.HandoverId) || (state == "owned" && epoch != op.GetOwner().GetEpoch()))
 }

@@ -22,6 +22,20 @@ func (s *Server) LifecycleTakeoverProbe(ctx context.Context, r *pb.LifecycleCont
 	if r.GetOwner().GetHost() == l.options.Host {
 		l.mu.Lock()
 		defer l.mu.Unlock()
+		if old := l.closures[controlOwner(r)]; old != nil && old.control != nil && old.control.takeover {
+			key := old.control.request
+			if r.HandoverId != "" {
+				check := proto.Clone(r).(*pb.LifecycleControlRequest)
+				check.DestinationEndpoint = ""
+				if !proto.Equal(key, check) {
+					return nil, status.Error(codes.FailedPrecondition, "different retained takeover")
+				}
+			}
+			return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), OriginalRecovery: &pb.LifecycleOriginalRecovery{Operation: proto.Clone(key).(*pb.LifecycleControlRequest), Takeover: true}}, nil
+		}
+		if r.HandoverId != "" {
+			return nil, status.Error(codes.FailedPrecondition, "takeover acceptance not retained")
+		}
 		cap := l.owners[r.Owner.Conversation]
 		if cap == nil || ownerOf(cap) != controlOwner(r) || !l.ready[controlOwner(r)] {
 			return nil, status.Error(codes.FailedPrecondition, "source no longer retains safe owner-epoch quiescence authority")

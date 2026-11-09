@@ -7,8 +7,10 @@ import (
 
 	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
+	pb "cercano/source/server/pkg/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestTakeoverPendingWritebackTimeoutRetainsSourceAndTicket(t *testing.T) {
@@ -61,5 +63,57 @@ func TestTakeoverPendingWritebackTimeoutRetainsSourceAndTicket(t *testing.T) {
 	}
 	if _, err = f.clients[f.c].LifecycleTakeover(f.ctx, confirm); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("timed-out confirmation was reusable: %v", err)
+	}
+}
+
+func TestTakeoverFreshConsentResumesExactPending(t *testing.T) {
+	f, r := takeoverFixture(t)
+	work, err := f.a.coexistence.admission.AdmitWork(controlOwner(f.op), broker.PersistenceWork)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := takeoverOffer(t, f, r)
+	ctx, cancel := context.WithTimeout(f.ctx, 100*time.Millisecond)
+	defer cancel()
+	if _, err = f.clients[f.c].LifecycleTakeover(ctx, first); status.Code(err) != codes.DeadlineExceeded {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		l := f.a.coexistence
+		l.mu.Lock()
+		old := l.closures[controlOwner(f.op)]
+		inactive := old != nil && old.control != nil && !old.control.active
+		l.mu.Unlock()
+		if inactive {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("cancelled source handler still active")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err = work.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	l := f.a.coexistence
+	l.mu.Lock()
+	exact := proto.Clone(l.closures[controlOwner(f.op)].control.request).(*pb.LifecycleControlRequest)
+	l.mu.Unlock()
+	changed := proto.Clone(exact).(*pb.LifecycleControlRequest)
+	changed.HandoverId = "arbitrary-replacement"
+	if _, err = f.clients[f.a].LifecycleTakeoverProbe(f.ctx, changed); err == nil {
+		t.Fatal("replacement accepted")
+	}
+	fresh := takeoverOffer(t, f, r)
+	got, err := f.clients[f.c].LifecycleTakeover(f.ctx, fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Ready || got.OperationId != exact.HandoverId {
+		t.Fatal(got)
+	}
+	if _, err = f.clients[f.c].LifecycleTakeover(f.ctx, first); status.Code(err) != codes.PermissionDenied {
+		t.Fatal("obsolete consent accepted", err)
 	}
 }

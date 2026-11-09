@@ -186,3 +186,32 @@ Logs: `/tmp/resume-review-regressions.log`, `/tmp/resume-review-scoped.log`,
 `./internal/devhost`; it was corrected to the package list above.
 These runs use isolated test fixtures only; no live-service RPC, production store,
 deployment, landing, or push was performed.
+
+### Cooperative takeover: fresh consent for an exact pending operation
+
+A timeout consumes the confirmation challenge, not the retained operation. After
+real completion tickets finish (or persistence uncertainty is explicitly
+reconciled and the tickets completed), refresh Resume and explicitly confirm the
+new challenge. The coordinator reuses the **same** authenticated operation,
+source epoch, destination and receipt; it does not replace the source's pinned
+request. This also covers a lost successful relinquish response and a lost
+coordinator response after destination claim.
+
+Store-adjacent `.takeover-operations` journals are discovery hints only. Retry
+requires the live authenticated source's exact retained request/result and the
+destination's retained acceptance. Publication durability is reaffirmed before
+source mutation. Ready additionally requires the claim's ready local capability
+and current durable owner epoch; historical claim receipts cannot restore an
+obsolete operation. Challenges remain requester-bound, expiring and single-use.
+No unsupported takeover RPC falls back to an older mutation RPC.
+
+Limitations: this is not crash reconstruction of authority. Missing journals,
+lost in-memory source/destination acceptance, changed destination endpoints,
+uncertain source commit/cleanup, and journal publication without a retained
+source request can still require diagnosis rather than an automatic retry.
+There is no automatic replay of interrupted tasks or external effects and no
+rollback of external effects. Claim reloads durable conversation history through
+the existing prepared reload path, which **does schedule durable completion
+notifications**; reload must not be described as starting no work. The response
+loss tests cover source RPC loss and coordinator response loss after the local
+claim (the coordinator calls claim locally, not over a separate claim RPC).

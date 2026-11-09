@@ -229,3 +229,83 @@ func TestTakeoverConsentBindsRequesterAndExactDestination(t *testing.T) {
 		})
 	}
 }
+
+func TestTakeoverFreshConsentAfterLostResponse(t *testing.T) {
+	for _, method := range []string{pb.Agent_LifecycleTakeoverRelinquish_FullMethodName, pb.Agent_LifecycleTakeover_FullMethodName} {
+		t.Run(method, func(t *testing.T) {
+			var mu sync.Mutex
+			lost := false
+			f, r := takeoverFixture(t, func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
+				result, err := next(ctx, req)
+				mu.Lock()
+				defer mu.Unlock()
+				if info.FullMethod == method && err == nil && !lost {
+					lost = true
+					return nil, status.Error(codes.Unavailable, "lost successful response")
+				}
+				return result, err
+			})
+			first := takeoverOffer(t, f, r)
+			if _, err := f.clients[f.c].LifecycleTakeover(f.ctx, first); status.Code(err) != codes.Unavailable {
+				t.Fatal(err)
+			}
+			fresh := takeoverOffer(t, f, r)
+			got, err := f.clients[f.c].LifecycleTakeover(f.ctx, fresh)
+			if err != nil || !got.GetReady() {
+				t.Fatalf("%v %v", got, err)
+			}
+		})
+	}
+}
+
+func TestTakeoverFreshConsentAfterPersistenceResolution(t *testing.T) {
+	f, r := takeoverFixture(t)
+	work, err := f.a.coexistence.admission.AdmitWork(controlOwner(f.op), broker.PersistenceWork)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = work.PersistenceFailed(); err != nil {
+		t.Fatal(err)
+	}
+	first := takeoverOffer(t, f, r)
+	if _, err = f.clients[f.c].LifecycleTakeover(f.ctx, first); status.Code(err) != codes.FailedPrecondition {
+		t.Fatal(err)
+	}
+	if err = work.ResolvePersistence(); err != nil {
+		t.Fatal(err)
+	}
+	if err = work.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	fresh := takeoverOffer(t, f, r)
+	got, err := f.clients[f.c].LifecycleTakeover(f.ctx, fresh)
+	if err != nil || !got.GetReady() {
+		t.Fatalf("%v %v", got, err)
+	}
+}
+
+func TestTakeoverRejectsObsoleteRetainedOperation(t *testing.T) {
+	f, r := takeoverFixture(t)
+	got, err := f.clients[f.c].LifecycleTakeover(f.ctx, takeoverOffer(t, f, r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := takeoverOffer(t, f, r)
+	if err = f.c.ReleaseRetained(f.ctx, controlOwner(&pb.LifecycleControlRequest{Owner: got.Owner}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.c.Retain(f.ctx, "chat"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := conversation.ReadOwnership(f.ctx, f.c.coexistence.store, "chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := f.clients[f.c].LifecycleTakeover(f.ctx, fresh); err == nil || result.GetReady() {
+		t.Fatalf("obsolete operation ready: %v %v", result, err)
+	}
+	after, err := conversation.ReadOwnership(f.ctx, f.c.coexistence.store, "chat")
+	if err != nil || before != after {
+		t.Fatalf("obsolete operation mutated owner: %v %v", after, err)
+	}
+}
