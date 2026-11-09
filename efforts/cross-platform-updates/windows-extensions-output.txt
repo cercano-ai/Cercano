@@ -1,0 +1,86 @@
+Transcript started, output file is C:\CercanoRunner\phase1\transactions-03\transcript.txt
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process          Bypass
+  CurrentUser       Undefined
+ LocalMachine       Undefined
+
+
+NT AUTHORITY\SYSTEM
+2.7.5
+COMPILER C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-03\lockedthrow\1.0.0\cercano-phase1-lockedthrow.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-03\feed --limit-output
+EXIT lockedthrow-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-03\lockedthrow\2.0.0\cercano-phase1-lockedthrow.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-03\feed --limit-output
+EXIT lockedthrow-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-lockedthrow --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-03\feed -y --no-progress --limit-output
+EXIT lockedthrow-install-A 0
+SNAPSHOT lockedthrow-before shim=True payload=True resource=True
+cercano-phase1-lockedthrow 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-lockedthrow --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-03\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT lockedthrow-operation -1
+SNAPSHOT lockedthrow-after shim=True payload=True resource=True
+cercano-phase1-lockedthrow 1.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:25:56.5360788Z
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-lockedthrow --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-03\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT lockedthrow-retry 0
+SNAPSHOT lockedthrow-retry shim=True payload=True resource=True
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-lockedthrow -y --no-progress --limit-output --execution-timeout=60
+EXIT lockedthrow-cleanup 0
+SNAPSHOT lockedthrow-cleaned shim=False payload=False resource=False
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-03\shimlocked\1.0.0\cercano-phase1-shimlocked.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-03\feed --limit-output
+EXIT shimlocked-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-03\shimlocked\2.0.0\cercano-phase1-shimlocked.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-03\feed --limit-output
+EXIT shimlocked-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-shimlocked --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-03\feed -y --no-progress --limit-output
+EXIT shimlocked-install-A 0
+SNAPSHOT shimlocked-before shim=True payload=True resource=True
+cercano-phase1-shimlocked 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-shimlocked --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-03\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT shimlocked-operation 1
+SNAPSHOT shimlocked-after shim=True payload=True resource=True
+cercano-phase1-shimlocked 2.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:26:37.4555531Z
+install:2.0.0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-shimlocked --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-03\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT shimlocked-retry 0
+SNAPSHOT shimlocked-retry shim=True payload=True resource=True
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-shimlocked -y --no-progress --limit-output --execution-timeout=60
+EXIT shimlocked-cleanup 0
+SNAPSHOT shimlocked-cleaned shim=False payload=False resource=False
+
+
+Algorithm : SHA256
+Hash      : D4D4DAFFB96BB13D1D0B3D666452E8CB1F0729945A642B181D7102FBC2D2D3FE
+Path      : C:\CercanoRunner\phase1\transactions-03\feed\cercano-phase1-lockedthrow.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 9CE100DC4C949BD7E624F34990881EDFDE6135E90DC9135E5DA16E0018B46DA4
+Path      : C:\CercanoRunner\phase1\transactions-03\feed\cercano-phase1-lockedthrow.2.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : D0B75C6ACE5A91B489781AE2DE1DBDD62C4E4D53CA726C6FEC5D231817207B5D
+Path      : C:\CercanoRunner\phase1\transactions-03\feed\cercano-phase1-shimlocked.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 1E5C7D74E28582D63CA30DD9BEE190DB49467152BC7444454F0C6E19610CE6ED
+Path      : C:\CercanoRunner\phase1\transactions-03\feed\cercano-phase1-shimlocked.2.0.0.nupkg
+
+
+
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process          Bypass
+  CurrentUser       Undefined
+ LocalMachine       Undefined
+
+
+Transcript stopped, output file is C:\CercanoRunner\phase1\transactions-03\transcript.txt

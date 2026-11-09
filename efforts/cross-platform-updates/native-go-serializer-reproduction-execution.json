@@ -1,0 +1,6 @@
+{
+  "exit": 124,
+  "stdout": "BEGIN raw Get-Content extended properties reproduction\nExtended properties: PSPath,PSParentPath,PSChildName,PSDrive,PSProvider,ReadCount,Length\n",
+  "stderr": "#< CLIXML\r\n",
+  "elapsed": 9.867200625012629
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "timestamp": "2026-11-06T20:53:00.933195+00:00",
+    "exit": 255,
+    "stdout": "",
+    "stderr": "PrlVmGuest_RunProgram: Unable to open new session in this virtual machine. Make sure your virtual machine has finished booting, runs the latest version of Parallels Tools, and is not isolated from the host OS.\n"
+  },
+  {
+    "timestamp": "2026-11-06T20:53:06.128808+00:00",
+    "exit": 255,
+    "stdout": "",
+    "stderr": "PrlVmGuest_RunProgram: Unable to open new session in this virtual machine. Make sure your virtual machine has finished booting, runs the latest version of Parallels Tools, and is not isolated from the host OS.\n"
+  },
+  {
+    "timestamp": "2026-11-06T20:53:11.306133+00:00",
+    "exit": 255,
+    "stdout": "",
+    "stderr": "PrlVmGuest_RunProgram: Unable to open new session in this virtual machine. Make sure your virtual machine has finished booting, runs the latest version of Parallels Tools, and is not isolated from the host OS.\n"
+  }
+]

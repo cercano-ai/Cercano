@@ -1,0 +1,23 @@
+**********************
+Windows PowerShell transcript start
+Start time: 20261106121213
+Username: SANITIZED_ACCOUNT
+RunAs User: SANITIZED_ACCOUNT
+Configuration Name:
+Machine: SANITIZED_GUEST_HOST (Microsoft Windows NT 10.0.26300.0)
+Host Application: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\CercanoRunner\phase1\native-go-20261106201208\native-go-probe.ps1 -Run C:\CercanoRunner\phase1\native-go-20261106201208
+Process ID: 7440
+PSVersion: 5.1.26100.9711
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9711
+BuildVersion: 10.0.26100.9711
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is C:\CercanoRunner\phase1\native-go-20261106201208\native-go-transcript.txt
+MANAGER closed-pack-1.0.0 exit=0
+MANAGER closed-pack-2.0.0 exit=0
+MANAGER closed-install-A exit=0
+MANAGER closed-upgrade-held exit=0

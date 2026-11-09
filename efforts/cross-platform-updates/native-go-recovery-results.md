@@ -1,0 +1,25 @@
+> Sanitized derivative: see `windows-sanitized-provenance.md` in the effort directory. Historical capture hashes/lengths do not authenticate redacted bytes.
+
+# Native Go recovery — read-only, incomplete
+
+## Outcome
+
+At **2026-11-06T20:54:01.8773198Z**, the original probe runner **powershell.exe PID 7440, parent PID 3520**, remained present with its exact `-File C:\CercanoRunner\phase1\native-go-20261106201208\native-go-probe.ps1 -Run C:\CercanoRunner\phase1\native-go-20261106201208` command line. It was created at 20:12:13.535Z. Successful initial, bounded serial observations and final inspection all showed that same runner. No `choco.exe` or matching native fixture process appeared in those snapshots. Process presence does not prove forward progress; its internal wait/failure reason is unknown. **The native run has not been shown to end or fail. It remains unresolved, not an acceptance pass.** The fixture's 300-second lifetime is irrelevant to this surviving PowerShell runner.
+
+## Recovered evidence and corrections
+
+- Fresh guest PowerShell read-only inspection succeeded on approved clone `{SANITIZED_VM_2}`. Earlier transport failure is not proof of guest/probe termination. Some serial recovery attempts still returned session-open exit 255; retained transport records distinguish them from successful inspection. A shorter collection command subsequently succeeded; no cause for transport failures is established.
+- `native-go-recovery-evidence.json` contains 24 owned textual files, including command/results JSON, snapshots, installation events, script/source and manager logs. Shared reading used `FileAccess.Read` and `FileShare.ReadWrite | FileShare.Delete`, with streams disposed.
+- `native-go-recovery-transcript.txt` is the **entire transcript readable at collection time**, not a completed run transcript. It contains the header identifying PID 7440 and four manager lines, ending `MANAGER closed-upgrade-held exit=0`; there is no transcript-end footer. Initial file metadata showed zero length while shared reads returned content; later collection reported 1037 bytes. No terminal failure/status file was present. The original report's “transcript unavailable” limitation is improved to “active partial transcript recovered”; full completed transcript remains unestablished.
+- Exactly four recorded manager operations remain: closed pack A, pack B, install A, upgrade B, all exit 0. Results still contain only passing A direct/shim fresh launches. No held-operation result, ordinary closed retry, B launch result, running/locked scenario or cleanup result exists in collected artifacts.
+- All three current synthetic sentinel hashes exactly match `native-go-data-before.json`. This supports preservation of these synthetic files at observation time only, not real user-data or final lifecycle qualification. Current isolated feed hashes were collected; no previously recorded final feed-hash manifest exists to establish a historical comparison.
+
+## Exact residual state
+
+`native-go-recovery-state.json` records the 20:53:47.856Z installed-file/feed/sentinel hashes. The only matching package payload is `C:\ProgramData\chocolatey\lib\cercano-native-go-20261106201208-closed`, with nuspec version **2.0.0** and five files: nupkg, nuspec, native executable, install script and resource. Native executable hash is **71EB50461447D4B654FF9FE6EEAF98D35D214C0ED8CFD806C99B82961A7E5B45**, matching established B; resource hash is **F5718B4F1CC2902DEAE1DC0376488528C00869B400446812F39E9E0269E4F849**, matching the established B resource. Public shim remains at `C:\ProgramData\chocolatey\bin\cercano-native-go-20261106201208-closed.exe` (392704 bytes; hash **3EE1751D3C3A7B146E269099F30B85CDEF5FEF85C1C2100BA932A8556576B604**). Fresh B activation and resolved shim routing remain untested.
+
+Owned `.chocolatey` metadata remains for both closed versions: 1.0.0 `.arguments`, `.files`, `.sourceInstalledFrom`; 2.0.0 `.arguments`, `.files`. No matching files were found under `lib-bkp` or `lib-bad`, nor installed running/exe-locked/resource-locked cases. The guest experiment tree remains, including closed A/B build trees, both original native executables, two feed packages, three synthetic sentinels and evidence. No running/locked case directories were listed. Both feed package hashes and all 11 installed/metadata/shim file hashes are retained in the state JSON. These observations are point-in-time, not a claim that a live runner cannot subsequently change state.
+
+## Boundaries
+
+All guest actions were read-only and serial, scoped to the approved clone and owned experiment/package artifacts plus manager process state. No generic user data was read. No harness/build/install/upgrade/uninstall, new transaction, fixture launch, cooperative-stop write, kill, restore, restart or cleanup was performed. B direct/shim checks were deliberately not attempted because the original runner remained present. Only new local `native-go-recovery*` files were written; preserved failure evidence and existing reports/spec/plan were not overwritten.

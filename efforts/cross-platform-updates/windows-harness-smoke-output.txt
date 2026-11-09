@@ -1,0 +1,55 @@
+Transcript started, output file is C:\CercanoRunner\phase1\transactions-05\transcript.txt
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process          Bypass
+  CurrentUser       Undefined
+ LocalMachine       Undefined
+
+
+NT AUTHORITY\SYSTEM
+2.7.5
+COMPILER C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-05\closed\1.0.0\cercano-phase1-closed.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-05\feed --limit-output
+EXIT closed-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-05\closed\2.0.0\cercano-phase1-closed.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-05\feed --limit-output
+EXIT closed-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-closed --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-05\feed -y --no-progress --limit-output
+EXIT closed-install-A 0
+SNAPSHOT closed-before shim=True payload=True resource=True
+cercano-phase1-closed 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-closed --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-05\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT closed-operation 0
+SNAPSHOT closed-after shim=True payload=True resource=True
+cercano-phase1-closed 2.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:33:52.4639313Z
+install:2.0.0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-closed -y --no-progress --limit-output --execution-timeout=60
+EXIT closed-cleanup 0
+SNAPSHOT closed-cleaned shim=False payload=False resource=False
+
+
+Algorithm : SHA256
+Hash      : 6405B698BFD9572C6ABFBB8EE197D2D8D6343E570260DB45DD8744C0A9AADE5B
+Path      : C:\CercanoRunner\phase1\transactions-05\feed\cercano-phase1-closed.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 559C0CBEC4EA77FF310AA4CAD3AC250E5B26F75B156EE3A56679A32E50164B7C
+Path      : C:\CercanoRunner\phase1\transactions-05\feed\cercano-phase1-closed.2.0.0.nupkg
+
+
+
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process          Bypass
+  CurrentUser       Undefined
+ LocalMachine       Undefined
+
+
+Transcript stopped, output file is C:\CercanoRunner\phase1\transactions-05\transcript.txt

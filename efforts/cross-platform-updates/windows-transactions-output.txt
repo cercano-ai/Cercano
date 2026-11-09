@@ -1,0 +1,224 @@
+Transcript started, output file is C:\CercanoRunner\phase1\transactions-02\transcript.txt
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process          Bypass
+  CurrentUser       Undefined
+ LocalMachine       Undefined
+
+
+NT AUTHORITY\SYSTEM
+2.7.5
+COMPILER C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\closed\1.0.0\cercano-phase1-closed.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT closed-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\closed\2.0.0\cercano-phase1-closed.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT closed-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-closed --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output
+EXIT closed-install-A 0
+SNAPSHOT closed-before shim=True payload=True resource=True
+cercano-phase1-closed 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-closed --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT closed-operation 0
+SNAPSHOT closed-after shim=True payload=True resource=True
+cercano-phase1-closed 2.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:18:41.2540899Z
+install:2.0.0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-closed -y --no-progress --limit-output --execution-timeout=60
+EXIT closed-cleanup 0
+SNAPSHOT closed-cleaned shim=False payload=False resource=False
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\beforethrow\1.0.0\cercano-phase1-beforethrow.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT beforethrow-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\beforethrow\2.0.0\cercano-phase1-beforethrow.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT beforethrow-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-beforethrow --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output
+EXIT beforethrow-install-A 0
+SNAPSHOT beforethrow-before shim=True payload=True resource=True
+cercano-phase1-beforethrow 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-beforethrow --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT beforethrow-operation -1
+SNAPSHOT beforethrow-after shim=True payload=True resource=True
+cercano-phase1-beforethrow 2.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:19:15.3582592Z
+install:2.0.0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-beforethrow --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT beforethrow-retry 0
+SNAPSHOT beforethrow-retry shim=True payload=True resource=True
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-beforethrow -y --no-progress --limit-output --execution-timeout=60
+EXIT beforethrow-cleanup 0
+SNAPSHOT beforethrow-cleaned shim=False payload=False resource=False
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\beforenonzero\1.0.0\cercano-phase1-beforenonzero.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT beforenonzero-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\beforenonzero\2.0.0\cercano-phase1-beforenonzero.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT beforenonzero-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-beforenonzero --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output
+EXIT beforenonzero-install-A 0
+SNAPSHOT beforenonzero-before shim=True payload=True resource=True
+cercano-phase1-beforenonzero 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-beforenonzero --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT beforenonzero-operation 19
+SNAPSHOT beforenonzero-after shim=True payload=True resource=True
+cercano-phase1-beforenonzero 2.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:19:54.7308780Z
+install:2.0.0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-beforenonzero --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT beforenonzero-retry 0
+SNAPSHOT beforenonzero-retry shim=True payload=True resource=True
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-beforenonzero -y --no-progress --limit-output --execution-timeout=60
+EXIT beforenonzero-cleanup 0
+SNAPSHOT beforenonzero-cleaned shim=False payload=False resource=False
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\running\1.0.0\cercano-phase1-running.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT running-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\running\2.0.0\cercano-phase1-running.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT running-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-running --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output
+EXIT running-install-A 0
+SNAPSHOT running-before shim=True payload=True resource=True
+cercano-phase1-running 1.0.0 CLR64
+OWNED PID 9520 alive=True
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-running --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT running-operation 0
+SNAPSHOT running-after shim=True payload=True resource=True
+OWNED PID after 9520 alive=True
+cercano-phase1-running 2.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:20:38.4783699Z
+install:2.0.0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-running -y --no-progress --limit-output --execution-timeout=60
+EXIT running-cleanup 0
+SNAPSHOT running-cleaned shim=False payload=False resource=False
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\locked\1.0.0\cercano-phase1-locked.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT locked-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\locked\2.0.0\cercano-phase1-locked.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT locked-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-locked --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output
+EXIT locked-install-A 0
+SNAPSHOT locked-before shim=True payload=True resource=True
+cercano-phase1-locked 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-locked --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT locked-operation 1
+SNAPSHOT locked-after shim=True payload=True resource=True
+cercano-phase1-locked 1.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:21:13.5136738Z
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-locked --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT locked-retry 0
+SNAPSHOT locked-retry shim=True payload=True resource=True
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-locked -y --no-progress --limit-output --execution-timeout=60
+EXIT locked-cleanup 0
+SNAPSHOT locked-cleaned shim=False payload=False resource=False
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\uninstallthrow\1.0.0\cercano-phase1-uninstallthrow.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT uninstallthrow-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\uninstallthrow\2.0.0\cercano-phase1-uninstallthrow.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT uninstallthrow-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-uninstallthrow --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output
+EXIT uninstallthrow-install-A 0
+SNAPSHOT uninstallthrow-before shim=True payload=True resource=True
+cercano-phase1-uninstallthrow 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-uninstallthrow -y --no-progress --limit-output --execution-timeout=60
+EXIT uninstallthrow-operation -1
+SNAPSHOT uninstallthrow-after shim=False payload=True resource=True
+cercano-phase1-uninstallthrow 1.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:22:00.3580602Z
+uninstall:shim=False
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-uninstallthrow -y --no-progress --limit-output --execution-timeout=60
+EXIT uninstallthrow-cleanup 0
+SNAPSHOT uninstallthrow-cleaned shim=False payload=False resource=False
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\installfail\1.0.0\cercano-phase1-installfail.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT installfail-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-02\installfail\2.0.0\cercano-phase1-installfail.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-02\feed --limit-output
+EXIT installfail-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-installfail --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output
+EXIT installfail-install-A 0
+SNAPSHOT installfail-before shim=True payload=True resource=True
+cercano-phase1-installfail 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-installfail --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT installfail-operation -1
+SNAPSHOT installfail-after shim=True payload=True resource=True
+cercano-phase1-installfail 1.0.0 CLR64
+install:1.0.0
+before:2026-11-06T19:22:33.5287328Z
+install:2.0.0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-installfail --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-02\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT installfail-retry 0
+SNAPSHOT installfail-retry shim=True payload=True resource=True
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe uninstall cercano-phase1-installfail -y --no-progress --limit-output --execution-timeout=60
+EXIT installfail-cleanup 0
+SNAPSHOT installfail-cleaned shim=False payload=False resource=False
+
+
+Algorithm : SHA256
+Hash      : 5AF50DF2C71A5D91B1271289141DF9D83E3DAE3DE542D25B820702FA32859E80
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-beforenonzero.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : BEAE43D1C6F8AB5E9EFE46D7367BDCB07D19EDCA8BDB5367E076BEA2042B67B3
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-beforenonzero.2.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : AA15D3D1DD8DAD281CBEF6E9A12D47D6A75E4A84769652127249DE05554EAF22
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-beforethrow.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 336C48D765C02A4044427DD0251F0FF45BECEA32B24DC565A7BDAE41BA76A7D3
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-beforethrow.2.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 7C30EA68DE950E48F0709C5A5ACE7E0C4B8CB2E9485B455EA46DA5DC0B198426
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-closed.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 0AFCD9840677FAB85C4E470FCA62D66D3DB123CD9090CCA3D1BEDA518C5D538B
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-closed.2.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : C7A6AFFB0377B9C37633E19BD1BB25E439B50E0755EEAFE665D02C1BAD944BB1
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-installfail.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : CC7D0A69BCAF3CBA4FC786020FABE37FB198A88A73928A351A485595FF0A8DEE
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-installfail.2.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 5FE99A48EEFAFF545BBF41550594A8F5CA7C0DB4D8861A0BAA6FA71F4C363685
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-locked.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : F14F73FDBEC4D7468EA884E8316D6BA346831FB43D17039FA7CF3DE72EA3A2CF
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-locked.2.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 0C8642A3E2C0373650243D59CBD59F55B3CA8D492F1EABC29C565F3B65B1BAE7
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-running.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 624A5D7E996E61E248164594828C97CE61206393CC281B21AC3947668D11396D
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-running.2.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : 309E2A595A60873004834FE7A1DF9985691DE12F68C34EB481EE4CD18B405CEA
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-uninstallthrow.1.0.0.nupkg
+
+Algorithm : SHA256
+Hash      : AFB701EB1EE186FF76BCAF0053D9F8397C59E0F1651C5779C44307BF79E05997
+Path      : C:\CercanoRunner\phase1\transactions-02\feed\cercano-phase1-uninstallthrow.2.0.0.nupkg
+
+
+
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process          Bypass
+  CurrentUser       Undefined
+ LocalMachine       Undefined
+
+
+Transcript stopped, output file is C:\CercanoRunner\phase1\transactions-02\transcript.txt

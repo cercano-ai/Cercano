@@ -1,0 +1,30 @@
+Transcript started, output file is C:\CercanoRunner\phase1\transactions-04\transcript.txt
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process          Bypass
+  CurrentUser       Undefined
+ LocalMachine       Undefined
+
+
+NT AUTHORITY\SYSTEM
+2.7.5
+COMPILER C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-04\barrier\1.0.0\cercano-phase1-barrier.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-04\feed --limit-output
+EXIT barrier-pack-1.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe pack C:\CercanoRunner\phase1\transactions-04\barrier\2.0.0\cercano-phase1-barrier.nuspec --outputdirectory=C:\CercanoRunner\phase1\transactions-04\feed --limit-output
+EXIT barrier-pack-2.0.0 0
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe install cercano-phase1-barrier --version=1.0.0 --source=C:\CercanoRunner\phase1\transactions-04\feed -y --no-progress --limit-output
+EXIT barrier-install-A 0
+SNAPSHOT barrier-before shim=True payload=True resource=True
+cercano-phase1-barrier 1.0.0 CLR64
+COMMAND C:\ProgramData\chocolatey\bin\choco.exe upgrade cercano-phase1-barrier --version=2.0.0 --source=C:\CercanoRunner\phase1\transactions-04\feed -y --no-progress --limit-output --execution-timeout=60
+EXIT barrier-operation 0
+Owned process path mismatch
+At C:\CercanoRunner\phase1\entry.ps1:112 char:130
++ ... ); if ($proc.Path -ne $exe) { throw 'Owned process path mismatch' } }
++                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Owned process path mismatch:String) [], RuntimeException
+    + FullyQualifiedErrorId : Owned process path mismatch

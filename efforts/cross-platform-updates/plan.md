@@ -1,17 +1,30 @@
+> Sanitized derivative: see `windows-sanitized-provenance.md` in the effort directory. Historical capture hashes/lengths do not authenticate redacted bytes.
+
 # Native packages and session-safe upgrades
 
 ## Windows replacement execution scope — approved specification amendment
 
 The next execution is limited to Windows ordinary Chocolatey replacement packaging under the 2026-11-06 spec amendment. The phases below are the current Windows checklist, in execution order. Historical cross-platform phases following them preserve prior progress but do not authorize Windows retention, rolling upgrades, or concurrent-version sessions. macOS/Linux requirements are unchanged and are not implementation work in this Windows slice. Terminal windows need not close: only the components being upgraded must exit. No forced termination, custom updater, new privileged service, or per-user executable copies.
 
+## Windows handoff status — 2026-11-09 (maintenance only)
+
+This status update does not change the approved Windows phases or specification. Source audit and bounded synthetic managed/ARM64 fixture evidence are complete as recorded; installer product implementation and installed-system acceptance are not. Phase 1 remains partial and phases 2–4 remain unchecked. See [the handoff](windows-phase1-handoff.md) for branch/worktree identity, evidence, residuals and next steps.
+
+- `windows-transaction-audit.md` establishes source ordering, not a native veto contract: BeforeModify errors do not reliably stop replacement.
+- `windows-phase1-results.md` records synthetic managed evidence with capture/assertion gaps. `native-go-next-results.md` records corrected native ARM64 probes: running A survived a successful replacement; executable/resource sharing violations failed and ordinary closed retries succeeded. A single synthetic install-script guard backstop returned -1, then ordinary retry succeeded. This is neither a production guard nor a race-free boundary.
+- Concurrent-launch validation is **blocked and unexecuted**: the provider rejected the attempted probe on safety grounds and returned no result. Do not reroute, retry or rephrase that probe. No inaccessible-process, cross-user or shim-race acceptance is implied.
+- ARM64 fixtures do not qualify the x64 shipping ZIP. Real split Chocolatey packages, component exit/reconnect behavior, real user-data/account boundaries and native acceptance remain incomplete. Unchanged synthetic sentinels are not real user-data coverage; there is no universal atomic package-file preservation requirement.
+- Close-first Windows scope supersedes rolling continuity. No MSI choice, alternate installer architecture, custom updater/service, per-user executable copies or forced application kills are approved. Resolve security/race and architecture conflicts against the existing safety boundary before product packaging; do not infer an architecture decision from a fixture.
+- No VM experiment or configuration change was performed for this handoff. Only historical clone authorization is recorded; current readiness is unknown. Branch push is withheld pending privacy approval for committed raw evidence (details in the handoff). Release/package publication remains separately gated.
+
 ## Windows phase 1 — Establish native replacement safety
 
 Objective: verify Chocolatey transaction behavior before choosing hook details or claiming locked-file safety. Files: new isolated fixtures under release/chocolatey/tests/ and recorded effort verification evidence; read existing Windows artifact builders, agentclient discovery/reconnect and Chocolatey lifecycle documentation/source. Tests: harmless fixture packages on a disposable native Windows runner, never the developer's installation. Obtain runner access authorization if none is available; do not start or modify an existing VM merely because it exists.
 
-- [ ] Create an isolated worktree from the approved planning checkpoint and record baseline identity; preserve unrelated worktrees and artifacts
-- [ ] Establish an authorized disposable Windows environment and record Chocolatey, OS and architecture versions; mark native checks blocked if unavailable
-- [ ] Trace and probe actual upgrade/uninstall ordering, payload replacement and shim handling; do not treat BeforeModify failure as a reliable veto
-- [ ] Reproduce running-executable and stopped-but-locked-file replacement using harmless fixture binaries, including concurrent relaunch and inaccessible process information
+- [x] Create an isolated worktree from the approved planning checkpoint and record baseline identity; preserve unrelated worktrees and artifacts
+- [x] Establish an authorized disposable Windows environment and record Chocolatey, OS and architecture versions; mark native checks blocked if unavailable
+- [x] Trace and probe actual upgrade/uninstall ordering, payload replacement and shim handling; do not treat BeforeModify failure as a reliable veto
+- [-] Reproduce running-executable and stopped-but-locked-file replacement using harmless fixture binaries, including concurrent relaunch and inaccessible process information
 - [ ] Establish manager-native safe failure and actionable retry behavior without killing processes or silently accepting partial installation; record exact observed old-payload and shim state
 - [ ] If ordinary package replacement cannot satisfy the approved safety boundary, report that concrete conflict before adopting a different installer architecture
 

@@ -1,0 +1,2 @@
+C:\ProgramData\chocolatey\bin\choco.exe PID=11908 process=0x0000 native=0xAA64
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe PID=7672 process=0x0000 native=0xAA64

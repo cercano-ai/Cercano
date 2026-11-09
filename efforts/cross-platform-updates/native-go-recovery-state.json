@@ -1,0 +1,85 @@
+{
+  "timestamp": "2026-11-06T20:53:47.8560006Z",
+  "installedFiles": [
+    {
+      "path": "C:\\ProgramData\\chocolatey\\lib\\cercano-native-go-20261106201208-closed\\cercano-native-go-20261106201208-closed.nupkg",
+      "length": 818241,
+      "sha256": "7BE9795A961661FD4336623CE432EEC0A9CD750B5F29070A0172CC2EF6D1A573"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\lib\\cercano-native-go-20261106201208-closed\\cercano-native-go-20261106201208-closed.nuspec",
+      "length": 430,
+      "sha256": "AAE308651BB7C49F5ED5D680430A5CB023C8863923C17B43D35686BE76B325AC"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\lib\\cercano-native-go-20261106201208-closed\\tools\\cercano-native-go-20261106201208-closed.exe",
+      "length": 1955840,
+      "sha256": "71EB50461447D4B654FF9FE6EEAF98D35D214C0ED8CFD806C99B82961A7E5B45"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\lib\\cercano-native-go-20261106201208-closed\\tools\\chocolateyInstall.ps1",
+      "length": 578,
+      "sha256": "A61BDF808C8F7B9BE06CE3A5977367C3EF3C7D77C6448A8EB818524F932E0A3C"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\lib\\cercano-native-go-20261106201208-closed\\tools\\resource.txt",
+      "length": 14,
+      "sha256": "F5718B4F1CC2902DEAE1DC0376488528C00869B400446812F39E9E0269E4F849"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\.chocolatey\\cercano-native-go-20261106201208-closed.1.0.0\\.arguments",
+      "length": 395,
+      "sha256": "E6679293A54930717CF57B58C74ABB5A5B51BE6C70F667B3C1AF079FF9D69CD3"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\.chocolatey\\cercano-native-go-20261106201208-closed.1.0.0\\.files",
+      "length": 1061,
+      "sha256": "13DFAC7562242A9B2C820EB5CF036C29BDF15A66C2EEB72487BC61A78C19A012"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\.chocolatey\\cercano-native-go-20261106201208-closed.1.0.0\\.sourceInstalledFrom",
+      "length": 56,
+      "sha256": "03289121A850108EC3DAA6E6461C1A7561BC45D068AAC8299642555C3147ADE8"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\.chocolatey\\cercano-native-go-20261106201208-closed.2.0.0\\.arguments",
+      "length": 395,
+      "sha256": "90A5B1E6E2EC9B820036240DACE59F8B0CD57A04BF9A7B67D693B991634086C0"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\.chocolatey\\cercano-native-go-20261106201208-closed.2.0.0\\.files",
+      "length": 1061,
+      "sha256": "03CC408E820EF97BB54C9DFA622D9F11B8A729BFB773F8EC94DE140286D6C48A"
+    },
+    {
+      "path": "C:\\ProgramData\\chocolatey\\bin\\cercano-native-go-20261106201208-closed.exe",
+      "length": 392704,
+      "sha256": "3EE1751D3C3A7B146E269099F30B85CDEF5FEF85C1C2100BA932A8556576B604"
+    }
+  ],
+  "feed": [
+    {
+      "Path": "C:\\CercanoRunner\\phase1\\native-go-20261106201208\\feed\\cercano-native-go-20261106201208-closed.1.0.0.nupkg",
+      "Hash": "FDC6EC9AF4AE62EB703A3C261C160A0F4612984DF8752D365F1D9D4A259771EC"
+    },
+    {
+      "Path": "C:\\CercanoRunner\\phase1\\native-go-20261106201208\\feed\\cercano-native-go-20261106201208-closed.2.0.0.nupkg",
+      "Hash": "7BE9795A961661FD4336623CE432EEC0A9CD750B5F29070A0172CC2EF6D1A573"
+    }
+  ],
+  "sentinels": [
+    {
+      "Path": "C:\\CercanoRunner\\phase1\\native-go-20261106201208\\native-go-synthetic-data\\config.txt",
+      "Hash": "0098235B98AA12BB50DCCE32295E0739404D5B08FE99DB22FECB7D19CC20D9CE"
+    },
+    {
+      "Path": "C:\\CercanoRunner\\phase1\\native-go-20261106201208\\native-go-synthetic-data\\conversation.txt",
+      "Hash": "E40C102040DC73AEF2790B621E6B0DBB0742E651F2AD09E9321FF0C47E29DE01"
+    },
+    {
+      "Path": "C:\\CercanoRunner\\phase1\\native-go-20261106201208\\native-go-synthetic-data\\fake-credential.txt",
+      "Hash": "101C414D9D787C7A0064A44130EB6AD9C6A6C60B4C60085A39C23003FE485F81"
+    }
+  ],
+  "metadata": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<package xmlns=\"http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd\">\r\n  <metadata>\r\n    <id>cercano-native-go-20261106201208-closed</id>\r\n    <version>2.0.0</version>\r\n    <authors>Local synthetic fixture</authors>\r\n    <requireLicenseAcceptance>false</requireLicenseAcceptance>\r\n    <description>Isolated native Go locking experiment only</description>\r\n  </metadata>\r\n</package>"
+}

@@ -1,0 +1,5 @@
+{
+  "exit": 255,
+  "stdout": "",
+  "stderr": "PrlJob_GetResult: Invalid argument. An invalid argument was passed.\n"
+}

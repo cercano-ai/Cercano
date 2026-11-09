@@ -1,0 +1,31 @@
+PID=10844 process=0x0000 native=0xAA64
+PID=1724 process=0x0000 native=0xAA64
+PE C:\ProgramData\chocolatey\bin\choco.exe machine=0x014C sha256=E8DB87C40BAD54ECFDFDE1F7097090C457A9DB1E533F88AD56E274AD0DA9FA29
+PE C:\CercanoRunner\phase1\transactions-02\running\1.0.0\tools\cercano-phase1-running.exe machine=0x014C sha256=FCE500C9D66B33C8E83FF0E90C5588C385908490FCE10167ABD367BA4DB9EBDB
+PE C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe machine=0x8664 sha256=ECA02E6B15CDE93009A59A3D129D5A77FB5008F2E1CF62CF573B6737C747ECC3
+install:1.0.0
+before:2026-11-06T19:27:56.8791323Z
+barrier-ready:6744
+install:2.0.0
+cercano-phase1-barrier 1.0.0 CLR64
+Recorded barrier PID no longer identifies running owned fixture; no action taken
+cercano-phase1-barrier|2.0.0
+chocolatey|2.7.5
+Uninstalling the following packages:
+cercano-phase1-barrier
+
+cercano-phase1-barrier v2.0.0
+ Skipping auto uninstaller - No registry snapshot.
+ cercano-phase1-barrier has been successfully uninstalled.
+
+Chocolatey uninstalled 1/1 packages.
+ See the log for details (C:\ProgramData\chocolatey\logs\chocolatey.log).
+chocolatey|2.7.5
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process          Bypass
+  CurrentUser       Undefined
+ LocalMachine       Undefined
