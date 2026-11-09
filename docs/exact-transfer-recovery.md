@@ -26,9 +26,20 @@ peer, then rechecks that closure and source owner under its lock. It cannot star
 a reservation or fence a new owner. Pending persistence remains fenced; uncertain
 writes and unresolved commit/cleanup remain blocking. The destination checks its
 exact existing acceptance under the lifecycle lock and uses only the existing
-store handover-claim path, whose transaction requires the reserved conversation,
-destination and original handover ID. It never takes the unqualified acquisition
-branch. Unresolved local initialization cannot be reported as completion.
+source-qualified store handover-claim path, whose transaction requires the reserved
+conversation, destination, original handover ID and original source host/epoch.
+It never takes the unqualified acquisition branch. Unresolved local initialization
+cannot be reported as completion.
+
+The existing ownership row retains source host/epoch while reserved, but the
+existing completed-handover schema does not retain them. After a successful
+source-qualified commit, the destination records its epoch on the existing
+in-process acceptance authority (already bound to the full authenticated source
+identity and receipt). Completed retries require that verified epoch to match
+the durable result. Acceptance alone is never completion provenance. Unknown
+historic provenance, including claims made outside this qualified path, refuses
+rather than inferring a source. No schema migration is introduced; supporting
+restart-persistent provenance would require a separately approved schema change.
 
 A completed claim returns the recorded epoch idempotently, including after clean
 release. `LifecycleControlResponse.current_owner` distinguishes ownership at the
@@ -76,3 +87,22 @@ timeout followed by exact retry, completed/historical ownership, and unsupported
 servers with no fallback. Rejections snapshot lifecycle/store state, including
 journal counts, to detect unintended mutation. These are isolated fixture tests,
 not live recovery or production compatibility certification.
+
+### Source-provenance review regression
+
+Before the provenance fix, `TestRetryTransferClaimProvenance` failed in all three
+initial cases (`reserved`, `completed`, `historic`): a second preexisting,
+authenticated acceptance differing only in source epoch consumed the reservation
+or returned the original claim result. It now rejects without state changes;
+the original receipt still succeeds idempotently and distinguishes current from
+historic ownership. An additional `unknown-historic` case refuses even the
+original receipt when retained verified provenance is absent.
+`TestOwnershipSourceQualifiedClaim` covers host/epoch mismatches at the
+transactional boundary and unchanged reservations on rejection.
+
+Bounded offline normal and race runs both passed:
+
+```sh
+GOPROXY=off GOSUMDB=off go test ./internal/conversation ./internal/server ./pkg/agentclient -run '^(TestOwnership|TestRetryTransfer|TestExactRecovery|TestResumeNewDestinationInterruptedTransfer|TestCoexistence)' -count=1
+GOPROXY=off GOSUMDB=off go test -race ./internal/conversation ./internal/server ./pkg/agentclient -run '^(TestOwnership|TestRetryTransfer|TestExactRecovery|TestResumeNewDestinationInterruptedTransfer|TestCoexistence)' -count=1
+```

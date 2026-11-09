@@ -164,7 +164,7 @@ func (s *Server) LifecycleRetryClaim(ctx context.Context, r *pb.LifecycleControl
 	}
 	var o broker.Owner
 	if l.owners[r.Owner.Conversation] != nil {
-		epoch, err := conversation.HandoverResult(ctx, l.store, r.Owner.Conversation, l.options.Host, r.HandoverId)
+		epoch, err := l.verifiedHandoverResult(ctx, accepted)
 		if err != nil {
 			return nil, err
 		}

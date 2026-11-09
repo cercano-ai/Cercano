@@ -35,3 +35,26 @@ func TestOwnershipExplicitReservation(t *testing.T) {
 	refused(t, other.ReserveHandover(ctx, "B", "accepted"))
 	mustCoexist(t, other.Release(ctx))
 }
+
+func TestOwnershipSourceQualifiedClaim(t *testing.T) {
+	ctx, _, store := ownershipFixture(t)
+	a := take(t, ctx, store, "one", "A")
+	mustCoexist(t, a.ReserveHandover(ctx, "B", "accepted"))
+	before, e := ReadOwnership(ctx, store, "one")
+	mustCoexist(t, e)
+	for _, source := range [][2]string{{"wrong", a.Epoch()}, {"A", "wrong"}, {"", a.Epoch()}, {"A", ""}} {
+		_, e = ClaimHandoverFrom(ctx, store, "one", "B", "accepted", source[0], source[1])
+		refused(t, e)
+		after, e := ReadOwnership(ctx, store, "one")
+		mustCoexist(t, e)
+		if after != before {
+			t.Fatal("rejected claim mutated reservation")
+		}
+	}
+	b, e := ClaimHandoverFrom(ctx, store, "one", "B", "accepted", "A", a.Epoch())
+	mustCoexist(t, e)
+	mustCoexist(t, b.Release(ctx))
+	// A historical receipt alone cannot establish original provenance.
+	_, e = ClaimHandoverFrom(ctx, store, "one", "B", "accepted", "A", a.Epoch())
+	refused(t, e)
+}

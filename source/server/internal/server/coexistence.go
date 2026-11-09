@@ -133,7 +133,19 @@ func (l *coexistenceLifecycle) acquireUsing(ctx context.Context, id string, acce
 	} else if accepted == nil {
 		o, e = conversation.AcquireOwnership(ctx, l.store, id, l.options.Host)
 	} else {
-		o, e = conversation.ClaimHandover(ctx, l.store, id, l.options.Host, accepted.h.HandoverID)
+		if accepted.claimedEpoch != "" {
+			epoch, err := l.verifiedHandoverResult(ctx, accepted)
+			if err != nil {
+				e = err
+			} else {
+				e = &conversation.HandoverAlreadyClaimed{Epoch: epoch}
+			}
+		} else {
+			o, e = conversation.ClaimHandoverFrom(ctx, l.store, id, l.options.Host, accepted.h.HandoverID, accepted.h.SourceHost, accepted.h.SourceEpoch)
+			if e == nil {
+				accepted.claimedEpoch = o.Epoch()
+			}
+		}
 	}
 	if o != nil {
 		l.owners[id] = o
@@ -266,7 +278,10 @@ type IncomingAcceptance struct {
 	destination *coexistenceLifecycle
 	sourceBuild string
 	receipt     string
-	h           broker.IncomingHandover
+	// claimedEpoch is authority recorded only after a source-qualified durable claim,
+	// never from acceptance or an unqualified historical result. Guarded by l.mu.
+	claimedEpoch string
+	h            broker.IncomingHandover
 }
 
 func (s *Server) AcceptIncoming(source broker.Owner, id string, peerBuild string, contract conversation.CoexistenceDeclaration) (*IncomingAcceptance, error) {
@@ -527,4 +542,21 @@ func (s *Server) CloseCoexistenceStore() error {
 	}
 	l.storeCloseOnce.Do(func() { l.storeCloseErr = l.store.Close() })
 	return l.storeCloseErr
+}
+
+// A durable handover receipt lacks original-source columns. Only a retained
+// source-qualified claim can bind it to the full authenticated acceptance.
+// Unknown historic provenance is deliberately refused (no schema migration).
+func (l *coexistenceLifecycle) verifiedHandoverResult(ctx context.Context, a *IncomingAcceptance) (string, error) {
+	if a.claimedEpoch == "" {
+		return "", retryStale()
+	}
+	epoch, err := conversation.HandoverResult(ctx, l.store, a.h.Conversation, a.h.DestinationHost, a.h.HandoverID)
+	if err != nil {
+		return "", err
+	}
+	if epoch != a.claimedEpoch {
+		return "", retryStale()
+	}
+	return epoch, nil
 }

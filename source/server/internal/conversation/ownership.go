@@ -75,7 +75,21 @@ func ClaimHandover(ctx context.Context, store Store, conversationID, hostInstanc
 	return acquireOwnership(ctx, store, conversationID, hostInstance, handoverID)
 }
 
+// ClaimHandoverFrom consumes a reservation only when its durable original
+// source matches. Completed rows omit source provenance, so this API never
+// infers it from a historical receipt; callers must retain verified authority.
+func ClaimHandoverFrom(ctx context.Context, store Store, id, host, handover, sourceHost, sourceEpoch string) (*Ownership, error) {
+	if handover == "" || sourceHost == "" || sourceEpoch == "" {
+		return nil, fmt.Errorf("exact handover source required")
+	}
+	return acquireOwnershipFrom(ctx, store, id, host, handover, sourceHost, sourceEpoch)
+}
+
 func acquireOwnership(ctx context.Context, store Store, id, host, handover string) (*Ownership, error) {
+	return acquireOwnershipFrom(ctx, store, id, host, handover, "", "")
+}
+
+func acquireOwnershipFrom(ctx context.Context, store Store, id, host, handover, sourceHost, sourceEpoch string) (*Ownership, error) {
 	s, err := ownershipStore(store)
 	if err != nil {
 		return nil, err
@@ -111,8 +125,8 @@ func acquireOwnership(ctx context.Context, store Store, id, host, handover strin
 	if err := s.checkOwnershipContract(ctx, tx); err != nil {
 		return nil, err
 	}
-	var state, destination, pending string
-	err = tx.QueryRowContext(ctx, `SELECT state,destination,handover FROM conversation_ownership WHERE conversation_id=?`, id).Scan(&state, &destination, &pending)
+	var state, destination, pending, owner, epoch string
+	err = tx.QueryRowContext(ctx, `SELECT state,destination,handover,owner,epoch FROM conversation_ownership WHERE conversation_id=?`, id).Scan(&state, &destination, &pending, &owner, &epoch)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
@@ -122,6 +136,9 @@ func acquireOwnership(ctx context.Context, store Store, id, host, handover strin
 		}
 	} else if err != nil || state != "reserved" || destination != host || pending != handover {
 		return nil, fmt.Errorf("handover reservation does not match exact destination and ID; recovery unsupported")
+	}
+	if sourceHost != "" && (owner != sourceHost || epoch != sourceEpoch) {
+		return nil, fmt.Errorf("handover reservation source does not match exact host and epoch")
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO conversation_ownership(conversation_id,owner,epoch,state,destination,handover) VALUES(?,?,?,'owned',?,?) ON CONFLICT(conversation_id) DO UPDATE SET owner=excluded.owner,epoch=excluded.epoch,state='owned',destination=excluded.destination,handover=excluded.handover`, id, host, o.epoch, host, handover)
 	if err != nil {

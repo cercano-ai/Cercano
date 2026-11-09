@@ -269,3 +269,64 @@ func TestRetryTransferClientIntegration(t *testing.T) {
 		t.Fatalf("completed retry changed operation: %v %v", again, err)
 	}
 }
+
+// Both receipts are authentic and preexisting: acceptance alone is not claim authority.
+func TestRetryTransferClaimProvenance(t *testing.T) {
+	for _, phase := range []string{"reserved", "completed", "historic", "unknown-historic"} {
+		t.Run(phase, func(t *testing.T) {
+			f := newExactRecoveryFixture(t)
+			wrong := f.claim()
+			wrong.Owner.Epoch = "other-source-epoch"
+			wrong.Receipt = ""
+			prepared, err := f.clients[f.b].LifecyclePrepare(f.ctx, wrong)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wrong.Receipt = prepared.Receipt
+			f.reserve(t)
+			var original *pb.LifecycleControlResponse
+			if phase != "reserved" {
+				original, err = f.clients[f.b].LifecycleRetryClaim(f.ctx, f.claim())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if phase == "historic" || phase == "unknown-historic" {
+					if err = f.b.ReleaseRetained(f.ctx, controlOwner(&pb.LifecycleControlRequest{Owner: original.Owner}), nil); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if phase == "unknown-historic" {
+				f.b.coexistence.mu.Lock()
+				for _, a := range f.b.coexistence.incoming {
+					a.claimedEpoch = ""
+				}
+				f.b.coexistence.mu.Unlock()
+			}
+			before := f.snapshot(t)
+			if got, err := f.clients[f.b].LifecycleRetryClaim(f.ctx, wrong); err == nil {
+				t.Fatalf("accepted mismatched source provenance: %v", got)
+			}
+			if before != f.snapshot(t) {
+				t.Fatal("rejection mutated state")
+			}
+			got, err := f.clients[f.b].LifecycleRetryClaim(f.ctx, f.claim())
+			if phase == "unknown-historic" {
+				if err == nil {
+					t.Fatalf("inferred unknown historic provenance: %v", got)
+				}
+				if before != f.snapshot(t) {
+					t.Fatal("unknown provenance rejection mutated state")
+				}
+				return
+			}
+			if err != nil || got.GetCurrentOwner() != (phase != "historic") {
+				t.Fatalf("original: %v %v", got, err)
+			}
+			again, err := f.clients[f.b].LifecycleRetryClaim(f.ctx, f.claim())
+			if err != nil || !proto.Equal(got, again) {
+				t.Fatalf("idempotence: %v %v", again, err)
+			}
+		})
+	}
+}
