@@ -41,7 +41,7 @@ OSArchitecture : ARM 64-bit Processor
 
 PROCESSOR_ARCHITECTURE=ARM64
 INSPECT C:\ProgramData\chocolatey
-INSPECT C:\Windows\Temp\chocolatey\chocoInstall
+INSPECT C:\SANITIZED_GUEST_TEMP\chocolatey\chocoInstall
 
 Name                Length  Mode
 ----                ------  ----
@@ -73,9 +73,9 @@ Forcing web requests to allow TLS v1.2 (Required for requests to Chocolatey.org)
 Getting latest version of the Chocolatey package for download.
 Not using proxy.
 Getting Chocolatey from https://community.chocolatey.org/api/v2/package/chocolatey/2.7.5.
-Downloading https://community.chocolatey.org/api/v2/package/chocolatey/2.7.5 to C:\WINDOWS\TEMP\chocolatey\chocoInstall\chocolatey.zip
+Downloading https://community.chocolatey.org/api/v2/package/chocolatey/2.7.5 to C:\SANITIZED_GUEST_TEMP\chocolatey\chocoInstall\chocolatey.zip
 Not using proxy.
-Extracting C:\WINDOWS\TEMP\chocolatey\chocoInstall\chocolatey.zip to C:\WINDOWS\TEMP\chocolatey\chocoInstall
+Extracting C:\SANITIZED_GUEST_TEMP\chocolatey\chocoInstall\chocolatey.zip to C:\SANITIZED_GUEST_TEMP\chocolatey\chocoInstall
 Installing Chocolatey on the local machine
 Creating ChocolateyInstall as an environment variable (targeting 'Machine')
   Setting ChocolateyInstall to 'C:\ProgramData\chocolatey'
@@ -125,7 +125,7 @@ End time: 20261106111614
 
 Algorithm       Hash                                                                   Path
 ---------       ----                                                                   ----
-SHA256          F86F99A18D236C2F99E6F67A20BE7ADC65C6C7756BF6CF3B43759E7EC0AA5839       C:\Windows\Temp\chocolatey\ch...
+SHA256          F86F99A18D236C2F99E6F67A20BE7ADC65C6C7756BF6CF3B43759E7EC0AA5839       C:\SANITIZED_GUEST_TEMP\chocolatey\ch...
 
 
 

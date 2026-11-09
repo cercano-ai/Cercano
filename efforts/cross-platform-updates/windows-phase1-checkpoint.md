@@ -53,10 +53,10 @@ SHA-256 values below describe sanitized derivative repository bytes, not histori
 | `efforts/cross-platform-updates/windows-final-output.txt` | `e27d98564d1270e5e8265c495aab0770a6b93cdbcc42e3c745f773670a38e794` |
 | `efforts/cross-platform-updates/windows-harness-smoke-output.txt` | `e71abf8b5078d5424820c0af8ff82f572a946e5835dc2b6802952c8565c364be` |
 | `efforts/cross-platform-updates/windows-phase1-evidence.json` | `1295bb691b2e96bfbf86ca433c9dea0f216783b4617eef1d656cd80f2c735473` |
-| `efforts/cross-platform-updates/windows-phase1-results.md` | `7bc09af250bd9dd7f6f4d21495a31a48ef0834cfba80385049368fb48705ab2f` |
+| `efforts/cross-platform-updates/windows-phase1-results.md` | `fd7514b279e44e1a105993f280168d71723093d93838aeb0526d7f402ed372a3` |
 | `efforts/cross-platform-updates/windows-policy-final-output.txt` | `7625efb284f2eda8eb7d1fc197f8b6a1bf2e422185683372006463255c95d3bc` |
-| `efforts/cross-platform-updates/windows-provision-output.txt` | `dd7e63cf81601a4afca9931b63b218259a9d88f85b4132e845e092ee0395ca9d` |
-| `efforts/cross-platform-updates/windows-runner.md` | `0b82cee94e1ecf1bb6bb0d48c3d335e52763ecf8c325fa1a26e8f011a1632c38` |
+| `efforts/cross-platform-updates/windows-provision-output.txt` | `f0c0c7aaabe5c20de2f726321f815d7f03699cdfbfaf14db13d6b30b0cdf2ae2` |
+| `efforts/cross-platform-updates/windows-runner.md` | `0e70f28fbc75327389b5b3592104a9598fad6117f497611c55f80d954fd46982` |
 | `efforts/cross-platform-updates/windows-smoke-evidence.json` | `4d5284446198aefcfd4f95cfccd765f8f6ef407ab9cb9ce32f7e62e902d2f830` |
 | `efforts/cross-platform-updates/windows-transaction-audit.md` | `91dfeb2959e23d7782ed4a5869cbc3ee695007667e89a6638bb04616bfbd6ab9` |
 | `efforts/cross-platform-updates/windows-transactions-output.txt` | `9cbd1d8310bb8a759c18e26f6889f68a0828bba60b7a87a40e4e1217889578a4` |
@@ -67,7 +67,7 @@ SHA-256 values below describe sanitized derivative repository bytes, not histori
 | `release/chocolatey/tests/extensions.ps1` | `29aa2334018b6d549c767fffb6161317194e62151a6d6b2bf73b1246db6fa89f` |
 | `release/chocolatey/tests/final-inspect.ps1` | `1226751ff65dd1efdb398f8c7fda5b6e6ec1a1c59079ed19a3b15b956993f977` |
 | `release/chocolatey/tests/guest.py` | `e4f40bfa41e3f29bf40607554352ea22fb2dce1f5625bc68758d2f35a073c443` |
-| `release/chocolatey/tests/inspect.ps1` | `b506416d40b486b6c53b211d624efd7653c5e8fa4119d436d2afc6df610da0b2` |
-| `release/chocolatey/tests/provision.ps1` | `ebaf870ba64e30bc971485f1a8717a76a2756c8a377948f81de4f4f7a9384764` |
+| `release/chocolatey/tests/inspect.ps1` | `b8539c94ad026b879d0631e44175bbccf074dc001d0e70205079b1fd37243238` |
+| `release/chocolatey/tests/provision.ps1` | `2441576bd9b9f5632801124234f6850a08d7c049d823605176d2415bfdd77ad8` |
 | `release/chocolatey/tests/transactions.ps1` | `8054f84ebb6fc50beb9c1de10e19116651f33845c8d6d131942698cfc8b0cb6f` |
 | `efforts/cross-platform-updates/windows-phase1-checkpoint.md` | self (not hashed) |

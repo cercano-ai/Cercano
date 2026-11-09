@@ -7,8 +7,8 @@
       "bytes": 3562
     },
     "efforts/cross-platform-updates/native-go-evidence.json": {
-      "sha256": "feb32beb246a60412a2a0e6552f50e67ee0006518366eff52f552583f0da49b6",
-      "bytes": 115897
+      "sha256": "ce171a78efdd7e98a5e38a288a1f84b15f6fca1ac076a08ee3a3d5921d70d78e",
+      "bytes": 115909
     },
     "efforts/cross-platform-updates/native-go-exit-handle-regression.json": {
       "sha256": "8adf69d63af44843bf0a0d32e2726caded93cebd70638e20cc9dc4b25bdb5fd8",
@@ -19,12 +19,12 @@
       "bytes": 4638
     },
     "efforts/cross-platform-updates/native-go-fix-collection-transport.json": {
-      "sha256": "08a46fea9aaa5d237b8100248cf22bfc35802f3b034050981f08e426cc43f650",
-      "bytes": 250475
+      "sha256": "0244c9a205d68f1a6be236187d9ab50b9bfd8c7e4f6894713b0c9079134f6e75",
+      "bytes": 250487
     },
     "efforts/cross-platform-updates/native-go-fix-evidence.json": {
-      "sha256": "2f0478c7d968f5b2a96f36f6b8d8771cc71300e860cdbd6fc694d3125faf5249",
-      "bytes": 212657
+      "sha256": "23118773d65bc4231551a7b6342bb8baf126d47004d40d7f37fc79d7c6905173",
+      "bytes": 212681
     },
     "efforts/cross-platform-updates/native-go-fix-execution.json": {
       "sha256": "9f340c426a2fa05bcba122176dc1842eba7cdcf7e1f0ef5efa25391245501c15",
@@ -43,12 +43,12 @@
       "bytes": 690
     },
     "efforts/cross-platform-updates/native-go-guard-collection-transport.json": {
-      "sha256": "a82dd7f2928f4e34e23324b5f365e389cc6ae18bdf8db79864968b2e0db32211",
-      "bytes": 201237
+      "sha256": "ce58e7de959c66a6c1e565760c37e826fd722619170a1a72b85ea5b18986daff",
+      "bytes": 201243
     },
     "efforts/cross-platform-updates/native-go-guard-evidence.json": {
-      "sha256": "97b55d31015dbe9060f1299fa1f4acdb0cf4986cbbc03d18c50c9dba8cbf48ff",
-      "bytes": 171079
+      "sha256": "6a463c997341c247ffcd4de701cad0fd2d5c664b381cd11f37b4cfa664577455",
+      "bytes": 171091
     },
     "efforts/cross-platform-updates/native-go-guard-execution.json": {
       "sha256": "c15bbb4ae5f5e5d1bcbe0d13a0003c9b365cf2496e68a0f5c49b4b707692138c",
@@ -63,16 +63,16 @@
       "bytes": 690
     },
     "efforts/cross-platform-updates/native-go-host-transcript.json": {
-      "sha256": "c08bf18fd29fc2cc829ac60564ae95aa8a38ac3ab630bd63a77a323e668ff559",
-      "bytes": 145430
+      "sha256": "121cd1b9788738b5575465fe9adcaca91bea4dee86790715d48a307889d9a4ec",
+      "bytes": 145436
     },
     "efforts/cross-platform-updates/native-go-next-collection-transport.json": {
-      "sha256": "24485f1669105c9d8c191aab91748d3f5c891281c299d089a3f725ae57e6ec7f",
-      "bytes": 449386
+      "sha256": "dabfd177d8196ff23409d2234954d3e08670bbc56cc0b9eebbc19efe8e85169b",
+      "bytes": 449410
     },
     "efforts/cross-platform-updates/native-go-next-evidence.json": {
-      "sha256": "b9499391012121d2490181628dc6b1cb56f4f7eca8c5044c8ce678ad7fbf80bd",
-      "bytes": 383930
+      "sha256": "aade84c46757d54cd271db2dc8ead26857a9d5cf78c94169716feff1fab534e6",
+      "bytes": 383978
     },
     "efforts/cross-platform-updates/native-go-next-execution.json": {
       "sha256": "6d0aeb1a0f6bc3289c3d59f972f29a5cb5c987349b22ab6b8bc6891ea5a1479f",
@@ -103,28 +103,28 @@
       "bytes": 312
     },
     "efforts/cross-platform-updates/native-go-recovery-evidence.json": {
-      "sha256": "bcff9a17c5287cbe4b23ef0fb31d7b37be415d6c12e7ef8a3c40a9e26ab61e6d",
-      "bytes": 112422
+      "sha256": "dcec18fb7a6d1f3488db361bbb8fe3f2deb2a98e8821942058a49822a8ece910",
+      "bytes": 112434
     },
     "efforts/cross-platform-updates/native-go-recovery-final-inspection.json": {
-      "sha256": "cf0d23d47ed5ffb475913faa26232de290b087ee9e9e5afb4229c27c8db849ff",
-      "bytes": 63706
+      "sha256": "0cd5294553ff30bb043adf890f4199dd4b09df1b7703333d310c2d898b62bde9",
+      "bytes": 63707
     },
     "efforts/cross-platform-updates/native-go-recovery-final-state.json": {
-      "sha256": "c69c8b82132444c238622f129ff077f57d30f01854a162f34075532a495c2f28",
-      "bytes": 52114
+      "sha256": "41c0c1ee43f2aab9557d2712ca842e1cb35c95c8a98b2117d7ba6966c832a10a",
+      "bytes": 52119
     },
     "efforts/cross-platform-updates/native-go-recovery-inspect.ps1": {
       "sha256": "b8d8da85cb592d471edebfb3fda96bfca7f861544b9063dfccafa7befd692983",
       "bytes": 1187
     },
     "efforts/cross-platform-updates/native-go-recovery-inspection.json": {
-      "sha256": "c9359360ace2cd4a7e1d9527c5255d17d8a23af7ebf0eb1c4a788b819612d7c4",
-      "bytes": 67168
+      "sha256": "0c42ea1c3eac5cf367f4d1e362a8b1fb99f3077e5bb5cecba714dde10b211850",
+      "bytes": 67169
     },
     "efforts/cross-platform-updates/native-go-recovery-observations.json": {
-      "sha256": "b0117045176caf5798bd6c8c266ba0c4252377fb2a9eaa8714bc717e0d3aea10",
-      "bytes": 127727
+      "sha256": "5a3afbed670f744360d0949014b372c4d9268299a90f4265cc52a02a96b31cce",
+      "bytes": 127729
     },
     "efforts/cross-platform-updates/native-go-recovery-results.md": {
       "sha256": "d5a50eec16a800b4359e90c3a5bd723fbec941a2e6f84622c4c80ff41b82aacf",
@@ -143,8 +143,8 @@
       "bytes": 894
     },
     "efforts/cross-platform-updates/native-go-recovery-text-transport.json": {
-      "sha256": "510c4a1d1e773458e64087b2c90912f9897ed0afeee4e4519cac5b47aae02b06",
-      "bytes": 132311
+      "sha256": "aa9955ca049efb5cc5d2daeefdaa17b6753dc7f57639d78d195da593fd94b0b1",
+      "bytes": 132317
     },
     "efforts/cross-platform-updates/native-go-recovery-text.ps1": {
       "sha256": "7e6fc7238c56d85c85e034b1c6a8a218a666f746b314d6fe35202672c581707d",
@@ -155,8 +155,8 @@
       "bytes": 1017
     },
     "efforts/cross-platform-updates/native-go-result.json": {
-      "sha256": "11df41441ba7cd71b7329e38ee9a51ec7541c90e4d38578517a599315d4cfb82",
-      "bytes": 41654
+      "sha256": "20198355d96bdb0b2b193a19784e40d52a6ca7ef65bd57c2c5fdceac18b496c1",
+      "bytes": 41661
     },
     "efforts/cross-platform-updates/native-go-results.md": {
       "sha256": "e07f20b111166bdbb5aa53f2da9a582a6a9b81543a7c5b36f9883ca6dd7c1810",
@@ -235,7 +235,7 @@
       "bytes": 2456
     },
     "efforts/cross-platform-updates/windows-phase1-checkpoint.md": {
-      "sha256": "febe7ea189b5d2a6dc45738dbee790e8bdb793822efcace474687de4e67f8b3b",
+      "sha256": "c15ef9f88a25515bf2160cea0432ea480e08df7c1d7756755c9f487b22587c46",
       "bytes": 8838
     },
     "efforts/cross-platform-updates/windows-phase1-evidence.json": {
@@ -247,20 +247,20 @@
       "bytes": 7661
     },
     "efforts/cross-platform-updates/windows-phase1-results.md": {
-      "sha256": "7bc09af250bd9dd7f6f4d21495a31a48ef0834cfba80385049368fb48705ab2f",
-      "bytes": 13357
+      "sha256": "fd7514b279e44e1a105993f280168d71723093d93838aeb0526d7f402ed372a3",
+      "bytes": 13365
     },
     "efforts/cross-platform-updates/windows-policy-final-output.txt": {
       "sha256": "7625efb284f2eda8eb7d1fc197f8b6a1bf2e422185683372006463255c95d3bc",
       "bytes": 852
     },
     "efforts/cross-platform-updates/windows-provision-output.txt": {
-      "sha256": "dd7e63cf81601a4afca9931b63b218259a9d88f85b4132e845e092ee0395ca9d",
-      "bytes": 4799
+      "sha256": "f0c0c7aaabe5c20de2f726321f815d7f03699cdfbfaf14db13d6b30b0cdf2ae2",
+      "bytes": 4839
     },
     "efforts/cross-platform-updates/windows-runner.md": {
-      "sha256": "0b82cee94e1ecf1bb6bb0d48c3d335e52763ecf8c325fa1a26e8f011a1632c38",
-      "bytes": 12659
+      "sha256": "0e70f28fbc75327389b5b3592104a9598fad6117f497611c55f80d954fd46982",
+      "bytes": 12675
     },
     "efforts/cross-platform-updates/windows-sanitized-provenance.md": {
       "sha256": "d1ea311bb8b4a5261fa149a8362b54be4e18e30903474c6176f4ceffadee60f1",
@@ -307,8 +307,8 @@
       "bytes": 1926
     },
     "release/chocolatey/tests/inspect.ps1": {
-      "sha256": "b506416d40b486b6c53b211d624efd7653c5e8fa4119d436d2afc6df610da0b2",
-      "bytes": 269
+      "sha256": "b8539c94ad026b879d0631e44175bbccf074dc001d0e70205079b1fd37243238",
+      "bytes": 277
     },
     "release/chocolatey/tests/native-go-audit.py": {
       "sha256": "e7ac607b0204ade29fda28e1ae492325ed7dda0f892a68b90e2a79b3d728feb2",
@@ -383,8 +383,8 @@
       "bytes": 1301
     },
     "release/chocolatey/tests/provision.ps1": {
-      "sha256": "ebaf870ba64e30bc971485f1a8717a76a2756c8a377948f81de4f4f7a9384764",
-      "bytes": 1604
+      "sha256": "2441576bd9b9f5632801124234f6850a08d7c049d823605176d2415bfdd77ad8",
+      "bytes": 1620
     },
     "release/chocolatey/tests/transactions.ps1": {
       "sha256": "8054f84ebb6fc50beb9c1de10e19116651f33845c8d6d131942698cfc8b0cb6f",

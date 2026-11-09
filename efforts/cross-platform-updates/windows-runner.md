@@ -45,7 +45,7 @@ Absence from PATH is not an exhaustive software inventory. SYSTEM access is usab
 
 ### Official Chocolatey bootstrap attempt and blocker
 
-Created only the new isolated staging directory `C:\CercanoRunner\provision-20261106-1117`; saved the downloaded bootstrap as `install-chocolatey.ps1` and provenance as `provenance.json` there. The official bootstrap also staged its own package under `C:\Windows\Temp\chocolatey\chocoInstall`. No inherited user profiles/files or credentials were inspected.
+Created only the new isolated staging directory `C:\CercanoRunner\provision-20261106-1117`; saved the downloaded bootstrap as `install-chocolatey.ps1` and provenance as `provenance.json` there. The official bootstrap also staged its own package under `C:\SANITIZED_GUEST_TEMP\chocolatey\chocoInstall`. No inherited user profiles/files or credentials were inspected.
 
 - Official installation reference: <https://chocolatey.org/install>.
 - Requested and final bootstrap URL: **`https://community.chocolatey.org/install.ps1`**, downloaded in the clone over HTTPS using `Invoke-WebRequest -UseBasicParsing`, with no certificate-verification override.
@@ -56,7 +56,7 @@ Created only the new isolated staging directory `C:\CercanoRunner\provision-2026
 - **Installed Chocolatey version: none.** Bootstrap invocation exited 1 when loading its packaged `tools\chocolateyInstall.ps1`:
 
 ```text
-File C:\WINDOWS\TEMP\chocolatey\chocoInstall\tools\chocolateyInstall.ps1 cannot be loaded because running scripts is disabled on this system.
+File C:\SANITIZED_GUEST_TEMP\chocolatey\chocoInstall\tools\chocolateyInstall.ps1 cannot be loaded because running scripts is disabled on this system.
 CategoryInfo: SecurityError ... PSSecurityException
 FullyQualifiedErrorId: UnauthorizedAccess
 ```

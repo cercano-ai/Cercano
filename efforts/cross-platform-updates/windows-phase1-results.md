@@ -8,7 +8,7 @@
 
 Only disposable clone `{SANITIZED_VM_2}` was targeted. Original `{SANITIZED_VM_1}` remained stopped in recorded VM listings, including the final check. Clone remains running for evidence retention. Commands used absolute guest PowerShell/Chocolatey paths, not shell-dependent quoting. Execution identity was SYSTEM; this does **not** establish standard-user or alternate-admin acceptance.
 
-The previous bootstrap failure left downloaded/extracted Chocolatey under `C:\Windows\Temp\chocolatey\chocoInstall`, not a working destination installation. `provision.ps1` inspected those locations and refused an existing destination/binary rather than deleting partial installation state blindly. It reran the already downloaded official `https://community.chocolatey.org/install.ps1` with process-only `-ExecutionPolicy Bypass`. Official installer completed and installed Chocolatey **2.7.5**. See `windows-provision-output.txt` (also includes later fixture diagnostic output; not a pristine provisioning-only stream).
+The previous bootstrap failure left downloaded/extracted Chocolatey under `C:\SANITIZED_GUEST_TEMP\chocolatey\chocoInstall`, not a working destination installation. `provision.ps1` inspected those locations and refused an existing destination/binary rather than deleting partial installation state blindly. It reran the already downloaded official `https://community.chocolatey.org/install.ps1` with process-only `-ExecutionPolicy Bypass`. Official installer completed and installed Chocolatey **2.7.5**. See `windows-provision-output.txt` (also includes later fixture diagnostic output; not a pristine provisioning-only stream).
 
 Observed SHA-256:
 
