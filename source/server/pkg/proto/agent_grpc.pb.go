@@ -30,6 +30,12 @@ const (
 	Agent_LifecycleClaim_FullMethodName                        = "/agent.Agent/LifecycleClaim"
 	Agent_LifecycleRetryReceipt_FullMethodName                 = "/agent.Agent/LifecycleRetryReceipt"
 	Agent_LifecycleRetryRelinquish_FullMethodName              = "/agent.Agent/LifecycleRetryRelinquish"
+	Agent_LifecycleTakeover_FullMethodName                     = "/agent.Agent/LifecycleTakeover"
+	Agent_LifecycleTakeoverProbe_FullMethodName                = "/agent.Agent/LifecycleTakeoverProbe"
+	Agent_LifecycleTakeoverPrepare_FullMethodName              = "/agent.Agent/LifecycleTakeoverPrepare"
+	Agent_LifecycleTakeoverReceipt_FullMethodName              = "/agent.Agent/LifecycleTakeoverReceipt"
+	Agent_LifecycleTakeoverRelinquish_FullMethodName           = "/agent.Agent/LifecycleTakeoverRelinquish"
+	Agent_LifecycleTakeoverClaim_FullMethodName                = "/agent.Agent/LifecycleTakeoverClaim"
 	Agent_LifecycleRetryClaim_FullMethodName                   = "/agent.Agent/LifecycleRetryClaim"
 	Agent_LifecycleList_FullMethodName                         = "/agent.Agent/LifecycleList"
 	Agent_LifecycleRetire_FullMethodName                       = "/agent.Agent/LifecycleRetire"
@@ -140,6 +146,12 @@ type AgentClient interface {
 	// retried using the older mutating controls.
 	LifecycleRetryReceipt(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleRetryRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleTakeover(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleTakeoverProbe(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleTakeoverPrepare(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleTakeoverReceipt(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleTakeoverRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	LifecycleTakeoverClaim(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleRetryClaim(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleList(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	LifecycleRetire(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
@@ -500,6 +512,66 @@ func (c *agentClient) LifecycleRetryRelinquish(ctx context.Context, in *Lifecycl
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LifecycleControlResponse)
 	err := c.cc.Invoke(ctx, Agent_LifecycleRetryRelinquish_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleTakeover(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleTakeover_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleTakeoverProbe(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleTakeoverProbe_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleTakeoverPrepare(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleTakeoverPrepare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleTakeoverReceipt(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleTakeoverReceipt_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleTakeoverRelinquish(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleTakeoverRelinquish_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentClient) LifecycleTakeoverClaim(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleControlResponse)
+	err := c.cc.Invoke(ctx, Agent_LifecycleTakeoverClaim_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1505,6 +1577,12 @@ type AgentServer interface {
 	// retried using the older mutating controls.
 	LifecycleRetryReceipt(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleRetryRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleTakeover(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleTakeoverProbe(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleTakeoverPrepare(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleTakeoverReceipt(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleTakeoverRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
+	LifecycleTakeoverClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleRetryClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleList(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	LifecycleRetire(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
@@ -1793,6 +1871,24 @@ func (UnimplementedAgentServer) LifecycleRetryReceipt(context.Context, *Lifecycl
 }
 func (UnimplementedAgentServer) LifecycleRetryRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LifecycleRetryRelinquish not implemented")
+}
+func (UnimplementedAgentServer) LifecycleTakeover(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleTakeover not implemented")
+}
+func (UnimplementedAgentServer) LifecycleTakeoverProbe(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleTakeoverProbe not implemented")
+}
+func (UnimplementedAgentServer) LifecycleTakeoverPrepare(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleTakeoverPrepare not implemented")
+}
+func (UnimplementedAgentServer) LifecycleTakeoverReceipt(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleTakeoverReceipt not implemented")
+}
+func (UnimplementedAgentServer) LifecycleTakeoverRelinquish(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleTakeoverRelinquish not implemented")
+}
+func (UnimplementedAgentServer) LifecycleTakeoverClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LifecycleTakeoverClaim not implemented")
 }
 func (UnimplementedAgentServer) LifecycleRetryClaim(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LifecycleRetryClaim not implemented")
@@ -2267,6 +2363,114 @@ func _Agent_LifecycleRetryRelinquish_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServer).LifecycleRetryRelinquish(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleTakeover_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleTakeover(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleTakeover_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleTakeover(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleTakeoverProbe_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleTakeoverProbe(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleTakeoverProbe_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleTakeoverProbe(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleTakeoverPrepare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleTakeoverPrepare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleTakeoverPrepare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleTakeoverPrepare(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleTakeoverReceipt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleTakeoverReceipt(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleTakeoverReceipt_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleTakeoverReceipt(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleTakeoverRelinquish_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleTakeoverRelinquish(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleTakeoverRelinquish_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleTakeoverRelinquish(ctx, req.(*LifecycleControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Agent_LifecycleTakeoverClaim_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).LifecycleTakeoverClaim(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_LifecycleTakeoverClaim_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).LifecycleTakeoverClaim(ctx, req.(*LifecycleControlRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3778,6 +3982,30 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LifecycleRetryRelinquish",
 			Handler:    _Agent_LifecycleRetryRelinquish_Handler,
+		},
+		{
+			MethodName: "LifecycleTakeover",
+			Handler:    _Agent_LifecycleTakeover_Handler,
+		},
+		{
+			MethodName: "LifecycleTakeoverProbe",
+			Handler:    _Agent_LifecycleTakeoverProbe_Handler,
+		},
+		{
+			MethodName: "LifecycleTakeoverPrepare",
+			Handler:    _Agent_LifecycleTakeoverPrepare_Handler,
+		},
+		{
+			MethodName: "LifecycleTakeoverReceipt",
+			Handler:    _Agent_LifecycleTakeoverReceipt_Handler,
+		},
+		{
+			MethodName: "LifecycleTakeoverRelinquish",
+			Handler:    _Agent_LifecycleTakeoverRelinquish_Handler,
+		},
+		{
+			MethodName: "LifecycleTakeoverClaim",
+			Handler:    _Agent_LifecycleTakeoverClaim_Handler,
 		},
 		{
 			MethodName: "LifecycleRetryClaim",

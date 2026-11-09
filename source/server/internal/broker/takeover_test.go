@@ -54,3 +54,44 @@ func TestTakeoverPreservesWorkAndFencesOldClient(t *testing.T) {
 		t.Fatal("epoch lost")
 	}
 }
+
+// An abandoned outgoing request may have already closed the same epoch. The
+// takeover fence is epoch-bound, not owned by that request's operation ID.
+func TestTakeoverQuiescesAlreadyClosedEpoch(t *testing.T) {
+	a := NewAdmission("h")
+	o := Owner{"c", "h", "e"}
+	mustOK(t, a.RegisterOwner(o))
+	ref, e := a.AttachTerminal(o, "old")
+	mustOK(t, e)
+	work, e := a.AdmitWork(o, PersistenceWork)
+	mustOK(t, e)
+	closed, e := a.ForceCloseOwner(o)
+	mustOK(t, e)
+	c, e := a.QuiesceOwner(o)
+	mustOK(t, e)
+	if c != closed {
+		t.Fatal("lost existing closure")
+	}
+	select {
+	case <-ref.Revoked():
+	default:
+		t.Fatal("reference not revoked")
+	}
+	if _, e = a.QuiesceOwner(Owner{"c", "h", "stale"}); !errors.Is(e, ErrAdmissionStale) {
+		t.Fatal(e)
+	}
+	w, u, e := c.Pending()
+	mustOK(t, e)
+	if w != 1 || u != 0 {
+		t.Fatalf("invented completion: %d %d", w, u)
+	}
+	mustOK(t, work.PersistenceFailed())
+	w, u, e = c.Pending()
+	mustOK(t, e)
+	if w != 1 || u != 1 {
+		t.Fatalf("uncertainty lost: %d %d", w, u)
+	}
+	if e = c.Relinquished(); !errors.Is(e, ErrAdmissionBusy) {
+		t.Fatal("uncertain persistence released", e)
+	}
+}

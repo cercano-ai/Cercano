@@ -33,7 +33,7 @@ type exactRecoveryFixture struct {
 	ctx       context.Context
 }
 
-func newExactRecoveryFixture(t *testing.T) *exactRecoveryFixture {
+func newExactRecoveryFixture(t *testing.T, interceptors ...grpc.UnaryServerInterceptor) *exactRecoveryFixture {
 	t.Helper()
 	a, b, c := lifecycleFixture(t)
 	f := &exactRecoveryFixture{a: a, b: b, c: c, clients: map[*Server]pb.AgentClient{}, endpoints: map[*Server]string{}, ctx: context.Background()}
@@ -59,6 +59,7 @@ func newExactRecoveryFixture(t *testing.T) *exactRecoveryFixture {
 		opts = append(opts, grpc.ChainUnaryInterceptor(func(ctx context.Context, r any, _ *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
 			return next(recoveryFixturePeer(ctx), r)
 		}))
+		opts = append(opts, grpc.ChainUnaryInterceptor(interceptors...))
 		transport := grpc.NewServer(opts...)
 		pb.RegisterAgentServer(transport, s)
 		go transport.Serve(listener)

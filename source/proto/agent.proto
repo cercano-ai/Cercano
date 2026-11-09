@@ -22,6 +22,12 @@ service Agent {
   // retried using the older mutating controls.
   rpc LifecycleRetryReceipt (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleRetryRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
+  rpc LifecycleTakeover(LifecycleControlRequest) returns (LifecycleControlResponse);
+  rpc LifecycleTakeoverProbe(LifecycleControlRequest) returns (LifecycleControlResponse);
+  rpc LifecycleTakeoverPrepare(LifecycleControlRequest) returns (LifecycleControlResponse);
+  rpc LifecycleTakeoverReceipt(LifecycleControlRequest) returns (LifecycleControlResponse);
+  rpc LifecycleTakeoverRelinquish(LifecycleControlRequest) returns (LifecycleControlResponse);
+  rpc LifecycleTakeoverClaim(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc LifecycleRetryClaim (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleList (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleRetire (LifecycleControlRequest) returns (LifecycleControlResponse) {}
@@ -2854,4 +2860,6 @@ message LifecycleOriginalRecovery {
  LifecycleRecoverySelection selection = 2;
  string challenge = 3;
  bool legacy = 4;
+ // Cooperative owner-epoch takeover; never legacy/original-operation retry.
+ bool takeover = 5;
 }

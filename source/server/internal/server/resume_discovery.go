@@ -190,7 +190,7 @@ func (s *Server) originalRecovery(ctx context.Context, l *coexistenceLifecycle, 
 	if r.RecoveryChallenge != "" || r.ConfirmOriginalRecovery || r.ConfirmLegacyRecovery {
 		c := l.recoveryOffers[r.RecoveryChallenge]
 		delete(l.recoveryOffers, r.RecoveryChallenge) // consume even a failed confirmation
-		if c == nil || time.Now().After(c.expires) || !proto.Equal(c.requester, r.Requester) || c.offer.Operation.Owner.Conversation != r.GetOwner().GetConversation() || !r.ConfirmOriginalRecovery || r.ConfirmLegacyRecovery != c.offer.Legacy {
+		if c == nil || c.offer.Takeover || time.Now().After(c.expires) || !proto.Equal(c.requester, r.Requester) || c.offer.Operation.Owner.Conversation != r.GetOwner().GetConversation() || !r.ConfirmOriginalRecovery || r.ConfirmLegacyRecovery != c.offer.Legacy {
 			return nil, true, status.Error(codes.PermissionDenied, "fresh exact original-recovery confirmation required")
 		}
 		result, err := s.confirmOriginalRecovery(ctx, l, r, c.offer)
