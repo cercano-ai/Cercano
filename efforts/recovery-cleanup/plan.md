@@ -6,13 +6,13 @@ Execute the approved recovery-cleanup specification. Legacy client stop confirma
 
 Objective: identify active consumers and ensure retained fixture commands cannot report success without executing intended tests. Files: recovery source and test references; efforts/old-host-compatible-recovery/fixture/run.sh, oldmain.go.txt, build-production.sh and related documentation. Tests: missing-selection failure and successful nonzero selection. Preserve historical evidence; distinguish archived scaffolding from supported entry points.
 
-- [ ] Read repository guidance and record the execution baseline and scoped working-tree preservation requirements
-- [ ] Map consumers of legacy confirmations, stop interfaces, recovery envelope, reaffirmResumeWithSync, and ReserveTakeover
-- [ ] Identify the current historical production acceptance entry point and record exact test selections
-- [ ] Reproduce the orphan runner's zero-test-success problem in disposable state before modifying it
-- [ ] Remove or clearly archive orphan runnable scaffolding without deleting historical evidence
-- [ ] Make retained acceptance runners reject zero intended tests and verify both rejection and valid execution
-- [ ] Record baseline evidence and checkpoint only this solved unit
+- [x] Read repository guidance and record the execution baseline and scoped working-tree preservation requirements
+- [x] Map consumers of legacy confirmations, stop interfaces, recovery envelope, reaffirmResumeWithSync, and ReserveTakeover
+- [x] Identify the current historical production acceptance entry point and record exact test selections
+- [x] Reproduce the orphan runner's zero-test-success problem in disposable state before modifying it
+- [x] Remove or clearly archive orphan runnable scaffolding without deleting historical evidence
+- [x] Make retained acceptance runners reject zero intended tests and verify both rejection and valid execution
+- [x] Record baseline evidence and checkpoint only this solved unit
 
 ## Phase 2 — Remove proven unused implementation
 
