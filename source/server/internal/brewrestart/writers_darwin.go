@@ -21,7 +21,12 @@ func VerifyPreparedWritersAbsent(ctx context.Context, generation, store string) 
 	if !filepath.IsAbs(generation) || !filepath.IsAbs(store) {
 		return fmt.Errorf("absolute prepared generation and store required")
 	}
-	pids, err := ListCandidates()
+	return verifyPreparedWritersAbsent(ctx, generation, ListCandidates, recoveryProcessArguments, Inspect)
+}
+
+// Dependencies are passed per call so deterministic probes never replace native globals.
+func verifyPreparedWritersAbsent(ctx context.Context, generation string, list func() ([]int, error), args func(int) (string, []string, error), inspect func(int) (Identity, error)) error {
+	pids, err := list()
 	if err != nil {
 		return err
 	}
@@ -29,7 +34,7 @@ func VerifyPreparedWritersAbsent(ctx context.Context, generation, store string) 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		executable, _, err := recoveryProcessArguments(pid)
+		executable, _, err := args(pid)
 		if err == syscall.ESRCH {
 			continue
 		}
@@ -37,7 +42,7 @@ func VerifyPreparedWritersAbsent(ctx context.Context, generation, store string) 
 			// A protected unrelated executable is not a plausible source just because
 			// it shares our UID. A second kernel identity API may exclude it. Never use
 			// argv[0], a basename, or a failed path lookup as negative evidence.
-			id, inspectErr := Inspect(pid)
+			id, inspectErr := inspect(pid)
 			if inspectErr != nil {
 				return fmt.Errorf("prepared process attribution pid=%d: argv: %v; identity: %w", pid, err, inspectErr)
 			}

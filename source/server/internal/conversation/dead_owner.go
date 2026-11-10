@@ -18,6 +18,11 @@ import (
 // not evidence. Exact reserved roots serialize against ClaimHandover using the
 // same stable conversation lock; descendant reservations remain blockers.
 func RecoverDeadOwner(ctx context.Context, store Store, conversationID string, expected OwnershipState, host string, verifyDead func(context.Context) error) (*Ownership, error) {
+	return recoverDeadOwner(ctx, store, conversationID, expected, host, verifyDead, (*sql.Tx).Commit)
+}
+
+// commit is a per-call transaction boundary seam; production always uses sql.Tx.Commit.
+func recoverDeadOwner(ctx context.Context, store Store, conversationID string, expected OwnershipState, host string, verifyDead func(context.Context) error, commit func(*sql.Tx) error) (*Ownership, error) {
 	s, err := ownershipStore(store)
 	if err != nil {
 		return nil, err
@@ -199,7 +204,7 @@ func RecoverDeadOwner(ctx context.Context, store Store, conversationID string, e
 		}
 	}
 	o := &Ownership{store: s, conversation: conversationID, owner: host, epoch: epoch, lock: root, recoveryLocks: others}
-	if err = tx.Commit(); err != nil {
+	if err = commit(tx); err != nil {
 		keep = true
 		return o, fmt.Errorf("recovery commit uncertain; locks retained: %w", err)
 	}

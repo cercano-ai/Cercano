@@ -19,8 +19,8 @@ Objective: implement the approved fallback without trusting stale PIDs or requir
 - [x] Bind fresh confirmation to source identity, conversation epoch, selected destination, and host-wide interruption disclosure.
 - [x] Implement verified launch exclusion and exact source/worker attribution using existing supported OS primitives where adequate.
 - [x] Implement bounded stopping and death verification for attributed processes, with explicit refusal on uncertain attribution or containment.
-- [ ] Verify unrelated hosts remain untouched and source relaunch cannot race recovery.
-- [ ] Cover timeout, cancellation, PID reuse, stale approval, and surviving writer failures without ownership reassignment.
+- [x] Verify unrelated hosts remain untouched and source relaunch cannot race recovery.
+- [x] Cover timeout, cancellation, PID reuse, stale approval, and surviving writer failures without ownership reassignment.
 
 ## Phase 3 — Transactional ownership recovery and retry
 
@@ -28,10 +28,10 @@ Objective: recover owned or reserved state only after verified containment, with
 
 - [x] Extend recovery admission to exact owned and reserved cases under stable locks and transactional owner/epoch rechecks.
 - [x] Serialize reserved-state recovery against late destination claims; reject recovery after another destination acquires ownership.
-- [ ] Preserve committed history/results, mark interrupted work accurately, and retain explicit uncertain-outcome handling.
-- [ ] Preserve retry operation identity across timeout and response loss; return ready only for current ready ownership.
-- [ ] Test stale epochs, independent descendants, uncertain commit, response loss, duplicate retries, and late claims.
-- [ ] Test and document completion-notification behavior separately from prohibited interrupted-task/action replay.
+- [x] Preserve committed history/results, mark interrupted work accurately, and retain explicit uncertain-outcome handling.
+- [x] Preserve retry operation identity across timeout and response loss; return ready only for current ready ownership.
+- [x] Test stale epochs, independent descendants, uncertain commit, response loss, duplicate retries, and late claims.
+- [x] Test and document completion-notification behavior separately from prohibited interrupted-task/action replay.
 
 ## Phase 4 — Single reopen flow and protocol cleanup
 
