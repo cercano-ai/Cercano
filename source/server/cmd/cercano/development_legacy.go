@@ -27,7 +27,9 @@ type legacySourceSnapshot struct {
 }
 
 func newDevelopmentLegacyStop(state string, destination *pb.LifecycleIdentity) *developmentLegacyStop {
-	return &developmentLegacyStop{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost, stop: brewrestart.StopLegacyHost, absent: brewrestart.VerifyHostAbsent}
+	p := &developmentLegacyStop{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost, absent: brewrestart.VerifyHostAbsent}
+	p.stop = p.shutdownAuthenticated
+	return p
 }
 
 // withSource uses exactly the recovery path's existing per-generation launch
@@ -103,11 +105,10 @@ func (p *developmentLegacyStop) Stop(ctx context.Context, source *pb.LifecycleId
 
 // withStoppedSource keeps the existing launch exclusion continuously across stop,
 // source absence verification and use. It is a source-only building block, NOT
-// writer containment: independent old workers and detached effects are not covered.
-// A recovery coordinator must establish worker containment before using this to
-// reassign ownership, and must recheck consent/epoch inside use. Native stopping
-// retains its existing platform limitations (identity inspection then PID signal,
-// not an atomic identity-bound signal). No production recovery caller is wired here.
+// writer containment. A recovery coordinator must establish the relevant writer
+// contract before reassigning ownership, and recheck consent/epoch inside use.
+// Stop uses authenticated historical ShutdownAgent, never a PID signal. Acceptance
+// is not completion: kernel host absence is required under the held launch lock.
 func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
 	if err := ctx.Err(); err != nil {
 		return err

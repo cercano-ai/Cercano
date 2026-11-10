@@ -17,8 +17,8 @@ Objective: establish the smallest failing end-to-end recovery journey before mod
 Objective: implement the approved fallback without trusting stale PIDs or requiring new source RPCs. Files: command-level source resolution and process controls, server recovery boundary, agentclient APIs as needed. Tests: source identity changes, surviving workers, concurrent launch, cancellation, other hosts, and sibling impact.
 
 - [ ] Bind fresh confirmation to source identity, conversation epoch, selected destination, and host-wide interruption disclosure.
-- [-] Implement verified launch exclusion and exact source/worker attribution using existing supported OS primitives where adequate.
-- [ ] Implement bounded stopping and death verification for attributed processes, with explicit refusal on uncertain attribution or containment.
+- [~] Implement verified launch exclusion and exact source/worker attribution using existing supported OS primitives where adequate.
+- [~] Implement bounded stopping and death verification for attributed processes, with explicit refusal on uncertain attribution or containment.
 - [ ] Verify unrelated hosts remain untouched and source relaunch cannot race recovery.
 - [ ] Cover timeout, cancellation, PID reuse, stale approval, and surviving writer failures without ownership reassignment.
 

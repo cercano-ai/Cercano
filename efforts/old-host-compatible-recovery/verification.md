@@ -208,3 +208,90 @@ worker/relaunch, sibling-impact and declined-consent durable-state assertions, a
 provider-backed exact persisted-turn acceptance remain incomplete. No production
 host/config/VM changes, push or merge; `.tmp-old-recovery` remains untouched and
 untracked. No fixture archive/build was created in this continuation.
+
+## Authenticated shutdown continuation (2026-11-09)
+
+The development legacy adapter now uses the already-existing authenticated
+`ShutdownAgent`, via private registry credentials and `developmentPeerDial`
+(identity plus LifecycleList store binding), then re-inspects the recorded kernel
+listener identity before revalidating approval. There is no signal fallback or
+new RPC. Accepted is **not** complete: bounded polling of kernel host absence,
+then another absence check, runs under the same generation launch lock through
+`use`. Refusal, response loss, drain timeout, unreadable processes, stale identity
+and bad credentials prohibit continuation. This is integration-ready source stop,
+not yet a production coordinator or a writer-containment certificate.
+
+### Corrected relevant-writer boundary
+
+Pinned `d7cbdeb` evidence (historical file lines):
+- `cmd/cercano/main.go:1230-1235,2292-2325`: worker entrypoint serves a unix Worker
+  service and proxies state to host; it does not open the conversation store.
+- `internal/worker/proxies.go:426-515`: main/subagent persistence emits messages
+  to the host stream. `internal/worker/host.go:943-975` consumes them and invokes
+  host persistence/ensure-child callbacks. A surviving worker cannot execute
+  these host callbacks in a dead host.
+- `internal/worker/worker_dispatch.go:37-54`: worker tool stack has nil conversation
+  store; autonomy is also a host stream proxy, not worker SQLite persistence.
+- `internal/worker/tasks.go:25-91`: independent-task controls proxy to the host's
+  task service, with parent identity assigned by the host.
+- `internal/server/server.go:636-674`: independent tasks use one host-owned
+  taskrun manager and the host persistence store. `internal/taskrun/manager.go:
+  175,195,210-240` inserts, starts, executes in a goroutine, and commits terminal
+  state in that host process. These are not detached standalone store writers.
+
+Thus prior blanket concern that every surviving worker/tool must be killed was
+unsupported. Detached tool external effects may remain uncertain; they are not
+thereby coexistence writers and must not be replayed. Worker failure/routing logs
+and other ancillary stores are not the conversation coexistence store. No native
+worker death requirement is introduced based on unrelated effects.
+
+Still missing is runtime qualification of the **selected historical host and its
+Worker-service subprocess graph**, against this architecture, including the
+production task/dispatch callback route after host shutdown. That concrete class
+has not been exercised by the new transport fixture (it uses a real authenticated
+gRPC server but injected process checks). The architecture supports a host-only
+owned-persistence boundary for this pinned revision; it does not qualify arbitrary
+historical executables from a registry record. Actual historical launcher
+contention and old worker/task persistence tests are still needed before converting
+this source-stop result into coordinator writer authority. There is no evidence
+here of an additional detached standalone task SQLite writer or arbitrary SQL
+attacker requiring universal descendant containment.
+
+### Executed checks
+
+All commands offline (`GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off`):
+- Normal command tests: `go test ./cmd/cercano -run
+  'Legacy|DevelopmentRecoveryRegistryExclusion' -count=1 -timeout=60s` PASS.
+- Race: `go test -race ./cmd/cercano ./internal/brewrestart -run
+  'Legacy|DevelopmentRecoveryRegistryExclusion|HostAbsent|RecoveryArgv'
+  -count=1 -timeout=90s`: command package PASS; brewrestart explicitly selected
+  **zero tests**, not counted as native evidence.
+- Corrected native race command: `go test -race ./internal/brewrestart -run
+  '^TestDeadHostKernelVerification$' -count=1 -v -timeout=60s` PASS (one selected).
+- New `TestLegacyAuthenticatedShutdownWait`: all seven subtests PASS:
+  bounded-success, drain-hangs, declined, response-loss, refused, cancelled,
+  unreadable-process. These are injected-drain tests, not old in-flight execution.
+- New `TestLegacyShutdownAuthenticatedTransport/false` and `/true` PASS: correct
+  token shutdown plus held exclusion, wrong token no shutdown/no continuation.
+- Existing `TestDevelopmentLegacyProductionAdapter` (12 subtests) and
+  `TestDevelopmentRecoveryRegistryExclusion` PASS in the focused normal run.
+- `OLD_RECOVERY_PRODUCTION_FIXTURE=1 sh
+  efforts/old-host-compatible-recovery/fixture/build-production.sh` PASS: actual
+  historical CLI containing host+worker builds offline, with historical
+  `developmentfixture cercano_development_acceptance` backend tags, no source
+  patch. Build is gated and disposable; **it does not execute the binary**.
+
+No failing executed tests. Full old-production shutdown/in-flight drain journey,
+old launcher race and persisted destination turn remain NOT RUN. This build-only
+runner is an incremental prerequisite, not the requested runtime acceptance.
+No SDK signal probe was necessary: this path uses supported authenticated RPC
+and existing native absence inspection, not privilege expansion or PID signaling.
+
+Next coordinator integration slice: add disposable execution of that built
+production graph with loopback provider, real worker/task callbacks and old
+launcher contention; qualify the pinned writer contract. Then call
+`withStoppedSource` with fresh source/epoch/destination disclosure approval and
+perform exact owned/reserved recovery inside `use`, retaining exclusion through
+transactional late-claim checks. Do not connect Stop alone to reassignment, infer
+completion from acceptance, or replay interrupted actions. Plan Phase 1/2 remain
+partial; other phases are not marked complete.
