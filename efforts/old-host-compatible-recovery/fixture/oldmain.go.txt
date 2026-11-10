@@ -1,0 +1,36 @@
+// Test adapter compiled ONLY against pinned historical source. No RPC overrides.
+package main
+
+import (
+ "context"
+ "encoding/json"
+ "io"
+ "net"
+ "os"
+ "cercano/source/server/internal/broker"
+ "cercano/source/server/internal/conversation"
+ "cercano/source/server/internal/server"
+ pb "cercano/source/server/pkg/proto"
+ "google.golang.org/grpc"
+ "google.golang.org/grpc/credentials/insecure"
+)
+func main() {
+ ctx := context.Background()
+ path, ready := os.Args[1], os.Args[2]
+ must := func(e error) { if e != nil { panic(e) } }
+ must(conversation.PrepareCoexistence(ctx, path))
+ declaration := conversation.CurrentCoexistenceDeclaration()
+ s, e := server.NewCoexistenceServer(ctx, server.CoexistenceOptions{StorePath:path, Host:"old-fixture", Build:"d7cbdeb21c44-fixture", Contract:declaration, ControlDial:func(_ context.Context, endpoint string, _ *pb.LifecycleIdentity)(*grpc.ClientConn,error){return grpc.NewClient(endpoint,grpc.WithTransportCredentials(insecure.NewCredentials()))}, ControlAuthorize:func(context.Context) error{return nil}, CloseParticipation:func(context.Context)error{return nil}, Reload:func(context.Context,conversation.Store,*conversation.Ownership)error{return nil}})
+ must(e)
+ owner,e := s.Retain(ctx,"chat"); must(e)
+ held,e := s.AdmitRetainedWork(owner,broker.PersistenceWork); must(e)
+ listener,e := net.Listen("tcp","127.0.0.1:0"); must(e)
+ transport := grpc.NewServer(); pb.RegisterAgentServer(transport,s)
+ go transport.Serve(listener)
+ identity := &pb.LifecycleIdentity{Host:"old-fixture", Build:"d7cbdeb21c44-fixture", Store:path, Contract:declaration.Contract, Schema:int32(declaration.SchemaVersion)}
+ data,e := json.Marshal(struct{Identity *pb.LifecycleIdentity; Owner *pb.LifecycleOwner; Endpoint string}{identity,&pb.LifecycleOwner{Conversation:owner.Conversation,Host:owner.Host,Epoch:owner.Epoch},listener.Addr().String()}); must(e)
+ must(os.WriteFile(ready,data,0600))
+ // Parent owns stdin; EOF is the only shutdown control. Never inspect ambient PIDs.
+ io.Copy(io.Discard,os.Stdin)
+ transport.Stop(); must(held.Complete())
+}

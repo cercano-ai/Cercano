@@ -6,11 +6,11 @@ Execute the approved spec in spec.md. Whole-old-host interruption with disclosed
 
 Objective: establish the smallest failing end-to-end recovery journey before modifying production behavior. Inspect the current tree rather than relying on prior task reports. Files: server resume/recovery tests, command process-control tests, client/UI recovery tests, and protocol consumers. Tests: actual pinned old implementation lacking new APIs, isolated state and child processes, multiple destination journals, and a deterministic loopback provider. Do not rebuild or execute a live user's dirty generation.
 
-- [ ] Trace protocol consumers and identify redundant orchestration, retained safety fixes, and compatibility-required old controls.
-- [ ] Establish a reproducible old-binary provenance and offline build fixture; state differences from the incident binary.
-- [ ] Reproduce unsupported-probe and multiple-journal failures with the old fixture and current destination.
-- [ ] Trace old host/worker process ownership, shutdown behavior, launch participation, and store compatibility; probe containment and relaunch exclusion in disposable state.
-- [ ] Add the failing old-owner-to-new-owner persisted-turn acceptance journey and precise no-mutation assertions for declined recovery.
+- [x] Trace protocol consumers and identify redundant orchestration, retained safety fixes, and compatibility-required old controls.
+- [x] Establish a reproducible old-binary provenance and offline build fixture; state differences from the incident binary.
+- [x] Reproduce unsupported-probe and multiple-journal failures with the old fixture and current destination.
+- [~] Trace old host/worker process ownership, shutdown behavior, launch participation, and store compatibility; probe containment and relaunch exclusion in disposable state.
+- [~] Add the failing old-owner-to-new-owner persisted-turn acceptance journey and precise no-mutation assertions for declined recovery.
 
 ## Phase 2 — Exact source interruption and writer containment
 
