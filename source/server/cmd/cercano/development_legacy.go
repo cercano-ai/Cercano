@@ -18,6 +18,7 @@ type developmentLegacyStop struct {
 	destination *pb.LifecycleIdentity
 	inspect     func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error)
 	stop        func(context.Context, string, netip.AddrPort, brewrestart.Identity, func() error) error
+	absent      func(context.Context, string) error
 }
 
 type legacySourceSnapshot struct {
@@ -26,7 +27,7 @@ type legacySourceSnapshot struct {
 }
 
 func newDevelopmentLegacyStop(state string, destination *pb.LifecycleIdentity) *developmentLegacyStop {
-	return &developmentLegacyStop{state, destination, brewrestart.PrepareLegacyHost, brewrestart.StopLegacyHost}
+	return &developmentLegacyStop{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost, stop: brewrestart.StopLegacyHost, absent: brewrestart.VerifyHostAbsent}
 }
 
 // withSource uses exactly the recovery path's existing per-generation launch
@@ -97,6 +98,23 @@ func (p *developmentLegacyStop) Prepare(ctx context.Context, source *pb.Lifecycl
 }
 
 func (p *developmentLegacyStop) Stop(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error) error {
+	return p.withStoppedSource(ctx, source, snapshot, validate, nil)
+}
+
+// withStoppedSource keeps the existing launch exclusion continuously across stop,
+// source absence verification and use. It is a source-only building block, NOT
+// writer containment: independent old workers and detached effects are not covered.
+// A recovery coordinator must establish worker containment before using this to
+// reassign ownership, and must recheck consent/epoch inside use. Native stopping
+// retains its existing platform limitations (identity inspection then PID signal,
+// not an atomic identity-bound signal). No production recovery caller is wired here.
+func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if validate == nil {
+		return fmt.Errorf("source stop requires fresh approval validation")
+	}
 	var expected legacySourceSnapshot
 	if snapshot == "" || json.Unmarshal([]byte(snapshot), &expected) != nil {
 		return fmt.Errorf("invalid approved source snapshot")
@@ -116,6 +134,21 @@ func (p *developmentLegacyStop) Stop(ctx context.Context, source *pb.LifecycleId
 		if !id.SameProcess(expected.Process) {
 			return fmt.Errorf("approved source process changed")
 		}
-		return p.stop(ctx, source.Host, endpoint, expected.Process, validate)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := p.stop(ctx, source.Host, endpoint, expected.Process, validate); err != nil {
+			return err
+		}
+		if use == nil {
+			return nil
+		}
+		if err := p.absent(ctx, source.Host); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return use(ctx)
 	})
 }

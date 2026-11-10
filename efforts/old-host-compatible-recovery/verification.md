@@ -153,3 +153,58 @@ Native process probes discover/signal only their own helper PIDs and clean them 
 No ambient PID signaling, credentials, provider requests or live state writes.
 Preexisting `.tmp-old-recovery/` is retained untracked, not trusted evidence, not
 checkpointed or removed. Only explicit tests/fixture/evidence/plan paths are saved.
+
+
+## Continuation: held source exclusion, not writer containment
+
+Re-read the approved spec/plan and checkpoint `aed3814db2ef`; this slice changes
+only the existing development legacy adapter and its disposable registry tests.
+`withStoppedSource` retains the existing recovery guard through bounded source
+stop, source absence verification, and a callback. Existing `Stop` remains a
+source-stop operation; it does not gain a containment claim. The new callback
+path is not connected to a production recovery coordinator or ownership mutation.
+Cancellation and missing approval validation are rejected before stop. No new
+service, recovery protocol, or historical-source adaptation was added.
+
+Fresh bounded check in this continuation (historical fixture pass/red results
+above were not rerun in this continuation):
+
+* Same offline environment, `go test -race ./cmd/cercano -run
+  '^(TestDevelopmentLegacyProductionAdapter|TestDevelopmentRecoveryRegistryExclusion)$'
+  -count=1 -v -timeout=60s`: PASS after final code/test edits.
+  Real temporary registry/flocks, stubbed process inspection/stop/absence only.
+  Tests cover continuous lock conflict at stop/absence/use, no callback on absence
+  failure, callback error propagation, cancellation before stop, lock release,
+  stale process/record/generation and rejected approval. Source and unrelated-host
+  registry bytes remain unchanged (except intentional stale-record test writes).
+  Decline means no Stop invocation; no DB/consent UI journey is claimed. Synthetic
+  stale-epoch rejection is the validator seam, not transactional epoch coverage.
+
+### Concrete native blockers and remaining integration
+
+Inspection of `internal/brewrestart/upgrade_process_darwin.go:61-69` shows
+`signalIdentity` calls `Inspect`, compares `SameProcess`, then separately calls
+`syscall.Kill(id.PID, sig)`. This narrows but does not close the process-exit/PID-reuse
+window. It is NOT an atomic identity-bound signal. No new PID signaling code was
+added, and these tests never exercise ambient process discovery/signaling.
+`upgrade_darwin.go:73-75` explicitly excludes descendants from the host stop;
+`VerifyHostAbsent` is not a surviving-worker proof. Fixture-owned child handles
+cannot be generalized into attribution for historical detached/reparented workers.
+There is consequently no adequate general containment proof in this slice.
+Native implementation is darwin+cgo; no other platform or kernel race certification
+was performed. Lock tests establish cooperative lock exclusion, not exclusion of
+an arbitrary launcher that ignores it or an actual historical relaunch race.
+
+Phase 2 attribution/containment is marked blocked, rather than done. Connecting
+this helper to reassignment would require a reviewed identity-bound native stop
+and independently justified complete writer attribution/containment. Treating
+inspect-then-kill, host absence, or owned fixture handles as that proof would weaken
+the approved safety semantics; this continuation stops before such integration.
+A future coordinator must also bind disclosed host-wide sibling impact, source,
+epoch and selected destination to fresh consent, recheck consent/epoch within the
+held callback, and retain exclusion through the ownership transaction. None of
+those Phase 3/4 integrations is implemented here. Full Phase 1 owned historical
+worker/relaunch, sibling-impact and declined-consent durable-state assertions, and
+provider-backed exact persisted-turn acceptance remain incomplete. No production
+host/config/VM changes, push or merge; `.tmp-old-recovery` remains untouched and
+untracked. No fixture archive/build was created in this continuation.
