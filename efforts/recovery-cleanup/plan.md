@@ -18,11 +18,11 @@ Objective: identify active consumers and ensure retained fixture commands cannot
 
 Objective: delete dead implementation without changing runtime behavior. Files: source/server/internal/server/resume.go; source/server/internal/conversation/ownership_takeover.go and tests; direct consumers discovered in Phase 1. Tests: active ownership lock, reservation, and resume safety tests. The unused reaffirmation helper is not permission to remove active journal durability barriers.
 
-- [ ] Confirm the reaffirmation helper and takeover primitive have no production consumers at the execution baseline
-- [ ] Inventory unique safety assertions in deletion-target tests and retain relevant assertions against active APIs
-- [ ] Remove unused helpers, primitive, and obsolete tests in narrowly scoped changes
-- [ ] Verify references, formatting, module compilation, and focused ownership/resume tests normally and with race detection
-- [ ] Checkpoint deletion-only changes with explicit behavior-preservation evidence
+- [x] Confirm the reaffirmation helper and takeover primitive have no production consumers at the execution baseline
+- [x] Inventory unique safety assertions in deletion-target tests and retain relevant assertions against active APIs
+- [x] Remove unused helpers, primitive, and obsolete tests in narrowly scoped changes
+- [x] Verify references, formatting, module compilation, and focused ownership/resume tests normally and with race detection
+- [x] Checkpoint deletion-only changes with explicit behavior-preservation evidence
 
 ## Phase 3 — Consolidate recovery execution and consent
 
