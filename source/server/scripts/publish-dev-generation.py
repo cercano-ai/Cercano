@@ -36,9 +36,12 @@ Final mismatches report sorted added/removed/changed repo-relative source paths
 and top-level metadata key names only (10 names per category, 160 characters per
 name, with truncation/counts). No file contents or metadata values are reported.
 Failed final collection refuses publication without claiming a partial input diff.
-Known performance limitation: full SDK/toolchain hashing is repeated (two passes
-on reuse, four for a new generation including the launcher's fingerprint query).
-No persistent identity cache is used.
+The ordinary launcher uses publish-current --root ABSOLUTE [--repo PATH]
+[--go ABSOLUTE] [--sign]: collect inputs, derive the fingerprint-named destination,
+then validate reuse or publish from that same initial tuple. Stdout is one absolute
+generation path. This takes one collection on reuse, three on publication (initial,
+snapshot, final live recheck), rather than the explicit two-command API's two/four.
+Full SDK/toolchain hashing remains; no persistent identity cache is used.
 GOFLAGS and other unsupported Go/compiler overrides fail closed; builds force
 native Go cgo defaults (or explicit CGO_ENABLED=0/1), GOENV=off, GOWORK=off, GOTOOLCHAIN=local, readonly modules and no VCS
 stamping. Local module replacements must stay inside source/. Dependency versions
@@ -330,7 +333,13 @@ def reusable(destination, fingerprint):
             raise ValueError("existing generation binary hash mismatch")
 
 
-def publish(args):
+def publish(args, *, fingerprint_generation=False):
+    """Publish with explicit naming, or derive the name from this collection.
+
+    The combined operation must not collect externally and pass only a token:
+    reuse/build decisions share the initial metadata, environment and inventory.
+    Snapshot and final live collections below remain independent safety checks.
+    """
     root_arg = Path(args.root)
     if not root_arg.is_absolute():
         raise ValueError("--root must be an explicit absolute path")
@@ -338,7 +347,7 @@ def publish(args):
     home_bin = (Path.home() / "bin").resolve()
     if root == home_bin or home_bin in root.parents or ".cercano-libexec" in root.parts:
         raise ValueError("installation paths (~/bin or .cercano-libexec) are prohibited")
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", args.generation):
+    if not fingerprint_generation and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", args.generation):
         raise ValueError("generation must be a single safe name (1-128 characters)")
     repo = Path(args.repo).resolve()
     if root.is_relative_to(repo):
@@ -351,7 +360,8 @@ def publish(args):
     if args.fingerprint and args.fingerprint != fingerprint:
         raise ValueError("source/build fingerprint changed before publication")
     root.mkdir(parents=True, exist_ok=True)
-    destination = root / args.generation
+    generation = fingerprint if fingerprint_generation else args.generation
+    destination = root / generation
     if os.path.lexists(destination):
         if args.reuse:
             reusable(destination, fingerprint)
@@ -367,7 +377,7 @@ def publish(args):
     try:
         if inputs(args, snapshot)[0] != fingerprint:
             raise ValueError("source changed while taking build snapshot")
-        manifest = {"schema": 1, "generation": args.generation,
+        manifest = {"schema": 1, "generation": generation,
                     "build_id": str(uuid.uuid4()), "fingerprint": fingerprint, "source_commit": commit,
                     "source_dirty": dirty, "version": version, "repo": str(repo),
                     "build_inputs": metadata, "go_tool": go, "go_version": toolchain, "sign_requested": args.sign,
@@ -435,6 +445,12 @@ def main():
     command.add_argument("--sign", action="store_true", help="use optional stable Developer ID signing policy on Darwin")
     command.add_argument("--fingerprint", help="require this fingerprint before building")
     command.add_argument("--reuse", action="store_true", help="validate and reuse matching existing generation")
+    command = commands.add_parser("publish-current", help="validate or publish the current fingerprint-named generation")
+    command.add_argument("--root", required=True, help="absolute dedicated generation root")
+    command.add_argument("--repo", default=str(Path(__file__).resolve().parents[3]))
+    command.add_argument("--go", help="absolute Go build tool")
+    command.add_argument("--sign", action="store_true")
+    command.set_defaults(generation=None, fingerprint=None, reuse=True)
     command = commands.add_parser("fingerprint", help="print content/build SHA-256; no builds")
     command.add_argument("--repo", default=str(Path(__file__).resolve().parents[3]))
     command.add_argument("--go", help="absolute Go build tool")
@@ -444,7 +460,7 @@ def main():
         if args.command == "fingerprint":
             print(inputs(args)[0])
         else:
-            publish(args)
+            publish(args, fingerprint_generation=args.command == "publish-current")
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f"publication failed: {error}", file=sys.stderr)
         return 1

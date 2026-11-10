@@ -85,6 +85,25 @@ export CERCANO_DEVELOPMENT_STATE=/absolute/private/parent/cercano-review-state
 
 A plain invocation fingerprints source/toolchain inputs, publishes or validates a complete signed generation under `state/generations`, then acquires a **new conversation**. Same inputs reuse the generation and authenticated host; they do not reconnect a prior conversation. Same-generation host acquisition is serialized, including concurrent callers; distinct conversations can share that host. Source changes select another generation, leaving prior binaries and sessions intact. Fingerprints include all `source/` bytes, including untracked/ignored inputs, so apparent “same Git commit” alone does not imply reuse. Fingerprinting can be expensive.
 
+The ordinary launcher uses the publisher's `publish-current --root ABSOLUTE`
+operation (with the same repo/signing options), which collects inputs once to
+select the fingerprint-named generation and validate reuse or begin publication.
+Warm reuse performs **one** full input collection instead of two; publication
+performs **three** instead of four, retaining snapshot equality and the final live
+recheck. Explicit `fingerprint` and `publish` APIs and initial-setup behavior remain
+available unchanged. No persistent cache or ignored-path exclusions were added;
+binary validation, signing resolution, and immutable exclusive publication remain.
+
+Issue #82's supplied diagnostic measured one exact `inputs(sign=False)` collection
+at 11.041s: SDK hashing 4.864s, developer toolchain hashing 4.187s, Go identity
+1.359s, and source work under 0.6s. Removing the adjacent duplicate collection
+addresses that measured redundant work, not the remaining hashing cost. Disposable
+mock-toolchain tests verify the 2/4 versus 1/3 counts, corruption/input-change
+refusal, snapshot/final checks, and launcher protocol/progress behavior. This does
+not reproduce a reported 30-second launch or establish end-to-end latency, signed
+build timing, or live host behavior.
+
+
 Runtime socket paths must be short: `CERCANO_RUNTIME_ROOT`, if supplied, must name an existing canonical owned private directory whose resolved path is at most **38 bytes**. Otherwise the launcher creates a short private `/tmp/cd-*` root and saves its path in `state/runtime-root.json` under a lock. Keep that directory available; a missing saved root is a failure, not permission to discover a replacement runtime.
 
 Acquisition writes a private immutable selection in `state/selections/<conversation>.json`. Identify and save the **exact selection for your conversation**, not “latest” by timestamp (concurrent invocations make that ambiguous). It contains generation, endpoint, token-file path, host/build/store identity, conversation and ownership epoch. Treat selection and token material as private; do not edit identities or overwrite original selections.

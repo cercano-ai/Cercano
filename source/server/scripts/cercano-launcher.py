@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Publish canonical signed inputs, then delegate authenticated acquisition to that binary."""
 import json
+import re
 import hashlib
 from contextlib import closing, contextmanager
 import fcntl
@@ -570,10 +571,10 @@ def launch_main():
     # Build tooling may not access credentials; runtime policy belongs to the caller.
     build_env = dict(runtime_env, CERCANO_DISABLE_CREDENTIALS='1')
     feedback('Checking source fingerprint...')
-    fingerprint = progress_check_output([*publisher, 'fingerprint', *common], env=build_env, text=True).strip()
     feedback('Preparing binaries (building if needed)...')
-    generation = progress_check_output([*publisher, 'publish', *common, '--root', str(root), '--generation', fingerprint, '--fingerprint', fingerprint, '--reuse'], env=build_env, text=True).strip()
-    if generation != str(root / fingerprint):
+    generation = progress_check_output([*publisher, 'publish-current', *common, '--root', str(root)], env=build_env, text=True).strip()
+    if (not re.fullmatch(r'[0-9a-f]{64}', Path(generation).name)
+            or generation != str(root / Path(generation).name)):
         raise ValueError('publisher returned noncanonical generation')
     validate_generation(generation, state)
     binary = str(Path(generation) / 'cercano')

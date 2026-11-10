@@ -225,6 +225,88 @@ output.chmod(0o755)
         self.env["GOARCH"] = "arm64"
         self.assertNotEqual(second, self.fingerprint().stdout)
 
+    def current(self):
+        return subprocess.run([sys.executable, str(PUBLISHER), "publish-current",
+                               "--root", str(self.root), "--repo", str(self.repo),
+                               "--go", str(self.fake)], env=self.env, text=True,
+                              capture_output=True)
+
+    def test_legacy_launcher_collection_probe(self):
+        log = self.home / "env-log"
+        self.env["ENV_LOG"] = str(log)
+        fingerprint = self.fingerprint().stdout.strip()
+        self.assertEqual(self.publish(extra=["--fingerprint", fingerprint, "--reuse"]).returncode, 0)
+        self.assertEqual(len(log.read_text().splitlines()), 4)
+        log.write_text("")
+        fingerprint = self.fingerprint().stdout.strip()
+        self.assertEqual(self.publish(extra=["--fingerprint", fingerprint, "--reuse"]).returncode, 0)
+        self.assertEqual(len(log.read_text().splitlines()), 2)
+
+    def test_current_collection_counts_and_protocol(self):
+        log = self.home / "env-log"
+        self.env["ENV_LOG"] = str(log)
+        first = self.current()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(len(log.read_text().splitlines()), 3)
+        destination = Path(first.stdout.strip())
+        manifest = json.loads((destination / "manifest.json").read_text())
+        self.assertEqual(first.stdout, str(self.root / manifest["fingerprint"]) + "\n")
+        builds = (self.home / "build-log").read_bytes()
+        log.write_text("")
+        second = self.current()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(second.stdout, first.stdout)
+        self.assertEqual(len(log.read_text().splitlines()), 1)
+        self.assertEqual(builds, (self.home / "build-log").read_bytes())
+        (self.repo / "source/server/new.go").write_text("new input")
+        log.write_text("")
+        changed = self.current()
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        self.assertNotEqual(changed.stdout, first.stdout)
+        self.assertEqual(len(log.read_text().splitlines()), 3)
+        binary = Path(changed.stdout.strip()) / "cercano"
+        binary.chmod(0o755)
+        binary.write_bytes(b"corrupt")
+        self.assertNotEqual(self.current().returncode, 0)
+
+    def test_current_snapshot_and_final_checks(self):
+        import argparse
+        import importlib.util
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(publisher)
+        args = argparse.Namespace(repo=str(self.repo), go=str(self.fake), sign=False,
+                                  root=str(self.root), generation=None,
+                                  fingerprint=None, reuse=True)
+        for failure_call in (2, 3):
+            for unavailable in (False, True):
+                with self.subTest(call=failure_call, unavailable=unavailable):
+                    original = publisher.inputs
+                    calls = 0
+
+                    def collect(*a, **kw):
+                        nonlocal calls
+                        calls += 1
+                        result = original(*a, **kw)
+                        if calls == failure_call:
+                            if unavailable:
+                                raise ValueError("fixture collection failure")
+                            return ("changed", result[1], result[2])
+                        return result
+
+                    stdout = io.StringIO()
+                    with patch.dict(os.environ, self.env, clear=True), \
+                            patch.object(publisher, "inputs", side_effect=collect), \
+                            redirect_stdout(stdout):
+                        with self.assertRaises(ValueError):
+                            publisher.publish(args, fingerprint_generation=True)
+                    self.assertEqual(calls, failure_call)
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertEqual(list(self.root.iterdir()), [])
+
     def test_expected_fingerprint_and_reuse(self):
         fingerprint = self.fingerprint().stdout.strip()
         extra = ["--fingerprint", fingerprint, "--reuse"]

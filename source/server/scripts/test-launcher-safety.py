@@ -38,10 +38,10 @@ assert os.environ.get('CERCANO_REPO') == os.environ.get('FAKE_EXPECT_REPO', os.e
 assert os.environ['CERCANO_DISABLE_CREDENTIALS']=='1'
 assert '--sign' in sys.argv
 state=pathlib.Path(os.environ['CERCANO_DEVELOPMENT_STATE'])
-if sys.argv[1]=='fingerprint': print('abc'); sys.exit()
-assert '--reuse' in sys.argv and '--fingerprint' in sys.argv
+if sys.argv[1]=='fingerprint': print('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'); sys.exit()
+assert sys.argv[1]=='publish-current' or ('--reuse' in sys.argv and '--fingerprint' in sys.argv)
 if os.environ.get('FAKE_BUILD_FAIL'): print('synthetic-secret', file=sys.stderr); sys.exit(42)
-gen=pathlib.Path(sys.argv[sys.argv.index('--root')+1])/'abc'
+gen=pathlib.Path(sys.argv[sys.argv.index('--root')+1])/'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 gen.parent.mkdir(mode=0o700, exist_ok=True)
 templates=pathlib.Path(os.environ.get('FAKE_TEMPLATES', str(state)))
 with (templates/'publish.lock').open('w') as lock:
@@ -51,7 +51,7 @@ with (templates/'publish.lock').open('w') as lock:
   target=gen/name
   if not target.exists():
    target.write_bytes((templates/name).read_bytes()); target.chmod(0o755)
- manifest={'schema':1, 'generation':'abc', 'build_id':'fake', 'binaries':{name:{'sha256':hashlib.sha256((gen/name).read_bytes()).hexdigest(), 'size':(gen/name).stat().st_size} for name in ['cercano', 'cercano-cli']}}
+ manifest={'schema':1, 'generation':'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'build_id':'fake', 'binaries':{name:{'sha256':hashlib.sha256((gen/name).read_bytes()).hexdigest(), 'size':(gen/name).stat().st_size} for name in ['cercano', 'cercano-cli']}}
  if not (gen/'manifest.json').exists(): (gen/'manifest.json').write_text(json.dumps(manifest))
  if os.environ.get('FAKE_IMMUTABLE'):
   for child in gen.iterdir(): child.chmod(0o444 if child.name=='manifest.json' else 0o555)
@@ -339,7 +339,7 @@ print(json.dumps(sys.argv[1:]))
                 log = Path(env['FAKE_ENV_LOG'])
                 with self.subTest(phase='launch'):
                     self.assertEqual([json.loads(line) for line in log.read_text().splitlines()], [
-                        ['fingerprint', '1'], ['publish', '1'],
+                        ['publish-current', '1'],
                         ['development-launch', policy], ['cli', policy],
                     ])
                 selection = json.loads(result.stdout)[1]
