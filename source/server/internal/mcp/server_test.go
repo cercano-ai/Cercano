@@ -1569,18 +1569,6 @@ func (m *mockAgentClient) LifecycleRelinquish(context.Context, *proto.LifecycleC
 	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRelinquish in MCP mock")
 }
 
-func (m *mockAgentClient) LifecycleRetryReceipt(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRetryReceipt in MCP mock")
-}
-
-func (m *mockAgentClient) LifecycleRetryRelinquish(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRetryRelinquish in MCP mock")
-}
-
-func (m *mockAgentClient) LifecycleRetryClaim(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleRetryClaim in MCP mock")
-}
-
 func (m *mockAgentClient) LifecycleClaim(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleClaim in MCP mock")
 }
@@ -1609,28 +1597,4 @@ var _ proto.AgentClient = (*mockAgentClient)(nil)
 
 func (m *mockAgentClient) ReopenSubAgent(ctx context.Context, in *proto.ReopenSubAgentRequest, opts ...grpc.CallOption) (*proto.ReopenSubAgentResponse, error) {
 	return &proto.ReopenSubAgentResponse{}, nil
-}
-
-func (m *mockAgentClient) LifecycleTakeover(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleTakeover in MCP mock")
-}
-
-func (m *mockAgentClient) LifecycleTakeoverProbe(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleTakeoverProbe in MCP mock")
-}
-
-func (m *mockAgentClient) LifecycleTakeoverPrepare(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleTakeoverPrepare in MCP mock")
-}
-
-func (m *mockAgentClient) LifecycleTakeoverReceipt(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleTakeoverReceipt in MCP mock")
-}
-
-func (m *mockAgentClient) LifecycleTakeoverClaim(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleTakeoverClaim in MCP mock")
-}
-
-func (m *mockAgentClient) LifecycleTakeoverRelinquish(context.Context, *proto.LifecycleControlRequest, ...grpc.CallOption) (*proto.LifecycleControlResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "unexpected LifecycleTakeoverRelinquish in MCP mock")
 }

@@ -13,22 +13,12 @@ service Agent {
   rpc LifecyclePrepare (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleValidateReceipt (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
-  // Explicit confirmed cutover: revoke clients, cancel work, then transfer.
-  // Older hosts reject this method; clients must never fall back to attachment takeover.
+  // Destination-authorized recovery after verified source death/containment.
+  // Never fall back to terminal attachment takeover.
   rpc LifecycleRecover(LifecycleRecoverRequest) returns (LifecycleControlResponse);
+  // Explicit cooperative cutover: revoke clients, cancel work, then transfer.
   rpc LifecycleForceRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleClaim (LifecycleControlRequest) returns (LifecycleControlResponse) {}
-  // Exact existing-operation recovery only. Unsupported servers MUST NOT be
-  // retried using the older mutating controls.
-  rpc LifecycleRetryReceipt (LifecycleControlRequest) returns (LifecycleControlResponse) {}
-  rpc LifecycleRetryRelinquish (LifecycleControlRequest) returns (LifecycleControlResponse) {}
-  rpc LifecycleTakeover(LifecycleControlRequest) returns (LifecycleControlResponse);
-  rpc LifecycleTakeoverProbe(LifecycleControlRequest) returns (LifecycleControlResponse);
-  rpc LifecycleTakeoverPrepare(LifecycleControlRequest) returns (LifecycleControlResponse);
-  rpc LifecycleTakeoverReceipt(LifecycleControlRequest) returns (LifecycleControlResponse);
-  rpc LifecycleTakeoverRelinquish(LifecycleControlRequest) returns (LifecycleControlResponse);
-  rpc LifecycleTakeoverClaim(LifecycleControlRequest) returns (LifecycleControlResponse);
-  rpc LifecycleRetryClaim (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleList (LifecycleControlRequest) returns (LifecycleControlResponse) {}
   rpc LifecycleRetire (LifecycleControlRequest) returns (LifecycleControlResponse) {}
 
@@ -2791,10 +2781,11 @@ message LifecycleControlRequest {
  string launch_operation = 12;
  // acquire, deliver, or abort. Journal-only states are never client commands.
  string launch_action = 13;
- // Single-use, coordinator-local consent for the exact authenticated original operation.
+ // Single-use contained-source recovery consent (historical field name).
  string recovery_challenge = 14;
  bool confirm_original_recovery = 15;
- bool confirm_legacy_recovery = 16;
+ reserved 16;
+ reserved "confirm_legacy_recovery";
 }
 message LifecycleControlResponse {
  LifecycleIdentity identity = 1;
@@ -2814,7 +2805,7 @@ message LifecycleControlResponse {
  string operation_id = 11;
  string blocked_reason = 12;
  string legacy_process_identity = 13;
- // RetryClaim only: recorded result still owns the store at observation time.
+ // Result still owns the store at observation time.
  // Historical results never reacquire ownership; this is not a future lease.
  bool current_owner = 14;
  LifecycleOriginalRecovery original_recovery = 15;
@@ -2855,11 +2846,14 @@ message LifecycleRecoverySelection {
  string endpoint = 2;
  string token_file = 3;
 }
+// Historical envelope reused ONLY for contained-source recovery. No original-operation
+// discovery or retry/takeover handler exists. Fields 4/5 remain rejection sentinels
+// for old clients, not supported modes.
 message LifecycleOriginalRecovery {
  LifecycleControlRequest operation = 1;
  LifecycleRecoverySelection selection = 2;
  string challenge = 3;
  bool legacy = 4;
- // Cooperative owner-epoch takeover; never legacy/original-operation retry.
+ // Unsupported historical mode; must remain false.
  bool takeover = 5;
 }

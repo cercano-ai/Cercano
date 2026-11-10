@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
@@ -53,8 +55,8 @@ type CoexistenceOptions struct {
 type coexistenceLifecycle struct {
 	launches         map[string]*pb.LifecycleControlRequest
 	mu               sync.Mutex
-	resumeMu         sync.Mutex                          // serialize operation journal updates, never held by peer callbacks
-	recoveryOffers   map[string]*originalRecoveryConsent // guarded by resumeMu, single use
+	resumeMu         sync.Mutex                           // serialize operation journal updates, never held by peer callbacks
+	recoveryOffers   map[string]*containedRecoveryConsent // guarded by resumeMu, single use
 	retireMu         sync.Mutex
 	retireDone       chan struct{}
 	retired          chan struct{}
@@ -552,14 +554,18 @@ func (s *Server) CloseCoexistenceStore() error {
 // Unknown historic provenance is deliberately refused (no schema migration).
 func (l *coexistenceLifecycle) verifiedHandoverResult(ctx context.Context, a *IncomingAcceptance) (string, error) {
 	if a.claimedEpoch == "" {
-		return "", retryStale()
+		return "", staleHandoverResult()
 	}
 	epoch, err := conversation.HandoverResult(ctx, l.store, a.h.Conversation, a.h.DestinationHost, a.h.HandoverID)
 	if err != nil {
 		return "", err
 	}
 	if epoch != a.claimedEpoch {
-		return "", retryStale()
+		return "", staleHandoverResult()
 	}
 	return epoch, nil
+}
+
+func staleHandoverResult() error {
+	return status.Error(codes.FailedPrecondition, "exact existing transfer state required")
 }

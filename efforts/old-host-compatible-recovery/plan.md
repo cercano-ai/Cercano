@@ -41,9 +41,9 @@ Objective: connect normal UI recovery to the replacement and remove redundant re
 - [ ] Make unsupported optional RPCs reach the explicit compatible fallback rather than abort reopen.
 - [ ] Remove journal-count ambiguity as a prerequisite to independently authorized death-proven recovery; keep journals as evidence only.
 - [~] Consolidate user confirmation and result handling into one recovery journey, including actionable failure stages and host-wide impact.
-- [~] Remove superseded protocol families and consumers identified in Phase 1; retain required compatibility controls and reusable safety primitives.
-- [ ] Reserve removed protobuf field/RPC-message identifiers as appropriate, never reuse field numbers or names; regenerate using repository tooling.
-- [~] Port useful regression tests and correct misleading documentation while retaining historical evidence as historical.
+- [x] Remove superseded protocol families and consumers identified in Phase 1; retain required compatibility controls and reusable safety primitives.
+- [x] Reserve removed protobuf field/RPC-message identifiers as appropriate, never reuse field numbers or names; regenerate using repository tooling.
+- [x] Port useful regression tests and correct misleading documentation while retaining historical evidence as historical.
 
 ## Phase 5 — Verification, independent review, and checkpoint
 

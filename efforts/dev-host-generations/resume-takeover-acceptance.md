@@ -1,5 +1,10 @@
 # Resume/takeover remaining acceptance (2026-11-01)
 
+> Current scope (2026-11-09): lifecycle Retry/Takeover RPC families are deleted.
+> Terminal attachment conflict/replacement remains supported; the acceptance below
+> is preserved historical evidence, not a lifecycle recovery API. See
+> [safe takeover scope](../../docs/safe-takeover.md).
+
 Base: `bc4887401574e8900fceed353294d073b61ceaf8`, branch `simplified-resume`.
 
 ## Expectations stated before execution

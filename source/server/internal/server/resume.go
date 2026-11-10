@@ -197,18 +197,6 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	// Try ordinary acquisition, exact reservation claims and supported cooperation
 	// first. Historical journals are not an ownership-discovery prerequisite.
 	// Only qualified containment may turn a failure into a fresh stop offer.
-	if !containedRecovery {
-		// Keep the existing receipt-based coordinator for installations without
-		// qualified host containment. The compatible production path below must
-		// not depend on these newer RPCs or on historical journal uniqueness.
-		if offered, handled, e := s.offerTakeover(ctx, l, r); handled {
-			return offered, e
-		}
-		stage = "original_operation_discovery"
-		if recovered, handled, e := s.originalRecovery(ctx, l, r); handled {
-			return recovered, e
-		}
-	}
 	if containedRecovery {
 		defer func() {
 			if finalErr == nil && result.GetReady() {

@@ -1,4 +1,53 @@
-# Explicit exact-transfer retry recovery
+# Recovery protocol: current replacement scope
+
+Normal reopen uses `LifecycleResume`: read current durable ownership, try supported
+cooperative controls first, and offer contained-source recovery when cooperation
+cannot safely complete. After explicit single-use, host-wide interruption consent,
+revalidate source process identity, source epoch, selected destination and ownership;
+contain/stop the source and use destination-authorized `LifecycleRecover`. Refuse
+uncertain containment or changed ownership. Never replay interrupted external actions.
+
+The modern `LifecycleRetryReceipt`, `LifecycleRetryRelinquish`, `LifecycleRetryClaim`
+and all `LifecycleTakeover*` RPCs, their handlers, retry client wrapper, and
+original-operation discovery/confirmation coordinator have been deleted. No journal
+count or original-destination discovery gate authorizes contained recovery. Ordinary
+cooperative retries still use durable operation journals, receipts, source fencing
+and exact claim provenance; journals are not authority to steal a current epoch.
+
+Preserved controls: Resume, Prepare, ValidateReceipt, Relinquish, ForceRelinquish,
+Claim and Recover, plus ordinary Acquire/Release/List/Retire. Legacy whole-host
+stop protection and its CLI confirmation remain necessary for older ordinary paths.
+Terminal-attachment `TakeoverConversation` is separate from lifecycle ownership and
+is retained. See [safe takeover scope](safe-takeover.md).
+
+`LifecycleOriginalRecovery` / `original_recovery` and `confirm_original_recovery`
+are explicitly retained **wire-envelope names only**, used by `live_recovery.go` for
+contained recovery. There is no parallel original-operation handler. The envelope's
+legacy/takeover booleans remain unsupported rejection sentinels, not modes.
+Request field 16 and `confirm_legacy_recovery` are reserved; no removed wire number
+or name is reused. Protobuf service methods have no numeric IDs or `reserved`
+syntax: the removed Retry/Takeover method names must not be reintroduced with a
+new meaning. Go bindings were regenerated using `source/proto/generate.sh`.
+
+## Bounded deletion verification (2026-11-09)
+
+Passed normal and race tests for server conversation/broker/server/agentclient with
+`Ownership|Recovery|Resume|Handover|Claim|Journal|Acceptance|Relinquish|Takeover`,
+and CLI UI with `Recovery|Resume|Reopen|Takeover|Ownership` (all `-count=1`).
+Both server and CLI passed `go test ./... -run '^$'` module compilation.
+The interrupted-transfer test retains uncertain persistence, exact journal retry,
+source fencing, current owner/epoch and stale competing claim checks; it no longer
+expects the removed discovery gate to prohibit creating a competing journal.
+No full cmd runtime suite, live host/config/VM operation, or deployment was performed.
+
+---
+
+## Historical implementation and verification (superseded)
+
+The following records the deleted design and its historical verification. It is not
+current API documentation or evidence that the deleted RPCs remain available.
+
+### Explicit exact-transfer retry recovery
 
 This implements the retry-only boundary missing from
 [the offline characterization](exact-transfer-recovery-characterization.md).

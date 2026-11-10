@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"time"
 
@@ -123,7 +125,7 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 	if snapshot == "" {
 		return nil, true, status.Error(codes.FailedPrecondition, "source process identity unavailable")
 	}
-	nonce, err := takeoverNonce()
+	nonce, err := recoveryNonce()
 	if err != nil {
 		return nil, true, err
 	}
@@ -135,7 +137,7 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 	}
 	offer := &pb.LifecycleOriginalRecovery{Operation: op, Selection: selection, Challenge: nonce}
 	if l.recoveryOffers == nil {
-		l.recoveryOffers = make(map[string]*originalRecoveryConsent)
+		l.recoveryOffers = make(map[string]*containedRecoveryConsent)
 	}
 	for key, c := range l.recoveryOffers {
 		if time.Now().After(c.expires) || (proto.Equal(c.requester, r.Requester) && c.offer.Operation.Owner.Conversation == id) {
@@ -145,6 +147,20 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 	if len(l.recoveryOffers) >= 128 {
 		return nil, true, status.Error(codes.ResourceExhausted, "too many recovery confirmations")
 	}
-	l.recoveryOffers[nonce] = &originalRecoveryConsent{liveState: string(encoded), offer: proto.Clone(offer).(*pb.LifecycleOriginalRecovery), requester: proto.Clone(r.Requester).(*pb.LifecycleIdentity), expires: time.Now().Add(5 * time.Minute)}
+	l.recoveryOffers[nonce] = &containedRecoveryConsent{liveState: string(encoded), offer: proto.Clone(offer).(*pb.LifecycleOriginalRecovery), requester: proto.Clone(r.Requester).(*pb.LifecycleIdentity), expires: time.Now().Add(5 * time.Minute)}
 	return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: owner, OperationId: op.HandoverId, ConfirmationRequired: true, OriginalRecovery: offer}, true, nil
+}
+
+// The historical protobuf envelope is reused only by contained recovery.
+type containedRecoveryConsent struct {
+	offer     *pb.LifecycleOriginalRecovery
+	requester *pb.LifecycleIdentity
+	expires   time.Time
+	liveState string
+}
+
+func recoveryNonce() (string, error) {
+	var b [32]byte
+	_, err := rand.Read(b[:])
+	return hex.EncodeToString(b[:]), err
 }

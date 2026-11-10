@@ -50,9 +50,6 @@ func inMemoryRecoveryControlsWithHook(t *testing.T, a, b, c *Server, before func
 		listeners[endpoint], identities[endpoint] = listener, s.coexistence.controlIdentity()
 		// bufconn has no IP peer; explicitly supply synthetic fixture peer trust.
 		transport := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			if len(legacy) > 0 && legacy[0] && strings.Contains(info.FullMethod, "/LifecycleRetry") {
-				return nil, status.Error(codes.Unimplemented, "fixture: old peer has no retry handlers")
-			}
 			if len(legacy) > 1 && legacy[1] && strings.HasSuffix(info.FullMethod, "/LifecycleForceRelinquish") {
 				return nil, status.Error(codes.Unimplemented, "fixture: old peer has only ordinary relinquish")
 			}
@@ -186,14 +183,11 @@ func TestResumeNewDestinationInterruptedTransfer(t *testing.T) {
 			if e := held.Complete(); e != nil {
 				t.Fatal(e)
 			}
-			// C cannot resolve the original destination in this fixture. Fail closed
-			// before minting a competing operation or acceptance.
+			// Without containment C may try cooperation, but cannot bypass the
+			// source closure for B or obtain ownership.
 			_, err = c.LifecycleResume(ctx, resumeRequest(c, endpoints[c]))
-			if status.Code(err) != codes.FailedPrecondition {
-				t.Fatalf("unresolved original destination not blocked: %v", err)
-			}
-			if _, e := os.Stat(resumeJournal(c.coexistence, "chat")); !os.IsNotExist(e) {
-				t.Fatalf("competing journal created: %v", e)
+			if err == nil {
+				t.Fatalf("competing destination not blocked: %v", err)
 			}
 			assertOldOwned()
 			// Knowing B's operation or receipt is not authority to claim it as C.
@@ -260,9 +254,14 @@ func TestResumeNewDestinationInterruptedTransfer(t *testing.T) {
 			if e != nil || v.Owner != "C" || v.Epoch != last.Owner.Epoch || v.State != "owned" {
 				t.Fatalf("second hop ownership: %+v %v", v, e)
 			}
+			stale := readRecoveryOperation(t, c)
+			stale.Target = stale.Destination
+			if _, e := c.LifecycleClaim(ctx, stale); e == nil {
+				t.Fatal("stale competing acceptance claimed new epoch")
+			}
 			listing, e := c.LifecycleList(ctx, &pb.LifecycleControlRequest{Target: c.coexistence.controlIdentity()})
-			if e != nil || listing.GetPendingIncoming() != 0 {
-				t.Fatalf("unexpected competing acceptance: %v %v", listing, e)
+			if e != nil || listing.GetPendingIncoming() != 1 {
+				t.Fatalf("expected retained, non-authoritative competing acceptance: %v %v", listing, e)
 			}
 		})
 	}
