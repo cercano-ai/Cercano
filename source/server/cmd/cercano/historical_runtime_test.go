@@ -80,7 +80,7 @@ func historicalRuntimeContainment(t *testing.T, ctx context.Context, state, runt
 		t.Log("actual historical launcher contended; store/WAL unchanged after drain under exclusion")
 		return nil
 	}
-	err = adapter.withStoppedSource(stopCtx, source.Identity, snapshot, func() error { return nil }, verify)
+	err = adapter.WithStoppedSource(stopCtx, source.Identity, snapshot, func() error { return nil }, verify)
 	if blocked {
 		if !errors.Is(err, context.DeadlineExceeded) || used {
 			t.Fatalf("blocked provider authorized recovery: used=%v err=%v", used, err)
@@ -104,6 +104,19 @@ func historicalRuntimeContainment(t *testing.T, ctx context.Context, state, runt
 		})
 	}
 	if err != nil || !used {
+		// Exercise recovery after authenticated shutdown has already completed.
+		// A fresh offer must not depend on a permanently live historical RPC.
+		if !blocked {
+			absentSnapshot, prepareErr := adapter.Prepare(ctx, source.Identity)
+			t.Logf("already-absent preparation: snapshot=%t err=%v", absentSnapshot != "", prepareErr)
+			if prepareErr == nil {
+				retryCtx, stopRetry := context.WithTimeout(ctx, 500*time.Millisecond)
+				retryUsed := false
+				retryErr := adapter.WithStoppedSource(retryCtx, source.Identity, absentSnapshot, func() error { return nil }, func(context.Context) error { retryUsed = true; return nil })
+				stopRetry()
+				t.Logf("already-absent production containment: used=%v err=%v", retryUsed, retryErr)
+			}
+		}
 		t.Fatalf("historical containment observation: used=%v err=%v", used, err)
 	}
 	for {

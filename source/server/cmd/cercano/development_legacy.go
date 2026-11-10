@@ -20,9 +20,6 @@ type developmentLegacyStop struct {
 	inspect     func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error)
 	stop        func(context.Context, string, netip.AddrPort, brewrestart.Identity, func() error) error
 	absent      func(context.Context, string) error
-	// qualifyWriters is installed only by a bounded, qualified historical runtime.
-	// Registry identity/build labels alone cannot certify a writer graph.
-	qualifyWriters func(context.Context, *pb.LifecycleIdentity, string) error
 }
 
 var _ server.ContainedSourceStop = (*developmentLegacyStop)(nil)
@@ -30,6 +27,7 @@ var _ server.ContainedSourceStop = (*developmentLegacyStop)(nil)
 type legacySourceSnapshot struct {
 	Record  launchSelection
 	Process brewrestart.Identity
+	Absent  bool
 }
 
 func newDevelopmentLegacyStop(state string, destination *pb.LifecycleIdentity) *developmentLegacyStop {
@@ -93,12 +91,17 @@ func (p *developmentLegacyStop) Prepare(ctx context.Context, source *pb.Lifecycl
 	err := p.withSource(ctx, source, func(record launchSelection, endpoint netip.AddrPort) error {
 		id, err := p.inspect(ctx, source.Host, endpoint)
 		if err != nil {
-			return err
+			if absentErr := p.absent(ctx, source.Host); absentErr != nil {
+				return err
+			}
+			b, marshalErr := json.Marshal(legacySourceSnapshot{Record: record, Absent: true})
+			snapshot = string(b)
+			return marshalErr
 		}
 		if id.Executable != filepath.Join(record.Generation, "cercano") {
 			return fmt.Errorf("source executable does not match recorded generation")
 		}
-		b, err := json.Marshal(legacySourceSnapshot{record, id})
+		b, err := json.Marshal(legacySourceSnapshot{Record: record, Process: id})
 		snapshot = string(b)
 		return err
 	})
@@ -134,24 +137,31 @@ func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *p
 		if string(a) != string(b) {
 			return fmt.Errorf("approved source record changed")
 		}
-		id, err := p.inspect(ctx, source.Host, endpoint)
-		if err != nil {
-			return err
+		id, inspectErr := p.inspect(ctx, source.Host, endpoint)
+		if inspectErr == nil {
+			if expected.Absent || !id.SameProcess(expected.Process) {
+				return fmt.Errorf("approved source process changed")
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := p.stop(ctx, source.Host, endpoint, expected.Process, validate); err != nil {
+				return err
+			}
+		} else {
+			if err := p.absent(ctx, source.Host); err != nil {
+				return fmt.Errorf("source attribution uncertain: %v; absence: %w", inspectErr, err)
+			}
+			if err := validate(); err != nil {
+				return err
+			}
 		}
-		if !id.SameProcess(expected.Process) {
-			return fmt.Errorf("approved source process changed")
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := p.stop(ctx, source.Host, endpoint, expected.Process, validate); err != nil {
+
+		if err := p.absent(ctx, source.Host); err != nil {
 			return err
 		}
 		if use == nil {
 			return nil
-		}
-		if err := p.absent(ctx, source.Host); err != nil {
-			return err
 		}
 		if err := ctx.Err(); err != nil {
 			return err
@@ -160,19 +170,27 @@ func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *p
 	})
 }
 
-// WithStoppedSource is the coordinator boundary, distinct from source-only Stop.
-// Unqualified production generations refuse before any shutdown request.
+// WithStoppedSource holds the source launcher exclusion through native writer
+// observation, durable ownership recovery and reload. No worker is signalled.
 func (p *developmentLegacyStop) WithStoppedSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
-	if p.qualifyWriters == nil {
-		return fmt.Errorf("historical writer contract is not qualified for this selected generation; no host stopped")
+	if use == nil {
+		return fmt.Errorf("recovery callback required")
 	}
-	if err := p.qualifyWriters(ctx, source, snapshot); err != nil {
-		return err
+	var expected legacySourceSnapshot
+	if json.Unmarshal([]byte(snapshot), &expected) != nil || expected.Record.Generation == "" || !proto.Equal(expected.Record.Identity, source) {
+		return fmt.Errorf("exact prepared source snapshot required")
 	}
-	return p.withStoppedSource(ctx, source, snapshot, func() error {
-		if err := validate(); err != nil {
-			return err
+	return p.withStoppedSource(ctx, source, snapshot, validate, func(ctx context.Context) error {
+		for {
+			err := brewrestart.VerifyPreparedWritersAbsent(ctx, expected.Record.Generation, source.Store)
+			if err == nil {
+				return use(ctx)
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("source writer containment refused: %v: %w", err, ctx.Err())
+			case <-time.After(25 * time.Millisecond):
+			}
 		}
-		return p.qualifyWriters(ctx, source, snapshot)
-	}, use)
+	})
 }

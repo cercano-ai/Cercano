@@ -130,3 +130,24 @@ func verifyLegacyHostArg(id Identity, host string) error {
 	}
 	return nil
 }
+
+// recoveryProcessArguments retains the kernel executable path as well as argv;
+// unlike proc_pidpath this remains useful for an unlinked prepared executable.
+func recoveryProcessArguments(pid int) (string, []string, error) {
+	buf := make([]byte, 1<<20)
+	size := C.size_t(len(buf))
+	code := syscall.Errno(C.recovery_args(C.int(pid), (*C.char)(unsafe.Pointer(&buf[0])), &size))
+	if code != 0 {
+		return "", nil, code
+	}
+	buf = buf[:int(size)]
+	argv, err := recoveryArgv(buf)
+	if err != nil {
+		return "", nil, err
+	}
+	n := bytes.IndexByte(buf[4:], 0)
+	if n <= 0 {
+		return "", nil, fmt.Errorf("missing kernel executable")
+	}
+	return string(buf[4 : 4+n]), argv, nil
+}

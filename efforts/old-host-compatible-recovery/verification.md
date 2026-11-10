@@ -447,3 +447,75 @@ Server all-package interface compilation passed again. Added explicit command
 adapter interface assertion. Held recovery capability now carries the complete
 consented ownership row, not merely the source host; transactional verification
 rejects a changed reservation between consent validation and recovery admission.
+
+## Production containment attempt — blocked, not shipping qualification (2026-11-09)
+
+The concrete command adapter now calls Darwin kernel writer observation, rather
+than an unconfigured qualifier hook. It retains the source launch lock through
+historical authenticated shutdown, kernel source absence, bounded writer polling,
+and the recovery callback. An already-absent snapshot is supported without a live
+RPC; no worker is signalled. The observer conservatively blocks any source-
+generation executable and any observed store/SQLite-sidecar descriptor, including
+hard-link aliases. Unsupported platforms refuse. This is an attempted integration,
+**not a completed shipping acceptance claim**.
+
+Executed the actual pinned historical fixture again using:
+
+```
+PATH=/opt/homebrew/bin:/usr/bin:/bin \
+OLD_RECOVERY_PRODUCTION_FIXTURE=1 OLD_RECOVERY_EXECUTE=1 \
+sh efforts/old-host-compatible-recovery/fixture/build-production.sh
+```
+
+Result: **FAIL**, drain case refused before the recovery callback. Both the first
+attempt and the already-absent retry reported:
+
+```
+source writer containment refused: store descriptor inventory uncertain pid=695:
+operation not permitted: context deadline exceeded
+```
+
+Already-absent preparation succeeded (`snapshot=true err=<nil>`), but containment
+remained `used=false`. The blocked-timeout case passed. Both fixture cleanups
+reported owned process cleanup complete, with no signals. Historical launcher
+contention and unchanged SQLite/WAL after drain were observed. Full output is in
+`/tmp/old-recovery-production-containment.log`; failed fixture logs were retained
+at `/private/tmp/nc-2292502147`. These paths are evidence from this run, not inputs
+to production recovery.
+
+Concrete missing guarantee: the same-user descriptor API denied inspection of a
+live process. Its relevance to this store cannot be excluded by this observer.
+Skipping that denial would falsely turn an incomplete descriptor inventory into
+absence evidence. Conversely, examining every same-user process is broader than
+a proven relevant-writer graph: it can block unrelated external tools. No extra
+permissions were requested and no ambient process was stopped. Also, a descriptor
+snapshot is not an exclusion against arbitrary external programs opening SQL
+later. Source-launch exclusion addresses the source relaunch race, not that
+external race. A complete narrow provenance/admission argument distinguishing
+relevant historical store writers from arbitrary tools is still missing; this
+attempt does not establish it or claim universal SQL immunity. Interrupted
+external actions must remain uncertain and must not be replayed.
+
+Consequently the historical fixture has **not** reached coordinator-confirmed
+recovery followed by a deterministic persisted new-host turn. Multiple failed
+journals and owned/reserved integration through that real containment path remain
+uncompleted. Injected coordinator tests are explicitly not substitutes.
+
+Passed offline with `PATH=/opt/homebrew/bin:/usr/bin:/bin`, `GOPROXY=off`,
+`GOSUMDB=off`, `GOTOOLCHAIN=local`, from `source/server`:
+
+- Normal and race runs of `./cmd/cercano ./internal/server ./internal/brewrestart`
+  selecting `TestDevelopmentLegacyProductionAdapter`,
+  `TestDevelopmentRecoveryRegistryExclusion`,
+  `TestLiveRecoveryRefusesUnqualifiedWriters`, `TestLiveSourceRecovery`, and
+  `TestPreparedStoreDescriptors` with `-count=1`.
+- New kernel descriptor test observes only fixture-owned files in this test
+  process, checks main database and all three sidecars through hard links, and
+  checks closure. It is not a whole-process-inventory success injection.
+- `go test ./... -run '^$'` passed (compile only, no runtime acceptance).
+
+Checkpoint scope: command legacy adapter and historical fixture; Darwin host
+argument observation; Darwin/unsupported writer observation and native descriptor
+tests; this verification record. `.tmp-old-recovery/` remains untracked and
+excluded. No live recovery, permission expansion, push, or merge. This checkpoint
+records a concrete failed qualification attempt, not resolution of the task.
