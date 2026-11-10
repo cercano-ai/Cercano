@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cercano/source/server/internal/brewrestart"
+	"cercano/source/server/internal/server"
 	pb "cercano/source/server/pkg/proto"
 	"google.golang.org/protobuf/proto"
 )
@@ -19,7 +20,12 @@ type developmentLegacyStop struct {
 	inspect     func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error)
 	stop        func(context.Context, string, netip.AddrPort, brewrestart.Identity, func() error) error
 	absent      func(context.Context, string) error
+	// qualifyWriters is installed only by a bounded, qualified historical runtime.
+	// Registry identity/build labels alone cannot certify a writer graph.
+	qualifyWriters func(context.Context, *pb.LifecycleIdentity, string) error
 }
+
+var _ server.ContainedSourceStop = (*developmentLegacyStop)(nil)
 
 type legacySourceSnapshot struct {
 	Record  launchSelection
@@ -152,4 +158,21 @@ func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *p
 		}
 		return use(ctx)
 	})
+}
+
+// WithStoppedSource is the coordinator boundary, distinct from source-only Stop.
+// Unqualified production generations refuse before any shutdown request.
+func (p *developmentLegacyStop) WithStoppedSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
+	if p.qualifyWriters == nil {
+		return fmt.Errorf("historical writer contract is not qualified for this selected generation; no host stopped")
+	}
+	if err := p.qualifyWriters(ctx, source, snapshot); err != nil {
+		return err
+	}
+	return p.withStoppedSource(ctx, source, snapshot, func() error {
+		if err := validate(); err != nil {
+			return err
+		}
+		return p.qualifyWriters(ctx, source, snapshot)
+	}, use)
 }

@@ -21,7 +21,8 @@ func (s *Server) LifecycleRecover(ctx context.Context, r *pb.LifecycleRecoverReq
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.options.RecoveryGuard == nil {
+	heldState, held := ctx.Value(heldRecoverySource{}).(conversation.OwnershipState)
+	if l.options.RecoveryGuard == nil && !held {
 		return nil, status.Error(codes.FailedPrecondition, "verified dead-owner recovery unavailable")
 	}
 	v, err := conversation.ReadOwnership(ctx, l.store, r.Conversation)
@@ -54,6 +55,12 @@ func (s *Server) LifecycleRecover(ctx context.Context, r *pb.LifecycleRecoverReq
 		}
 	}()
 	verify := func(ctx context.Context) error {
+		if held {
+			if heldState != v {
+				return status.Error(codes.FailedPrecondition, "held source mismatch")
+			}
+			return ctx.Err()
+		}
 		var e error
 		release, e = l.options.RecoveryGuard(ctx, v.Owner)
 		if e != nil {

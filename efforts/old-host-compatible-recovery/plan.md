@@ -16,7 +16,7 @@ Objective: establish the smallest failing end-to-end recovery journey before mod
 
 Objective: implement the approved fallback without trusting stale PIDs or requiring new source RPCs. Files: command-level source resolution and process controls, server recovery boundary, agentclient APIs as needed. Tests: source identity changes, surviving workers, concurrent launch, cancellation, other hosts, and sibling impact.
 
-- [ ] Bind fresh confirmation to source identity, conversation epoch, selected destination, and host-wide interruption disclosure.
+- [x] Bind fresh confirmation to source identity, conversation epoch, selected destination, and host-wide interruption disclosure.
 - [~] Implement verified launch exclusion and exact source/worker attribution using existing supported OS primitives where adequate.
 - [~] Implement bounded stopping and death verification for attributed processes, with explicit refusal on uncertain attribution or containment.
 - [ ] Verify unrelated hosts remain untouched and source relaunch cannot race recovery.
@@ -37,10 +37,10 @@ Objective: recover owned or reserved state only after verified containment, with
 
 Objective: connect normal UI recovery to the replacement and remove redundant repair paths without losing safety invariants. Files: server resume/discovery/retry/takeover orchestration, agentclient wrappers, CLI reopen/recovery UI, proto definitions/generated consumers, mocks and docs.
 
-- [ ] Route recovery from current durable ownership; use supported old controls only for safe cooperation, never as discovery probes.
+- [~] Route recovery from current durable ownership; use supported old controls only for safe cooperation, never as discovery probes.
 - [ ] Make unsupported optional RPCs reach the explicit compatible fallback rather than abort reopen.
 - [ ] Remove journal-count ambiguity as a prerequisite to independently authorized death-proven recovery; keep journals as evidence only.
-- [ ] Consolidate user confirmation and result handling into one recovery journey, including actionable failure stages and host-wide impact.
+- [~] Consolidate user confirmation and result handling into one recovery journey, including actionable failure stages and host-wide impact.
 - [ ] Remove superseded protocol families and consumers identified in Phase 1; retain required compatibility controls and reusable safety primitives.
 - [ ] Reserve removed protobuf field/RPC-message identifiers as appropriate, never reuse field numbers or names; regenerate using repository tooling.
 - [ ] Port useful regression tests and correct misleading documentation while retaining historical evidence as historical.

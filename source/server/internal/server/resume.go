@@ -184,6 +184,9 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	}
 	l.resumeMu.Lock()
 	defer l.resumeMu.Unlock()
+	if recovered, handled, e := s.liveSourceRecovery(ctx, l, r); handled {
+		return recovered, e
+	}
 	if offered, handled, e := s.offerTakeover(ctx, l, r); handled {
 		return offered, e
 	}

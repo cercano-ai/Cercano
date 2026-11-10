@@ -22,6 +22,8 @@ type originalRecoveryConsent struct {
 	offer     *pb.LifecycleOriginalRecovery
 	requester *pb.LifecycleIdentity
 	expires   time.Time
+	// liveState binds the complete owned/reserved row; it is not a source receipt.
+	liveState string
 }
 
 // Journals select candidates, not authority. Even a perfectly formed hint cannot

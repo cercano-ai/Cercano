@@ -384,3 +384,66 @@ historical production fixture through new-host persisted inference after that
 integration. Historical backend-tag limitation remains as recorded above; that
 fixture was NOT rerun here. No live host/config/VM mutation, push or merge.
 Preexisting `.tmp-old-recovery/` remains untouched and excluded from checkpoint.
+
+
+## LIVE-SOURCE coordinator slice (2026-11-09, partial acceptance)
+
+Normal foreign-owner resume now enters `liveSourceRecovery` before optional
+probe/journal discovery. The coordinator reads durable ownership, issues a
+five-minute single-use requester/source/process/complete-owned-or-reserved-row/
+selected-destination challenge, and revalidates before stop and recovery. The
+CLI uses the existing original-recovery response envelope but presents one
+whole-host/sibling-impact, default-no confirmation and requires current ownership.
+No source protocol was added. A challenge carries no fabricated source receipt.
+
+The command adapter implements `ContainedSourceStop` through the existing
+`withStoppedSource` callback. An internal context capability permits
+`LifecycleRecover` to reuse that continuously held exclusion, not stop-return-
+recover. The existing command constructors already install this concrete adapter;
+no independent stop call or second lock acquisition is used. The store transaction
+and reload occur inside the callback. Current-owner reopen reconciles a lost
+response without stopping again or issuing a new ownership epoch.
+
+**Containment limit / incomplete deliverable:** shipping constructors do not
+install `qualifyWriters`. Therefore production confirmation explicitly refuses
+before shutdown. This change does not promote the source-only shutdown helper
+into an all-writer certificate. The actual historical-runtime fixture has not
+been connected to this coordinator as a qualified end-to-end path. Provider-backed
+exact persisted-turn acceptance is still pending. No universal old-binary or live
+recovery claim is made. Whole-host interruption remains approved, not deferred
+for another design decision.
+
+Executed offline (`GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off`):
+- RED: bypassing the new resume route makes all three initial coordinator cases
+  fail at the offer; route restored immediately afterward.
+- GREEN: `go -C source/server test ./internal/server -run
+  'Test(LiveSourceRecovery|DeadOwnerRecoveryRPC)$' -count=1` (including owned,
+  reserved, stale requester, uncertain stop, read-only offer and retry cases).
+- `go -C source/server test -race ./internal/server -run
+  '^TestLiveSourceRecovery$' -count=1` passed before the reserved case was added.
+- CLI `TestLiveSourceRecoveryUI` and `TestOriginalRecoveryUIConfirmation` passed:
+  sibling disclosure, stale UI rejection, default-no and explicit yes.
+- Server `go test ./... -run '^$'` and command interface compilation passed.
+  These compile checks select no runtime acceptance tests. No full-suite green
+  claim: old resume/takeover tests still expect superseded orchestration.
+
+Next cleanup: remove normal legacy original-operation/takeover/retry fallthrough
+for remaining non-owned branches, remove old dedicated CLI protocol prompts and
+handlers, migrate their safety regressions, prune retry/takeover RPC/client/mock
+surfaces and reserve removed proto identifiers. Extend focused tests with real
+multiple historical journals, optional Unimplemented source, expiry, changed
+reservation/destination, response loss after commit, and qualified command-to-old-
+fixture-to-store integration. Production qualification must bind actual reviewed
+binary provenance and writer topology, not registry build labels alone.
+
+No live hosts/configuration/VM changes, push or merge. `.tmp-old-recovery` retained.
+
+Final local checks: race-selected server `TestLiveSourceRecovery` (now including
+reserved), `TestDeadOwnerRecoveryRPC`, and command
+`TestLiveRecoveryRefusesUnqualifiedWriters` all passed. CLI focused confirmation
+and recovery tests passed under race. CLI RED with the live disclosure branches
+disabled failed for missing whole-host disclosure; restored GREEN passed.
+Server all-package interface compilation passed again. Added explicit command
+adapter interface assertion. Held recovery capability now carries the complete
+consented ownership row, not merely the source host; transactional verification
+rejects a changed reservation between consent validation and recovery admission.

@@ -17,7 +17,7 @@ func validateOriginalOffer(o *pb.LifecycleOriginalRecovery, conversation string)
 	id := sel.GetIdentity()
 	host, _, err := net.SplitHostPort(sel.GetEndpoint())
 	ip := net.ParseIP(host)
-	if (o.GetTakeover() && (o.GetLegacy() || op.GetSource().GetStore() != id.GetStore() || op.GetSource().GetContract() != id.GetContract() || op.GetSource().GetSchema() != id.GetSchema() || op.GetSource().GetBuild() == "")) || err != nil || ip == nil || !ip.IsLoopback() || o.GetChallenge() == "" || sel.GetTokenFile() == "" || id.GetHost() == "" || id.GetBuild() == "" || id.GetStore() == "" || id.GetContract() == "" || id.GetSchema() <= 0 || !proto.Equal(id, op.GetDestination()) || !proto.Equal(op.GetTarget(), op.GetSource()) || op.GetOwner().GetConversation() != conversation || op.GetOwner().GetEpoch() == "" || op.GetOwner().GetHost() != op.GetSource().GetHost() || op.GetSource().GetHost() == "" || op.GetSource().GetHost() == id.GetHost() || (op.GetReceipt() == "" && !o.GetTakeover()) || op.GetHandoverId() == "" {
+	if (o.GetTakeover() && (o.GetLegacy() || op.GetSource().GetStore() != id.GetStore() || op.GetSource().GetContract() != id.GetContract() || op.GetSource().GetSchema() != id.GetSchema() || op.GetSource().GetBuild() == "")) || err != nil || ip == nil || !ip.IsLoopback() || o.GetChallenge() == "" || sel.GetTokenFile() == "" || id.GetHost() == "" || id.GetBuild() == "" || id.GetStore() == "" || id.GetContract() == "" || id.GetSchema() <= 0 || !proto.Equal(id, op.GetDestination()) || !proto.Equal(op.GetTarget(), op.GetSource()) || op.GetOwner().GetConversation() != conversation || op.GetOwner().GetEpoch() == "" || op.GetOwner().GetHost() != op.GetSource().GetHost() || op.GetSource().GetHost() == "" || op.GetSource().GetHost() == id.GetHost() || (op.GetReceipt() == "" && !o.GetTakeover() && op.GetLegacyProcessIdentity() == "") || op.GetHandoverId() == "" {
 		return fmt.Errorf("invalid authenticated original-operation selection")
 	}
 	return nil
@@ -30,7 +30,10 @@ func (m Model) offerOriginalRecovery(offer *forcedResumeOffer) (tea.Model, tea.C
 	decline := func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil }
 	title := "Retry the exact original transfer?"
 	mode := "Retry-only controls will require an existing source reservation. Unsupported handlers will require a new, separate legacy confirmation; no silent fallback."
-	if o.Takeover {
+	if op.LegacyProcessIdentity != "" {
+		title = "Stop the old host and recover this conversation?"
+		mode = "This interrupts the WHOLE old host, including sibling conversations and tasks. Committed history is preserved. Interrupted actions are NOT replayed; external effects may remain uncertain. Consent is single-use for this source epoch and selected destination."
+	} else if o.Takeover {
 		title = "Take over this conversation on the selected host?"
 		mode = "This is a NEW cooperative takeover, not an original-operation retry or an attachment takeover. Interrupted work will not be replayed; external effects are NOT rolled back. Persisted history will be reloaded."
 	} else if o.Legacy {
@@ -38,10 +41,13 @@ func (m Model) offerOriginalRecovery(offer *forcedResumeOffer) (tea.Model, tea.C
 		mode = "LEGACY: ordinary original transfer controls may create the missing source reservation FOR THIS ORIGINAL OPERATION. This is not an existing-reservation-only retry. No new destination acceptance will be created."
 	}
 	selectionDescription := fmt.Sprintf("Conversation %s: source %s, epoch %s, operation %s → selected destination %s.", op.Owner.Conversation, op.Source.Host, op.Owner.Epoch, op.HandoverId, op.Destination.Host)
-	if !o.Takeover {
+	if !o.Takeover && op.LegacyProcessIdentity == "" {
 		selectionDescription += " This retries the ORIGINAL destination, not the newly selected host."
 	}
 	hints := "y: recover original operation · n/esc/enter: cancel"
+	if op.LegacyProcessIdentity != "" {
+		hints = "y: stop whole old host and recover · n/esc/enter: cancel"
+	}
 	if o.Takeover {
 		hints = "y: confirm cooperative takeover · n/esc/enter: cancel"
 	}
@@ -89,7 +95,7 @@ func (m Model) offerOriginalRecovery(offer *forcedResumeOffer) (tea.Model, tea.C
 			}
 			recovered := response.GetOriginalRecovery()
 			owner := response.GetOwner()
-			if (o.Takeover && (!response.GetCurrentOwner() || !recovered.GetTakeover())) || !response.GetReady() || response.GetPending() || !proto.Equal(response.GetIdentity(), op.Destination) || !proto.Equal(recovered.GetOperation(), op) || !proto.Equal(recovered.GetSelection(), o.Selection) || owner.GetConversation() != op.Owner.Conversation || owner.GetHost() != op.Destination.Host || owner.GetEpoch() == "" || owner.GetEpoch() == op.Owner.Epoch || response.GetOperationId() != op.HandoverId {
+			if (op.LegacyProcessIdentity != "" && !response.GetCurrentOwner()) || (o.Takeover && (!response.GetCurrentOwner() || !recovered.GetTakeover())) || !response.GetReady() || response.GetPending() || !proto.Equal(response.GetIdentity(), op.Destination) || !proto.Equal(recovered.GetOperation(), op) || !proto.Equal(recovered.GetSelection(), o.Selection) || owner.GetConversation() != op.Owner.Conversation || owner.GetHost() != op.Destination.Host || owner.GetEpoch() == "" || owner.GetEpoch() == op.Owner.Epoch || response.GetOperationId() != op.HandoverId {
 				result.err = fmt.Errorf("original recovery returned unvalidated ownership")
 				return result
 			}
