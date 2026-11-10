@@ -9,7 +9,7 @@ Objective: establish the smallest failing end-to-end recovery journey before mod
 - [x] Trace protocol consumers and identify redundant orchestration, retained safety fixes, and compatibility-required old controls.
 - [x] Establish a reproducible old-binary provenance and offline build fixture; state differences from the incident binary.
 - [x] Reproduce unsupported-probe and multiple-journal failures with the old fixture and current destination.
-- [~] Trace old host/worker process ownership, shutdown behavior, launch participation, and store compatibility; probe containment and relaunch exclusion in disposable state.
+- [x] Trace old host/worker process ownership, shutdown behavior, launch participation, and store compatibility; probe containment and relaunch exclusion in disposable state.
 - [~] Add the failing old-owner-to-new-owner persisted-turn acceptance journey and precise no-mutation assertions for declined recovery.
 
 ## Phase 2 — Exact source interruption and writer containment

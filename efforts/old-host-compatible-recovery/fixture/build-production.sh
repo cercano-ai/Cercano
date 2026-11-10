@@ -9,6 +9,12 @@ export GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off
 revision=d7cbdeb21c44e0ceeefdf212203ed04a37d09150
 git archive "$revision" source/server source/proto | tar -x -C "$fixture"
 # Same executable contains ordinary generation host and worker entrypoints.
-# Backend substitutions are historical opt-in fixture tags, not source patches.
+# Runtime probe adapts only the tagged synthetic inference backend to loopback.
+if [ "${OLD_RECOVERY_EXECUTE:-}" = 1 ]; then
+  python3 "$root/efforts/old-host-compatible-recovery/fixture/loopback-provider.py" "$fixture"
+fi
 (cd "$fixture/source/server" && go build -tags 'developmentfixture cercano_development_acceptance' -o "$fixture/cercano" ./cmd/cercano)
-echo "Built historical production host/worker $revision (offline fixture tags); execution not yet enabled"
+echo "Built historical production host/worker $revision (offline fixture tags)"
+if [ "${OLD_RECOVERY_EXECUTE:-}" = 1 ]; then
+  (cd "$root/source/server" && OLD_RECOVERY_PRODUCTION_BINARY="$fixture/cercano" go test ./cmd/cercano -run '^TestHistoricalProductionController$' -count=1 -v -timeout=180s)
+fi

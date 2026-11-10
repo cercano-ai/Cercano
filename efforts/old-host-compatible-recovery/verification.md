@@ -295,3 +295,38 @@ perform exact owned/reserved recovery inside `use`, retaining exclusion through
 transactional late-claim checks. Do not connect Stop alone to reassignment, infer
 completion from acceptance, or replay interrupted actions. Plan Phase 1/2 remain
 partial; other phases are not marked complete.
+
+## Historical production runtime continuation (2026-11-09)
+
+Executed `OLD_RECOVERY_PRODUCTION_FIXTURE=1 OLD_RECOVERY_EXECUTE=1 sh efforts/old-host-compatible-recovery/fixture/build-production.sh`.
+Pinned revision: `d7cbdeb21c44e0ceeefdf212203ed04a37d09150`.
+Exact backend tags: `developmentfixture,cercano_development_acceptance`.
+Only tagged synthetic inference is adapted to deterministic loopback HTTP; historical
+host, worker, launcher, store and shutdown implementations are unchanged.
+
+Failing probe: both subtests reached independent task inference but the three-second
+persistence poll observed running/null. Owned host log diagnostics showed dispatch
+inference completed. Raising bounded observation to 15 seconds passed, without weakening
+the completed-result assertion or changing historical persistence. Underlying publication
+latency is not diagnosed here.
+
+Final rerun PASS: `TestHistoricalProductionController/drain` (12.76s),
+`TestHistoricalProductionController/blocked-timeout` (12.71s), parent (25.48s).
+Both exercise real worker persistence and host-owned independent task completed-result
+persistence. Drain releases a held provider turn during shutdown; blocked-timeout refuses
+the continuation callback before release. Both observe host AND worker absence under
+retained generation exclusion, run/reap a historical launcher contender blocked by that
+exclusion, and compare store/WAL bytes across a subsequent observation interval. RPC
+cleanup reports no remaining owned processes and no signals. Disposable prepared native
+controller state and disabled credentials are used. This supplements the pinned writer
+trace; host shutdown alone is not a universal writer certificate. External effects remain
+uncertain and must not be replayed.
+
+The runtime foundation is exercised, not merely built. Phase 1 destination recovery and
+declined consent assertions and Phase 2 coordinator integration remain partial. This fixture
+does not reassign ownership. Phase 3 exact owned/reserved transactions, stable tree locks,
+late-claim serialization and interrupted task preservation remain unimplemented here;
+RecoverDeadOwner is unchanged. Unified coordinator/UI source/epoch/destination/whole-host
+consent binding, retained-exclusion transaction, retry identity, optional-RPC fallback and
+protocol cleanup remain outstanding. No live recovery, push or merge; `.tmp-old-recovery/`
+is untouched.

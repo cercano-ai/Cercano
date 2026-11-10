@@ -1,6 +1,8 @@
 package main
 
 import (
+	"cercano/source/server/internal/inference"
+	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/localruntime"
 	"cercano/source/server/internal/localruntime/localruntimetest"
 	"cercano/source/server/internal/modelhost"
@@ -8,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"debug/buildinfo"
+	"encoding/json"
 	"fmt"
 	"google.golang.org/grpc"
 	"net"
@@ -18,6 +21,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,6 +36,22 @@ func TestNativeProductionController(t *testing.T) {
 	if os.Getenv("CERCANO_NATIVE_CONTROLLER") != "1" {
 		t.Skip("opt-in native controller")
 	}
+	runNativeProductionController(t, "")
+}
+
+// Executes the pinned historical shipping entrypoint, including its worker graph.
+// Only the runner supplies this binary; runtime environment remains allowlisted.
+func TestHistoricalProductionController(t *testing.T) {
+	binary := os.Getenv("OLD_RECOVERY_PRODUCTION_BINARY")
+	if binary == "" {
+		t.Skip("requires pinned historical runner")
+	}
+	for _, mode := range []string{"drain", "blocked-timeout"} {
+		t.Run(mode, func(t *testing.T) { runNativeProductionController(t, binary) })
+	}
+}
+
+func runNativeProductionController(t *testing.T, historicalBinary string) {
 	parent := os.Getenv("CERCANO_NATIVE_STATE_PARENT")
 	if parent == "" {
 		parent = "/tmp"
@@ -58,7 +78,12 @@ func TestNativeProductionController(t *testing.T) {
 		t.Fatal("Homebrew rehearsal requires authorized guest synthetic UID/HOME/XDG")
 	}
 	binary := os.Getenv("CERCANO_NATIVE_AGENT")
-	if !nativeBrew {
+	if historicalBinary != "" {
+		if nativeBrew {
+			t.Fatal("historical fixture cannot use Homebrew")
+		}
+		binary = historicalBinary
+	} else if !nativeBrew {
 		binary = filepath.Join(root, "built-cercano")
 		buildCtx, stopBuild := context.WithTimeout(context.Background(), 90*time.Second)
 		defer stopBuild()
@@ -92,7 +117,10 @@ func TestNativeProductionController(t *testing.T) {
 	}
 	for _, setting := range info.Settings {
 		if setting.Key == "-tags" && setting.Value != "" {
-			t.Fatalf("tagged product refused: %s", setting.Value)
+			if historicalBinary == "" || setting.Value != "developmentfixture,cercano_development_acceptance" {
+				t.Fatalf("tagged product refused: %s", setting.Value)
+			}
+			t.Logf("historical backend tags: %s", setting.Value)
 		}
 	}
 	if info.Path != "cercano/source/server/cmd/cercano" {
@@ -119,6 +147,9 @@ func TestNativeProductionController(t *testing.T) {
 	kegs := make([]string, 1)
 	for i, version := range []string{"A"} {
 		kegs[i] = filepath.Join(root, "Cellar", "cercano-agent", version, "bin", "cercano")
+		if historicalBinary != "" {
+			kegs[i] = filepath.Join(root, "generation", "cercano")
+		}
 		if nativeBrew {
 			kegs[i], err = filepath.EvalSymlinks(binary)
 			if err != nil || kegs[i] != "/opt/homebrew/Cellar/cercano-agent/0.0.905/bin/cercano" {
@@ -132,6 +163,39 @@ func TestNativeProductionController(t *testing.T) {
 		if err := os.WriteFile(kegs[i], body, 0700); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if historicalBinary != "" {
+		generation := filepath.Dir(kegs[0])
+		cli := []byte("#!/bin/sh\nexit 99\n") // hashed manifest placeholder; never executed
+		if err := os.WriteFile(filepath.Join(generation, "cercano-cli"), cli, 0700); err != nil {
+			t.Fatal(err)
+		}
+		manifest := fmt.Sprintf(`{"build_id":"old-recovery-d7cbdeb","binaries":{"cercano":{"sha256":"%x"},"cercano-cli":{"sha256":"%x"}}}`, sha256.Sum256(body), sha256.Sum256(cli))
+		if err := os.WriteFile(filepath.Join(generation, "manifest.json"), []byte(manifest), 0600); err != nil {
+			t.Fatal(err)
+		}
+		barrier := filepath.Join(root, "barrier")
+		if err := os.Mkdir(barrier, 0700); err != nil {
+			t.Fatal(err)
+		}
+		script, err := os.ReadFile("../../../../efforts/dev-host-generations/compiled-mcp-fixture.py")
+		if err != nil {
+			t.Fatal(err)
+		}
+		python, err := exec.LookPath("python3")
+		if err != nil {
+			t.Fatal(err)
+		}
+		script = []byte("#!" + python + "\n" + strings.SplitN(string(script), "\n", 2)[1])
+		mcp := filepath.Join(barrier, "mcp-fixture")
+		if err := os.WriteFile(mcp, script, 0700); err != nil {
+			t.Fatal(err)
+		}
+		config, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"fixture": map[string]any{"command": mcp, "env": map[string]string{"CERCANO_DISABLE_CREDENTIALS": "1"}}}})
+		if err := os.WriteFile(filepath.Join(state, "mcp.json"), config, 0600); err != nil {
+			t.Fatal(err)
+		}
+		env = append(env, "CERCANO_FIXTURE_BARRIER="+barrier)
 	}
 	// Inventory is observation only: never use discovered PIDs as signal authority.
 	owned := func() ([]nativeControllerProcess, error) {
@@ -174,6 +238,18 @@ func TestNativeProductionController(t *testing.T) {
 			controls, err := launchControls(ctx, *selected)
 			if err == nil {
 				defer controls.Close()
+				if os.Getenv("OLD_RECOVERY_PRODUCTION_BINARY") != "" {
+					adapter := newDevelopmentLegacyStop(state, &pb.LifecycleIdentity{Host: "fixture-cleanup", Store: selected.Identity.Store, Contract: selected.Identity.Contract, Schema: selected.Identity.Schema})
+					snapshot, e := adapter.Prepare(ctx, selected.Identity)
+					if e == nil {
+						e = adapter.withStoppedSource(ctx, selected.Identity, snapshot, func() error { return nil }, func(context.Context) error { return nil })
+					}
+					if e != nil {
+						t.Errorf("historical RPC cleanup: %v", e)
+					}
+					continue
+				}
+
 				_, err = controls.LifecycleRelease(ctx, &pb.LifecycleControlRequest{Target: selected.Identity, Owner: &pb.LifecycleOwner{Host: selected.Identity.Host, Conversation: selected.Conversation, Epoch: selected.Epoch}, Management: true})
 				if err == nil {
 					var response *pb.LifecycleControlResponse
@@ -226,13 +302,20 @@ func TestNativeProductionController(t *testing.T) {
 	}
 	launch := func(keg string) (string, launchSelection) {
 		generation := filepath.Dir(filepath.Dir(keg))
+		if historicalBinary != "" {
+			generation = filepath.Dir(keg)
+		}
 		record := filepath.Join(state, "hosts", fmt.Sprintf("%x.json", sha256.Sum256([]byte(generation))))
 		if _, err := os.Stat(record); !os.IsNotExist(err) {
 			t.Fatalf("host was not cold: %v", err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, alias, "development-launch", "--installed", "--state", state, "--runtime-root", runtime)
+		args := []string{"development-launch", "--installed", "--state", state, "--runtime-root", runtime}
+		if historicalBinary != "" {
+			args = []string{"development-launch", "--generation", generation, "--state", state, "--runtime-root", runtime}
+		}
+		cmd := exec.CommandContext(ctx, alias, args...)
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -281,12 +364,62 @@ func TestNativeProductionController(t *testing.T) {
 	}
 
 	var calls atomic.Int64
+	var hold atomic.Bool
+	var dispatched atomic.Bool
+	entered, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if historicalBinary != "" && r.URL.Path == "/historical" {
+			calls.Add(1)
+			var req inference.Call
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			text := ""
+			for _, m := range req.Messages {
+				if m.Role == llm.RoleUser {
+					for _, b := range m.Blocks {
+						if b.Type == llm.BlockText {
+							text = b.Text
+						}
+					}
+				}
+			}
+			if text == "dispatch probe" && dispatched.CompareAndSwap(false, true) {
+				json.NewEncoder(w).Encode(inference.Result{Blocks: []llm.Block{{Type: llm.BlockToolUse, ToolUseID: "owned-task", ToolName: "dispatch", ToolInput: json.RawMessage(`{"task":"complete the offline independent acceptance task","tools":["Read"]}`)}}, StopReason: "tool_use"})
+				return
+			}
+			if hold.Load() && text == "held turn" {
+				close(entered)
+				select {
+				case <-release:
+				case <-r.Context().Done():
+					return
+				}
+			}
+			json.NewEncoder(w).Encode(inference.Result{Blocks: []llm.Block{{Type: llm.BlockText, Text: "native-controller-ok"}}, StopReason: "end_turn"})
+			return
+		}
 		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
 			http.NotFound(w, r)
 			return
 		}
 		calls.Add(1)
+		var request struct {
+			Stream bool `json:"stream"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		if !request.Stream {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"native-controller-ok"},"finish_reason":"stop"}]}`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"native-controller-ok"},"finish_reason":null}]}
 
@@ -297,9 +430,14 @@ data: [DONE]
 `)
 	}))
 	closeFixtures = append(closeFixtures, endpoint.Close)
+	if historicalBinary != "" {
+		if err := os.WriteFile(filepath.Join(root, "barrier", "loopback"), []byte(endpoint.URL+"/historical"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cfgPath := filepath.Join(state, "config.yaml")
 	cfgBody, _ := os.ReadFile(cfgPath)
-	cfgBody = append(cfgBody, []byte("ollama_url: "+endpoint.URL+"\n")...)
+	cfgBody = append(cfgBody, []byte("ollama_url: "+endpoint.URL+"\ntask_assignments:\n  dispatch:\n    destination: primary\n    quality: standard\n")...)
 	if err := os.WriteFile(cfgPath, cfgBody, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -430,6 +568,31 @@ data: [DONE]
 			t.Fatalf("worker executable mapping mismatch: %s", mapped)
 		}
 		t.Logf("fresh worker PID=%d canonical executable=%s mapped=%s", process.pid, kegs[0], mapped)
+	}
+
+	if historicalBinary != "" {
+		taskStream, err := c.StreamChat(ctx, a.Conversation, "dispatch probe", root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for msg := range taskStream {
+			if msg.Err != nil {
+				t.Fatal(msg.Err)
+			}
+		}
+		historicalCompletedTask(t, ctx, state)
+		hold.Store(true)
+		pending, err := c.StreamChat(ctx, a.Conversation, "held turn", root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		historicalRuntimeContainment(t, ctx, state, runtime, kegs[0], env, a, unblock, pending, owned)
+		selections = nil
 	}
 
 	if nativeBrew {
