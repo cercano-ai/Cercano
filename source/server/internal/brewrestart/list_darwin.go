@@ -9,7 +9,8 @@ package brewrestart
 static int cercano_list_user(uint32_t uid, int32_t *out, int bytes, int *error) {
  errno=0;
  int n=proc_listpids(PROC_UID_ONLY,uid,out,bytes);
- *error=(n<=0) ? errno : 0;
+ // An empty/error result is not evidence of absence (our own UID has us).
+ *error=(n<=0) ? (errno ? errno : EAGAIN) : 0;
  return n;
 }
 */

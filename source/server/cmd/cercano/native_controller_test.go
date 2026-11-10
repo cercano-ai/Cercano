@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cercano/source/server/internal/brewrestart"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/localruntime"
@@ -46,7 +47,7 @@ func TestHistoricalProductionController(t *testing.T) {
 	if binary == "" {
 		t.Skip("requires pinned historical runner")
 	}
-	for _, mode := range []string{"drain", "blocked-timeout"} {
+	for _, mode := range []string{"drain", "reserved", "blocked-timeout"} {
 		t.Run(mode, func(t *testing.T) { runNativeProductionController(t, binary) })
 	}
 }
@@ -198,6 +199,7 @@ func runNativeProductionController(t *testing.T, historicalBinary string) {
 		env = append(env, "CERCANO_FIXTURE_BARRIER="+barrier)
 	}
 	// Inventory is observation only: never use discovered PIDs as signal authority.
+	recoveryBinary := filepath.Join(root, "current-generation", "cercano")
 	owned := func() ([]nativeControllerProcess, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -208,7 +210,7 @@ func runNativeProductionController(t *testing.T, historicalBinary string) {
 		var processes []nativeControllerProcess
 		for _, line := range strings.Split(string(out), "\n") {
 			f := strings.Fields(line)
-			if len(f) < 3 || (f[1] != kegs[0] && (!nativeBrew || f[1] != "/opt/homebrew/Cellar/cercano-agent/0.0.906/bin/cercano")) {
+			if len(f) < 3 || (f[1] != kegs[0] && f[1] != recoveryBinary && (!nativeBrew || f[1] != "/opt/homebrew/Cellar/cercano-agent/0.0.906/bin/cercano")) {
 				continue
 			}
 			pid, err := strconv.Atoi(f[0])
@@ -591,8 +593,68 @@ data: [DONE]
 		case <-ctx.Done():
 			t.Fatal(ctx.Err())
 		}
-		historicalRuntimeContainment(t, ctx, state, runtime, kegs[0], env, a, unblock, pending, owned)
-		selections = nil
+		if strings.HasSuffix(t.Name(), "blocked-timeout") {
+			historicalRuntimeContainment(t, ctx, state, runtime, kegs[0], env, a, unblock, pending, owned)
+			selections = nil
+		} else {
+			unblock()
+			for msg := range pending {
+				if msg.Err != nil {
+					t.Fatal(msg.Err)
+				}
+			}
+		}
+		if !strings.HasSuffix(t.Name(), "blocked-timeout") {
+			current := os.Getenv("OLD_RECOVERY_CURRENT_BINARY")
+			if current == "" {
+				t.Fatal("current production binary required for recovery acceptance")
+			}
+			data, e := os.ReadFile(current)
+			if e != nil {
+				t.Fatal(e)
+			}
+			generation := filepath.Dir(recoveryBinary)
+			if e = os.Mkdir(generation, 0700); e != nil {
+				t.Fatal(e)
+			}
+			if e = os.WriteFile(recoveryBinary, data, 0700); e != nil {
+				t.Fatal(e)
+			}
+			cli := []byte("#!/bin/sh\nexit 99\n")
+			if e = os.WriteFile(filepath.Join(generation, "cercano-cli"), cli, 0700); e != nil {
+				t.Fatal(e)
+			}
+			manifest := fmt.Sprintf(`{"build_id":"current-recovery","binaries":{"cercano":{"sha256":"%x"},"cercano-cli":{"sha256":"%x"}}}`, sha256.Sum256(data), sha256.Sum256(cli))
+			if e = os.WriteFile(filepath.Join(generation, "manifest.json"), []byte(manifest), 0600); e != nil {
+				t.Fatal(e)
+			}
+			selectKeg(recoveryBinary)
+			_, destination := launch(recoveryBinary)
+			recovered := historicalCoordinatorRecovery(t, ctx, state, a, destination)
+			selections = []launchSelection{recovered}
+			if e := brewrestart.VerifyPreparedWritersAbsent(ctx, filepath.Dir(kegs[0]), a.Identity.Store); e != nil {
+				t.Fatal(e)
+			}
+			client := dial(recovered)
+			beforeCalls := calls.Load()
+			reply, e := client.StreamChat(ctx, recovered.Conversation, "exact-recovered-provider-turn", root)
+			if e != nil {
+				t.Fatal(e)
+			}
+			for msg := range reply {
+				if msg.Err != nil {
+					t.Fatal(msg.Err)
+				}
+			}
+			history, e := client.ResumeConversation(ctx, recovered.Conversation)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if len(history) < 2 || history[len(history)-2].Role != "user" || history[len(history)-2].Content != "exact-recovered-provider-turn" || history[len(history)-1].Role != "assistant" || history[len(history)-1].Content != "native-controller-ok" || calls.Load() != beforeCalls+1 {
+				t.Fatalf("recovered history: %+v calls delta=%d", history, calls.Load()-beforeCalls)
+			}
+			t.Log("production constructor -> coordinator -> fresh confirmation -> exact recovered provider turn persisted")
+		}
 	}
 
 	if nativeBrew {

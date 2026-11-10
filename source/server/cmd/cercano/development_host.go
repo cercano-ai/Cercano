@@ -288,6 +288,10 @@ func developmentDialIdentity(ctx context.Context, endpoint string, auth *devhost
 // selectDevelopmentPeer is shared by dialing and exact-owner resolution. It never
 // consults the launcher's current/default target.
 func selectDevelopmentPeer(state string, own *proto.LifecycleIdentity, endpoint, host string) (*developmentHostSelection, error) {
+	return selectDevelopmentRecord(state, own, endpoint, host, false)
+}
+
+func selectDevelopmentRecord(state string, own *proto.LifecycleIdentity, endpoint, host string, allowSelf bool) (*developmentHostSelection, error) {
 	if own == nil {
 		return nil, fmt.Errorf("local lifecycle identity required")
 	}
@@ -319,7 +323,7 @@ func selectDevelopmentPeer(state string, own *proto.LifecycleIdentity, endpoint,
 		return nil, fmt.Errorf("peer absent from private host records")
 	}
 	id := selected.Identity
-	if id.Host == own.Host || id.Store != own.Store || id.Contract != own.Contract || id.Schema != own.Schema || !devLoopback(selected.Endpoint) {
+	if (id.Host == own.Host && (!allowSelf || !protoequal.Equal(id, own))) || id.Store != own.Store || id.Contract != own.Contract || id.Schema != own.Schema || !devLoopback(selected.Endpoint) {
 		return nil, fmt.Errorf("incompatible peer record")
 	}
 	return selected, nil
@@ -337,7 +341,7 @@ func developmentSourceResolver(state string, own *proto.LifecycleIdentity) func(
 // Selection is read from the same private records used by pinned peer dialing.
 func developmentRecoverySelection(state string, own *proto.LifecycleIdentity) func(context.Context, string) (*proto.LifecycleRecoverySelection, error) {
 	return func(ctx context.Context, host string) (*proto.LifecycleRecoverySelection, error) {
-		r, err := selectDevelopmentPeer(state, own, "", host)
+		r, err := selectDevelopmentRecord(state, own, "", host, true)
 		if err != nil {
 			return nil, err
 		}

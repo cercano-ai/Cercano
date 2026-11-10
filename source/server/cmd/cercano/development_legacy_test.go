@@ -66,8 +66,8 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 			defer lock.Close()
 			id := brewrestart.Identity{PID: 42, UID: uint32(os.Getuid()), StartSeconds: 100, Executable: filepath.Join(generation, "cercano")}
 			adapter := newDevelopmentLegacyStop(state, dest)
-			if adapter.inspect == nil || adapter.stop == nil || adapter.absent == nil {
-				t.Fatal("missing production bindings")
+			if adapter.inspect == nil || adapter.stop == nil || adapter.absent != nil {
+				t.Fatal("production must use prepared-generation absence, not an override")
 			}
 			adapter.inspect = func(_ context.Context, host string, endpoint netip.AddrPort) (brewrestart.Identity, error) {
 				if host != "A" || endpoint.String() != record.Endpoint {

@@ -16,5 +16,7 @@ fi
 (cd "$fixture/source/server" && go build -tags 'developmentfixture cercano_development_acceptance' -o "$fixture/cercano" ./cmd/cercano)
 echo "Built historical production host/worker $revision (offline fixture tags)"
 if [ "${OLD_RECOVERY_EXECUTE:-}" = 1 ]; then
-  (cd "$root/source/server" && OLD_RECOVERY_PRODUCTION_BINARY="$fixture/cercano" go test ./cmd/cercano -run '^TestHistoricalProductionController$' -count=1 -v -timeout=180s)
+  mkdir "$fixture/current"
+  (cd "$root/source/server" && go build -o "$fixture/current/cercano" ./cmd/cercano)
+  (cd "$root/source/server" && OLD_RECOVERY_CURRENT_BINARY="$fixture/current/cercano" OLD_RECOVERY_PRODUCTION_BINARY="$fixture/cercano" go test ./cmd/cercano -run '^TestHistoricalProductionController$' -count=1 -v -timeout=180s)
 fi

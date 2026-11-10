@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"path/filepath"
 	"time"
 
 	"cercano/source/server/internal/brewrestart"
@@ -33,7 +34,9 @@ func (p *developmentLegacyStop) shutdownAuthenticated(ctx context.Context, host 
 	}
 	return awaitLegacyShutdown(ctx, validate, func(ctx context.Context) (*pb.ShutdownAgentResponse, error) {
 		return pb.NewAgentClient(conn).ShutdownAgent(ctx, &pb.ShutdownAgentRequest{Reason: "approved old-host conversation recovery"})
-	}, func(ctx context.Context) error { return p.absent(ctx, host) })
+	}, func(ctx context.Context) error {
+		return p.preparedAbsent(ctx, host, filepath.Dir(expected.Executable), selected.Identity.Store)
+	})
 }
 
 // A response loss is deliberately blocking, even if the source subsequently dies:

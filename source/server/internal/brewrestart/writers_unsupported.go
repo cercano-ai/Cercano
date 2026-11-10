@@ -8,5 +8,5 @@ import (
 )
 
 func VerifyPreparedWritersAbsent(context.Context, string, string) error {
-	return fmt.Errorf("prepared writer containment requires Darwin kernel process and descriptor observation")
+	return fmt.Errorf("prepared writer containment requires Darwin kernel process attribution")
 }

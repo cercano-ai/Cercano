@@ -31,9 +31,18 @@ type legacySourceSnapshot struct {
 }
 
 func newDevelopmentLegacyStop(state string, destination *pb.LifecycleIdentity) *developmentLegacyStop {
-	p := &developmentLegacyStop{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost, absent: brewrestart.VerifyHostAbsent}
+	p := &developmentLegacyStop{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost}
 	p.stop = p.shutdownAuthenticated
 	return p
+}
+
+// Production absence is bounded to the canonical prepared generation, not all
+// same-user argv/FDs. The existing absent seam is retained for adapter unit tests.
+func (p *developmentLegacyStop) preparedAbsent(ctx context.Context, host, generation, store string) error {
+	if p.absent != nil {
+		return p.absent(ctx, host)
+	}
+	return brewrestart.VerifyPreparedWritersAbsent(ctx, generation, store)
 }
 
 // withSource uses exactly the recovery path's existing per-generation launch
@@ -91,7 +100,7 @@ func (p *developmentLegacyStop) Prepare(ctx context.Context, source *pb.Lifecycl
 	err := p.withSource(ctx, source, func(record launchSelection, endpoint netip.AddrPort) error {
 		id, err := p.inspect(ctx, source.Host, endpoint)
 		if err != nil {
-			if absentErr := p.absent(ctx, source.Host); absentErr != nil {
+			if absentErr := p.preparedAbsent(ctx, source.Host, record.Generation, source.Store); absentErr != nil {
 				return err
 			}
 			b, marshalErr := json.Marshal(legacySourceSnapshot{Record: record, Absent: true})
@@ -112,12 +121,11 @@ func (p *developmentLegacyStop) Stop(ctx context.Context, source *pb.LifecycleId
 	return p.withStoppedSource(ctx, source, snapshot, validate, nil)
 }
 
-// withStoppedSource keeps the existing launch exclusion continuously across stop,
-// source absence verification and use. It is a source-only building block, NOT
-// writer containment. A recovery coordinator must establish the relevant writer
-// contract before reassigning ownership, and recheck consent/epoch inside use.
-// Stop uses authenticated historical ShutdownAgent, never a PID signal. Acceptance
-// is not completion: kernel host absence is required under the held launch lock.
+// withStoppedSource retains launch exclusion across authenticated ShutdownAgent,
+// prepared-generation absence and use. Workers are never signalled. The supported
+// host owns persistence and independent tasks; canonical workers use host callbacks.
+// The coordinator still rechecks consent/epoch transactionally inside use. This is
+// not a fence against arbitrary same-user tools; external effects are not replayed.
 func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -149,7 +157,7 @@ func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *p
 				return err
 			}
 		} else {
-			if err := p.absent(ctx, source.Host); err != nil {
+			if err := p.preparedAbsent(ctx, source.Host, record.Generation, source.Store); err != nil {
 				return fmt.Errorf("source attribution uncertain: %v; absence: %w", inspectErr, err)
 			}
 			if err := validate(); err != nil {
@@ -157,7 +165,7 @@ func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *p
 			}
 		}
 
-		if err := p.absent(ctx, source.Host); err != nil {
+		if err := p.preparedAbsent(ctx, source.Host, record.Generation, source.Store); err != nil {
 			return err
 		}
 		if use == nil {

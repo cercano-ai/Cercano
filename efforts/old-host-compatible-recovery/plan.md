@@ -17,8 +17,8 @@ Objective: establish the smallest failing end-to-end recovery journey before mod
 Objective: implement the approved fallback without trusting stale PIDs or requiring new source RPCs. Files: command-level source resolution and process controls, server recovery boundary, agentclient APIs as needed. Tests: source identity changes, surviving workers, concurrent launch, cancellation, other hosts, and sibling impact.
 
 - [x] Bind fresh confirmation to source identity, conversation epoch, selected destination, and host-wide interruption disclosure.
-- [~] Implement verified launch exclusion and exact source/worker attribution using existing supported OS primitives where adequate.
-- [~] Implement bounded stopping and death verification for attributed processes, with explicit refusal on uncertain attribution or containment.
+- [x] Implement verified launch exclusion and exact source/worker attribution using existing supported OS primitives where adequate.
+- [x] Implement bounded stopping and death verification for attributed processes, with explicit refusal on uncertain attribution or containment.
 - [ ] Verify unrelated hosts remain untouched and source relaunch cannot race recovery.
 - [ ] Cover timeout, cancellation, PID reuse, stale approval, and surviving writer failures without ownership reassignment.
 
@@ -49,10 +49,10 @@ Objective: connect normal UI recovery to the replacement and remove redundant re
 
 Objective: establish the approved old-host recovery outcome, not merely current-to-current protocol success. Files: affected server/client/command integration tests and effort verification notes.
 
-- [ ] Pass the actual old-process, multiple-failed-journals, new-host recovery journey and exact successful persisted turn assertions.
+- [x] Pass the actual old-process, multiple-failed-journals, new-host recovery journey and exact successful persisted turn assertions.
 - [ ] Run focused normal/race suites for ownership, admission, source control, recovery, agentclient and CLI; confirm nonzero selected tests.
 - [ ] Run interface compilation and integration checks across affected modules and supported platforms; record untested platform boundaries.
 - [ ] Independently review process attribution, writer containment, late claims, consent, uncertain writes, protocol removal and compatibility evidence.
 - [ ] Repair concrete findings with failing probes and rerun affected tests.
-- [ ] Checkpoint solved units with explicit paths; preserve unrelated files and worktrees. Do not push or merge without authorization.
+- [x] Checkpoint solved units with explicit paths; preserve unrelated files and worktrees. Do not push or merge without authorization.
 - [ ] Report exact commits, executed checks, retained limitations and deployment prerequisites; do not claim the user's live conversation recovered.

@@ -519,3 +519,47 @@ argument observation; Darwin/unsupported writer observation and native descripto
 tests; this verification record. `.tmp-old-recovery/` remains untracked and
 excluded. No live recovery, permission expansion, push, or merge. This checkpoint
 records a concrete failed qualification attempt, not resolution of the task.
+
+
+## Narrow prepared-generation qualification and completed historical acceptance (2026-11-09)
+
+This supersedes the global same-user descriptor sweep/blocker recorded above.
+The supported model is the audited historical prepared host: persistence and independent
+ tasks are host-owned, workers persist through host callbacks, and canonical host/workers
+execute `generation/cercano` with the same private resource/socket/run root. Recovery
+holds the old generation launch lock, authenticates historical ShutdownAgent against
+fresh kernel listener identity, and requires absence of every canonical generation
+process (including ambiguous role/root matches). No PID signals or elevated access.
+
+Native enumeration uses a growing, bounded PID buffer and fails on truncation or
+kernel enumeration failure. Kernel executable attribution, not UID alone, decides
+relevance: protected argv inspection can fall back to libproc executable identity.
+An unrelated kernel-identified executable is excluded even if it has the DB open.
+If neither API can exclude a candidate, qualification refuses; missing executable paths
+are not evidence of death. Matching generation processes refuse even after executable
+unlink. Production source absence now uses this same bounded check, not the old
+all-same-user `VerifyHostAbsent` argv scan. Unsupported native platforms refuse.
+
+This is NOT a universal SQL/file fence against arbitrary same-user programs, copied
+executables, or external tools. SQLite transaction locks, stale owner/epoch checks,
+and source death protect committed-history recovery. Interrupted external effects
+remain uncertain and are not replayed. Different-root processes of the same generation
+are conservatively ambiguous; recovery does not stop or signal them.
+
+Executed in disposable fixtures, offline Go PATH `/opt/homebrew/opt/go/bin`,
+`GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off`:
+
+- `OLD_RECOVERY_PRODUCTION_FIXTURE=1 OLD_RECOVERY_EXECUTE=1 sh efforts/old-host-compatible-recovery/fixture/build-production.sh`: PASS after the final production absence changes (54.55s command, 40.10s test). Actual pinned historical source `d7cbdeb21c44e0ceeefdf212203ed04a37d09150`, fixture backend tags, real shipping constructor and coordinator. `drain`, `reserved`, and `blocked-timeout` all pass. Multiple failed journals are hints only; offers leave exact source ownership unchanged; fresh consent replaces stale consent; owned AND reserved epochs recover. The exact new-host user/assistant turn is persisted and provider-call delta checked. Host-owned independent-task result persistence, actual launcher contention, store/WAL stability, and signal-free host/worker absence are checked. Blocked work times out without recovery callback.
+- `go test ./internal/brewrestart -count=1`: PASS (31.16s), including prepared-generation inventory, unrelated DB opener, surviving and unlinked generation processes.
+- Focused race suites in `internal/brewrestart`, `internal/server`, `cmd/cercano`: PASS on rerun (prepared inventory, live-source recovery, private peer record, production legacy adapter, authenticated shutdown, registry exclusion). Initial adapter test expected the removed broad absence binding; corrected to require the production prepared-generation path, then reran successfully.
+- `go test ./internal/conversation -run 'Recover|DeadOwner' -count=1`: PASS.
+- `go test ./... -run '^$'`: PASS compilation only, not a full behavioral suite.
+
+Recovery selection now permits an exact self identity for validating the chosen destination;
+ordinary peer selection still rejects self and mismatched self identities. This repairs
+the historical acceptance's `incompatible peer record` failure without weakening peers.
+
+Remaining scope: broader plan items (protocol pruning, completion notifications,
+full cross-platform/client verification and independent review) are not completed by
+this acceptance. No live conversation recovered or deployed. `.tmp-old-recovery/`
+was not modified; no live host/config/VM changes, pushes, merges, or nested delegation.
