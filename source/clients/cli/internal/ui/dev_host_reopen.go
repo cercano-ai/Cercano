@@ -44,14 +44,9 @@ func reopenDevHostFrom(ctx context.Context, destination DevHostSelection, conver
 		return destination, &forcedResumeOffer{destination: destination, original: result.OriginalRecovery, requester: requester}
 	}
 	if result.GetConfirmationRequired() {
-		if result.GetLegacyProcessIdentity() == "" {
-			return destination, fmt.Errorf("safe legacy stop unavailable: %s", result.GetBlockedReason())
-		}
-		if result.GetOwner().GetConversation() != conversation || result.GetOwner().GetEpoch() == "" || result.GetSource().GetHost() != result.GetOwner().GetHost() || result.GetSource().GetHost() == "" || result.GetSource().GetHost() == destination.Identity.Host || result.GetOperationId() == "" {
-			return destination, fmt.Errorf("resume returned invalid legacy selection")
-		}
-		return destination, &forcedResumeOffer{destination: destination, owner: result.Owner, source: result.Source, operation: result.OperationId, processIdentity: result.LegacyProcessIdentity, requester: requester, blocked: result.BlockedReason}
+		return destination, fmt.Errorf("legacy recovery offer is no longer supported; upgrade the destination server and reopen for fresh recovery confirmation; no stop authorized")
 	}
+
 	if !result.GetReady() || result.GetPending() || result.GetOwner().GetConversation() != conversation || result.GetOwner().GetHost() != destination.Identity.Host || result.GetOwner().GetEpoch() == "" {
 		return destination, fmt.Errorf("reopen returned no ownership")
 	}

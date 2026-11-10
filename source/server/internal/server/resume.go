@@ -98,8 +98,8 @@ func syncResumePublication(path string, syncDirectory func(*os.File) error) erro
 
 // LifecycleResume runs on the launcher-selected coordinator, which may offer
 // authenticated recovery at the exact original destination before normal resume.
-// An unavailable RPC is never death proof. Legacy stops require a durable,
-// exact approval and a trusted platform adapter.
+// An unavailable RPC is never death proof. Legacy client stop confirmations
+// are rejected; only fresh contained recovery consent can authorize a stop.
 func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequest) (result *pb.LifecycleControlResponse, finalErr error) {
 	stage, refusalCheck := "control", ""
 	var diagnosticLifecycle *coexistenceLifecycle
@@ -119,6 +119,11 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		return nil, refusal(err)
 	}
 	diagnosticLifecycle = l
+	// Reject obsolete consent before acquisition, journals or recovery fallback.
+	// Even a mixed old/new confirmation must never acquire modern authority.
+	if r.GetConfirmLegacyStop() {
+		return nil, refusal(status.Error(codes.FailedPrecondition, "legacy stop confirmation is no longer supported; upgrade your client and reopen the conversation for fresh recovery confirmation; no stop authorized"))
+	}
 	stage = "validate_conversation"
 	id := r.GetOwner().GetConversation()
 	if id == "" {
@@ -157,14 +162,6 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			}
 		}()
 	}
-	var approved *pb.LifecycleControlRequest
-	if r.ConfirmLegacyStop {
-		stage = "validate_legacy_approval"
-		approved, err = validateLegacyApproval(l, r)
-		if err != nil {
-			return nil, refusal(err)
-		}
-	}
 	stage = "acquire"
 	acquired, acquireErr := s.LifecycleAcquire(ctx, r)
 	if acquireErr == nil {
@@ -201,19 +198,6 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	v, err := conversation.ReadOwnership(ctx, l.store, id)
 	if err != nil {
 		return nil, refusal(err)
-	}
-	stage = "confirmed_legacy"
-	if approved != nil {
-		// If a response was lost after the stop, guarded recovery can finish
-		// without signalling again. Never retry a signal against a changed PID.
-		if l.options.RecoveryGuard != nil {
-			if inspected, e := s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id}); e == nil && proto.Equal(inspected.Owner, approved.Owner) {
-				mark()
-				return s.resumeRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: approved.Owner, Confirm: true})
-			}
-		}
-		mark()
-		return s.resumeConfirmedLegacy(ctx, r, approved)
 	}
 	// Recovery repeats both the guarded death check and exact owner/epoch check.
 	stage = "guarded_recovery"
@@ -375,35 +359,9 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 				return nil, refusal(e)
 			}
 			if current.State != "owned" || current.Owner != op.Owner.Host || current.Epoch != op.Owner.Epoch {
-				return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed before legacy confirmation; refusing stale source"))
+				return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed during cooperative transfer; refusing stale source"))
 			}
-			if status.Code(err) == codes.Unknown || status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.Unimplemented {
-				reason := err.Error()
-				op.LegacyProcessIdentity = "" // Every new offer requires a fresh process snapshot.
-				if l.options.LegacyStop != nil {
-					identity, inspectErr := l.options.LegacyStop.Prepare(ctx, op.Source)
-					if inspectErr != nil {
-						reason += "; safe stop unavailable: " + inspectErr.Error()
-					} else if identity != "" {
-						op.LegacyProcessIdentity = identity
-						// Bind the requester shown when approval was offered too; a
-						// later UI cannot substitute a host to bypass self-protection.
-						if r.Requester != nil {
-							op.Requester = proto.Clone(r.Requester).(*pb.LifecycleIdentity)
-						}
-						if err := saveResume(path, op); err != nil {
-							return nil, refusal(err)
-						}
-					}
-				}
-				if err := saveResume(path, op); err != nil {
-					return nil, refusal(err)
-				}
-				if op.LegacyProcessIdentity == "" {
-					reason += "; verified platform process stop unavailable; no stop authorized"
-				}
-				return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: op.Owner, Source: op.Source, OperationId: op.HandoverId, LegacyProcessIdentity: op.LegacyProcessIdentity, ConfirmationRequired: true, BlockedReason: reason}, nil
-			}
+
 		}
 	}
 	if err != nil {

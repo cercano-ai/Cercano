@@ -101,7 +101,7 @@ func setResumeSource(b, a *Server, endpoint string) {
 }
 func TestDestinationResumeLegacy(t *testing.T) {
 	for _, blocked := range []bool{false, true} {
-		t.Run(map[bool]string{false: "cooperative", true: "confirmation-required"}[blocked], func(t *testing.T) {
+		t.Run(map[bool]string{false: "cooperative", true: "blocked"}[blocked], func(t *testing.T) {
 			a, b, _ := lifecycleFixture(t)
 			serveCutoverFixture(t, a)
 			bc, endpoint := serveCutoverFixture(t, b)
@@ -113,22 +113,19 @@ func TestDestinationResumeLegacy(t *testing.T) {
 			source := &resumeSource{Server: a, legacy: true, blocked: blocked}
 			setResumeSource(b, a, serveResumeSource(t, source))
 			got, err := bc.LifecycleResume(ctx, resumeRequest(b, endpoint))
-			if err != nil {
-				t.Fatal(err)
-			}
 			if blocked {
-				if !got.ConfirmationRequired || got.Source.Host != old.Host || got.OperationId == "" || got.Ready {
-					t.Fatalf("missing structured block: %v", got)
+				if err == nil || got != nil {
+					t.Fatalf("blocked old host must refuse without legacy offer: %v %v", got, err)
 				}
-				retry, err := bc.LifecycleResume(ctx, resumeRequest(b, endpoint))
-				if err != nil || retry.OperationId != got.OperationId {
-					t.Fatalf("unstable blocked retry: %v %v", retry, err)
+				retry, retryErr := bc.LifecycleResume(ctx, resumeRequest(b, endpoint))
+				if retryErr == nil || retry != nil {
+					t.Fatalf("blocked retry: %v %v", retry, retryErr)
 				}
 				v, _ := conversation.ReadOwnership(ctx, b.coexistence.store, "chat")
 				if v.Epoch != old.Epoch || v.Owner != old.Host {
 					t.Fatal("blocked outcome changed owner")
 				}
-			} else if !got.Ready || got.Owner.Host != "B" {
+			} else if err != nil || !got.GetReady() || got.GetOwner().GetHost() != "B" {
 				t.Fatalf("not cooperatively claimed: %v", got)
 			}
 		})
@@ -348,11 +345,14 @@ func TestResumeOrdinaryBeforeContainedRecovery(t *testing.T) {
 			if err != nil || !got.GetReady() || stop.stop != 0 || source.shutdowns != 0 {
 				t.Fatalf("ordinary route: %v %v stops=%d", got, err, stop.stop)
 			}
+			if got.GetOwner().GetHost() != "B" || got.GetOwner().GetEpoch() == old.Epoch || (mode == "reserved" && got.OperationId != "exact-reservation") {
+				t.Fatalf("wrong exact claim: %v", got)
+			}
 			if mode == "reserved" && source.calls != 0 {
 				t.Fatal("reservation claim contacted source")
 			}
 			retry, err := bc.LifecycleResume(ctx, r)
-			if err != nil || retry.GetOperationId() != got.GetOperationId() || retry.GetOperationId() == "" {
+			if err != nil || retry.GetOperationId() != got.GetOperationId() || retry.GetOperationId() == "" || retry.GetOwner().GetEpoch() != got.GetOwner().GetEpoch() || stop.stop != 0 || source.shutdowns != 0 {
 				t.Fatalf("retry metadata: %v %v", retry, err)
 			}
 		})

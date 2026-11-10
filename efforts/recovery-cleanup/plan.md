@@ -28,14 +28,14 @@ Objective: delete dead implementation without changing runtime behavior. Files: 
 
 Objective: retain one destination-side contained recovery continuation and reject legacy client stop confirmations before side effects. Files: server/resume.go, resume_legacy.go, live_recovery.go, relevant lifecycle interfaces; CLI internal/ui/forced_resume.go and original_recovery.go; associated tests and documentation. Preserve the existing protobuf envelope and field numbers, and preserve cooperative old-host controls.
 
-- [ ] Add characterization tests for cooperative zero-stop resume, adapter-less cooperation, exact local reservation claim, and ready retry operation identity
-- [ ] Add a failing regression requiring legacy confirmations to return actionable upgrade guidance with no stop or ownership mutation
-- [ ] Replace legacy confirmation execution with explicit safe rejection and remove parallel UI/server continuations
-- [ ] Keep ordinary acquisition, cooperative transfer, and exact reservation claims ahead of contained fallback
-- [ ] Preserve fresh default-no consent and tests for decline, expiry, replay, requester changes, source/destination identity changes, and full ownership/reservation changes before stop
-- [ ] Verify modern confirmation response-loss retries retain exact current operation identity and do not repeat completed shutdown
-- [ ] Run focused server, agentclient, and CLI integration tests normally and with race detection; compile both modules
-- [ ] Review the compatibility boundary and checkpoint the consolidated path
+- [x] Add characterization tests for cooperative zero-stop resume, adapter-less cooperation, exact local reservation claim, and ready retry operation identity
+- [x] Add a failing regression requiring legacy confirmations to return actionable upgrade guidance with no stop or ownership mutation
+- [x] Replace legacy confirmation execution with explicit safe rejection and remove parallel UI/server continuations
+- [x] Keep ordinary acquisition, cooperative transfer, and exact reservation claims ahead of contained fallback
+- [x] Preserve fresh default-no consent and tests for decline, expiry, replay, requester changes, source/destination identity changes, and full ownership/reservation changes before stop
+- [x] Verify modern confirmation response-loss retries retain exact current operation identity and do not repeat completed shutdown
+- [x] Run focused server, agentclient, and CLI integration tests normally and with race detection; compile both modules
+- [x] Review the compatibility boundary and checkpoint the consolidated path
 
 ## Phase 4 — Make fallback policy explicit
 

@@ -77,8 +77,8 @@ func TestDestinationResumeRecoverySupersedesParticipation(t *testing.T) {
 			source := &resumeSource{Server: a, legacy: true, blocked: true}
 			setResumeSource(b, a, serveResumeSource(t, source))
 			offer, err := bc.LifecycleResume(ctx, resumeRequest(b, endpoint))
-			if err != nil || !offer.GetConfirmationRequired() {
-				t.Fatalf("offer: %v %v", offer, err)
+			if err == nil || offer != nil {
+				t.Fatalf("expected cooperative refusal without legacy offer: %v %v", offer, err)
 			}
 			if len(b.coexistence.incoming) != 1 {
 				t.Fatal("missing participation")
@@ -170,8 +170,8 @@ func TestDestinationResumeRecoveryPreservesOtherParticipation(t *testing.T) {
 	}
 	source := &resumeSource{Server: a, legacy: true, blocked: true}
 	setResumeSource(b, a, serveResumeSource(t, source))
-	if offer, err := bc.LifecycleResume(ctx, resumeRequest(b, endpoint)); err != nil || !offer.GetConfirmationRequired() {
-		t.Fatalf("offer: %v %v", offer, err)
+	if offer, err := bc.LifecycleResume(ctx, resumeRequest(b, endpoint)); err == nil || offer != nil {
+		t.Fatalf("expected cooperative refusal without legacy offer: %v %v", offer, err)
 	}
 	other, err := b.AcceptIncoming(old, "other-operation", a.coexistence.options.Build, a.coexistence.options.Contract)
 	if err != nil {

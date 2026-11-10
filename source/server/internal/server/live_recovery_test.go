@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/peer"
 	"net"
 	"testing"
+	"time"
 )
 
 type containedFixture struct {
@@ -40,7 +41,7 @@ func (p *containedFixture) WithStoppedSource(ctx context.Context, _ *pb.Lifecycl
 	return use(ctx)
 }
 func TestLiveSourceRecovery(t *testing.T) {
-	for _, mode := range []string{"recover", "reserved", "stale", "uncertain"} {
+	for _, mode := range []string{"recover", "reserved", "stale", "uncertain", "expiry", "decline", "refreshed"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}})
 			a, b, _ := lifecycleFixture(t)
@@ -91,6 +92,17 @@ func TestLiveSourceRecovery(t *testing.T) {
 			if mode == "stale" {
 				r.Requester = a.coexistence.controlIdentity()
 			}
+			switch mode {
+			case "expiry":
+				l.recoveryOffers[r.RecoveryChallenge].expires = time.Now().Add(-time.Second)
+			case "decline":
+				r.ConfirmOriginalRecovery = false
+			case "refreshed":
+				fresh, err := b.LifecycleResume(ctx, &pb.LifecycleControlRequest{Target: l.controlIdentity(), Owner: r.Owner, Requester: r.Requester})
+				if err != nil || fresh.GetOriginalRecovery().GetChallenge() == r.RecoveryChallenge {
+					t.Fatalf("fresh offer: %v %v", fresh, err)
+				}
+			}
 			result, e := b.LifecycleResume(ctx, r)
 			if mode != "recover" && mode != "reserved" {
 				if e == nil || p.stop != 0 {
@@ -99,6 +111,13 @@ func TestLiveSourceRecovery(t *testing.T) {
 				after, _ = conversation.ReadOwnership(ctx, l.store, "live")
 				if after != before {
 					t.Fatal("refusal mutated owner")
+				}
+				// A declined, expired, stale or failed attempt cannot be replayed.
+				r.Requester = l.controlIdentity()
+				r.ConfirmOriginalRecovery = true
+				replay, err := b.LifecycleResume(ctx, r)
+				if err == nil || replay != nil || p.stop != 0 {
+					t.Fatalf("replayed consent: %v %v", replay, err)
 				}
 				return
 			}
@@ -141,7 +160,7 @@ func TestLiveSourceRecovery(t *testing.T) {
 
 func TestLiveRecoveryConsentMutationBeforeStop(t *testing.T) {
 	for _, timing := range []string{"confirmation", "final-pre-stop"} {
-		for _, field := range []string{"epoch", "destination", "handover", "endpoint", "token", "source"} {
+		for _, field := range []string{"owner", "state", "epoch", "destination", "handover", "endpoint", "token", "source", "selected-identity"} {
 			t.Run(timing+"/"+field, func(t *testing.T) {
 				ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}})
 				a, b, _ := lifecycleFixture(t)
@@ -169,6 +188,8 @@ func TestLiveRecoveryConsentMutationBeforeStop(t *testing.T) {
 				}
 				mutate := func() {
 					switch field {
+					case "selected-identity":
+						selection.Identity.Build = "changed-build"
 					case "endpoint":
 						selection.Endpoint = "127.0.0.1:3"
 					case "token":
@@ -181,7 +202,11 @@ func TestLiveRecoveryConsentMutationBeforeStop(t *testing.T) {
 							t.Fatal(e)
 						}
 						defer db.Close()
-						if _, e = db.Exec("UPDATE conversation_ownership SET "+field+"=? WHERE conversation_id=?", "changed", "consent"); e != nil {
+						value := "changed"
+						if field == "state" {
+							value = "owned"
+						}
+						if _, e = db.Exec("UPDATE conversation_ownership SET "+field+"=? WHERE conversation_id=?", value, "consent"); e != nil {
 							t.Fatal(e)
 						}
 					}
