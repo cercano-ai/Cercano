@@ -29,15 +29,10 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 	if err != nil {
 		return nil, true, err
 	}
-	// A lost response is resolved by current ready ownership, never a historical
-	// journal. No renewed stop consent is inferred from a retry.
+	// Local ready ownership is handled by ordinary acquisition, including its
+	// completed-journal operation metadata. Never replace that result here.
 	if state.Owner == l.options.Host && state.State == "owned" {
-		result, e := s.LifecycleAcquire(ctx, r)
-		if e == nil {
-			result.Ready = true
-			result.CurrentOwner = true
-		}
-		return result, true, e
+		return nil, false, nil
 	}
 	if state.Owner == "" && r.RecoveryChallenge == "" {
 		return nil, false, nil

@@ -35,7 +35,7 @@ func TestDestinationResumeForceAndRetry(t *testing.T) {
 		t.Fatalf("not claimed: %v", got)
 	}
 	again, err := bc.LifecycleResume(ctx, r)
-	if err != nil || again.GetOwner().GetEpoch() != got.Owner.Epoch {
+	if err != nil || again.GetOwner().GetEpoch() != got.Owner.Epoch || again.GetOperationId() == "" || again.GetOperationId() != got.OperationId {
 		t.Fatalf("retry: %v %v", again, err)
 	}
 }
@@ -45,9 +45,14 @@ type resumeSource struct {
 	*Server
 	legacy, blocked, lost, unauth bool
 	calls                         int
+	shutdowns                     int
 	beforeCooperative             func()
 }
 
+func (s *resumeSource) ShutdownAgent(context.Context, *pb.ShutdownAgentRequest) (*pb.ShutdownAgentResponse, error) {
+	s.shutdowns++
+	return nil, status.Error(codes.Internal, "ordinary resume must not shut down source")
+}
 func (s *resumeSource) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	s.calls++
 	if s.legacy {
@@ -307,5 +312,78 @@ func TestDestinationResumeLegacyOwnerRaceBeforeConfirmation(t *testing.T) {
 	v, err := conversation.ReadOwnership(ctx, b.coexistence.store, "chat")
 	if err != nil || v.Owner != "C" || v.State != "owned" {
 		t.Fatalf("racing owner changed: %+v %v", v, err)
+	}
+}
+
+// Successful ordinary routes must never need a host interruption adapter.
+func TestResumeOrdinaryBeforeContainedRecovery(t *testing.T) {
+	for _, mode := range []string{"cooperative", "adapterless", "reserved"} {
+		t.Run(mode, func(t *testing.T) {
+			a, b, _ := lifecycleFixture(t)
+			serveCutoverFixture(t, a)
+			bc, endpoint := serveCutoverFixture(t, b)
+			ctx := context.Background()
+			old, err := a.Retain(ctx, "chat")
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := &resumeSource{Server: a, legacy: true}
+			setResumeSource(b, a, serveResumeSource(t, source))
+			stop := &containedFixture{}
+			if mode != "adapterless" {
+				b.coexistence.options.LegacyStop = stop
+			}
+			if mode == "reserved" {
+				op := &pb.LifecycleControlRequest{Target: a.coexistence.controlIdentity(), Source: a.coexistence.controlIdentity(), Destination: b.coexistence.controlIdentity(), DestinationEndpoint: endpoint, Owner: wireOwner(old), HandoverId: "exact-reservation", Receipt: "durable-receipt", Management: true}
+				if err := a.coexistence.owners["chat"].ReserveHandover(ctx, "B", op.HandoverId); err != nil {
+					t.Fatal(err)
+				}
+				if err := saveResume(resumeJournal(b.coexistence, "chat"), op); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := resumeRequest(b, endpoint)
+			r.Requester = b.coexistence.controlIdentity()
+			got, err := bc.LifecycleResume(ctx, r)
+			if err != nil || !got.GetReady() || stop.stop != 0 || source.shutdowns != 0 {
+				t.Fatalf("ordinary route: %v %v stops=%d", got, err, stop.stop)
+			}
+			if mode == "reserved" && source.calls != 0 {
+				t.Fatal("reservation claim contacted source")
+			}
+			retry, err := bc.LifecycleResume(ctx, r)
+			if err != nil || retry.GetOperationId() != got.GetOperationId() || retry.GetOperationId() == "" {
+				t.Fatalf("retry metadata: %v %v", retry, err)
+			}
+		})
+	}
+}
+
+func TestResumeReadyRetainsCompletedOperation(t *testing.T) {
+	a, b, _ := lifecycleFixture(t)
+	bc, endpoint := serveCutoverFixture(t, b)
+	ctx := context.Background()
+	old, err := a.Retain(ctx, "chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.coexistence.options.LegacyStop = &containedFixture{}
+	const operation = "completed-resume"
+	if err := a.coexistence.owners["chat"].ReserveHandover(ctx, "B", operation); err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.coexistence.acquireUsing(ctx, "chat", nil, nil, func() (*conversation.Ownership, error) {
+		return conversation.ClaimHandover(ctx, b.coexistence.store, "chat", "B", operation)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := &pb.LifecycleControlRequest{Destination: b.coexistence.controlIdentity(), Owner: wireOwner(old), HandoverId: operation}
+	if err := saveResume(resumeJournal(b.coexistence, "chat"), op); err != nil {
+		t.Fatal(err)
+	}
+	got, err := bc.LifecycleResume(ctx, resumeRequest(b, endpoint))
+	if err != nil || !got.GetReady() || got.GetOperationId() != operation {
+		t.Fatalf("completed metadata: %v %v", got, err)
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -583,6 +584,23 @@ data: [DONE]
 			}
 		}
 		historicalCompletedTask(t, ctx, state)
+		// Settle the task's queued parent notification before measuring recovery.
+		// Otherwise the next turn may legitimately include a second task final,
+		// conflating task delivery with replay of the recovered user turn.
+		settled, err := c.StreamChat(ctx, a.Conversation, "settle completed task", root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for msg := range settled {
+			if msg.Err != nil {
+				t.Fatal(msg.Err)
+			}
+		}
+		prefix, err := c.ResumeConversation(ctx, a.Conversation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		drainDuringConfirmation := strings.HasSuffix(t.Name(), "/drain")
 		hold.Store(true)
 		pending, err := c.StreamChat(ctx, a.Conversation, "held turn", root)
 		if err != nil {
@@ -596,7 +614,7 @@ data: [DONE]
 		if strings.HasSuffix(t.Name(), "blocked-timeout") {
 			historicalRuntimeContainment(t, ctx, state, runtime, kegs[0], env, a, unblock, pending, owned)
 			selections = nil
-		} else {
+		} else if !drainDuringConfirmation {
 			unblock()
 			for msg := range pending {
 				if msg.Err != nil {
@@ -628,29 +646,65 @@ data: [DONE]
 			if e = os.WriteFile(filepath.Join(generation, "manifest.json"), []byte(manifest), 0600); e != nil {
 				t.Fatal(e)
 			}
+			if !drainDuringConfirmation {
+				prefix, e = c.ResumeConversation(ctx, a.Conversation)
+				if e != nil {
+					t.Fatal(e)
+				}
+			}
 			selectKeg(recoveryBinary)
 			_, destination := launch(recoveryBinary)
-			recovered := historicalCoordinatorRecovery(t, ctx, state, a, destination)
+			var duringConfirmation func()
+			if drainDuringConfirmation {
+				duringConfirmation = func() {
+					unblock()
+					for msg := range pending {
+						if msg.Err != nil {
+							t.Logf("held turn explicitly interrupted during host drain: %v", msg.Err)
+						}
+					}
+				}
+			}
+			recovered := historicalCoordinatorRecovery(t, ctx, state, a, destination, duringConfirmation)
 			selections = []launchSelection{recovered}
 			if e := brewrestart.VerifyPreparedWritersAbsent(ctx, filepath.Dir(kegs[0]), a.Identity.Store); e != nil {
 				t.Fatal(e)
 			}
 			client := dial(recovered)
+			recoveredPrefix, e := client.ResumeConversation(ctx, recovered.Conversation)
+			if e != nil {
+				t.Fatal(e)
+			}
+			extra := 0
+			if drainDuringConfirmation {
+				extra = 2
+			}
+			if len(recoveredPrefix) != len(prefix)+extra || !reflect.DeepEqual(recoveredPrefix[:len(prefix)], prefix) {
+				t.Fatalf("recovery changed committed prefix: before=%+v after=%+v", prefix, recoveredPrefix)
+			}
+			if extra != 0 && (recoveredPrefix[len(prefix)].Role != "user" || recoveredPrefix[len(prefix)].Content != "held turn" || recoveredPrefix[len(prefix)+1].Role != "assistant" || recoveredPrefix[len(prefix)+1].Content != "native-controller-ok") {
+				t.Fatalf("drained turn lost: %+v", recoveredPrefix)
+			}
 			beforeCalls := calls.Load()
 			reply, e := client.StreamChat(ctx, recovered.Conversation, "exact-recovered-provider-turn", root)
 			if e != nil {
 				t.Fatal(e)
 			}
+			var recoveredMessages []agentclient.StreamMsg
 			for msg := range reply {
+				recoveredMessages = append(recoveredMessages, msg)
 				if msg.Err != nil {
 					t.Fatal(msg.Err)
 				}
+			}
+			if e := nativeControllerFinal(recoveredMessages); e != nil {
+				t.Fatal(e)
 			}
 			history, e := client.ResumeConversation(ctx, recovered.Conversation)
 			if e != nil {
 				t.Fatal(e)
 			}
-			if len(history) < 2 || history[len(history)-2].Role != "user" || history[len(history)-2].Content != "exact-recovered-provider-turn" || history[len(history)-1].Role != "assistant" || history[len(history)-1].Content != "native-controller-ok" || calls.Load() != beforeCalls+1 {
+			if len(history) != len(recoveredPrefix)+2 || !reflect.DeepEqual(history[:len(recoveredPrefix)], recoveredPrefix) || history[len(history)-2].Role != "user" || history[len(history)-2].Content != "exact-recovered-provider-turn" || history[len(history)-1].Role != "assistant" || history[len(history)-1].Content != "native-controller-ok" || calls.Load() != beforeCalls+1 {
 				t.Fatalf("recovered history: %+v calls delta=%d", history, calls.Load()-beforeCalls)
 			}
 			t.Log("production constructor -> coordinator -> fresh confirmation -> exact recovered provider turn persisted")

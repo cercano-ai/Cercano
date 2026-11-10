@@ -184,15 +184,44 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	}
 	l.resumeMu.Lock()
 	defer l.resumeMu.Unlock()
-	if recovered, handled, e := s.liveSourceRecovery(ctx, l, r); handled {
+	// Confirmation is a single-use recovery continuation, never another
+	// cooperative attempt (which could change the consent-bound row).
+	_, containedRecovery := l.options.LegacyStop.(ContainedSourceStop)
+	if containedRecovery && (r.RecoveryChallenge != "" || r.ConfirmOriginalRecovery) {
+		recovered, handled, e := s.liveSourceRecovery(ctx, l, r)
+		if !handled {
+			return nil, status.Error(codes.FailedPrecondition, "recovery confirmation no longer matches current ownership")
+		}
 		return recovered, e
 	}
-	if offered, handled, e := s.offerTakeover(ctx, l, r); handled {
-		return offered, e
+	// Try ordinary acquisition, exact reservation claims and supported cooperation
+	// first. Historical journals are not an ownership-discovery prerequisite.
+	// Only qualified containment may turn a failure into a fresh stop offer.
+	if !containedRecovery {
+		// Keep the existing receipt-based coordinator for installations without
+		// qualified host containment. The compatible production path below must
+		// not depend on these newer RPCs or on historical journal uniqueness.
+		if offered, handled, e := s.offerTakeover(ctx, l, r); handled {
+			return offered, e
+		}
+		stage = "original_operation_discovery"
+		if recovered, handled, e := s.originalRecovery(ctx, l, r); handled {
+			return recovered, e
+		}
 	}
-	stage = "original_operation_discovery"
-	if recovered, handled, e := s.originalRecovery(ctx, l, r); handled {
-		return recovered, e
+	if containedRecovery {
+		defer func() {
+			if finalErr == nil && result.GetReady() {
+				return
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			recovered, handled, e := s.liveSourceRecovery(ctx, l, r)
+			if handled {
+				result, finalErr = recovered, e
+			}
+		}()
 	}
 	var approved *pb.LifecycleControlRequest
 	if r.ConfirmLegacyStop {
@@ -206,6 +235,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	acquired, acquireErr := s.LifecycleAcquire(ctx, r)
 	if acquireErr == nil {
 		acquired.Ready = true
+		acquired.CurrentOwner = true
 		// A ready retry still reports the same durable operation, if this
 		// acquisition came from resume rather than ordinary unowned acquire.
 		if b, e := os.ReadFile(resumeJournal(l, id)); e == nil {

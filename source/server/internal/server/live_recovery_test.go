@@ -4,6 +4,7 @@ import (
 	"cercano/source/server/internal/conversation"
 	pb "cercano/source/server/pkg/proto"
 	"context"
+	"database/sql"
 	"fmt"
 	"google.golang.org/grpc/peer"
 	"net"
@@ -11,9 +12,10 @@ import (
 )
 
 type containedFixture struct {
-	stop   int
-	held   bool
-	refuse bool
+	stop       int
+	held       bool
+	refuse     bool
+	beforeStop func()
 }
 
 func (*containedFixture) Prepare(context.Context, *pb.LifecycleIdentity) (string, error) {
@@ -23,6 +25,9 @@ func (*containedFixture) Stop(context.Context, *pb.LifecycleIdentity, string, fu
 	return fmt.Errorf("uncontained stop forbidden")
 }
 func (p *containedFixture) WithStoppedSource(ctx context.Context, _ *pb.LifecycleIdentity, _ string, validate func() error, use func(context.Context) error) error {
+	if p.beforeStop != nil {
+		p.beforeStop()
+	}
 	if e := validate(); e != nil {
 		return e
 	}
@@ -107,5 +112,72 @@ func TestLiveSourceRecovery(t *testing.T) {
 				t.Fatalf("lost response %v %v", retry, e)
 			}
 		})
+	}
+}
+
+func TestLiveRecoveryConsentMutationBeforeStop(t *testing.T) {
+	for _, timing := range []string{"confirmation", "final-pre-stop"} {
+		for _, field := range []string{"epoch", "destination", "handover", "endpoint", "token", "source"} {
+			t.Run(timing+"/"+field, func(t *testing.T) {
+				ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}})
+				a, b, _ := lifecycleFixture(t)
+				_, err := a.Retain(ctx, "consent")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = a.coexistence.owners["consent"].ReserveHandover(ctx, "historical", "historical-op"); err != nil {
+					t.Fatal(err)
+				}
+				l := b.coexistence
+				p := &containedFixture{}
+				l.options.LegacyStop = p
+				l.options.ControlAuthorize = func(context.Context) error { return nil }
+				source := a.coexistence.controlIdentity()
+				selection := &pb.LifecycleRecoverySelection{Identity: l.controlIdentity(), Endpoint: "127.0.0.1:2", TokenFile: "token"}
+				l.options.ResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {
+					return source, "127.0.0.1:1", nil
+				}
+				l.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) { return selection, nil }
+				r := &pb.LifecycleControlRequest{Target: l.controlIdentity(), Requester: l.controlIdentity(), Owner: &pb.LifecycleOwner{Conversation: "consent"}}
+				offer, err := b.LifecycleResume(ctx, r)
+				if err != nil || !offer.GetConfirmationRequired() {
+					t.Fatalf("offer %v %v", offer, err)
+				}
+				mutate := func() {
+					switch field {
+					case "endpoint":
+						selection.Endpoint = "127.0.0.1:3"
+					case "token":
+						selection.TokenFile = "different-token"
+					case "source":
+						source.Build = "changed-build"
+					default:
+						db, e := sql.Open("sqlite", l.options.StorePath)
+						if e != nil {
+							t.Fatal(e)
+						}
+						defer db.Close()
+						if _, e = db.Exec("UPDATE conversation_ownership SET "+field+"=? WHERE conversation_id=?", "changed", "consent"); e != nil {
+							t.Fatal(e)
+						}
+					}
+				}
+				if timing == "confirmation" {
+					mutate()
+				} else {
+					p.beforeStop = mutate
+				}
+				r.RecoveryChallenge = offer.OriginalRecovery.Challenge
+				r.ConfirmOriginalRecovery = true
+				got, err := b.LifecycleResume(ctx, r)
+				if err == nil || p.stop != 0 {
+					t.Fatalf("stale consent stopped source: %v %v stops=%d", got, err, p.stop)
+				}
+				state, e := conversation.ReadOwnership(ctx, l.store, "consent")
+				if e != nil || state.Owner == l.options.Host {
+					t.Fatalf("stale consent reassigned: %+v %v", state, e)
+				}
+			})
+		}
 	}
 }

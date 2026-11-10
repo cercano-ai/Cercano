@@ -10,13 +10,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	pb "cercano/source/server/pkg/proto"
 )
 
 // Only disposable stores are edited to model failed historical transfer journals.
 // Recovery itself goes over authenticated RPC to the ordinary production host.
-func historicalCoordinatorRecovery(t *testing.T, ctx context.Context, state string, source, destination launchSelection) launchSelection {
+func historicalCoordinatorRecovery(t *testing.T, ctx context.Context, state string, source, destination launchSelection, duringConfirmation func()) launchSelection {
 	t.Helper()
 	db, err := sql.Open("sqlite", filepath.Join(state, "conversations.db"))
 	if err != nil {
@@ -72,7 +73,24 @@ func historicalCoordinatorRecovery(t *testing.T, ctx context.Context, state stri
 		t.Fatal("superseded confirmation accepted")
 	}
 	request.RecoveryChallenge = fresh.OriginalRecovery.Challenge
-	result, err := controls.LifecycleResume(ctx, request)
+	type outcome struct {
+		result *pb.LifecycleControlResponse
+		err    error
+	}
+	done := make(chan outcome, 1)
+	confirmCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	go func() { result, err := controls.LifecycleResume(confirmCtx, request); done <- outcome{result, err} }()
+	if duringConfirmation != nil {
+		select {
+		case early := <-done:
+			t.Fatalf("confirmation finished before held work released: %v %v", early.result, early.err)
+		case <-time.After(250 * time.Millisecond):
+		}
+		duringConfirmation()
+	}
+	finished := <-done
+	result, err := finished.result, finished.err
 	if err != nil || !result.GetReady() || !result.GetCurrentOwner() || result.GetOwner().GetHost() != destination.Identity.Host || result.GetOwner().GetEpoch() == source.Epoch {
 		t.Fatalf("recover original: %v %v", result, err)
 	}
