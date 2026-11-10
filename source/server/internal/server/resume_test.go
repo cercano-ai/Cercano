@@ -336,7 +336,7 @@ func TestResumeOrdinaryBeforeContainedRecovery(t *testing.T) {
 			}
 			stop := &containedFixture{}
 			if mode != "adapterless" {
-				b.coexistence.options.LegacyStop = stop
+				b.coexistence.options.RecoverySource = stop
 			}
 			if mode == "reserved" {
 				op := &pb.LifecycleControlRequest{Target: a.coexistence.controlIdentity(), Source: a.coexistence.controlIdentity(), Destination: b.coexistence.controlIdentity(), DestinationEndpoint: endpoint, Owner: wireOwner(old), HandoverId: "exact-reservation", Receipt: "durable-receipt", Management: true}
@@ -375,7 +375,7 @@ func TestResumeReadyRetainsCompletedOperation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.coexistence.options.LegacyStop = &containedFixture{}
+	b.coexistence.options.RecoverySource = &containedFixture{}
 	const operation = "completed-resume"
 	if err := a.coexistence.owners["chat"].ReserveHandover(ctx, "B", operation); err != nil {
 		t.Fatal(err)

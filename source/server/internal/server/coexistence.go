@@ -32,8 +32,8 @@ type CoexistenceOptions struct {
 	// RecoveryGuard proves the exact historical host absent and excludes relaunch
 	// until its returned release function is called. Nil disables recovery.
 	RecoveryGuard func(context.Context, string) (func(), error)
-	// LegacyStop is optional: absent a verified platform implementation, fail closed.
-	LegacyStop LegacyProcessStop
+	// RecoverySource is optional: absent a qualified containment adapter, fail closed.
+	RecoverySource RecoverySourcePreparation
 	// ResolveSource selects only the exact owner from trusted local records; ControlDial authenticates that exact identity, not merely its endpoint.
 	ResolveSource func(context.Context, string) (*pb.LifecycleIdentity, string, error)
 	// RecoverySelection supplies private-record CLI credentials, never journal hints.

@@ -38,10 +38,10 @@ func TestResumeLegacyConfirmationRequiresUpgrade(t *testing.T) {
 			}
 			calls := 0
 			p := &resumeProcessFixture{identity: "old-snapshot", onStop: func() { calls++; cap.Close() }}
-			b.coexistence.options.LegacyStop = p
+			b.coexistence.options.RecoverySource = p
 			contained := &containedFixture{}
 			if mode == "contained" || mode == "mixed-confirmation" {
-				b.coexistence.options.LegacyStop = contained
+				b.coexistence.options.RecoverySource = contained
 			}
 			b.coexistence.options.ResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {
 				calls++

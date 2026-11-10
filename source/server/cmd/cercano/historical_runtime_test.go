@@ -26,7 +26,7 @@ import (
 func historicalRuntimeContainment(t *testing.T, ctx context.Context, state, runtime, binary string, env []string, source launchSelection, unblock func(), pending <-chan agentclient.StreamMsg, owned func() ([]nativeControllerProcess, error)) {
 	t.Helper()
 	destination := &pb.LifecycleIdentity{Host: "fixture-destination", Store: source.Identity.Store, Contract: source.Identity.Contract, Schema: source.Identity.Schema}
-	adapter := newDevelopmentLegacyStop(state, destination)
+	adapter := newDevelopmentContainedSource(state, destination)
 	snapshot, err := adapter.Prepare(ctx, source.Identity)
 	if err != nil {
 		t.Fatal(err)

@@ -134,7 +134,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	defer l.resumeMu.Unlock()
 	// Confirmation is a single-use recovery continuation, never another
 	// cooperative attempt (which could change the consent-bound row).
-	_, containedRecovery := l.options.LegacyStop.(ContainedSourceStop)
+	_, containedRecovery := l.options.RecoverySource.(ContainedSourceStop)
 	if containedRecovery && (r.RecoveryChallenge != "" || r.ConfirmOriginalRecovery) {
 		recovered, handled, e := s.liveSourceRecovery(ctx, l, r)
 		if !handled {

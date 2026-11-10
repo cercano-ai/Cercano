@@ -22,9 +22,6 @@ type containedFixture struct {
 func (*containedFixture) Prepare(context.Context, *pb.LifecycleIdentity) (string, error) {
 	return "qualified-fixture", nil
 }
-func (*containedFixture) Stop(context.Context, *pb.LifecycleIdentity, string, func() error) error {
-	return fmt.Errorf("uncontained stop forbidden")
-}
 func (p *containedFixture) WithStoppedSource(ctx context.Context, _ *pb.LifecycleIdentity, _ string, validate func() error, use func(context.Context) error) error {
 	if p.beforeStop != nil {
 		p.beforeStop()
@@ -63,7 +60,7 @@ func TestLiveSourceRecovery(t *testing.T) {
 			}
 			p := &containedFixture{refuse: mode == "uncertain"}
 			l := b.coexistence
-			l.options.LegacyStop = p
+			l.options.RecoverySource = p
 			l.options.ControlAuthorize = func(context.Context) error { return nil }
 			l.options.ResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {
 				return a.coexistence.controlIdentity(), "127.0.0.1:1", nil
@@ -173,7 +170,7 @@ func TestLiveRecoveryConsentMutationBeforeStop(t *testing.T) {
 				}
 				l := b.coexistence
 				p := &containedFixture{}
-				l.options.LegacyStop = p
+				l.options.RecoverySource = p
 				l.options.ControlAuthorize = func(context.Context) error { return nil }
 				source := a.coexistence.controlIdentity()
 				selection := &pb.LifecycleRecoverySelection{Identity: l.controlIdentity(), Endpoint: "127.0.0.1:2", TokenFile: "token"}
@@ -239,7 +236,7 @@ func TestResumeRecoveryLookupFailure(t *testing.T) {
 			l := b.coexistence
 			l.options.ControlAuthorize = func(context.Context) error { return nil }
 			p := &containedFixture{}
-			l.options.LegacyStop = p
+			l.options.RecoverySource = p
 			fallback := 0
 			l.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) {
 				fallback++

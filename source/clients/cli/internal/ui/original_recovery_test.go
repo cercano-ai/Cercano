@@ -12,7 +12,7 @@ func TestLiveSourceRecoveryUI(t *testing.T) {
 	source := &pb.LifecycleIdentity{Host: "S", Build: "build", Store: "store", Contract: "contract", Schema: 1}
 	dest := &pb.LifecycleIdentity{Host: "D", Build: "build", Store: "store", Contract: "contract", Schema: 1}
 	o := &pb.LifecycleOriginalRecovery{Challenge: "fresh", Selection: &pb.LifecycleRecoverySelection{Identity: dest, Endpoint: "127.0.0.1:1234", TokenFile: "never-read"}, Operation: &pb.LifecycleControlRequest{Target: source, Source: source, Destination: dest, Owner: &pb.LifecycleOwner{Conversation: "history", Host: "S", Epoch: "epoch"}, HandoverId: "stable", LegacyProcessIdentity: "snapshot"}}
-	if e := validateOriginalOffer(o, "history"); e != nil {
+	if e := validateContainedRecoveryOffer(o, "history"); e != nil {
 		t.Fatal(e)
 	}
 	for _, key := range []string{"enter", "n", "esc", "y"} {

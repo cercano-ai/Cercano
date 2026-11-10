@@ -37,7 +37,7 @@ func TestResumeFallbackPolicy(t *testing.T) {
 			l := b.coexistence
 			l.options.ControlAuthorize = func(context.Context) error { return nil }
 			p := &containedFixture{}
-			l.options.LegacyStop = p
+			l.options.RecoverySource = p
 			logPath := filepath.Join(t.TempDir(), "failures.jsonl")
 			w, e := failurelog.NewWriter(logPath)
 			if e != nil {
@@ -240,7 +240,7 @@ func TestResumeAcceptanceCleanupFailure(t *testing.T) {
 	}
 	l.options.RecoveryGuard = func(context.Context, string) (func(), error) { return func() {}, nil }
 	stop := &containedFixture{}
-	l.options.LegacyStop = stop
+	l.options.RecoverySource = stop
 	discoveries := 0
 	l.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) {
 		discoveries++

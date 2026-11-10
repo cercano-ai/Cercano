@@ -13,7 +13,7 @@ func TestRecoveryUIRejectsInvalidBindings(t *testing.T) {
 	dest := proto.Clone(source).(*pb.LifecycleIdentity)
 	dest.Host = "D"
 	offer := &pb.LifecycleOriginalRecovery{Challenge: "single-use", Selection: &pb.LifecycleRecoverySelection{Identity: dest, Endpoint: "127.0.0.1:1234", TokenFile: "never-read"}, Operation: &pb.LifecycleControlRequest{Target: source, Source: source, Destination: dest, Owner: &pb.LifecycleOwner{Conversation: "history", Host: "S", Epoch: "epoch"}, HandoverId: "op", LegacyProcessIdentity: "snapshot"}}
-	if err := validateOriginalOffer(offer, "history"); err != nil {
+	if err := validateContainedRecoveryOffer(offer, "history"); err != nil {
 		t.Fatal(err)
 	}
 	for _, change := range []string{"legacy", "takeover", "retry", "store", "epoch", "challenge", "endpoint", "destination", "token"} {
@@ -40,7 +40,7 @@ func TestRecoveryUIRejectsInvalidBindings(t *testing.T) {
 			case "token":
 				bad.Selection.TokenFile = ""
 			}
-			if err := validateOriginalOffer(bad, "history"); err == nil {
+			if err := validateContainedRecoveryOffer(bad, "history"); err == nil {
 				t.Fatal("accepted invalid offer")
 			}
 		})

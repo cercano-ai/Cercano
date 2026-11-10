@@ -15,5 +15,5 @@ func (o *forcedResumeOffer) Error() string {
 	return "contained source recovery requires fresh whole-host interruption confirmation"
 }
 func (m Model) offerForcedResume(offer *forcedResumeOffer) (tea.Model, tea.Cmd) {
-	return m.offerOriginalRecovery(offer)
+	return m.offerContainedRecovery(offer)
 }

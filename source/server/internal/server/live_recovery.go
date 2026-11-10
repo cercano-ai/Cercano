@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ContainedSourceStop is stronger than LegacyProcessStop: the adapter must qualify
+// ContainedSourceStop extends preparation: the adapter must qualify
 // the historical writer contract and retain launch exclusion through use. A host
 // absence check alone is not sufficient to implement this interface.
 type ContainedSourceStop interface {
@@ -39,7 +39,7 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 	if state.Owner == "" && r.RecoveryChallenge == "" {
 		return nil, false, nil
 	}
-	adapter, supported := l.options.LegacyStop.(ContainedSourceStop)
+	adapter, supported := l.options.RecoverySource.(ContainedSourceStop)
 	if !supported {
 		return nil, true, status.Error(codes.FailedPrecondition, "live-source recovery requires a qualified containment adapter")
 	}
@@ -118,7 +118,7 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 	if src.GetHost() != state.Owner || src.GetStore() != l.controlIdentity().GetStore() {
 		return nil, true, status.Error(codes.FailedPrecondition, "resolved source is not the durable owner")
 	}
-	snapshot, err := l.options.LegacyStop.Prepare(ctx, src)
+	snapshot, err := l.options.RecoverySource.Prepare(ctx, src)
 	if err != nil {
 		return nil, true, err
 	}

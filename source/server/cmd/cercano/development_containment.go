@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type developmentLegacyStop struct {
+type developmentContainedSource struct {
 	state       string
 	destination *pb.LifecycleIdentity
 	inspect     func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error)
@@ -22,23 +22,23 @@ type developmentLegacyStop struct {
 	absent      func(context.Context, string) error
 }
 
-var _ server.ContainedSourceStop = (*developmentLegacyStop)(nil)
+var _ server.ContainedSourceStop = (*developmentContainedSource)(nil)
 
-type legacySourceSnapshot struct {
+type preparedSourceSnapshot struct {
 	Record  launchSelection
 	Process brewrestart.Identity
 	Absent  bool
 }
 
-func newDevelopmentLegacyStop(state string, destination *pb.LifecycleIdentity) *developmentLegacyStop {
-	p := &developmentLegacyStop{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost}
+func newDevelopmentContainedSource(state string, destination *pb.LifecycleIdentity) *developmentContainedSource {
+	p := &developmentContainedSource{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost}
 	p.stop = p.shutdownAuthenticated
 	return p
 }
 
 // Production absence is bounded to the canonical prepared generation, not all
 // same-user argv/FDs. The existing absent seam is retained for adapter unit tests.
-func (p *developmentLegacyStop) preparedAbsent(ctx context.Context, host, generation, store string) error {
+func (p *developmentContainedSource) preparedAbsent(ctx context.Context, host, generation, store string) error {
 	if p.absent != nil {
 		return p.absent(ctx, host)
 	}
@@ -47,7 +47,7 @@ func (p *developmentLegacyStop) preparedAbsent(ctx context.Context, host, genera
 
 // withSource uses exactly the recovery path's existing per-generation launch
 // exclusion. Verification runs inside that exclusion, never upgrade-wide stop.
-func (p *developmentLegacyStop) withSource(ctx context.Context, source *pb.LifecycleIdentity, fn func(launchSelection, netip.AddrPort) error) error {
+func (p *developmentContainedSource) withSource(ctx context.Context, source *pb.LifecycleIdentity, fn func(launchSelection, netip.AddrPort) error) error {
 	if source == nil || source.Host == "" || source.Host == p.destination.GetHost() {
 		return fmt.Errorf("refusing destination source")
 	}
@@ -95,7 +95,7 @@ func (p *developmentLegacyStop) withSource(ctx context.Context, source *pb.Lifec
 	return nil
 }
 
-func (p *developmentLegacyStop) Prepare(ctx context.Context, source *pb.LifecycleIdentity) (string, error) {
+func (p *developmentContainedSource) Prepare(ctx context.Context, source *pb.LifecycleIdentity) (string, error) {
 	var snapshot string
 	err := p.withSource(ctx, source, func(record launchSelection, endpoint netip.AddrPort) error {
 		id, err := p.inspect(ctx, source.Host, endpoint)
@@ -103,37 +103,36 @@ func (p *developmentLegacyStop) Prepare(ctx context.Context, source *pb.Lifecycl
 			if absentErr := p.preparedAbsent(ctx, source.Host, record.Generation, source.Store); absentErr != nil {
 				return err
 			}
-			b, marshalErr := json.Marshal(legacySourceSnapshot{Record: record, Absent: true})
+			b, marshalErr := json.Marshal(preparedSourceSnapshot{Record: record, Absent: true})
 			snapshot = string(b)
 			return marshalErr
 		}
 		if id.Executable != filepath.Join(record.Generation, "cercano") {
 			return fmt.Errorf("source executable does not match recorded generation")
 		}
-		b, err := json.Marshal(legacySourceSnapshot{Record: record, Process: id})
+		b, err := json.Marshal(preparedSourceSnapshot{Record: record, Process: id})
 		snapshot = string(b)
 		return err
 	})
 	return snapshot, err
 }
 
-func (p *developmentLegacyStop) Stop(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error) error {
-	return p.withStoppedSource(ctx, source, snapshot, validate, nil)
-}
-
-// withStoppedSource retains launch exclusion across authenticated ShutdownAgent,
+// containSource retains launch exclusion across authenticated ShutdownAgent,
 // prepared-generation absence and use. Workers are never signalled. The supported
 // host owns persistence and independent tasks; canonical workers use host callbacks.
 // The coordinator still rechecks consent/epoch transactionally inside use. This is
 // not a fence against arbitrary same-user tools; external effects are not replayed.
-func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
+func (p *developmentContainedSource) containSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, verifyAndUse func(context.Context, string, string) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if verifyAndUse == nil {
+		return fmt.Errorf("recovery callback required")
 	}
 	if validate == nil {
 		return fmt.Errorf("source stop requires fresh approval validation")
 	}
-	var expected legacySourceSnapshot
+	var expected preparedSourceSnapshot
 	if snapshot == "" || json.Unmarshal([]byte(snapshot), &expected) != nil {
 		return fmt.Errorf("invalid approved source snapshot")
 	}
@@ -165,32 +164,30 @@ func (p *developmentLegacyStop) withStoppedSource(ctx context.Context, source *p
 			}
 		}
 
-		if err := p.preparedAbsent(ctx, source.Host, record.Generation, source.Store); err != nil {
-			return err
-		}
-		if use == nil {
-			return nil
-		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		return use(ctx)
+		return verifyAndUse(ctx, record.Generation, source.Store)
 	})
 }
 
+// WithStoppedSource is the only production mutation entry point. The private
+// containSource helper permits isolated orchestration tests, but its absence
+// seam cannot bypass this final native check. All observations remain inside the same
+// launch exclusion, including the ownership mutation and reload callback.
 // WithStoppedSource holds the source launcher exclusion through native writer
 // observation, durable ownership recovery and reload. No worker is signalled.
-func (p *developmentLegacyStop) WithStoppedSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
+func (p *developmentContainedSource) WithStoppedSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
 	if use == nil {
 		return fmt.Errorf("recovery callback required")
 	}
-	var expected legacySourceSnapshot
+	var expected preparedSourceSnapshot
 	if json.Unmarshal([]byte(snapshot), &expected) != nil || expected.Record.Generation == "" || !proto.Equal(expected.Record.Identity, source) {
 		return fmt.Errorf("exact prepared source snapshot required")
 	}
-	return p.withStoppedSource(ctx, source, snapshot, validate, func(ctx context.Context) error {
+	return p.containSource(ctx, source, snapshot, validate, func(ctx context.Context, generation, store string) error {
 		for {
-			err := brewrestart.VerifyPreparedWritersAbsent(ctx, expected.Record.Generation, source.Store)
+			err := brewrestart.VerifyPreparedWritersAbsent(ctx, generation, store)
 			if err == nil {
 				return use(ctx)
 			}

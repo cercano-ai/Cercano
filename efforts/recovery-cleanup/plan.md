@@ -54,13 +54,13 @@ Objective: replace deferred error replacement with explicit recovery eligibility
 
 Objective: remove redundant adapter paths after their consumers are removed, retaining continuous launch exclusion and final native verification. Files: cmd/cercano/development_legacy.go, development_legacy_shutdown.go, development_recovery.go; internal/brewrestart attribution helpers; CLI/server internal recovery helpers and docs. Tests: absence and attribution failures, shutdown response loss, bounded drain, surviving generation processes, and exclusion lifetime.
 
-- [ ] Recheck remaining Stop and WithStoppedSource consumers and remove only obsolete interfaces/paths
-- [ ] Consolidate verification sequencing without dropping final native absence checks or releasing exclusion before mutation/reload finishes
-- [ ] Preserve fail-closed handling for attribution errors, ambiguous/surviving processes, response loss, and cancellation
-- [ ] Rename misleading internal helpers and document their mapping to the unchanged LifecycleOriginalRecovery envelope
-- [ ] Keep obsolete wire modes rejected and record wire migration as a separate follow-up
-- [ ] Run focused adapter/native attribution tests normally and with race detection and inspect cleanup failure behavior
-- [ ] Checkpoint the adapter and naming cleanup
+- [x] Recheck remaining Stop and WithStoppedSource consumers and remove only obsolete interfaces/paths
+- [x] Consolidate verification sequencing without dropping final native absence checks or releasing exclusion before mutation/reload finishes
+- [x] Preserve fail-closed handling for attribution errors, ambiguous/surviving processes, response loss, and cancellation
+- [x] Rename misleading internal helpers and document their mapping to the unchanged LifecycleOriginalRecovery envelope
+- [x] Keep obsolete wire modes rejected and record wire migration as a separate follow-up
+- [x] Run focused adapter/native attribution tests normally and with race detection and inspect cleanup failure behavior
+- [x] Checkpoint the adapter and naming cleanup
 
 ## Phase 6 — Final review, acceptance, and documentation
 

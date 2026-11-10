@@ -28,7 +28,7 @@ func TestLegacyAuthenticatedShutdownWait(t *testing.T) {
 				cancel()
 			}
 			requests, checks := 0, 0
-			err := awaitLegacyShutdown(ctx, func() error {
+			err := awaitAuthenticatedShutdown(ctx, func() error {
 				if mode == "declined" {
 					return fmt.Errorf("consent declined")
 				}
@@ -127,7 +127,7 @@ func TestLegacyShutdownAuthenticatedTransport(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer lock.Close()
-			adapter := newDevelopmentLegacyStop(state, destination)
+			adapter := newDevelopmentContainedSource(state, destination)
 			adapter.inspect = func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error) {
 				return brewrestart.Identity{PID: 42, StartSeconds: 1, Executable: filepath.Join(generation, "cercano")}, nil
 			}
@@ -149,7 +149,7 @@ func TestLegacyShutdownAuthenticatedTransport(t *testing.T) {
 				t.Fatal(err)
 			}
 			used := false
-			err = adapter.withStoppedSource(ctx, id, snapshot, func() error { return nil }, func(context.Context) error { used = true; return nil })
+			err = adapter.stopAndUseSource(ctx, id, snapshot, func() error { return nil }, func(context.Context) error { used = true; return nil })
 			if wrongToken {
 				if err == nil || used || fixture.requests.Load() != 0 {
 					t.Fatalf("unauthenticated stop: %v", err)

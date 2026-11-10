@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"cercano/source/server/internal/brewrestart"
 	pb "cercano/source/server/pkg/proto"
@@ -16,7 +18,7 @@ import (
 // Exercise the production adapter and real registry/launch-lock machinery while
 // replacing only kernel process observation/control. No live hosts are touched.
 func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
-	for _, mode := range []string{"accept", "decline", "stale-process", "stale-record", "stale-generation", "approval-rejected", "destination", "launch-busy", "held", "absence-failed", "use-failed", "cancelled"} {
+	for _, mode := range []string{"accept", "decline", "stale-process", "stale-record", "stale-generation", "approval-rejected", "destination", "launch-busy", "held", "absence-failed", "use-failed", "cancelled", "final-native-refusal"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -65,7 +67,7 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 			}
 			defer lock.Close()
 			id := brewrestart.Identity{PID: 42, UID: uint32(os.Getuid()), StartSeconds: 100, Executable: filepath.Join(generation, "cercano")}
-			adapter := newDevelopmentLegacyStop(state, dest)
+			adapter := newDevelopmentContainedSource(state, dest)
 			if adapter.inspect == nil || adapter.stop == nil || adapter.absent != nil {
 				t.Fatal("production must use prepared-generation absence, not an override")
 			}
@@ -151,7 +153,7 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 				return nil
 			}
 			if mode == "held" || mode == "absence-failed" || mode == "use-failed" {
-				err = adapter.withStoppedSource(ctx, source, snapshot, validate, func(context.Context) error {
+				err = adapter.stopAndUseSource(ctx, source, snapshot, validate, func(context.Context) error {
 					uses++
 					assertExcluded()
 					if mode == "use-failed" {
@@ -162,8 +164,21 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 				if stops != 1 || absences != 1 || (mode == "absence-failed" && uses != 0) || (mode != "absence-failed" && uses != 1) || (mode == "held") != (err == nil) {
 					t.Fatalf("stops=%d absences=%d uses=%d err=%v", stops, absences, uses, err)
 				}
+			} else if mode == "final-native-refusal" {
+				// The unit-test absence hook says absent, but the native final
+				// verifier must reject this fixture's relative store path.
+				bounded, done := context.WithTimeout(ctx, 75*time.Millisecond)
+				defer done()
+				err = adapter.WithStoppedSource(bounded, source, snapshot, validate, func(context.Context) error { uses++; return nil })
+				if !errors.Is(err, context.DeadlineExceeded) || uses != 0 || stops != 1 || absences != 0 {
+					t.Fatalf("native verification bypassed: stops=%d uses=%d absences=%d err=%v", stops, uses, absences, err)
+				}
 			} else {
-				err = adapter.Stop(ctx, source, snapshot, validate)
+				err = adapter.stopAndUseSource(ctx, source, snapshot, validate, func(context.Context) error {
+					uses++
+					assertExcluded()
+					return nil
+				})
 			}
 			if mode != "launch-busy" {
 				if e := devFlock(lock, devLockExclusive|devLockNonBlock); e != nil {
@@ -171,7 +186,7 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 				}
 				_ = devFlock(lock, devLockUnlock)
 			}
-			if mode == "held" || mode == "absence-failed" || mode == "use-failed" {
+			if mode == "held" || mode == "absence-failed" || mode == "use-failed" || mode == "final-native-refusal" {
 				return
 			}
 			if mode == "accept" {
@@ -183,4 +198,15 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Orchestration-only test seam. Production WithStoppedSource always supplies the
+// native final verifier; this helper is not compiled into the host binary.
+func (p *developmentContainedSource) stopAndUseSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
+	return p.containSource(ctx, source, snapshot, validate, func(ctx context.Context, generation, store string) error {
+		if err := p.preparedAbsent(ctx, source.Host, generation, store); err != nil {
+			return err
+		}
+		return use(ctx)
+	})
 }

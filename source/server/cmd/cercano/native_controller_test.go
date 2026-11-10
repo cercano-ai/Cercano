@@ -242,10 +242,10 @@ func runNativeProductionController(t *testing.T, historicalBinary string) {
 			if err == nil {
 				defer controls.Close()
 				if os.Getenv("OLD_RECOVERY_PRODUCTION_BINARY") != "" {
-					adapter := newDevelopmentLegacyStop(state, &pb.LifecycleIdentity{Host: "fixture-cleanup", Store: selected.Identity.Store, Contract: selected.Identity.Contract, Schema: selected.Identity.Schema})
+					adapter := newDevelopmentContainedSource(state, &pb.LifecycleIdentity{Host: "fixture-cleanup", Store: selected.Identity.Store, Contract: selected.Identity.Contract, Schema: selected.Identity.Schema})
 					snapshot, e := adapter.Prepare(ctx, selected.Identity)
 					if e == nil {
-						e = adapter.withStoppedSource(ctx, selected.Identity, snapshot, func() error { return nil }, func(context.Context) error { return nil })
+						e = adapter.stopAndUseSource(ctx, selected.Identity, snapshot, func() error { return nil }, func(context.Context) error { return nil })
 					}
 					if e != nil {
 						t.Errorf("historical RPC cleanup: %v", e)

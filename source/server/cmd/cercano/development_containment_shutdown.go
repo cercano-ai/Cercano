@@ -14,7 +14,7 @@ import (
 // Caller holds the exact source launch lock. Credentials are loaded exclusively
 // from its private registry record. No reconnect, launcher or optional new RPC
 // participates; LifecycleList and ShutdownAgent are present in the pinned old host.
-func (p *developmentLegacyStop) shutdownAuthenticated(ctx context.Context, host string, endpoint netip.AddrPort, expected brewrestart.Identity, validate func() error) error {
+func (p *developmentContainedSource) shutdownAuthenticated(ctx context.Context, host string, endpoint netip.AddrPort, expected brewrestart.Identity, validate func() error) error {
 	selected, err := selectDevelopmentPeer(p.state, p.destination, "", host)
 	if err != nil {
 		return err
@@ -32,7 +32,7 @@ func (p *developmentLegacyStop) shutdownAuthenticated(ctx context.Context, host 
 	if !actual.SameProcess(expected) {
 		return fmt.Errorf("authenticated source process changed")
 	}
-	return awaitLegacyShutdown(ctx, validate, func(ctx context.Context) (*pb.ShutdownAgentResponse, error) {
+	return awaitAuthenticatedShutdown(ctx, validate, func(ctx context.Context) (*pb.ShutdownAgentResponse, error) {
 		return pb.NewAgentClient(conn).ShutdownAgent(ctx, &pb.ShutdownAgentRequest{Reason: "approved old-host conversation recovery"})
 	}, func(ctx context.Context) error {
 		return p.preparedAbsent(ctx, host, filepath.Dir(expected.Executable), selected.Identity.Store)
@@ -42,7 +42,7 @@ func (p *developmentLegacyStop) shutdownAuthenticated(ctx context.Context, host 
 // A response loss is deliberately blocking, even if the source subsequently dies:
 // the coordinator must reconcile with the same approval/operation, never replay
 // work. No newer status RPC or Complete field is required of historical hosts.
-func awaitLegacyShutdown(ctx context.Context, validate func() error, request func(context.Context) (*pb.ShutdownAgentResponse, error), absent func(context.Context) error) error {
+func awaitAuthenticatedShutdown(ctx context.Context, validate func() error, request func(context.Context) (*pb.ShutdownAgentResponse, error), absent func(context.Context) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

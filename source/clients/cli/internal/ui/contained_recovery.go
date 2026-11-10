@@ -11,7 +11,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func validateOriginalOffer(o *pb.LifecycleOriginalRecovery, conversation string) error {
+// Contained recovery retains LifecycleOriginalRecovery and ConfirmOriginalRecovery
+// on the wire. Legacy/takeover modes remain invalid; wire migration is separate.
+func validateContainedRecoveryOffer(o *pb.LifecycleOriginalRecovery, conversation string) error {
 	op := o.GetOperation()
 	sel := o.GetSelection()
 	id := sel.GetIdentity()
@@ -25,9 +27,9 @@ func validateOriginalOffer(o *pb.LifecycleOriginalRecovery, conversation string)
 	return nil
 }
 
-func (m Model) offerOriginalRecovery(offer *forcedResumeOffer) (tea.Model, tea.Cmd) {
+func (m Model) offerContainedRecovery(offer *forcedResumeOffer) (tea.Model, tea.Cmd) {
 	o := offer.original
-	if err := validateOriginalOffer(o, o.GetOperation().GetOwner().GetConversation()); err != nil || !proto.Equal(o.GetSelection().GetIdentity(), offer.destination.Identity) || o.GetSelection().GetEndpoint() != offer.destination.Endpoint || o.GetSelection().GetTokenFile() != offer.destination.TokenFile {
+	if err := validateContainedRecoveryOffer(o, o.GetOperation().GetOwner().GetConversation()); err != nil || !proto.Equal(o.GetSelection().GetIdentity(), offer.destination.Identity) || o.GetSelection().GetEndpoint() != offer.destination.Endpoint || o.GetSelection().GetTokenFile() != offer.destination.TokenFile {
 		m.errMsg = "Recovery offer does not match the selected destination"
 		return m, nil
 	}

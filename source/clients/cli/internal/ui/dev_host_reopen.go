@@ -35,7 +35,7 @@ func reopenDevHostFrom(ctx context.Context, destination DevHostSelection, conver
 		return destination, fmt.Errorf("resume returned different destination")
 	}
 	if result.GetOriginalRecovery() != nil {
-		if err := validateOriginalOffer(result.OriginalRecovery, conversation); err != nil {
+		if err := validateContainedRecoveryOffer(result.OriginalRecovery, conversation); err != nil {
 			return destination, err
 		}
 		if !result.GetConfirmationRequired() {
