@@ -53,12 +53,16 @@ func TestDestinationResumeAfterActualProcessExit(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err = reopenDevHost(ctx, destination, "resume-probe")
-	offer, ok := err.(*forcedResumeOffer)
-	if !ok {
-		t.Fatalf("expected explicit recovery confirmation: %v", err)
+	// The source has already exited and the bridge verifies Wait's exact child
+	// death under launch exclusion. No live-host interruption consent is needed;
+	// the deleted takeover protocol's confirmation is not part of this route.
+	first, err := reopenDevHost(ctx, destination, "resume-probe")
+	if err != nil {
+		t.Fatalf("death-proven recovery: %v", err)
 	}
-	verifyProductionForcedResume(t, offer)
+	if first.Identity.Host != destination.Identity.Host || first.Epoch == "" {
+		t.Fatal("missing recovered ownership binding")
+	}
 	// Ordinary reopen and fresh pinned client after response/binding loss must
 	// stay on B and reuse the recovered epoch, not rediscover the absent A.
 	selected, err := reopenDevHost(ctx, destination, "resume-probe")
@@ -70,7 +74,7 @@ func TestDestinationResumeAfterActualProcessExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.Close()
-	if selected.Identity.Host != destination.Identity.Host || selected.Epoch == offer.owner.Epoch {
+	if selected.Identity.Host != destination.Identity.Host || selected.Epoch != first.Epoch {
 		t.Fatal("stale reconnect binding")
 	}
 	if _, err = input.Write([]byte("persist next turn\n")); err != nil {

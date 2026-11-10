@@ -10,7 +10,7 @@ Objective: establish the smallest failing end-to-end recovery journey before mod
 - [x] Establish a reproducible old-binary provenance and offline build fixture; state differences from the incident binary.
 - [x] Reproduce unsupported-probe and multiple-journal failures with the old fixture and current destination.
 - [x] Trace old host/worker process ownership, shutdown behavior, launch participation, and store compatibility; probe containment and relaunch exclusion in disposable state.
-- [~] Add the failing old-owner-to-new-owner persisted-turn acceptance journey and precise no-mutation assertions for declined recovery.
+- [x] Add the failing old-owner-to-new-owner persisted-turn acceptance journey and precise no-mutation assertions for declined recovery.
 
 ## Phase 2 — Exact source interruption and writer containment
 
@@ -50,9 +50,9 @@ Objective: connect normal UI recovery to the replacement and remove redundant re
 Objective: establish the approved old-host recovery outcome, not merely current-to-current protocol success. Files: affected server/client/command integration tests and effort verification notes.
 
 - [x] Pass the actual old-process, multiple-failed-journals, new-host recovery journey and exact successful persisted turn assertions.
-- [ ] Run focused normal/race suites for ownership, admission, source control, recovery, agentclient and CLI; confirm nonzero selected tests.
-- [ ] Run interface compilation and integration checks across affected modules and supported platforms; record untested platform boundaries.
+- [x] Run focused normal/race suites for ownership, admission, source control, recovery, agentclient and CLI; confirm nonzero selected tests.
+- [~] Run interface compilation and integration checks across affected modules and supported platforms; record untested platform boundaries.
 - [ ] Independently review process attribution, writer containment, late claims, consent, uncertain writes, protocol removal and compatibility evidence.
-- [ ] Repair concrete findings with failing probes and rerun affected tests.
+- [~] Repair concrete findings with failing probes and rerun affected tests.
 - [x] Checkpoint solved units with explicit paths; preserve unrelated files and worktrees. Do not push or merge without authorization.
 - [ ] Report exact commits, executed checks, retained limitations and deployment prerequisites; do not claim the user's live conversation recovered.
