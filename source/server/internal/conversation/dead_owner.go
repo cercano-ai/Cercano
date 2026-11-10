@@ -225,12 +225,32 @@ func CurrentRecoveryResult(ctx context.Context, store Store, id, host, epoch str
 	if err != nil {
 		return "", err
 	}
+	rows, err := s.db.QueryContext(ctx, `SELECT h.handover FROM conversation_handovers h
+  JOIN conversation_ownership o ON o.conversation_id=h.conversation_id AND o.owner=h.destination AND o.epoch=h.epoch
+  WHERE h.conversation_id=? AND h.destination=? AND h.epoch=? AND o.state='owned'
+  AND h.handover GLOB 'recovery-*' LIMIT 2`, id, host, epoch)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
 	var operation string
-	err = s.db.QueryRowContext(ctx, `SELECT h.handover FROM conversation_handovers h
-		JOIN conversation_ownership o ON o.conversation_id=h.conversation_id AND o.owner=h.destination AND o.epoch=h.epoch
-		WHERE h.conversation_id=? AND h.destination=? AND h.epoch=? AND o.state='owned'
-		AND h.handover GLOB 'recovery-*'`, id, host, epoch).Scan(&operation)
-	return operation, err
+	count := 0
+	for rows.Next() {
+		if err = rows.Scan(&operation); err != nil {
+			return "", err
+		}
+		count++
+	}
+	if err = rows.Err(); err != nil {
+		return "", err
+	}
+	if count == 0 {
+		return "", sql.ErrNoRows
+	}
+	if count > 1 {
+		return "", fmt.Errorf("ambiguous recovery receipts for current owned epoch")
+	}
+	return operation, nil
 }
 
 // RecoveryID binds an idempotence receipt to the abandoned epoch and destination.

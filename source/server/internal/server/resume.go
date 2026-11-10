@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -197,8 +198,12 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	// Try ordinary acquisition, exact reservation claims and supported cooperation
 	// first. Historical journals are not an ownership-discovery prerequisite.
 	// Only qualified containment may turn a failure into a fresh stop offer.
+	suppressRecoveryFallback := false
 	if containedRecovery {
 		defer func() {
+			if suppressRecoveryFallback {
+				return
+			}
 			if finalErr == nil && result.GetReady() {
 				return
 			}
@@ -239,9 +244,15 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		// source-qualified receipt only after acquisition established readiness.
 		// Never replace cooperative metadata or use a receipt as authority.
 		if acquired.OperationId == "" {
-			if operation, e := conversation.CurrentRecoveryResult(ctx, l.store, id, l.options.Host, acquired.GetOwner().GetEpoch()); e == nil {
-				acquired.OperationId = operation
+			stage = "recovery_receipt"
+			operation, e := conversation.CurrentRecoveryResult(ctx, l.store, id, l.options.Host, acquired.GetOwner().GetEpoch())
+			if e != nil && !errors.Is(e, sql.ErrNoRows) {
+				// Metadata failure is not evidence of an abandoned host. Do not
+				// let the deferred containment fallback offer or mutate recovery.
+				suppressRecoveryFallback = true
+				return nil, refusal(e)
 			}
+			acquired.OperationId = operation
 		}
 		return acquired, nil
 	}

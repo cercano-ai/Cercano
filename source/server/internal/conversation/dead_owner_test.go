@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -228,4 +229,26 @@ func TestReservedRecoveryRollbackAndStaleConsent(t *testing.T) {
 	winner, err := ClaimHandoverFrom(ctx, s, "c", "B", "pending", v.Owner, v.Epoch)
 	mustCoexist(t, err)
 	defer winner.Close()
+}
+
+func TestCurrentRecoveryResultAmbiguity(t *testing.T) {
+	ctx, _, s := ownershipFixture(t)
+	o := take(t, ctx, s, "receipt", "A")
+	defer o.Close()
+	lookup := func() (string, error) { return CurrentRecoveryResult(ctx, s, "receipt", "A", o.Epoch()) }
+	if got, err := lookup(); got != "" || !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("absence: %q %v", got, err)
+	}
+	for _, receipt := range []string{"recovery-one", "recovery-two"} {
+		_, err := s.db.ExecContext(ctx, `INSERT INTO conversation_handovers(handover,conversation_id,destination,epoch) VALUES(?,?,?,?)`, receipt, "receipt", "A", o.Epoch())
+		mustCoexist(t, err)
+		if receipt == "recovery-one" {
+			if got, err := lookup(); err != nil || got != receipt {
+				t.Fatalf("single: %q %v", got, err)
+			}
+		}
+	}
+	if got, err := lookup(); got != "" || err == nil || errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("ambiguous receipt accepted: %q %v", got, err)
+	}
 }

@@ -205,3 +205,57 @@ func TestLiveRecoveryConsentMutationBeforeStop(t *testing.T) {
 		}
 	}
 }
+
+func TestResumeRecoveryLookupFailure(t *testing.T) {
+	for _, mode := range []string{"ambiguous", "closed-db"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}})
+			_, b, _ := lifecycleFixture(t)
+			l := b.coexistence
+			l.options.ControlAuthorize = func(context.Context) error { return nil }
+			p := &containedFixture{}
+			l.options.LegacyStop = p
+			fallback := 0
+			l.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) {
+				fallback++
+				return nil, fmt.Errorf("unexpected fallback")
+			}
+			owner, err := b.Retain(ctx, "lookup")
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := conversation.ReadOwnership(ctx, l.store, "lookup")
+			if err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", l.options.StorePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if mode == "ambiguous" {
+				for _, receipt := range []string{"recovery-one", "recovery-two"} {
+					if _, err = db.Exec(`INSERT INTO conversation_handovers(handover,conversation_id,destination,epoch) VALUES(?,?,?,?)`, receipt, "lookup", l.options.Host, owner.Epoch); err != nil {
+						t.Fatal(err)
+					}
+				}
+			} else {
+				if err = l.store.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := &pb.LifecycleControlRequest{Target: l.controlIdentity(), Owner: &pb.LifecycleOwner{Conversation: "lookup"}}
+			for i := 0; i < 2; i++ {
+				got, err := b.LifecycleResume(ctx, r)
+				if err == nil || got != nil {
+					t.Fatalf("lookup failure accepted: %v %v", got, err)
+				}
+			}
+			var after conversation.OwnershipState
+			err = db.QueryRow(`SELECT owner,epoch,state,destination,handover FROM conversation_ownership WHERE conversation_id='lookup'`).Scan(&after.Owner, &after.Epoch, &after.State, &after.Destination, &after.Handover)
+			if err != nil || before != after || p.stop != 0 || fallback != 0 {
+				t.Fatalf("lookup failure mutated/fell back: %+v %v stops=%d fallback=%d", after, err, p.stop, fallback)
+			}
+		})
+	}
+}
