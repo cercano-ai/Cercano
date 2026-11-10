@@ -26,8 +26,8 @@ Objective: implement the approved fallback without trusting stale PIDs or requir
 
 Objective: recover owned or reserved state only after verified containment, without stealing an already-claimed epoch or replaying interrupted effects. Files: conversation ownership/dead-owner code, server recovery coordinator, persistence and task reconciliation tests.
 
-- [ ] Extend recovery admission to exact owned and reserved cases under stable locks and transactional owner/epoch rechecks.
-- [ ] Serialize reserved-state recovery against late destination claims; reject recovery after another destination acquires ownership.
+- [x] Extend recovery admission to exact owned and reserved cases under stable locks and transactional owner/epoch rechecks.
+- [x] Serialize reserved-state recovery against late destination claims; reject recovery after another destination acquires ownership.
 - [ ] Preserve committed history/results, mark interrupted work accurately, and retain explicit uncertain-outcome handling.
 - [ ] Preserve retry operation identity across timeout and response loss; return ready only for current ready ownership.
 - [ ] Test stale epochs, independent descendants, uncertain commit, response loss, duplicate retries, and late claims.

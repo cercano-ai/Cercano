@@ -330,3 +330,57 @@ RecoverDeadOwner is unchanged. Unified coordinator/UI source/epoch/destination/w
 consent binding, retained-exclusion transaction, retry identity, optional-RPC fallback and
 protocol cleanup remain outstanding. No live recovery, push or merge; `.tmp-old-recovery/`
 is untouched.
+
+## Transactional reserved-root production slice (2026-11-09)
+
+Started at `13f134ebc5fc17783a45206127b0c0157e635926`. This continuation
+implements production store recovery for an exact reserved root and admits it
+through the existing destination `LifecycleRecover` dead-owner path. It does
+**not** implement the requested unified live-source coordinator/CLI journey.
+Only the first two Phase 3 tasks are complete; acceptance remains pending.
+
+Rationale: reuse the stable per-conversation lock already taken by legitimate
+claims and the existing writer transaction, rather than introducing journal
+ownership or another claim protocol. After checking the complete expected row
+(including reservation destination/ID), reserved-root state is made owned only
+inside the transaction to use existing SQL write fences during task reconciliation.
+The intermediate state is never published; a failure rolls back both tasks and
+reservation. Descendant reservations and independently owned descendants remain
+blockers. Source exclusion/death verification is still mandatory. No stop-return-
+then-recover route was introduced. Existing warning text, result preservation,
+notification wake suppression and uncertain-commit lock retention are unchanged.
+Recovery receipts keep their source-epoch/destination identity; historical receipts
+alone do not make an RPC retry ready.
+
+Executed with PATH Go, `GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off`, from root:
+- Red: `go -C source/server test ./internal/conversation -run
+  '^TestReservedDeadOwnerRecovery$' -count=1` failed at reserved admission before
+  implementation. Red server `TestDeadOwnerRecoveryRPC/reserved=true` failed at
+  foreign-owner admission before its production change.
+- Green: `go -C source/server test ./internal/conversation ./internal/server -run
+  'Test(Reserved|DeadOwnerRecovery)' -count=1 -v -timeout=90s`: PASS, five store
+  tests and one RPC test (owned and reserved subtests).
+- Same selection with `-race`: PASS for both packages.
+- `go -C source/server test ./internal/conversation -count=1 -timeout=120s`: PASS.
+- `go -C source/server test ./internal/server ./cmd/cercano -run '^$' -count=1
+  -timeout=90s`: PASS compilation only, explicitly zero selected tests.
+
+New probes exercise late claim while recovery holds its stable lock, a claim
+winning before recovery (even after its lock closes), stale reservation consent,
+rollback preserving a claimable reservation and unfinished task, refusal of
+repeated store mutation, and reserved RPC retry returning the same current ready
+epoch. The late-claim probe is deterministically interleaved through verification,
+not a randomized scheduling stress test. RPC repeated calls model lost response;
+no transport fault or commit-uncertainty injection was added.
+
+Remaining production work: integrate `withStoppedSource` continuously through
+transaction in ONE destination coordinator; qualify runtime containment and bind
+fresh exact source/epoch/destination/host-wide-sibling disclosure consent; bypass
+unsupported optional probes and journal-count gating for independent fallback;
+consolidate CLI; remove superseded retry/takeover/original consumers, reserve proto
+fields/names and regenerate. Add full interrupted results/history assertions,
+notification-policy and unknown-commit reconciliation probes. Extend/run actual
+historical production fixture through new-host persisted inference after that
+integration. Historical backend-tag limitation remains as recorded above; that
+fixture was NOT rerun here. No live host/config/VM mutation, push or merge.
+Preexisting `.tmp-old-recovery/` remains untouched and excluded from checkpoint.

@@ -41,7 +41,7 @@ func (s *Server) LifecycleRecover(ctx context.Context, r *pb.LifecycleRecoverReq
 		}
 		return nil, status.Error(codes.FailedPrecondition, "recovery outcome not ready; no new epoch acquired")
 	}
-	if v.State != "owned" || v.Owner == l.options.Host {
+	if (v.State != "owned" && v.State != "reserved") || v.Owner == l.options.Host {
 		return nil, status.Error(codes.FailedPrecondition, "not an abandoned foreign owner")
 	}
 	if r.Confirm && (expected == nil || expected.Conversation != r.Conversation || expected.Host != v.Owner || expected.Epoch != v.Epoch) {

@@ -15,14 +15,18 @@ import (
 // verifyDead must be supplied by trusted host startup, not by an RPC caller. It
 // must establish absence of the exact source host while preventing its relaunch.
 // The caller holds that exclusion through this call. Network failure alone is
-// not evidence. Reserved handovers are deliberately not recovered here.
+// not evidence. Exact reserved roots serialize against ClaimHandover using the
+// same stable conversation lock; descendant reservations remain blockers.
 func RecoverDeadOwner(ctx context.Context, store Store, conversationID string, expected OwnershipState, host string, verifyDead func(context.Context) error) (*Ownership, error) {
 	s, err := ownershipStore(store)
 	if err != nil {
 		return nil, err
 	}
-	if expected.State != "owned" || conversationID == "" || expected.Owner == "" || expected.Epoch == "" || host == "" || host == expected.Owner || verifyDead == nil {
+	if (expected.State != "owned" && expected.State != "reserved") || conversationID == "" || expected.Owner == "" || expected.Epoch == "" || host == "" || host == expected.Owner || verifyDead == nil {
 		return nil, fmt.Errorf("exact abandoned owner, distinct destination and death verification required")
+	}
+	if expected.State == "reserved" && (expected.Destination == "" || expected.Handover == "") {
+		return nil, fmt.Errorf("exact reserved destination and handover required")
 	}
 	// UNION (not UNION ALL) bounds corrupt cyclic ancestry. Include tasks whose
 	// child transcript was never created, as well as persisted subagent ancestry.
@@ -125,10 +129,19 @@ func RecoverDeadOwner(ctx context.Context, store Store, conversationID string, e
 		if id == conversationID && v != expected {
 			return nil, fmt.Errorf("stale recovery owner")
 		}
-		if v.State == "reserved" || (v.State == "owned" && v.Owner != expected.Owner) {
+		if (v.State == "reserved" && id != conversationID) || (v.State == "owned" && v.Owner != expected.Owner) {
 			return nil, fmt.Errorf("descendant has independent or reserved ownership")
 		}
-		if v.State == "owned" {
+		if v.State == "owned" || (id == conversationID && v.State == "reserved") {
+			// The exact reservation was checked above under the stable claim lock
+			// and writer transaction. Restore source state only inside this same
+			// transaction so existing write fences authorize reconciliation. No
+			// old capability or intermediate owned state is published.
+			if v.State == "reserved" {
+				if _, err = tx.ExecContext(ctx, `UPDATE conversation_ownership SET state='owned' WHERE conversation_id=?`, id); err != nil {
+					return nil, err
+				}
+			}
 			states[id] = v
 			if _, err = tx.ExecContext(ctx, `INSERT INTO ownership_capabilities VALUES(?,?,?)`, id, v.Owner, v.Epoch); err != nil {
 				return nil, err

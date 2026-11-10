@@ -14,6 +14,14 @@ import (
 )
 
 func TestDeadOwnerRecoveryRPC(t *testing.T) {
+	for _, reserved := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reserved=%v", reserved), func(t *testing.T) {
+			testDeadOwnerRecoveryRPC(t, reserved)
+		})
+	}
+}
+
+func testDeadOwnerRecoveryRPC(t *testing.T, reserved bool) {
 	ctx := context.Background()
 	a, b, _ := lifecycleFixture(t)
 	owner, err := a.Retain(ctx, "dead")
@@ -24,7 +32,12 @@ func TestDeadOwnerRecoveryRPC(t *testing.T) {
 	if err = a.coexistence.store.EnsureConversation(conversation.WithOwnership(ctx, cap), "dead", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err = cap.Close(); err != nil {
+	if reserved {
+		err = cap.ReserveHandover(ctx, "other-destination", "pending-operation")
+	} else {
+		err = cap.Close()
+	}
+	if err != nil {
 		t.Fatal(err)
 	} // process-loss model; no clean release
 	b.coexistence.options.ControlAuthorize = func(context.Context) error { return nil }

@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -144,4 +145,87 @@ func TestDeadOwnerRecoveryAtomicFailure(t *testing.T) {
 	recovered, err := RecoverDeadOwner(ctx, s, "c", v, "B", func(context.Context) error { return nil })
 	mustCoexist(t, err)
 	defer recovered.Close()
+}
+
+func TestReservedDeadOwnerRecovery(t *testing.T) {
+	for _, claimFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint(claimFirst), func(t *testing.T) {
+			ctx, _, s := ownershipFixture(t)
+			o := take(t, ctx, s, "c", "A")
+			c := WithOwnership(ctx, o)
+			mustCoexist(t, s.EnsureConversation(c, "c", "", ""))
+			mustCoexist(t, s.Append(c, Turn{ConversationID: "c", Role: "user", Content: "committed"}))
+			mustCoexist(t, s.InsertTask(c, TaskRecord{ID: "t", ParentID: "c", Status: "accepted"}))
+			mustCoexist(t, o.ReserveHandover(ctx, "B", "old-operation"))
+			v, err := ReadOwnership(ctx, s, "c")
+			mustCoexist(t, err)
+			if claimFirst {
+				winner, e := ClaimHandoverFrom(ctx, s, "c", "B", "old-operation", v.Owner, v.Epoch)
+				mustCoexist(t, e)
+				mustCoexist(t, winner.Close())
+				_, e = RecoverDeadOwner(ctx, s, "c", v, "C", func(context.Context) error { return nil })
+				refused(t, e)
+				after, e := ReadOwnership(ctx, s, "c")
+				mustCoexist(t, e)
+				if after.Owner != "B" {
+					t.Fatal(after)
+				}
+				return
+			}
+			recovered, err := RecoverDeadOwner(ctx, s, "c", v, "C", func(context.Context) error {
+				_, e := ClaimHandoverFrom(ctx, s, "c", "B", "old-operation", v.Owner, v.Epoch)
+				refused(t, e)
+				return nil
+			})
+			mustCoexist(t, err)
+			task, err := s.GetTask(ctx, "c", "t")
+			mustCoexist(t, err)
+			if task.Status != "interrupted" || !task.WakeClaimed {
+				t.Fatal(task)
+			}
+			mustCoexist(t, s.Append(WithOwnership(ctx, recovered), Turn{ConversationID: "c", Role: "assistant", Content: "new"}))
+			mustCoexist(t, recovered.Close())
+			_, err = ClaimHandoverFrom(ctx, s, "c", "B", "old-operation", v.Owner, v.Epoch)
+			refused(t, err)
+			_, err = RecoverDeadOwner(ctx, s, "c", v, "C", func(context.Context) error { return nil })
+			refused(t, err)
+			epoch, err := HandoverResult(ctx, s, "c", "C", RecoveryID("c", v, "C"))
+			mustCoexist(t, err)
+			after, err := ReadOwnership(ctx, s, "c")
+			mustCoexist(t, err)
+			if epoch != after.Epoch || after.Owner != "C" {
+				t.Fatal(after)
+			}
+		})
+	}
+}
+
+// A failed recovery must not consume the reservation or partially interrupt tasks.
+func TestReservedRecoveryRollbackAndStaleConsent(t *testing.T) {
+	ctx, _, s := ownershipFixture(t)
+	o := take(t, ctx, s, "c", "A")
+	c := WithOwnership(ctx, o)
+	mustCoexist(t, s.EnsureConversation(c, "c", "", ""))
+	mustCoexist(t, s.InsertTask(c, TaskRecord{ID: "t", ParentID: "c", Status: "accepted"}))
+	mustCoexist(t, o.ReserveHandover(ctx, "B", "pending"))
+	v, err := ReadOwnership(ctx, s, "c")
+	mustCoexist(t, err)
+	stale := v
+	stale.Handover = "different"
+	_, err = RecoverDeadOwner(ctx, s, "c", stale, "C", func(context.Context) error { return nil })
+	refused(t, err)
+	_, err = s.db.Exec(`CREATE TRIGGER reject_recovery BEFORE UPDATE ON conversation_ownership WHEN NEW.owner='C' BEGIN SELECT RAISE(ABORT,'injected'); END`)
+	mustCoexist(t, err)
+	_, err = RecoverDeadOwner(ctx, s, "c", v, "C", func(context.Context) error { return nil })
+	refused(t, err)
+	after, err := ReadOwnership(ctx, s, "c")
+	mustCoexist(t, err)
+	task, err := s.GetTask(ctx, "c", "t")
+	mustCoexist(t, err)
+	if after != v || task.Status != "accepted" {
+		t.Fatalf("partial recovery: %+v %+v", after, task)
+	}
+	winner, err := ClaimHandoverFrom(ctx, s, "c", "B", "pending", v.Owner, v.Epoch)
+	mustCoexist(t, err)
+	defer winner.Close()
 }
