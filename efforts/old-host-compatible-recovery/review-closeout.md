@@ -1,0 +1,13 @@
+# Independent review closure
+
+Production candidate: 3ca80f4e049ede828a161bdfa8a9ccf655572f3e. Verification/status checkpoint: 7f6a1ff198375238ef1ae4df1dc6413d723b85fd. Branch: feat/old-host-compatible-recovery. Implementation remains in wt-old-host-recovery; not merged or pushed. No live user recovery or running-host restart performed.
+
+Independent source reviews covered source authentication and held launch exclusion; reserved ownership transaction/late-claim locking; native generation attribution, consent, historical fixture evidence; cooperative-first routing; protocol removal; current recovery operation receipts; uncertain-commit and native attribution test seams.
+
+Review findings repaired with regressions: premature host-stop interception of cooperative resume and exact claims (12513e8b230f); contained recovery operation identity missing after response loss (9a879b345ee8); ambiguous receipt selection and swallowed lookup errors (3ca80f4e049e). Final bounded independent review of 3ca80f4e049e and b958696ad63c found no must-fix issues. Reviews were source-only; executed verification is separately documented in closeout.md, final-verification.md, review-fix-evidence.md, operation-id-verification.md and bounded-gap-verification.md.
+
+Final verifier reran actual pinned historical production-host acceptance against the final code: owned/drain, reserved and blocked-timeout passed, zero skips, including full history-prefix preservation, exact new-turn/final/provider assertions and owned-process teardown. CLI recovery selected 113 passing tests per normal/race mode. Full conversation/server normal/race suites passed at the production tip; focused native/control checks and interface compilation passed. Linux/amd64 and Windows/amd64 command/client cross-builds are compile evidence only.
+
+Support boundary: same-user macOS prepared-generation hosts and their host-mediated persistence architecture. The old source fixture uses pinned historical code with fixture backends, not the exact dirty incident binary. Authenticated shutdown may wait for draining; stuck or unverifiable shutdown refuses rather than escalating to unsafe PID signaling. Relaunch exclusion and current owner/epoch checks remain mandatory. External actions are not rolled back or automatically replayed. Arbitrary same-user SQL writers and non-Darwin native recovery are not qualified.
+
+Deployment prerequisite: review/land this branch and launch the new build before using the replacement. No old-host update is required for the supported historical path. Actual recovery remains a separately confirmed live operation disclosing whole-host/sibling impact. Preserved untracked .tmp-old-recovery is not acceptance evidence and was not removed.

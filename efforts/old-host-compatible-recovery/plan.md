@@ -52,7 +52,7 @@ Objective: establish the approved old-host recovery outcome, not merely current-
 - [x] Pass the actual old-process, multiple-failed-journals, new-host recovery journey and exact successful persisted turn assertions.
 - [x] Run focused normal/race suites for ownership, admission, source control, recovery, agentclient and CLI; confirm nonzero selected tests.
 - [x] Run interface compilation and integration checks across affected modules and supported platforms; record untested platform boundaries.
-- [ ] Independently review process attribution, writer containment, late claims, consent, uncertain writes, protocol removal and compatibility evidence.
-- [~] Repair concrete findings with failing probes and rerun affected tests.
+- [x] Independently review process attribution, writer containment, late claims, consent, uncertain writes, protocol removal and compatibility evidence.
+- [x] Repair concrete findings with failing probes and rerun affected tests.
 - [x] Checkpoint solved units with explicit paths; preserve unrelated files and worktrees. Do not push or merge without authorization.
-- [ ] Report exact commits, executed checks, retained limitations and deployment prerequisites; do not claim the user's live conversation recovered.
+- [x] Report exact commits, executed checks, retained limitations and deployment prerequisites; do not claim the user's live conversation recovered.
