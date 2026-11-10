@@ -1,54 +1,66 @@
 package ui
 
 import (
-	"strings"
-	"testing"
-
 	pb "cercano/source/server/pkg/proto"
 	"google.golang.org/protobuf/proto"
+	"testing"
 )
 
-func TestTakeoverUIRequiresDistinctExplicitConfirmation(t *testing.T) {
+// Port the old takeover UI's binding regressions to the one contained-source
+// offer. Superseded retry/takeover offers must not become host-stop consent.
+func TestRecoveryUIRejectsInvalidBindings(t *testing.T) {
 	source := &pb.LifecycleIdentity{Host: "S", Build: "build", Store: "store", Contract: "contract", Schema: 1}
 	dest := proto.Clone(source).(*pb.LifecycleIdentity)
 	dest.Host = "D"
-	o := &pb.LifecycleOriginalRecovery{Takeover: true, Challenge: "single-use", Selection: &pb.LifecycleRecoverySelection{Identity: dest, Endpoint: "127.0.0.1:1234", TokenFile: "fixture-not-read"}, Operation: &pb.LifecycleControlRequest{Target: source, Source: source, Destination: dest, Owner: &pb.LifecycleOwner{Conversation: "history", Host: "S", Epoch: "epoch"}, HandoverId: "new-op"}}
-	if err := validateOriginalOffer(o, "history"); err != nil {
+	offer := &pb.LifecycleOriginalRecovery{Challenge: "single-use", Selection: &pb.LifecycleRecoverySelection{Identity: dest, Endpoint: "127.0.0.1:1234", TokenFile: "never-read"}, Operation: &pb.LifecycleControlRequest{Target: source, Source: source, Destination: dest, Owner: &pb.LifecycleOwner{Conversation: "history", Host: "S", Epoch: "epoch"}, HandoverId: "op", LegacyProcessIdentity: "snapshot"}}
+	if err := validateOriginalOffer(offer, "history"); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"enter", "esc", "n", "y"} {
-		t.Run(key, func(t *testing.T) {
-			selected := DevHostSelection{Identity: dest, Conversation: "current"}
-			m := New(nil, false).WithDevHost(selected, "fixture")
-			offered, cmd := m.offerForcedResume(&forcedResumeOffer{destination: selected, original: o})
-			m = offered.(Model)
-			if cmd != nil || m.pendingConfirm == nil || !strings.Contains(m.pendingConfirm.title, "Take over") {
-				t.Fatal("missing distinct takeover confirmation")
+	for _, change := range []string{"legacy", "takeover", "retry", "store", "epoch", "challenge", "endpoint", "destination", "token"} {
+		t.Run(change, func(t *testing.T) {
+			bad := proto.Clone(offer).(*pb.LifecycleOriginalRecovery)
+			switch change {
+			case "legacy":
+				bad.Legacy = true
+			case "takeover":
+				bad.Takeover = true
+			case "retry":
+				bad.Operation.LegacyProcessIdentity = ""
+				bad.Operation.Receipt = "old-receipt"
+			case "store":
+				bad.Operation.Source.Store = "other-store"
+			case "epoch":
+				bad.Operation.Owner.Epoch = ""
+			case "challenge":
+				bad.Challenge = ""
+			case "endpoint":
+				bad.Selection.Endpoint = "192.0.2.1:1234"
+			case "destination":
+				bad.Operation.Destination.Host = "other"
+			case "token":
+				bad.Selection.TokenFile = ""
 			}
-			details := strings.Join(m.pendingConfirm.details, " ")
-			for _, warning := range []string{"NEW cooperative takeover", "not an original-operation retry", "not be replayed", "NOT rolled back", "history will be reloaded"} {
-				if !strings.Contains(details, warning) {
-					t.Fatalf("missing warning %q", warning)
-				}
-			}
-			_, cmd = m.resolveConfirmKey(key)
-			if (cmd != nil) != (key == "y") {
-				t.Fatal("takeover bypassed explicit consent")
+			if err := validateOriginalOffer(bad, "history"); err == nil {
+				t.Fatal("accepted invalid offer")
 			}
 		})
 	}
-	for _, change := range []string{"legacy", "store", "epoch"} {
-		bad := proto.Clone(o).(*pb.LifecycleOriginalRecovery)
-		switch change {
-		case "legacy":
-			bad.Legacy = true
-		case "store":
-			bad.Operation.Source.Store = "other-store"
-		case "epoch":
-			bad.Operation.Owner.Epoch = ""
-		}
-		if err := validateOriginalOffer(bad, "history"); err == nil {
-			t.Fatalf("accepted invalid %s binding", change)
-		}
+	for _, change := range []string{"identity", "endpoint", "token"} {
+		t.Run("selected/"+change, func(t *testing.T) {
+			selected := DevHostSelection{Identity: proto.Clone(dest).(*pb.LifecycleIdentity), Endpoint: offer.Selection.Endpoint, TokenFile: offer.Selection.TokenFile}
+			switch change {
+			case "identity":
+				selected.Identity.Host = "other"
+			case "endpoint":
+				selected.Endpoint = "127.0.0.1:5678"
+			case "token":
+				selected.TokenFile = "other"
+			}
+			m := New(nil, false).WithDevHost(selected, "fixture")
+			next, cmd := m.offerForcedResume(&forcedResumeOffer{destination: selected, original: offer})
+			if cmd != nil || next.(Model).pendingConfirm != nil || next.(Model).errMsg == "" {
+				t.Fatal("mismatched destination prompted or executed")
+			}
+		})
 	}
 }
