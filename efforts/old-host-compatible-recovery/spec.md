@@ -54,4 +54,4 @@ No live conversation recovery, production restart, manual journal deletion, dire
 
 ## Status
 
-Draft specification records the approved flow and cleanup scope. No implementation or live mutation has been performed for this effort. Execution plan follows specification sign-off.
+Implemented under the approved plan; historical implementation and qualification evidence is retained in [closeout](closeout.md). The subsequent approved recovery-cleanup implementation and final candidate acceptance are recorded in [Phase 6 verification](../recovery-cleanup/phase6-verification.md). The supported checked historical acceptance entry point is documented in [fixture README](fixture/README.md); the retired composition runner is not an acceptance entry point. Historical results do not qualify the dirty incident binary or arbitrary writers. No live conversation recovery or deployment is claimed or authorized by this status.

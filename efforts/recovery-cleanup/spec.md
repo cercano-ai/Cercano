@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed specification awaiting user sign-off. The user approved rejecting legacy client stop confirmations with upgrade guidance and deferring wire-envelope migration. No cleanup implementation is authorized by this document.
+User-approved implementation specification. Phases 1–5 are implemented through candidate `9e7ff70a87efa8f40fdd8b5cf200b97467561e85`; final acceptance and documentation are recorded in [Phase 6 verification](phase6-verification.md). The approved boundary rejects legacy client stop confirmations with upgrade guidance while retaining supported old-host cooperation and deferring wire-envelope migration. Earlier proposed-status statements in phase evidence describe those historical checkpoints, not the current authorization. Implementation approval does not authorize live recovery, deployment, push, or user-state mutation.
 
 ## Problem and motivation
 

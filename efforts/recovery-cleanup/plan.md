@@ -66,11 +66,11 @@ Objective: remove redundant adapter paths after their consumers are removed, ret
 
 Objective: demonstrate the simplified implementation retains the approved recovery boundary. Files: relevant recovery documentation, historical acceptance runner, efforts/old-host-compatible-recovery status documentation, and this effort's verification record. Preserve historical findings as historical rather than rewriting them into current success claims. Tests: final historical owned/drain, reserved, blocked-timeout acceptance plus focused module tests and compilation.
 
-- [ ] Correct stale current-status statements and identify one supported verification entry point with explicit fixture limitations
-- [ ] Independently review final changes for authentication, consent, ownership, uncertainty, exclusion, and compatibility regressions
-- [ ] Run historical owned/drain, reserved, and blocked-timeout acceptance against the final candidate with nonzero selections and no unexplained skips
-- [ ] Assert full prior history preservation, exactly two added rows, exact final response, provider-call cardinality, and owned-process teardown
-- [ ] Run focused normal/race ownership, recovery, process-control, agentclient, and CLI suites and both modules' interface compilation
-- [ ] Inspect final references and diff checks; verify no unintended wire changes or unrelated artifact deletion
-- [ ] Record exact commands, results, limitations, residual artifacts, and any blocked checks; do not equate compilation with platform runtime qualification
-- [ ] Checkpoint final documentation and present completion evidence; do not push, deploy, or perform live recovery
+- [x] Correct stale current-status statements and identify one supported verification entry point with explicit fixture limitations
+- [x] Independently review final changes for authentication, consent, ownership, uncertainty, exclusion, and compatibility regressions
+- [x] Run historical owned/drain, reserved, and blocked-timeout acceptance against the final candidate with nonzero selections and no unexplained skips
+- [x] Assert full prior history preservation, exactly two added rows, exact final response, provider-call cardinality, and owned-process teardown
+- [x] Run focused normal/race ownership, recovery, process-control, agentclient, and CLI suites and both modules' interface compilation
+- [x] Inspect final references and diff checks; verify no unintended wire changes or unrelated artifact deletion
+- [x] Record exact commands, results, limitations, residual artifacts, and any blocked checks; do not equate compilation with platform runtime qualification
+- [x] Checkpoint final documentation and present completion evidence; do not push, deploy, or perform live recovery
