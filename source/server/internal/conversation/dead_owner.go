@@ -212,6 +212,22 @@ func RecoverDeadOwner(ctx context.Context, store Store, conversationID string, e
 	return o, nil
 }
 
+// CurrentRecoveryResult returns metadata only for the exact current owned epoch.
+// Recovery receipts are source-qualified by RecoveryID; historical receipts must
+// never supply metadata for a later acquisition, or grant ownership themselves.
+func CurrentRecoveryResult(ctx context.Context, store Store, id, host, epoch string) (string, error) {
+	s, err := ownershipStore(store)
+	if err != nil {
+		return "", err
+	}
+	var operation string
+	err = s.db.QueryRowContext(ctx, `SELECT h.handover FROM conversation_handovers h
+		JOIN conversation_ownership o ON o.conversation_id=h.conversation_id AND o.owner=h.destination AND o.epoch=h.epoch
+		WHERE h.conversation_id=? AND h.destination=? AND h.epoch=? AND o.state='owned'
+		AND h.handover GLOB 'recovery-*'`, id, host, epoch).Scan(&operation)
+	return operation, err
+}
+
 // RecoveryID binds an idempotence receipt to the abandoned epoch and destination.
 func RecoveryID(id string, expected OwnershipState, host string) string {
 	return fmt.Sprintf("recovery-%x", sha256.Sum256([]byte(fmt.Sprintf("%q/%q/%q/%q", id, expected.Owner, expected.Epoch, host))))

@@ -108,8 +108,32 @@ func TestLiveSourceRecovery(t *testing.T) {
 			r.RecoveryChallenge = ""
 			r.ConfirmOriginalRecovery = false
 			retry, e := b.LifecycleResume(ctx, r)
-			if e != nil || retry.GetOwner().GetEpoch() != result.Owner.Epoch || p.stop != 1 {
+			if e != nil || result.OperationId == "" || retry.OperationId != result.OperationId || retry.GetOwner().GetEpoch() != result.Owner.Epoch || p.stop != 1 {
 				t.Fatalf("lost response %v %v", retry, e)
+			}
+			again, e := b.LifecycleResume(ctx, r)
+			if e != nil || !again.GetReady() || again.OperationId != result.OperationId || again.GetOwner().GetEpoch() != result.Owner.Epoch || p.stop != 1 {
+				t.Fatalf("repeated ready resume: %v %v", again, e)
+			}
+			// A later ordinary acquisition must not resurrect this receipt.
+			if e = l.owners["live"].Release(ctx); e != nil {
+				t.Fatal(e)
+			}
+			delete(l.owners, "live")
+			later, e := conversation.AcquireOwnership(ctx, l.store, "live", l.options.Host)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer later.Close()
+			current, e := conversation.ReadOwnership(ctx, l.store, "live")
+			if e != nil || current.Epoch == result.Owner.Epoch {
+				t.Fatalf("new epoch: %v %v", current, e)
+			}
+			for _, epoch := range []string{current.Epoch, result.Owner.Epoch} {
+				operation, err := conversation.CurrentRecoveryResult(ctx, l.store, "live", l.options.Host, epoch)
+				if err == nil || operation != "" || p.stop != 1 {
+					t.Fatalf("historic receipt resurrected: %q %v", operation, err)
+				}
 			}
 		})
 	}

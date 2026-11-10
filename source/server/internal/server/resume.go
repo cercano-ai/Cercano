@@ -235,6 +235,14 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 				}
 			}
 		}
+		// Contained recovery has no cooperative journal. Restore its durable,
+		// source-qualified receipt only after acquisition established readiness.
+		// Never replace cooperative metadata or use a receipt as authority.
+		if acquired.OperationId == "" {
+			if operation, e := conversation.CurrentRecoveryResult(ctx, l.store, id, l.options.Host, acquired.GetOwner().GetEpoch()); e == nil {
+				acquired.OperationId = operation
+			}
+		}
 		return acquired, nil
 	}
 	stage = "read_ownership"
