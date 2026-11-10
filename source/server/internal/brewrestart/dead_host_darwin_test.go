@@ -4,7 +4,9 @@ package brewrestart
 
 import (
 	"bufio"
+	"cercano/source/server/internal/recoveryguard"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -46,7 +48,7 @@ func TestDeadHostKernelVerification(t *testing.T) {
 		t.Fatalf("helper %q %v", line, err)
 	}
 	list := func() ([]int, error) { return []int{cmd.Process.Pid}, nil }
-	if err = verifyHostAbsent(context.Background(), host, list); err == nil {
+	if err = verifyHostAbsent(context.Background(), host, list); !errors.Is(err, recoveryguard.ErrLiveSource) {
 		t.Fatal("live host accepted as dead")
 	}
 	if err = verifyHostAbsent(context.Background(), "different-host", list); err != nil {

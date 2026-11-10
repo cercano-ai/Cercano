@@ -46,3 +46,21 @@ Separately, ignored HandoverResult errors in the ordinary path still permit disc
 ### Checkpoint and limitations
 
 Checkpoint only this evidence, semantic plan statuses and the focused test file as a **red characterization/blocker checkpoint**, not a release-ready implementation. The existing production candidate changes in `internal/server/resume.go` and `internal/conversation/ownership.go` remain uncommitted and preserved for review; they must not be treated as verified. The policy table above is proposed eligibility, not proof that the current candidate enforces it. Phase 4 is incomplete. No live hosts, user data, VM, merge, push, schema/generated wire edits, or evidence deletion occurred in this resumed run. No Phase 5/6 task was executed.
+
+## Phase 4 completion — 2026-11-10
+
+The blocked record above is retained as historical evidence. Explicit user authorization resolves its typed-guard design blocker. Preserved and reconciled the existing resume/ownership candidate; no wire, schema, consent or stop-authority changes. Actual producers classify only exact live-process detection and launch-lock contention as `recoveryguard.ErrLiveSource`. Metadata, identity, inspection and unknown errors retain their causes internally and fail closed for discovery, without preempting authenticated cooperation or exact claims. RPC guard diagnostics are generic; ordinary stage/check/code/classification is logged before discovery without raw credentials, receipts, endpoints or store paths.
+
+Reproduced both red probes using a temporary Go overlay of `resume.go` from checkpoint `68d2301cb4ffbc295206120a76c1b68a79550df0`, preserving the candidate on disk. Command: `go test -overlay <temporary-overlay.json> ./internal/server -run '^TestResumeFallbackPolicy$/(receipt-lookup|guard-error)$' -count=1`. Exit 1: both returned `ready=false confirmation=true code=OK discoveries=1` and reported missing original diagnostics. This is checkpoint-source reproduction, not a claim to have reverted or freshly reproduced the original dirty candidate before its inherited edits.
+
+Current candidate verification (all exit 0):
+
+- From `source/server`: `go test ./internal/server ./internal/conversation ./internal/brewrestart ./cmd/cercano ./pkg/agentclient -run 'Test.*(Resume|Recovery|Recover|Ownership|Handover|DevelopmentRecovery|VerifyHostAbsent)' -count=1 -timeout=180s`.
+- Same command with `-race`: all five packages passed, no race reports.
+- From `source/clients/cli`: `go test ./internal/ui -run 'Test.*(OriginalRecovery|ForcedResume|Recovery)' -count=1 -timeout=180s`; same with `-race`: passed.
+- `go test ./... -run '^$'` in both modules: passed compilation, not full-suite execution.
+- `git diff --check`: passed.
+
+Coverage includes authentication/identity mismatch, cancellation/deadline, unknown resolver/guard errors, receipt/journal lookup errors, malformed journals, definitive publication and acceptance-cleanup failure, uncertain publication, lost source responses, missing/unreachable sources, typed live-source refusal, old-host cooperative refusal and success, adapter-less cooperation and exact claims. Ready journal checks and recovery retry fixtures distinguish current ready ownership from historical receipt identity. Eligible discovery records the original refusal; qualified adapters do not make terminal errors eligible. Zero-stop assertions cover ordinary failures and successful cooperative/exact-claim paths. Darwin guard producer tests use injected process inspection, not live-host recovery.
+
+Limitations: focused fixture coverage, not full test suites, historical production acceptance, cross-platform runtime qualification, VM or live deployment. No live hosts/user state/VM/push/merge accessed; no Phase 5 adapter consolidation or Phase 6 acceptance performed. Earlier blocked evidence is superseded only for this Phase 4 candidate and these checks.

@@ -31,6 +31,7 @@ static int recovery_args(int pid, char *buf, size_t *size) {
 import "C"
 import (
 	"bytes"
+	"cercano/source/server/internal/recoveryguard"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -74,7 +75,7 @@ func verifyHostAbsent(ctx context.Context, host string, list func() ([]int, erro
 		}
 		for _, arg := range argv {
 			if arg == host || arg == "--host="+host {
-				return fmt.Errorf("source host still has a live process (%d)", pid)
+				return fmt.Errorf("%w: process %d", recoveryguard.ErrLiveSource, pid)
 			}
 		}
 	}

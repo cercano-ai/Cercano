@@ -2,12 +2,15 @@ package main
 
 import (
 	"cercano/source/server/internal/brewrestart"
+	"cercano/source/server/internal/recoveryguard"
 	pb "cercano/source/server/pkg/proto"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 func developmentRecoveryGuard(state string, destination *pb.LifecycleIdentity) func(context.Context, string) (func(), error) {
@@ -59,7 +62,10 @@ func developmentRecoveryGuardWithVerifier(state string, destination *pb.Lifecycl
 		release := func() { _ = devFlock(lock, devLockUnlock); _ = lock.Close() }
 		if err = devFlock(lock, devLockExclusive|devLockNonBlock); err != nil {
 			lock.Close()
-			return nil, fmt.Errorf("source launch in progress: %w", err)
+			if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+				return nil, fmt.Errorf("%w: launch exclusion busy", recoveryguard.ErrLiveSource)
+			}
+			return nil, err
 		}
 		success := false
 		defer func() {

@@ -14,6 +14,7 @@ import (
 	"runtime"
 
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/internal/recoveryguard"
 	pb "cercano/source/server/pkg/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -144,237 +145,291 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	// Try ordinary acquisition, exact reservation claims and supported cooperation
 	// first. Historical journals are not an ownership-discovery prerequisite.
 	// Only qualified containment may turn a failure into a fresh stop offer.
-	suppressRecoveryFallback := false
-	if containedRecovery {
-		defer func() {
-			if suppressRecoveryFallback {
-				return
+	// Ordinary execution returns an explicit discovery-eligible refusal only at
+	// known non-authoritative boundaries. Every other error is terminal.
+	// Guard uncertainty blocks discovery, not authenticated cooperation or an
+	// exact reservation claim. Only a typed live-source refusal permits fallback.
+	var guardFailure error
+	ordinary := func() (*pb.LifecycleControlResponse, error) {
+		eligible := func(err error) error {
+			if guardFailure != nil {
+				stage = "guarded_recovery"
+				return refusal(guardFailure)
 			}
-			if finalErr == nil && result.GetReady() {
-				return
+			return &resumeDiscoveryEligible{refusal(err)}
+		}
+		unavailable := func(err error) error {
+			if errors.Is(err, os.ErrNotExist) || status.Code(err) == codes.NotFound || status.Code(err) == codes.Unavailable {
+				return eligible(err)
 			}
-			if ctx.Err() != nil {
-				return
-			}
-			recovered, handled, e := s.liveSourceRecovery(ctx, l, r)
-			if handled {
-				result, finalErr = recovered, e
-			}
-		}()
-	}
-	stage = "acquire"
-	acquired, acquireErr := s.LifecycleAcquire(ctx, r)
-	if acquireErr == nil {
-		acquired.Ready = true
-		acquired.CurrentOwner = true
-		// A ready retry still reports the same durable operation, if this
-		// acquisition came from resume rather than ordinary unowned acquire.
-		if b, e := os.ReadFile(resumeJournal(l, id)); e == nil {
-			var op pb.LifecycleControlRequest
-			if json.Unmarshal(b, &op) == nil && proto.Equal(op.Destination, l.controlIdentity()) {
+			return refusal(err)
+		}
+		stage = "acquire"
+		acquired, acquireErr := s.LifecycleAcquire(ctx, r)
+		if acquireErr == nil {
+			acquired.Ready = true
+			acquired.CurrentOwner = true
+			// A ready retry still reports the same durable operation, if this
+			// acquisition came from resume rather than ordinary unowned acquire.
+			stage = "ready_journal"
+			if b, e := os.ReadFile(resumeJournal(l, id)); e == nil {
+				var op pb.LifecycleControlRequest
+				if e = json.Unmarshal(b, &op); e != nil {
+					return nil, refusal(e)
+				}
+				if !proto.Equal(op.Destination, l.controlIdentity()) || op.GetOwner().GetConversation() != id || op.HandoverId == "" {
+					return nil, refusal(status.Error(codes.FailedPrecondition, "resume journal selection mismatch"))
+				}
 				epoch, e := conversation.HandoverResult(ctx, l.store, id, l.options.Host, op.HandoverId)
+				if e != nil && !errors.Is(e, sql.ErrNoRows) {
+					return nil, refusal(e)
+				}
 				if e == nil && epoch == acquired.GetOwner().GetEpoch() {
 					acquired.OperationId = op.HandoverId
 				}
-			}
-		}
-		// Contained recovery has no cooperative journal. Restore its durable,
-		// source-qualified receipt only after acquisition established readiness.
-		// Never replace cooperative metadata or use a receipt as authority.
-		if acquired.OperationId == "" {
-			stage = "recovery_receipt"
-			operation, e := conversation.CurrentRecoveryResult(ctx, l.store, id, l.options.Host, acquired.GetOwner().GetEpoch())
-			if e != nil && !errors.Is(e, sql.ErrNoRows) {
-				// Metadata failure is not evidence of an abandoned host. Do not
-				// let the deferred containment fallback offer or mutate recovery.
-				suppressRecoveryFallback = true
+			} else if !os.IsNotExist(e) {
 				return nil, refusal(e)
 			}
-			acquired.OperationId = operation
-		}
-		return acquired, nil
-	}
-	stage = "read_ownership"
-	v, err := conversation.ReadOwnership(ctx, l.store, id)
-	if err != nil {
-		return nil, refusal(err)
-	}
-	// Recovery repeats both the guarded death check and exact owner/epoch check.
-	stage = "guarded_recovery"
-	if v.State == "owned" && v.Owner != l.options.Host && l.options.RecoveryGuard != nil {
-		inspected, e := s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id})
-		if e == nil {
-			mark()
-			return s.resumeRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: inspected.Owner, Confirm: true})
-		}
-	}
-	stage = "validate_destination"
-	if !controlLoopback(r.DestinationEndpoint) {
-		return nil, refusal(status.Error(codes.InvalidArgument, "selected destination endpoint required"))
-	}
-	stage = "resume_journal"
-	path := resumeJournal(l, id)
-	op := new(pb.LifecycleControlRequest)
-	b, readErr := os.ReadFile(path)
-	if readErr == nil {
-		if err = json.Unmarshal(b, op); err != nil {
-			return nil, refusal(err)
-		}
-		if !proto.Equal(op.Destination, l.controlIdentity()) || op.GetOwner().GetConversation() != id || op.HandoverId == "" || op.Receipt == "" || op.Source == nil || op.Owner.Host == "" || op.Owner.Epoch == "" {
-			return nil, refusal(status.Error(codes.FailedPrecondition, "resume journal selection mismatch"))
-		}
-		// Routing can change on restart; the exact authenticated identity cannot.
-		op.DestinationEndpoint = r.DestinationEndpoint
-		// Reaffirm durability before source mutation, including a retry after
-		// rename succeeded but the previous directory sync was uncertain.
-		if err = saveResumeWithSync(path, op, l.resumeJournalSync); err != nil {
-			return nil, refusal(err)
-		}
-		// A completed historical operation may be replaced for a new foreign
-		// epoch. An incomplete operation is never silently abandoned.
-		if v.State == "owned" && v.Owner != l.options.Host && (v.Owner != op.Owner.Host || v.Epoch != op.Owner.Epoch) {
-			if _, e := conversation.HandoverResult(ctx, l.store, id, l.options.Host, op.HandoverId); e == nil {
-				readErr = os.ErrNotExist
+
+			// Contained recovery has no cooperative journal. Restore its durable,
+			// source-qualified receipt only after acquisition established readiness.
+			// Never replace cooperative metadata or use a receipt as authority.
+			if acquired.OperationId == "" {
+				stage = "recovery_receipt"
+				operation, e := conversation.CurrentRecoveryResult(ctx, l.store, id, l.options.Host, acquired.GetOwner().GetEpoch())
+				if e != nil && !errors.Is(e, sql.ErrNoRows) {
+					return nil, refusal(e)
+				}
+				acquired.OperationId = operation
 			}
+			return acquired, nil
 		}
-	}
-	if readErr != nil && !os.IsNotExist(readErr) {
-		return nil, refusal(readErr)
-	}
-	stage = "new_resume_operation"
-	if os.IsNotExist(readErr) {
-		if v.State != "owned" || v.Owner == l.options.Host {
-			stage = "acquire"
+		var conflict *conversation.OwnershipConflict
+		if !errors.As(acquireErr, &conflict) {
 			return nil, refusal(acquireErr)
 		}
-		if l.options.ResolveSource == nil || l.options.ControlDial == nil {
-			return nil, refusal(status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable"))
-		}
-		source, endpoint, e := l.options.ResolveSource(ctx, v.Owner)
-		if e != nil {
-			return nil, refusal(e)
-		}
-		if source == nil || source.Host != v.Owner || source.Store != l.options.StorePath || source.Contract != l.options.Contract.Contract || source.Schema != int32(l.options.Contract.SchemaVersion) || source.Build == "" || !controlLoopback(endpoint) {
-			return nil, refusal(status.Error(codes.FailedPrecondition, "exact compatible source required"))
-		}
-		var token [32]byte
-		if _, err = rand.Read(token[:]); err != nil {
+		stage = "read_ownership"
+		v, err := conversation.ReadOwnership(ctx, l.store, id)
+		if err != nil {
 			return nil, refusal(err)
 		}
-		op = &pb.LifecycleControlRequest{Target: source, Source: source, Destination: l.controlIdentity(), DestinationEndpoint: r.DestinationEndpoint, Owner: &pb.LifecycleOwner{Conversation: id, Host: v.Owner, Epoch: v.Epoch}, HandoverId: hex.EncodeToString(token[:]), Management: true}
-		// Receipt and exact source identity are journaled before the first source mutation.
-		a, e := s.AcceptIncoming(controlOwner(op), op.HandoverId, source.Build, l.options.Contract)
-		if e != nil {
-			return nil, refusal(e)
+		// Recovery repeats both the guarded death check and exact owner/epoch check.
+		stage = "guarded_recovery"
+		if v.State == "owned" && v.Owner != l.options.Host && l.options.RecoveryGuard != nil {
+			inspected, e := s.LifecycleRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id})
+			if e == nil {
+				mark()
+				return s.resumeRecover(ctx, &pb.LifecycleRecoverRequest{Target: r.Target, Conversation: id, ExpectedOwner: inspected.Owner, Confirm: true})
+			}
+			if !errors.Is(e, recoveryguard.ErrLiveSource) {
+				guardFailure = e
+			}
 		}
-		op.Receipt = a.receipt
-		if err = saveResumeWithSync(path, op, l.resumeJournalSync); err != nil {
-			var uncertain *resumePublicationUncertain
-			if !errors.As(err, &uncertain) {
-				// No source mutation or published receipt is possible on this path.
-				l.mu.Lock()
-				cleanupErr := l.resolveResumeAcceptanceLocked(a)
-				l.mu.Unlock()
-				if cleanupErr != nil {
-					return nil, refusal(fmt.Errorf("%w; acceptance cleanup: %v", err, cleanupErr))
+		stage = "validate_destination"
+		if r.DestinationEndpoint != "" && !controlLoopback(r.DestinationEndpoint) {
+			return nil, refusal(status.Error(codes.InvalidArgument, "selected destination endpoint required"))
+		}
+		stage = "resume_journal"
+		path := resumeJournal(l, id)
+		op := new(pb.LifecycleControlRequest)
+		b, readErr := os.ReadFile(path)
+		if readErr == nil {
+			if err = json.Unmarshal(b, op); err != nil {
+				return nil, refusal(err)
+			}
+			if !proto.Equal(op.Destination, l.controlIdentity()) || op.GetOwner().GetConversation() != id || op.HandoverId == "" || op.Receipt == "" || op.Source == nil || op.Owner.Host == "" || op.Owner.Epoch == "" {
+				return nil, refusal(status.Error(codes.FailedPrecondition, "resume journal selection mismatch"))
+			}
+			// Routing can change on restart; the exact authenticated identity cannot.
+			op.DestinationEndpoint = r.DestinationEndpoint
+			// Reaffirm durability before source mutation, including a retry after
+			// rename succeeded but the previous directory sync was uncertain.
+			if err = saveResumeWithSync(path, op, l.resumeJournalSync); err != nil {
+				return nil, refusal(err)
+			}
+			// A completed historical operation may be replaced for a new foreign
+			// epoch. An incomplete operation is never silently abandoned.
+			if v.State == "owned" && v.Owner != l.options.Host && (v.Owner != op.Owner.Host || v.Epoch != op.Owner.Epoch) {
+				if _, e := conversation.HandoverResult(ctx, l.store, id, l.options.Host, op.HandoverId); e == nil {
+					readErr = os.ErrNotExist
+				} else if !errors.Is(e, sql.ErrNoRows) {
+					return nil, refusal(e)
 				}
 			}
-			return nil, refusal(err)
 		}
-		// Resolve again below and require the same authenticated exact identity.
-		_ = endpoint
-	}
-	stage = "validate_operation_owner"
-	claimedEpoch, _ := conversation.HandoverResult(ctx, l.store, id, l.options.Host, op.HandoverId)
-	localClaim := v.State == "owned" && v.Owner == l.options.Host && v.Epoch == claimedEpoch && claimedEpoch != ""
-	if (!localClaim && v.State == "owned" && (v.Owner != op.Owner.Host || v.Epoch != op.Owner.Epoch)) || (v.State == "reserved" && (v.Owner != op.Owner.Host || v.Epoch != op.Owner.Epoch || v.Destination != l.options.Host || v.Handover != op.HandoverId)) || (v.State != "owned" && v.State != "reserved") {
-		return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed; refusing stale operation"))
-	}
-	stage = "accept_incoming"
-	a, err := s.AcceptIncoming(controlOwner(op), op.HandoverId, op.Source.Build, l.options.Contract)
-	if err != nil {
-		return nil, refusal(err)
-	}
-	l.mu.Lock()
-	a.receipt = op.Receipt
-	l.mu.Unlock() // restore the durable acceptance after a destination restart
-	claim := proto.Clone(op).(*pb.LifecycleControlRequest)
-	claim.Target = op.Destination
-	stage = "restore_local_claim"
-	if localClaim {
-		l.mu.Lock()
-		owner, e := l.acquireUsing(ctx, id, a, nil, func() (*conversation.Ownership, error) {
-			return conversation.RestoreClaimedHandover(ctx, l.store, id, l.options.Host, op.HandoverId)
-		})
-		l.mu.Unlock()
-		if e != nil {
-			return nil, refusal(e)
+		if readErr != nil && !os.IsNotExist(readErr) {
+			return nil, refusal(readErr)
 		}
-		return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: wireOwner(owner), Ready: true, OperationId: op.HandoverId}, nil
-	}
-	stage = "claim_reserved"
-	if v.State == "reserved" {
-		mark()
-		return s.resumeClaim(ctx, claim)
-	}
-	if l.options.ResolveSource == nil || l.options.ControlDial == nil {
-		return nil, refusal(status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable"))
-	}
-	stage = "resolve_source"
-	source, endpoint, err := l.options.ResolveSource(ctx, op.Owner.Host)
-	if err != nil {
-		return nil, refusal(err)
-	}
-	if !proto.Equal(source, op.Source) {
-		return nil, refusal(status.Error(codes.FailedPrecondition, "source identity changed"))
-	}
-	stage = "dial_source"
-	conn, err := l.options.ControlDial(ctx, endpoint, source)
-	if err != nil {
-		return nil, refusal(err)
-	}
-	defer conn.Close()
-	client := pb.NewAgentClient(conn)
-	stage = "check_source"
-	check, err := client.LifecycleList(ctx, &pb.LifecycleControlRequest{Target: op.Source})
-	if err != nil {
-		return nil, refusal(err)
-	}
-	if !proto.Equal(check.Identity, op.Source) {
-		return nil, refusal(status.Error(codes.PermissionDenied, "authenticated source identity mismatch"))
-	}
-	stage = "force_relinquish"
-	response, err := client.LifecycleForceRelinquish(ctx, op)
-	if status.Code(err) == codes.Unimplemented {
-		stage = "legacy_relinquish"
-		response, err = client.LifecycleRelinquish(ctx, op)
-		if err != nil {
-			// A lost response may already have durably reserved the exact transfer.
-			current, e := conversation.ReadOwnership(ctx, l.store, id)
-			if e == nil && current.State == "reserved" && current.Owner == op.Owner.Host && current.Epoch == op.Owner.Epoch && current.Destination == l.options.Host && current.Handover == op.HandoverId {
-				mark()
-				return s.resumeClaim(ctx, claim)
+		if r.DestinationEndpoint == "" {
+			return nil, eligible(status.Error(codes.InvalidArgument, "selected destination endpoint required"))
+		}
+		stage = "new_resume_operation"
+		if os.IsNotExist(readErr) {
+			if v.State != "owned" || v.Owner == l.options.Host {
+				stage = "acquire"
+				if v.State == "reserved" && v.Owner != l.options.Host {
+					return nil, eligible(acquireErr)
+				}
+				return nil, refusal(acquireErr)
 			}
+			if l.options.ResolveSource == nil || l.options.ControlDial == nil {
+				return nil, eligible(status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable"))
+			}
+			source, endpoint, e := l.options.ResolveSource(ctx, v.Owner)
+			if e != nil {
+				return nil, unavailable(e)
+			}
+			if source == nil || source.Host != v.Owner || source.Store != l.options.StorePath || source.Contract != l.options.Contract.Contract || source.Schema != int32(l.options.Contract.SchemaVersion) || source.Build == "" || !controlLoopback(endpoint) {
+				return nil, refusal(status.Error(codes.FailedPrecondition, "exact compatible source required"))
+			}
+			var token [32]byte
+			if _, err = rand.Read(token[:]); err != nil {
+				return nil, refusal(err)
+			}
+			op = &pb.LifecycleControlRequest{Target: source, Source: source, Destination: l.controlIdentity(), DestinationEndpoint: r.DestinationEndpoint, Owner: &pb.LifecycleOwner{Conversation: id, Host: v.Owner, Epoch: v.Epoch}, HandoverId: hex.EncodeToString(token[:]), Management: true}
+			// Receipt and exact source identity are journaled before the first source mutation.
+			a, e := s.AcceptIncoming(controlOwner(op), op.HandoverId, source.Build, l.options.Contract)
 			if e != nil {
 				return nil, refusal(e)
 			}
-			if current.State != "owned" || current.Owner != op.Owner.Host || current.Epoch != op.Owner.Epoch {
-				return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed during cooperative transfer; refusing stale source"))
+			op.Receipt = a.receipt
+			if err = saveResumeWithSync(path, op, l.resumeJournalSync); err != nil {
+				var uncertain *resumePublicationUncertain
+				if !errors.As(err, &uncertain) {
+					// No source mutation or published receipt is possible on this path.
+					l.mu.Lock()
+					cleanupErr := l.resolveResumeAcceptanceLocked(a)
+					l.mu.Unlock()
+					if cleanupErr != nil {
+						return nil, refusal(fmt.Errorf("%w; acceptance cleanup: %v", err, cleanupErr))
+					}
+				}
+				return nil, refusal(err)
 			}
-
+			// Resolve again below and require the same authenticated exact identity.
+			_ = endpoint
 		}
+		stage = "validate_operation_owner"
+		claimedEpoch, lookupErr := conversation.HandoverResult(ctx, l.store, id, l.options.Host, op.HandoverId)
+		if lookupErr != nil && !errors.Is(lookupErr, sql.ErrNoRows) {
+			return nil, refusal(lookupErr)
+		}
+		localClaim := v.State == "owned" && v.Owner == l.options.Host && v.Epoch == claimedEpoch && claimedEpoch != ""
+		if (!localClaim && v.State == "owned" && (v.Owner != op.Owner.Host || v.Epoch != op.Owner.Epoch)) || (v.State == "reserved" && (v.Owner != op.Owner.Host || v.Epoch != op.Owner.Epoch || v.Destination != l.options.Host || v.Handover != op.HandoverId)) || (v.State != "owned" && v.State != "reserved") {
+			return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed; refusing stale operation"))
+		}
+		stage = "accept_incoming"
+		a, err := s.AcceptIncoming(controlOwner(op), op.HandoverId, op.Source.Build, l.options.Contract)
+		if err != nil {
+			return nil, refusal(err)
+		}
+		l.mu.Lock()
+		a.receipt = op.Receipt
+		l.mu.Unlock() // restore the durable acceptance after a destination restart
+		claim := proto.Clone(op).(*pb.LifecycleControlRequest)
+		claim.Target = op.Destination
+		stage = "restore_local_claim"
+		if localClaim {
+			l.mu.Lock()
+			owner, e := l.acquireUsing(ctx, id, a, nil, func() (*conversation.Ownership, error) {
+				return conversation.RestoreClaimedHandover(ctx, l.store, id, l.options.Host, op.HandoverId)
+			})
+			l.mu.Unlock()
+			if e != nil {
+				return nil, refusal(e)
+			}
+			return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: wireOwner(owner), Ready: true, OperationId: op.HandoverId}, nil
+		}
+		stage = "claim_reserved"
+		if v.State == "reserved" {
+			mark()
+			return s.resumeClaim(ctx, claim)
+		}
+		if l.options.ResolveSource == nil || l.options.ControlDial == nil {
+			return nil, eligible(status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable"))
+		}
+		stage = "resolve_source"
+		source, endpoint, err := l.options.ResolveSource(ctx, op.Owner.Host)
+		if err != nil {
+			return nil, unavailable(err)
+		}
+		if !proto.Equal(source, op.Source) {
+			return nil, refusal(status.Error(codes.FailedPrecondition, "source identity changed"))
+		}
+		stage = "dial_source"
+		conn, err := l.options.ControlDial(ctx, endpoint, source)
+		if err != nil {
+			return nil, unavailable(err)
+		}
+		defer conn.Close()
+		client := pb.NewAgentClient(conn)
+		stage = "check_source"
+		check, err := client.LifecycleList(ctx, &pb.LifecycleControlRequest{Target: op.Source})
+		if err != nil {
+			return nil, unavailable(err)
+		}
+		if !proto.Equal(check.Identity, op.Source) {
+			return nil, refusal(status.Error(codes.PermissionDenied, "authenticated source identity mismatch"))
+		}
+		stage = "force_relinquish"
+		response, err := client.LifecycleForceRelinquish(ctx, op)
+		if status.Code(err) == codes.Unimplemented {
+			stage = "legacy_relinquish"
+			response, err = client.LifecycleRelinquish(ctx, op)
+			if err != nil {
+				// A lost response may already have durably reserved the exact transfer.
+				current, e := conversation.ReadOwnership(ctx, l.store, id)
+				if e == nil && current.State == "reserved" && current.Owner == op.Owner.Host && current.Epoch == op.Owner.Epoch && current.Destination == l.options.Host && current.Handover == op.HandoverId {
+					mark()
+					return s.resumeClaim(ctx, claim)
+				}
+				if e != nil {
+					return nil, refusal(e)
+				}
+				if current.State != "owned" || current.Owner != op.Owner.Host || current.Epoch != op.Owner.Epoch {
+					return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed during cooperative transfer; refusing stale source"))
+				}
+
+				if status.Code(err) == codes.FailedPrecondition {
+					return nil, eligible(err)
+				}
+			}
+		}
+		if err != nil {
+			return nil, refusal(err)
+		}
+		stage = "validate_source_receipt"
+		if !proto.Equal(response.Identity, op.Source) || response.Receipt != op.Receipt {
+			return nil, refusal(status.Error(codes.FailedPrecondition, "source receipt mismatch"))
+		}
+		mark()
+		stage = "claim"
+		return s.resumeClaim(ctx, claim)
 	}
-	if err != nil {
-		return nil, refusal(err)
+	result, finalErr = ordinary()
+	var discovery *resumeDiscoveryEligible
+	if !errors.As(finalErr, &discovery) {
+		return result, finalErr
 	}
-	stage = "validate_source_receipt"
-	if !proto.Equal(response.Identity, op.Source) || response.Receipt != op.Receipt {
-		return nil, refusal(status.Error(codes.FailedPrecondition, "source receipt mismatch"))
+	finalErr = discovery.error
+	if !containedRecovery || ctx.Err() != nil || errors.Is(finalErr, context.Canceled) || errors.Is(finalErr, context.DeadlineExceeded) {
+		return result, finalErr
 	}
-	mark()
-	stage = "claim"
-	return s.resumeClaim(ctx, claim)
+	// Preserve the ordinary cause even when discovery succeeds or fails with a
+	// different cause. The logger records only stage/check/code/classification.
+	s.logLifecycleResumeRefusal(l, r, stage, refusalCheck, finalErr)
+	stage, refusalCheck = "containment_discovery", ""
+	recovered, handled, recoveryErr := s.liveSourceRecovery(ctx, l, r)
+	if handled {
+		return recovered, recoveryErr
+	}
+	return result, finalErr
 }
+
+// resumeDiscoveryEligible is local resume policy, not stop authority. It never
+// crosses the RPC boundary; discovery still requires fresh separate consent.
+type resumeDiscoveryEligible struct{ error }
+
 func (s *Server) resumeClaim(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	response, err := s.LifecycleClaim(ctx, r)
 	if err == nil {

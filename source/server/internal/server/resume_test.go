@@ -2,10 +2,12 @@ package server
 
 import (
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/internal/recoveryguard"
 	pb "cercano/source/server/pkg/proto"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -314,7 +316,7 @@ func TestDestinationResumeLegacyOwnerRaceBeforeConfirmation(t *testing.T) {
 
 // Successful ordinary routes must never need a host interruption adapter.
 func TestResumeOrdinaryBeforeContainedRecovery(t *testing.T) {
-	for _, mode := range []string{"cooperative", "adapterless", "reserved"} {
+	for _, mode := range []string{"cooperative", "adapterless", "reserved", "guard-error", "guard-live"} {
 		t.Run(mode, func(t *testing.T) {
 			a, b, _ := lifecycleFixture(t)
 			serveCutoverFixture(t, a)
@@ -326,6 +328,12 @@ func TestResumeOrdinaryBeforeContainedRecovery(t *testing.T) {
 			}
 			source := &resumeSource{Server: a, legacy: true}
 			setResumeSource(b, a, serveResumeSource(t, source))
+			if mode == "guard-error" {
+				b.coexistence.options.RecoveryGuard = func(context.Context, string) (func(), error) { return nil, fmt.Errorf("inspection failed") }
+			}
+			if mode == "guard-live" {
+				b.coexistence.options.RecoveryGuard = func(context.Context, string) (func(), error) { return nil, recoveryguard.ErrLiveSource }
+			}
 			stop := &containedFixture{}
 			if mode != "adapterless" {
 				b.coexistence.options.LegacyStop = stop

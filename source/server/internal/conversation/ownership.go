@@ -9,7 +9,15 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
 )
+
+// OwnershipConflict identifies expected contention or a row requiring explicit
+// transfer/recovery. Other acquisition errors must not initiate recovery discovery.
+type OwnershipConflict struct{ Cause error }
+
+func (e *OwnershipConflict) Error() string { return e.Cause.Error() }
+func (e *OwnershipConflict) Unwrap() error { return e.Cause }
 
 const ownershipSchema = `CREATE TABLE conversation_ownership (
  conversation_id TEXT PRIMARY KEY, owner TEXT NOT NULL, epoch TEXT NOT NULL,
@@ -108,7 +116,10 @@ func acquireOwnershipFrom(ctx context.Context, store Store, id, host, handover, 
 	}
 	if err := lockOwnershipFile(f); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("conversation %q lock contention: %w", id, err)
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, &OwnershipConflict{Cause: fmt.Errorf("conversation %q lock contention: %w", id, err)}
+		}
+		return nil, err
 	}
 	o := &Ownership{store: s, conversation: id, owner: host, epoch: newID(), lock: f}
 	success := false
@@ -132,7 +143,7 @@ func acquireOwnershipFrom(ctx context.Context, store Store, id, host, handover, 
 	}
 	if handover == "" {
 		if err == nil && state != "released" {
-			return nil, fmt.Errorf("conversation %q is %s; explicit matching handover or recovery required (crash recovery unsupported)", id, state)
+			return nil, &OwnershipConflict{Cause: fmt.Errorf("conversation %q is %s; explicit matching handover or recovery required (crash recovery unsupported)", id, state)}
 		}
 	} else if err != nil || state != "reserved" || destination != host || pending != handover {
 		return nil, fmt.Errorf("handover reservation does not match exact destination and ID; recovery unsupported")

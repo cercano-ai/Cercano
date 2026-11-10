@@ -1,12 +1,15 @@
 package server
 
 import (
+	"cercano/source/server/internal/failurelog"
+	"cercano/source/server/internal/recoveryguard"
 	"context"
 	"database/sql"
 	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cercano/source/server/internal/conversation"
@@ -20,7 +23,7 @@ import (
 // All failures have a qualified fixture adapter available: refusal must not be
 // an accidental consequence of containment discovery failing later.
 func TestResumeFallbackPolicy(t *testing.T) {
-	for _, mode := range []string{"auth", "acquire-auth", "identity", "cancel", "deadline", "malformed", "publication", "resolver-error", "missing", "unreachable", "dial-auth", "source-auth", "source-loss", "receipt-lookup", "guard-error", "legacy-blocked"} {
+	for _, mode := range []string{"auth", "acquire-auth", "identity", "cancel", "deadline", "malformed", "publication", "resolver-error", "missing", "unreachable", "dial-auth", "source-auth", "source-loss", "receipt-lookup", "guard-error", "guard-live", "guard-identity", "guard-inspection", "legacy-blocked"} {
 		t.Run(mode, func(t *testing.T) {
 			a, b, _ := lifecycleFixture(t)
 			serveCutoverFixture(t, a)
@@ -35,6 +38,13 @@ func TestResumeFallbackPolicy(t *testing.T) {
 			l.options.ControlAuthorize = func(context.Context) error { return nil }
 			p := &containedFixture{}
 			l.options.LegacyStop = p
+			logPath := filepath.Join(t.TempDir(), "failures.jsonl")
+			w, e := failurelog.NewWriter(logPath)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer w.Close()
+			b.failureLog = w
 			discoveries := 0
 			l.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) {
 				discoveries++
@@ -93,6 +103,12 @@ func TestResumeFallbackPolicy(t *testing.T) {
 					}
 					return a.coexistence.controlIdentity(), endpoint, nil
 				}
+			case "guard-live":
+				l.options.RecoveryGuard = func(context.Context, string) (func(), error) { return nil, recoveryguard.ErrLiveSource }
+				r.DestinationEndpoint = ""
+			case "guard-identity", "guard-inspection":
+				l.options.RecoveryGuard = func(context.Context, string) (func(), error) { return nil, errors.New(mode + " secret-token") }
+				r.DestinationEndpoint = ""
 			case "guard-error":
 				l.options.RecoveryGuard = func(context.Context, string) (func(), error) { return nil, errors.New("guard metadata unreadable") }
 				r.DestinationEndpoint = ""
@@ -122,13 +138,25 @@ func TestResumeFallbackPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, err := b.LifecycleResume(ctx, r)
-			eligible := mode == "missing" || mode == "unreachable" || mode == "legacy-blocked"
+			eligible := mode == "missing" || mode == "unreachable" || mode == "legacy-blocked" || mode == "guard-live"
 			if eligible {
 				if err != nil || !got.GetConfirmationRequired() || discoveries != 1 {
 					t.Fatalf("eligible discovery: got=%v err=%v discoveries=%d", got, err, discoveries)
 				}
 			} else if err == nil || got != nil || discoveries != 0 {
 				t.Errorf("refusal replaced: ready=%t confirmation=%t code=%s discoveries=%d", got.GetReady(), got.GetConfirmationRequired(), status.Code(err), discoveries)
+			}
+			data, logErr := os.ReadFile(logPath)
+			if logErr != nil {
+				t.Fatal(logErr)
+			}
+			if !strings.Contains(string(data), `"operation":"resume"`) || !strings.Contains(string(data), `"stage":`) || !strings.Contains(string(data), `"error_kind":`) {
+				t.Fatal("original diagnostic missing")
+			}
+			for _, secret := range []string{"secret-token", "secret-receipt", endpoint, l.options.StorePath} {
+				if strings.Contains(string(data), secret) {
+					t.Fatal("diagnostic leaked private material")
+				}
 			}
 			after, e := conversation.ReadOwnership(context.Background(), l.store, "chat")
 			if e != nil {
@@ -182,5 +210,47 @@ func TestResumeReadyJournalFailure(t *testing.T) {
 				t.Fatalf("journal failure reported ready: %v %v", got, err)
 			}
 		})
+	}
+}
+
+// Deliberately desynchronize only disposable admission accounting to exercise
+// cleanup uncertainty after guarded recovery; it must never become a stop offer.
+func TestResumeAcceptanceCleanupFailure(t *testing.T) {
+	a, b, _ := lifecycleFixture(t)
+	ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}})
+	old, err := a.Retain(ctx, "chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := b.coexistence
+	l.options.ControlAuthorize = func(context.Context) error { return nil }
+	acceptance, err := b.AcceptIncoming(old, "cleanup-op", a.coexistence.controlIdentity().Build, l.options.Contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := &pb.LifecycleControlRequest{Source: a.coexistence.controlIdentity(), Destination: l.controlIdentity(), Owner: wireOwner(old), HandoverId: "cleanup-op", Receipt: acceptance.receipt}
+	if err = saveResume(resumeJournal(l, "chat"), op); err != nil {
+		t.Fatal(err)
+	}
+	if err = l.admission.ResolveIncomingDurably(acceptance.h); err != nil {
+		t.Fatal(err)
+	}
+	if err = a.coexistence.owners["chat"].Close(); err != nil {
+		t.Fatal(err)
+	}
+	l.options.RecoveryGuard = func(context.Context, string) (func(), error) { return func() {}, nil }
+	stop := &containedFixture{}
+	l.options.LegacyStop = stop
+	discoveries := 0
+	l.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) {
+		discoveries++
+		return nil, errors.New("unexpected discovery")
+	}
+	got, err := b.LifecycleResume(ctx, resumeRequest(b, ""))
+	if err == nil || got != nil || discoveries != 0 || stop.stop != 0 {
+		t.Fatal("cleanup uncertainty replaced")
+	}
+	if l.incoming[acceptance.h] != acceptance {
+		t.Fatal("uncertain participation discarded")
 	}
 }

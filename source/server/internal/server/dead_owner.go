@@ -64,7 +64,7 @@ func (s *Server) LifecycleRecover(ctx context.Context, r *pb.LifecycleRecoverReq
 		var e error
 		release, e = l.options.RecoveryGuard(ctx, v.Owner)
 		if e != nil {
-			return status.Errorf(codes.FailedPrecondition, "source %q death not verified; safe live-owner fencing unavailable (no source RPC attempted): %v", v.Owner, e)
+			return &recoveryGuardRefusal{cause: e}
 		}
 		if release == nil {
 			return fmt.Errorf("recovery guard omitted exclusion")
@@ -84,4 +84,14 @@ func (s *Server) LifecycleRecover(ctx context.Context, r *pb.LifecycleRecoverReq
 		return nil, err
 	}
 	return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: &pb.LifecycleOwner{Conversation: owner.Conversation, Host: owner.Host, Epoch: owner.Epoch}, Ready: true}, nil
+}
+
+// Keep the local cause available to resume without exposing inspection details
+// over RPC or converting every FailedPrecondition into a live-source outcome.
+type recoveryGuardRefusal struct{ cause error }
+
+func (e *recoveryGuardRefusal) Error() string { return e.GRPCStatus().Message() }
+func (e *recoveryGuardRefusal) Unwrap() error { return e.cause }
+func (e *recoveryGuardRefusal) GRPCStatus() *status.Status {
+	return status.New(codes.FailedPrecondition, "source death not verified; safe live-owner fencing unavailable")
 }

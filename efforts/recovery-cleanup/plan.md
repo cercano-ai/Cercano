@@ -42,13 +42,13 @@ Objective: retain one destination-side contained recovery continuation and rejec
 Objective: replace deferred error replacement with explicit recovery eligibility and outcomes without inventing a generic orchestration framework. Files: server/resume.go, live_recovery.go, lifecycle diagnostics and focused tests. Tests must distinguish original refusal from containment discovery and prove errors never supply stop authority.
 
 - [x] Document existing ordinary outcomes and proposed eligible fallback cases before restructuring control flow
-- [~] Add tests for authentication/identity failure, cancellation, uncertain persistence/publication, malformed journals, missing or unreachable sources, acceptance cleanup failure, source response loss, and receipt lookup errors
-- [~] Confirm any intended behavioral correction with an isolated failing probe before applying it
-- [-] Replace deferred fallback and special suppression flags with explicit outcome handling
-- [ ] Preserve original diagnostic context without logging credentials or receipt contents
-- [ ] Verify current ready ownership remains necessary and historical receipts cannot authorize readiness or recovery
-- [-] Run focused normal/race tests and review fallback branches for unintended new stop offers
-- [-] Checkpoint the explicit fallback policy and its evidence
+- [x] Add tests for authentication/identity failure, cancellation, uncertain persistence/publication, malformed journals, missing or unreachable sources, acceptance cleanup failure, source response loss, and receipt lookup errors
+- [x] Confirm any intended behavioral correction with an isolated failing probe before applying it
+- [x] Replace deferred fallback and special suppression flags with explicit outcome handling
+- [x] Preserve original diagnostic context without logging credentials or receipt contents
+- [x] Verify current ready ownership remains necessary and historical receipts cannot authorize readiness or recovery
+- [x] Run focused normal/race tests and review fallback branches for unintended new stop offers
+- [x] Checkpoint the explicit fallback policy and its evidence
 
 ## Phase 5 — Simplify the contained adapter and names
 
