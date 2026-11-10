@@ -37,10 +37,10 @@ Objective: recover owned or reserved state only after verified containment, with
 
 Objective: connect normal UI recovery to the replacement and remove redundant repair paths without losing safety invariants. Files: server resume/discovery/retry/takeover orchestration, agentclient wrappers, CLI reopen/recovery UI, proto definitions/generated consumers, mocks and docs.
 
-- [~] Route recovery from current durable ownership; use supported old controls only for safe cooperation, never as discovery probes.
-- [ ] Make unsupported optional RPCs reach the explicit compatible fallback rather than abort reopen.
-- [ ] Remove journal-count ambiguity as a prerequisite to independently authorized death-proven recovery; keep journals as evidence only.
-- [~] Consolidate user confirmation and result handling into one recovery journey, including actionable failure stages and host-wide impact.
+- [x] Route recovery from current durable ownership; use supported old controls only for safe cooperation, never as discovery probes.
+- [x] Make unsupported optional RPCs reach the explicit compatible fallback rather than abort reopen.
+- [x] Remove journal-count ambiguity as a prerequisite to independently authorized death-proven recovery; keep journals as evidence only.
+- [x] Consolidate user confirmation and result handling into one recovery journey, including actionable failure stages and host-wide impact.
 - [x] Remove superseded protocol families and consumers identified in Phase 1; retain required compatibility controls and reusable safety primitives.
 - [x] Reserve removed protobuf field/RPC-message identifiers as appropriate, never reuse field numbers or names; regenerate using repository tooling.
 - [x] Port useful regression tests and correct misleading documentation while retaining historical evidence as historical.
@@ -51,7 +51,7 @@ Objective: establish the approved old-host recovery outcome, not merely current-
 
 - [x] Pass the actual old-process, multiple-failed-journals, new-host recovery journey and exact successful persisted turn assertions.
 - [x] Run focused normal/race suites for ownership, admission, source control, recovery, agentclient and CLI; confirm nonzero selected tests.
-- [~] Run interface compilation and integration checks across affected modules and supported platforms; record untested platform boundaries.
+- [x] Run interface compilation and integration checks across affected modules and supported platforms; record untested platform boundaries.
 - [ ] Independently review process attribution, writer containment, late claims, consent, uncertain writes, protocol removal and compatibility evidence.
 - [~] Repair concrete findings with failing probes and rerun affected tests.
 - [x] Checkpoint solved units with explicit paths; preserve unrelated files and worktrees. Do not push or merge without authorization.
