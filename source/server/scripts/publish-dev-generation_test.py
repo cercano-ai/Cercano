@@ -722,5 +722,176 @@ print('  1) %s "%s"' % (os.environ["CERT"], os.environ["IDENTITY_NAME"]) if os.e
         self.assertFalse((self.root / "test-gen").exists())
 
 
+class FingerprintTraversalTests(unittest.TestCase):
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        self.publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.publisher)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    @staticmethod
+    def legacy_tree(root):
+        # Frozen pre-optimization oracle: including absolute symlink text and
+        # Path (component-wise), rather than string, global ordering.
+        root = Path(root)
+        digest = hashlib.sha256()
+        paths = sorted(root.rglob("*")) if root.is_dir() else [root]
+        for path in paths:
+            if path.is_file():
+                digest.update(str(path.relative_to(root) if path != root else path).encode())
+                digest.update(hashlib.sha256(path.read_bytes()).digest())
+            elif path.is_symlink():
+                digest.update(str(path).encode() + os.readlink(path).encode())
+        return digest.hexdigest()
+
+    def assert_tree_equal(self, root):
+        self.assertEqual(self.publisher.tree_identity(root), self.legacy_tree(root))
+
+    def test_empty_unicode_component_order_and_large_file(self):
+        from unittest.mock import patch
+        self.assert_tree_equal(self.root)
+        (self.root / "empty directory").mkdir()
+        (self.root / "empty").touch()
+        (self.root / "a").mkdir()
+        for name in ("a/z", "a.txt", "é", "e\u0301", "Z", ".hidden"):
+            (self.root / name).write_bytes(name.encode())
+        (self.root / "large").write_bytes(b"0123456789" * 300000)
+        self.assertEqual(sorted(self.publisher.descendant_paths(self.root)),
+                         sorted(self.root.rglob("*")))
+        expected = self.legacy_tree(self.root)
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("whole-file read")):
+            self.assertEqual(self.publisher.tree_identity(self.root), expected)
+        self.assert_tree_equal(self.root / "empty")
+        self.assert_tree_equal(self.root / "missing")
+
+    def test_symlink_branches_root_identity_and_nonregular(self):
+        (self.root / "file").write_bytes(b"original")
+        (self.root / "dir").mkdir()
+        (self.root / "dir/nested").write_bytes(b"nested")
+        (self.root / "file-link").symlink_to("file")
+        (self.root / "dir-link").symlink_to("dir", target_is_directory=True)
+        (self.root / "broken").symlink_to("absent")
+        (self.root / "loop").symlink_to("loop")
+        os.mkfifo(self.root / "fifo")
+        self.assert_tree_equal(self.root)
+        for name in ("file", "file-link", "dir-link", "broken", "loop", "fifo"):
+            self.assert_tree_equal(self.root / name)
+        before = self.publisher.tree_identity(self.root / "file-link")
+        (self.root / "file").write_bytes(b"changed")
+        self.assertNotEqual(before, self.publisher.tree_identity(self.root / "file-link"))
+        (self.root / "other-link").symlink_to("file")
+        self.assertNotEqual(self.publisher.tree_identity(self.root / "file-link"),
+                            self.publisher.tree_identity(self.root / "other-link"))
+
+    def test_read_errors_propagate_and_reads_are_bounded(self):
+        from unittest.mock import MagicMock, patch
+        path = self.root / "file"
+        path.touch()
+        stream = MagicMock()
+        stream.__enter__.return_value = stream
+        stream.read.side_effect = [b"bytes", OSError("read failed")]
+        with patch.object(Path, "open", return_value=stream):
+            with self.assertRaisesRegex(OSError, "read failed"):
+                self.publisher.tree_identity(self.root)
+        self.assertEqual([call.args for call in stream.read.call_args_list],
+                         [(1024 * 1024,), (1024 * 1024,)])
+
+    def test_unreadable_directory_matches_legacy_skip(self):
+        from unittest.mock import patch
+        (self.root / "directory").mkdir()
+        with patch.object(os, "scandir", side_effect=PermissionError("unreadable")):
+            self.assert_tree_equal(self.root)
+
+    def test_bounded_identity_order_metadata_and_failure(self):
+        from unittest.mock import patch
+        import threading
+        import time
+        p = self.publisher
+        active = peak = 0
+        lock = threading.Lock()
+        calls = []
+        def tree(root):
+            nonlocal active, peak
+            with lock:
+                calls.append(str(root))
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.01)
+            with lock:
+                active -= 1
+            return "hash:" + str(root)
+        def output(command, **kwargs):
+            if command[1:] == ["env", "-json"]:
+                return json.dumps({"GOROOT": "go-root", "CGO_ENABLED": "1",
+                                   "CC": "cc", "CXX": "c++"})
+            if command[0] == "/usr/bin/xcrun":
+                return str(self.root) if command[1] == "--show-sdk-path" else str(self.root / "bin/clang")
+            return "compiler version"
+        with patch.object(p.sys, "platform", "darwin"), \
+                patch.object(p.subprocess, "check_output", side_effect=output), \
+                patch.object(p.shutil, "which", side_effect=lambda tool, **kw: str(self.root / tool)), \
+                patch.object(p, "tree_identity", side_effect=tree):
+            result = p.effective_identity("go", {}, self.root)
+            self.assertEqual(peak, 2)
+            self.assertCountEqual(calls, ["go-root", str(self.root / "cc"),
+                                        str(self.root / "c++"), str(self.root), str(self.root.resolve())])
+            self.assertEqual(result["goroot_sha256"], "hash:go-root")
+            self.assertEqual(result["CC"]["sha256"], "hash:" + str(self.root / "cc"))
+            self.assertEqual(result["sdk"], {"path": str(self.root), "sha256": "hash:" + str(self.root)})
+            with patch.object(p, "tree_identity", side_effect=OSError("failed tree")):
+                with self.assertRaisesRegex(OSError, "failed tree"):
+                    p.effective_identity("go", {}, self.root)
+
+
+class SourceTraversalTests(unittest.TestCase):
+    setUp = PublicationTests.setUp
+    tearDown = PublicationTests.tearDown
+    git = PublicationTests.git
+
+    def test_source_legacy_digest_inventory_snapshot_and_mode(self):
+        import argparse
+        import importlib.util
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        p = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(p)
+        source = self.repo / "source"
+        for name in ("empty", "é", "a.txt", "a/z", ".git/excluded"):
+            path = source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(name.encode() if name != "empty" else b"")
+        args = argparse.Namespace(repo=str(self.repo), go=str(self.fake), sign=False)
+        snapshot = self.base / "snapshot"
+        old_inventory, new_inventory = {}, {}
+        with patch.dict(os.environ, self.env, clear=True):
+            with patch.object(p, "descendant_paths", side_effect=lambda root: root.rglob("*")):
+                before = p.inputs(args, inventory=old_inventory)
+            after = p.inputs(args, snapshot, inventory=new_inventory)
+            self.assertEqual(before, after)
+            self.assertEqual(old_inventory, new_inventory)
+            for name, (identity, mode) in new_inventory.items():
+                copied = snapshot / name
+                self.assertEqual(hashlib.sha256(copied.read_bytes()).digest(), identity)
+                self.assertEqual(copied.stat().st_mode & 0o111, mode)
+            (source / "empty").chmod(0o755)
+            changed = {}
+            self.assertNotEqual(after[0], p.inputs(args, inventory=changed)[0])
+            self.assertEqual(changed["source/empty"][1], 0o111)
+            for name in ("symlink", "fifo"):
+                path = source / name
+                if name == "symlink":
+                    path.symlink_to("empty")
+                else:
+                    os.mkfifo(path)
+                try:
+                    with self.assertRaisesRegex(ValueError, "unsupported nonregular source"):
+                        p.inputs(args)
+                finally:
+                    path.unlink()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

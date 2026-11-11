@@ -63,6 +63,7 @@ neither runs the app nor configures a safe runtime. Normal launcher is unchanged
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import ctypes
 import errno
 import hashlib
@@ -147,15 +148,38 @@ def build_environment():
     return env, {key: env.get(key, "") for key in sorted(allowed)}
 
 
+def descendant_paths(root):
+    """Glob-compatible traversal without repeated Path/glob selector work.
+
+    Do not descend through directory symlinks. As with Path.rglob, unreadable
+    directories are skipped; file reads/classification below still propagate
+    their errors. Sort Paths globally at the caller, not strings or per-directory
+    DFS order (which differ for names such as a/z and a.txt).
+    """
+    for directory, directories, files in os.walk(root):
+        parent = Path(directory)
+        for name in directories + files:
+            yield parent / name
+
+
+def file_digest(path):
+    """Hash every logical file independently, with bounded read memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.digest()
+
+
 def tree_identity(root):
     """Content identity, including ignored files; SDK/toolchain installs are trusted."""
     root = Path(root)
     digest = hashlib.sha256()
-    paths = sorted(root.rglob("*")) if root.is_dir() else [root]
+    paths = sorted(descendant_paths(root)) if root.is_dir() else [root]
     for path in paths:
         if path.is_file():
             digest.update(str(path.relative_to(root) if path != root else path).encode())
-            digest.update(hashlib.sha256(path.read_bytes()).digest())
+            digest.update(file_digest(path))
         elif path.is_symlink():
             digest.update(str(path).encode() + os.readlink(path).encode())
     return digest.hexdigest()
@@ -177,8 +201,9 @@ def effective_identity(go, env, module):
             r"-ffile-prefix-map=\S*/go-build[0-9]+=/tmp/go-build",
             "-ffile-prefix-map=<go-scratch>=/tmp/go-build", effective["GOGCCFLAGS"])
     identity = {"go_env": effective}
+    trees = []
     if effective.get("GOROOT"):
-        identity["goroot_sha256"] = tree_identity(effective["GOROOT"])
+        trees.append((identity, "goroot_sha256", effective["GOROOT"]))
     if effective["CGO_ENABLED"] == "1":
         for key in ("CC", "CXX"):
             command = shlex.split(effective[key])
@@ -187,8 +212,9 @@ def effective_identity(go, env, module):
             tool = shutil.which(command[0], path=env.get("PATH"))
             if not tool:
                 raise ValueError("compiler unavailable: " + command[0])
-            identity[key] = {"path": str(Path(tool).resolve()), "sha256": tree_identity(tool),
+            identity[key] = {"path": str(Path(tool).resolve()),
                              "version": subprocess.check_output([tool, "--version"], env=env, text=True, stderr=subprocess.PIPE)}
+            trees.append((identity[key], "sha256", tool))
         if sys.platform == "darwin":
             def xcrun(*args):
                 return subprocess.check_output(["/usr/bin/xcrun", *args], env=env, text=True, stderr=subprocess.PIPE).strip()
@@ -196,14 +222,29 @@ def effective_identity(go, env, module):
             if not Path(sdk).is_absolute() or not Path(sdk).is_dir():
                 raise ValueError("SDKROOT must be an existing absolute SDK directory")
             env["SDKROOT"] = sdk
-            identity["sdk"] = {"path": sdk, "sha256": tree_identity(sdk)}
+            identity["sdk"] = {"path": sdk}
+            trees.append((identity["sdk"], "sha256", sdk))
             # Hash the selected developer toolchain (clang resources, linker, libs).
             clang = Path(xcrun("--find", "clang")).resolve()
-            identity["native_toolchain"] = tree_identity(clang.parent.parent)
+            trees.append((identity, "native_toolchain", clang.parent.parent))
             identity["developer_dir"] = env.get("DEVELOPER_DIR", "")
         else:
             # Native system headers/libraries cannot be identified portably here.
             raise ValueError("cgo publication currently supported only on Darwin; use CGO_ENABLED=0")
+    # Only independent trusted toolchain trees overlap, never source snapshot
+    # reads or initial/snapshot/final collections. Two workers measured useful;
+    # keep the resource bound conservative even though three benchmarked faster.
+    # No alias/content hash cache.
+    if len(trees) > 1:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            hashes = pool.map(tree_identity, (root for _, _, root in trees))
+            # Consume in discovery order: deterministic assembly and exceptions.
+            # Executor shutdown waits for other reads before propagating failure.
+            for (target, key, _), value in zip(trees, hashes):
+                target[key] = value
+    else:
+        for target, key, root in trees:
+            target[key] = tree_identity(root)
     return identity
 
 
@@ -270,7 +311,7 @@ def inputs(args, snapshot=None, *, inventory=None):
     digest = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode())
     # Include ignored and untracked source too (embeds, vendored dependencies,
     # module files, scripts). Build from these exact bytes, never the live tree.
-    files = sorted(p for p in (repo / "source").rglob("*")
+    files = sorted(p for p in descendant_paths(repo / "source")
                    if not any(x in {".git"} for x in p.relative_to(repo).parts)
                    and (p.is_symlink() or not p.is_dir()))
     for path in files:
