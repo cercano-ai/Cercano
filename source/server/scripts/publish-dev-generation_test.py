@@ -922,7 +922,7 @@ class FingerprintTraversalTests(unittest.TestCase):
                 patch.object(p.shutil, "which", side_effect=lambda tool, **kw: str(self.root / tool)), \
                 patch.object(p, "tree_identity", side_effect=tree):
             result = p.effective_identity("go", {}, self.root)
-            self.assertEqual(peak, 2)
+            self.assertEqual(peak, 3)
             self.assertCountEqual(calls, ["go-root", str(self.root / "cc"),
                                         str(self.root / "c++"), str(self.root), str(self.root.resolve())])
             self.assertEqual(result["goroot_sha256"], "hash:go-root")

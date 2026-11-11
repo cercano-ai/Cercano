@@ -235,11 +235,10 @@ def effective_identity(go, env, module):
             # Native system headers/libraries cannot be identified portably here.
             raise ValueError("cgo publication currently supported only on Darwin; use CGO_ENABLED=0")
     # Only independent trusted toolchain trees overlap, never source snapshot
-    # reads or initial/snapshot/final collections. Two workers measured useful;
-    # keep the resource bound conservative even though three benchmarked faster.
-    # No alias/content hash cache.
+    # reads or initial/snapshot/final collections. Keep a fixed three-worker
+    # resource bound. No alias/content hash cache.
     if len(trees) > 1:
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             hashes = pool.map(tree_identity, (root for _, _, root in trees))
             # Consume in discovery order: deterministic assembly and exceptions.
             # Executor shutdown waits for other reads before propagating failure.
