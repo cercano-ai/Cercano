@@ -61,6 +61,10 @@ func (l *coexistenceLifecycle) snapshotBlockersLocked(o broker.Owner) lifecycleB
 }
 
 func (s *Server) logLifecycleResumeRefusal(l *coexistenceLifecycle, r *pb.LifecycleControlRequest, stage, check string, err error) {
+	s.logLifecycleRefusal(l, r, "resume", "destination", stage, check, err)
+}
+
+func (s *Server) logLifecycleRefusal(l *coexistenceLifecycle, r *pb.LifecycleControlRequest, operation, side, stage, check string, err error) {
 	if s.failureLog == nil {
 		return
 	}
@@ -71,7 +75,7 @@ func (s *Server) logLifecycleResumeRefusal(l *coexistenceLifecycle, r *pb.Lifecy
 	case errors.Is(err, broker.ErrAdmissionStale):
 		kind = "admission_stale"
 	}
-	fields := failurelog.Event{"scope": "lifecycle", "operation": "resume", "stage": stage, "check": check, "grpc_code": status.Code(err).String(), "error_kind": kind, "pid": os.Getpid()}
+	fields := failurelog.Event{"scope": "lifecycle", "operation": operation, "side": side, "stage": stage, "check": check, "grpc_code": status.Code(err).String(), "error_kind": kind, "pid": os.Getpid()}
 	// l is non-nil only after exact target selection and authentication succeeded.
 	// Do not log even caller-supplied identifiers on a denied control request.
 	if l != nil {
@@ -85,6 +89,8 @@ func (s *Server) logLifecycleResumeRefusal(l *coexistenceLifecycle, r *pb.Lifecy
 		snapshot := l.snapshotBlockersLocked(requested)
 		l.mu.Unlock()
 		fields["conversation_id"] = requested.Conversation
+		fields["host_id"] = l.options.Host
+		fields["handover_id"] = r.GetHandoverId()
 		fields["blockers"] = snapshot
 	}
 	// Raw errors, endpoints, store paths, receipts, and request bodies are never logged.

@@ -224,3 +224,74 @@ func TestLifecycleResumeDeniedLoggingPrivacy(t *testing.T) {
 		t.Fatalf("denied request leaked: %s", data)
 	}
 }
+
+func TestForceSourceRefusalDiagnostics(t *testing.T) {
+	a, b, _ := lifecycleFixture(t)
+	ac, _ := serveCutoverFixture(t, a)
+	_, endpoint := serveCutoverFixture(t, b)
+	path := filepath.Join(t.TempDir(), "source.jsonl")
+	w, err := failurelog.NewWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	a.failureLog = w
+	a.coexistence.options.Reload = func(context.Context, conversation.Store, *conversation.Ownership) error {
+		return errors.New("SECRET-prompt")
+	}
+	if _, err = a.Retain(context.Background(), "blocked"); err == nil {
+		t.Fatal("expected unresolved acquisition")
+	}
+	o := ownerOf(a.coexistence.owners["blocked"])
+	r := &pb.LifecycleControlRequest{Target: a.coexistence.controlIdentity(), Source: a.coexistence.controlIdentity(), Destination: b.coexistence.controlIdentity(), DestinationEndpoint: endpoint, Owner: wireOwner(o), Management: true, HandoverId: "source-operation", Receipt: "SECRET-receipt"}
+	if _, err = ac.LifecycleForceRelinquish(context.Background(), r); err == nil {
+		t.Fatal("expected refusal")
+	}
+	data, _ := os.ReadFile(path)
+	for _, want := range []string{`"operation":"force_relinquish"`, `"side":"source"`, `"stage":"owner_ready"`, `"handover_id":"source-operation"`, `"Reason":"acquisition_unresolved"`, `"UnresolvedHostWork":1`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("missing %s in %s", want, data)
+		}
+	}
+	for _, secret := range []string{"SECRET", endpoint, a.coexistence.options.StorePath} {
+		if strings.Contains(string(data), secret) {
+			t.Errorf("sensitive diagnostic: %s", data)
+		}
+	}
+}
+
+// Ordinary relinquish must report its own admission refusal, not a destination snapshot.
+func TestRelinquishSourceAttachmentDiagnostics(t *testing.T) {
+	a, b, _ := lifecycleFixture(t)
+	ac, _ := serveCutoverFixture(t, a)
+	_, endpoint := serveCutoverFixture(t, b)
+	o, err := a.Retain(context.Background(), "attached")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment, err := a.coexistence.admission.AttachTerminal(o, "SECRET-terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = attachment
+	path := filepath.Join(t.TempDir(), "source.jsonl")
+	w, err := failurelog.NewWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	a.failureLog = w
+	r := &pb.LifecycleControlRequest{Target: a.coexistence.controlIdentity(), Source: a.coexistence.controlIdentity(), Destination: b.coexistence.controlIdentity(), DestinationEndpoint: endpoint, Owner: wireOwner(o), Management: true, HandoverId: "attached-operation"}
+	if _, err = ac.LifecycleRelinquish(context.Background(), r); err == nil {
+		t.Fatal("expected attachment refusal")
+	}
+	data, _ := os.ReadFile(path)
+	for _, want := range []string{`"operation":"relinquish"`, `"side":"source"`, `"stage":"reserve_quiescence"`, `"Attachments":1`, `"Reason":"attachments"`, `"handover_id":"attached-operation"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("missing %s in %s", want, data)
+		}
+	}
+	if strings.Contains(string(data), "SECRET") {
+		t.Fatalf("sensitive diagnostic: %s", data)
+	}
+}

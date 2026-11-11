@@ -168,11 +168,17 @@ type outgoingControl struct {
 	completed  bool
 }
 
-func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRequest, transfer bool) (*pb.LifecycleControlResponse, error) {
+func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRequest, transfer bool) (result *pb.LifecycleControlResponse, finalErr error) {
 	l, e := s.control(ctx, r)
 	if e != nil {
 		return nil, e
 	}
+	stage := "validate_selection"
+	defer func() {
+		if transfer && finalErr != nil {
+			s.logLifecycleRefusal(l, r, "relinquish", "source", stage, "control_relinquish", finalErr)
+		}
+	}()
 	o := controlOwner(r)
 	terminal := ""
 	if !r.Management {
@@ -194,6 +200,7 @@ func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRe
 		}
 		// Close/check quiescence and retain persistence participation before ANY
 		// peer RPC. Never hold the lifecycle mutex across a cross-host call.
+		stage = "reserve_quiescence"
 		l.mu.Lock()
 		key := proto.Clone(r).(*pb.LifecycleControlRequest)
 		key.Receipt = ""
@@ -230,6 +237,7 @@ func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRe
 			return nil, e
 		}
 		defer func() { l.mu.Lock(); reserved.control.active = false; l.mu.Unlock() }()
+		stage = "destination_prepare"
 		conn, err := l.options.ControlDial(ctx, r.DestinationEndpoint, r.Destination)
 		if err != nil {
 			return nil, err
@@ -253,6 +261,7 @@ func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRe
 		receipt = proof.Receipt
 		h = &broker.IncomingHandover{Conversation: o.Conversation, SourceHost: o.Host, SourceEpoch: o.Epoch, HandoverID: r.HandoverId, DestinationHost: r.Destination.Host}
 	}
+	stage = "commit_relinquish"
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if transfer {

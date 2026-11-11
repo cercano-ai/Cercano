@@ -14,17 +14,24 @@ import (
 
 // LifecycleForceRelinquish is intentionally a distinct RPC. An old host must
 // reject it rather than interpret force as the old terminal-only takeover.
-func (s *Server) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+func (s *Server) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleControlRequest) (response *pb.LifecycleControlResponse, finalErr error) {
 	l, err := s.control(ctx, r)
 	if err != nil {
 		return nil, err
 	}
+	stage := "validate_destination"
+	defer func() {
+		if finalErr != nil {
+			s.logLifecycleRefusal(l, r, "force_relinquish", "source", stage, "forced_cutover", finalErr)
+		}
+	}()
 	o := controlOwner(r)
 	if !r.Management || r.Destination == nil || r.Destination.Host == o.Host || r.HandoverId == "" || r.GetOwner().GetHost() != l.options.Host || !proto.Equal(r.Source, r.Target) || r.Destination.Store != l.options.StorePath || r.Destination.Contract != l.options.Contract.Contract || r.Destination.Schema != int32(l.options.Contract.SchemaVersion) || !controlLoopback(r.DestinationEndpoint) || l.options.ControlDial == nil {
 		return nil, status.Error(codes.FailedPrecondition, "incompatible selected cutover source/destination")
 	}
 	// Authenticate the exact destination before revoking anything. This read-only
 	// preflight grants no ownership and cannot publish a new default target.
+	stage = "destination_preflight"
 	conn, err := l.options.ControlDial(ctx, r.DestinationEndpoint, r.Destination)
 	if err != nil {
 		return nil, err
@@ -41,6 +48,7 @@ func (s *Server) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleCo
 	key := proto.Clone(r).(*pb.LifecycleControlRequest)
 	key.Receipt = ""
 	key.DestinationEndpoint = "" // authenticated identity, not a transient route, binds retries
+	stage = "closure_reservation"
 	l.mu.Lock()
 	existing := l.closures[o]
 	if existing != nil && (existing.control == nil || !proto.Equal(existing.control.request, key) || !l.forced[o]) {
@@ -48,16 +56,19 @@ func (s *Server) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleCo
 		return nil, broker.ErrAdmissionBusy
 	}
 	if existing == nil {
+		stage = "owner_ready"
 		cap := l.owners[o.Conversation]
 		if cap == nil || ownerOf(cap) != o || !l.ready[o] {
 			l.mu.Unlock()
 			return nil, broker.ErrAdmissionStale
 		}
+		stage = "admit_persistence"
 		ticket, e := l.admission.AdmitHostWork(broker.PersistenceWork)
 		if e != nil {
 			l.mu.Unlock()
 			return nil, e
 		}
+		stage = "force_close_owner"
 		closure, e := l.admission.ForceCloseOwner(o)
 		if e != nil {
 			_ = ticket.Complete()
@@ -75,6 +86,7 @@ func (s *Server) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleCo
 	}
 	committing := existing.control.committing
 	l.mu.Unlock()
+	stage = "relinquish"
 	if committing {
 		return s.LifecycleRelinquish(ctx, r)
 	}
@@ -94,11 +106,13 @@ func (s *Server) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleCo
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		stage = "drain_completion"
 		pending, uncertain, e := existing.closure.Pending()
 		if e != nil {
 			return nil, e
 		}
 		if uncertain != 0 {
+			stage = "unresolved_persistence"
 			return nil, status.Errorf(codes.FailedPrecondition, "forced cutover fenced old clients; %d unresolved persistence outcomes remain (not evidence of running work)", uncertain)
 		}
 		if pending == 0 {
@@ -112,6 +126,7 @@ func (s *Server) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleCo
 	}
 	// Existing authenticated prepare/reserve/claim machinery supplies the fresh
 	// durable epoch. It cannot run until every old producer has finished writeback.
+	stage = "relinquish"
 	return s.LifecycleRelinquish(ctx, r)
 }
 
