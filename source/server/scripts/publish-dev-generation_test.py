@@ -3,6 +3,7 @@
 Run: python3 source/server/scripts/publish-dev-generation_test.py
 Only fake Go outputs are validated, not executed. All homes/repos/roots are temp.
 """
+import errno
 import hashlib
 import json
 import os
@@ -306,6 +307,77 @@ output.chmod(0o755)
                     self.assertEqual(calls, failure_call)
                     self.assertEqual(stdout.getvalue(), "")
                     self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_scan_failure_refuses_each_collection_and_preserves_generations(self):
+        import argparse
+        import importlib.util
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("publisher", PUBLISHER)
+        publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(publisher)
+        self.assertEqual(self.publish().returncode, 0)
+
+        def published_state():
+            return {str(path.relative_to(self.root)): (path.read_bytes(), path.stat().st_mode)
+                    for path in self.root.rglob("*") if path.is_file()}
+
+        prior = published_state()
+        goroot = self.base / "toolchain"
+        (goroot / "nested").mkdir(parents=True)
+        (goroot / "nested/input").write_bytes(b"toolchain fixture")
+        source = self.repo / "source/server"
+        scandir = os.scandir
+        check_output = publisher.subprocess.check_output
+        original_inputs = publisher.inputs
+
+        def output(command, **kwargs):
+            result = check_output(command, **kwargs)
+            if command[1:] == ["env", "-json"]:
+                result = json.dumps({**json.loads(result), "GOROOT": str(goroot)})
+            return result
+
+        for tree, failed_path in (("source", source), ("toolchain", goroot / "nested")):
+            for failure_call in (1, 2, 3):
+                for code in (errno.EIO, errno.EACCES):
+                    with self.subTest(tree=tree, collection=failure_call, errno=code):
+                        calls = 0
+                        error = OSError(code, "PRIVATE scan diagnostic", str(failed_path))
+                        args = argparse.Namespace(repo=str(self.repo), go=str(self.fake),
+                            sign=False, root=str(self.root), generation=f"failed-{tree}-{failure_call}-{code}",
+                            fingerprint=None, reuse=False)
+
+                        def scan(path):
+                            if calls == failure_call and not isinstance(path, int) and Path(path) == failed_path:
+                                raise error
+                            return scandir(path)
+
+                        def collect(*a, **kw):
+                            nonlocal calls
+                            calls += 1
+                            return original_inputs(*a, **kw)
+
+                        stdout = io.StringIO()
+                        with patch.dict(os.environ, self.env, clear=True), \
+                                patch.object(publisher, "inputs", side_effect=collect), \
+                                patch.object(publisher.subprocess, "check_output", side_effect=output), \
+                                patch.object(os, "scandir", side_effect=scan), \
+                                patch.object(publisher, "rename_exclusive") as rename, \
+                                redirect_stdout(stdout):
+                            with self.assertRaises((OSError, ValueError)) as raised:
+                                publisher.publish(args)
+                        rename.assert_not_called()
+                        if failure_call == 3:
+                            self.assertIn("unable to collect final", str(raised.exception))
+                            self.assertNotIn("PRIVATE", str(raised.exception))
+                        else:
+                            self.assertIs(raised.exception, error)
+                        self.assertEqual(calls, failure_call)
+                        self.assertEqual(stdout.getvalue(), "")
+                        self.assertEqual(list(self.root.glob(".building-*")), [])
+                        self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["test-gen"])
+                        self.assertEqual(published_state(), prior)
 
     def test_expected_fingerprint_and_reuse(self):
         fingerprint = self.fingerprint().stdout.strip()
@@ -799,11 +871,26 @@ class FingerprintTraversalTests(unittest.TestCase):
         self.assertEqual([call.args for call in stream.read.call_args_list],
                          [(1024 * 1024,), (1024 * 1024,)])
 
-    def test_unreadable_directory_matches_legacy_skip(self):
+    def test_directory_scan_errors_propagate(self):
         from unittest.mock import patch
-        (self.root / "directory").mkdir()
-        with patch.object(os, "scandir", side_effect=PermissionError("unreadable")):
-            self.assert_tree_equal(self.root)
+        nested = self.root / "directory"
+        nested.mkdir()
+        (nested / "input").write_bytes(b"must not disappear")
+        scandir = os.scandir
+        for failed_path in (self.root, nested):
+            for code in (errno.EIO, errno.EACCES):
+                with self.subTest(path=failed_path, errno=code):
+                    error = OSError(code, "scan failed", str(failed_path))
+
+                    def scan(path):
+                        if Path(path) == failed_path:
+                            raise error
+                        return scandir(path)
+
+                    with patch.object(os, "scandir", side_effect=scan):
+                        with self.assertRaises(OSError) as raised:
+                            self.publisher.tree_identity(self.root)
+                    self.assertIs(raised.exception, error)
 
     def test_bounded_identity_order_metadata_and_failure(self):
         from unittest.mock import patch

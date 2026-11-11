@@ -151,12 +151,15 @@ def build_environment():
 def descendant_paths(root):
     """Glob-compatible traversal without repeated Path/glob selector work.
 
-    Do not descend through directory symlinks. As with Path.rglob, unreadable
-    directories are skipped; file reads/classification below still propagate
-    their errors. Sort Paths globally at the caller, not strings or per-directory
-    DFS order (which differ for names such as a/z and a.txt).
+    Do not descend through directory symlinks. Refuse incomplete scans rather
+    than fingerprinting a partial tree. Sort Paths globally at the caller, not
+    strings or per-directory DFS order (which differ for names such as a/z and
+    a.txt).
     """
-    for directory, directories, files in os.walk(root):
+    def scan_error(error):
+        raise error
+
+    for directory, directories, files in os.walk(root, onerror=scan_error):
         parent = Path(directory)
         for name in directories + files:
             yield parent / name
