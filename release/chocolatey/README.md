@@ -1,8 +1,10 @@
-# Chocolatey split: non-publishing definitions
+# Chocolatey packages
 
-**Not release-ready.** Windows phase 2 package definitions for
-`efforts/cross-platform-updates/plan.md`. Not a support claim. Nothing here
-signs or publishes. The Phase 1 evidence cited below (`native-go-next-results.md`,
+Windows phase 2 package definitions for `efforts/cross-platform-updates/plan.md`.
+The rendered packages are written to pass the community repository's
+package validator; publishing them (account, API key, `choco push`) and
+code signing are separate, manual steps. Nothing here signs or publishes.
+The Phase 1 evidence cited below (`native-go-next-results.md`,
 `windows-transaction-audit.md`, the effort handoff) is under
 `efforts/cross-platform-updates/` on branch `handoff/windows-replacement-sanitized`.
 
@@ -104,6 +106,27 @@ installed with the official command, elevated:
 - `choco upgrade cercano` with the CLI and agent running: both components
   refused with the process list, nothing changed, `cercano` failed on its
   dependency. After the processes were stopped, the upgrade went through 3/3.
+
+## Community repository (package validator)
+
+Checked against the rule docs (CPMR0001-0076) in `chocolatey/docs`, and
+enforced by `test_render_packages.py` where testable:
+
+- Requirements met: `LICENSE.txt` and `VERIFICATION.txt` beside the embedded
+  binary (CPMR0005/0006), `projectUrl`, `licenseUrl` with no license
+  acceptance, description, tags without commas, no templated values.
+- Packaged scripts have their comments stripped, keeping one header line
+  linking to the commented source here (CPMR0022), and the renderer refuses
+  `cinst`, `choco install` or `choco upgrade` anywhere in them (CPMR0010).
+- Guidelines met: `title`, `summary`, `packageSourceUrl`, `iconUrl` (the
+  release tag's `website/app/icon.svg` through jsDelivr, not raw GitHub,
+  CPMR0076), `docsUrl`, `bugTrackerUrl`, `releaseNotes`, versioned
+  dependencies.
+- Left out on purpose: `copyright` (the repo states none; CPMR0001 fails a
+  value under 4 characters), `projectSourceUrl` (would equal `projectUrl`,
+  CPMR0041).
+- Expect moderator notes for embedded binaries (CPMR0060) and unsigned
+  executables. Moderation of a new package is manual.
 
 ## Tests and rendering
 

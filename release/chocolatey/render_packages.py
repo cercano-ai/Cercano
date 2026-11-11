@@ -137,6 +137,41 @@ def render(template_name, values):
     return text
 
 
+SOURCE_URL = "https://github.com/cercano-ai/Cercano/blob/main/release/chocolatey/"
+# Words the community package validator rejects in automation scripts (CPMR0010).
+FORBIDDEN_SCRIPT_WORDS = ("cinst", "choco install", "choco upgrade")
+
+
+def packaged_script(text, source_name):
+    """Drop full-line comments (outside here-strings) and blank runs.
+
+    The packaged scripts stay short for moderation; the explanation lives in
+    the commented source this header links to.
+    """
+    lines = [f"# Cercano Chocolatey package script; commented source: {SOURCE_URL}{source_name}"]
+    in_here_string = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if in_here_string:
+            lines.append(line)
+            if stripped.startswith(("'@", '"@')):
+                in_here_string = False
+            continue
+        if stripped.startswith("#"):
+            continue
+        if not stripped and (not lines[-1].strip()):
+            continue
+        lines.append(line)
+        if stripped.endswith(("@'", '@"')):
+            in_here_string = True
+    result = "\n".join(lines).rstrip() + "\n"
+    lowered = result.lower()
+    for word in FORBIDDEN_SCRIPT_WORDS:
+        if word in lowered:
+            raise ValidationError(f"{source_name}: contains '{word}', which the Chocolatey validator rejects")
+    return result
+
+
 def write_text(path, text):
     # ASCII-only by test; CRLF suits Windows PowerShell 5.1 and Notepad.
     path.write_bytes(text.replace("\r\n", "\n").replace("\n", "\r\n").encode("ascii"))
@@ -149,7 +184,7 @@ def stage(root, version, archive_name, digest, files):
         "RELEASE_URL": URL_TEMPLATE.format(version=version, name=archive_name),
         "SHA256": digest,
     }
-    guard = read_template("guard.ps1")
+    guard = packaged_script(read_template("guard.ps1"), "guard.ps1")
     for package_id, exe in COMPONENTS.items():
         values = dict(common, PACKAGE_ID=package_id, EXECUTABLE=exe,
                       EXECUTABLE_SHA256=sha256(files[f"bin/{exe}"]))
@@ -160,10 +195,9 @@ def stage(root, version, archive_name, digest, files):
         (tools / exe).write_bytes(files[f"bin/{exe}"])
         (tools / "LICENSE.txt").write_bytes(files["LICENSE"])
         write_text(tools / "VERIFICATION.txt", render("VERIFICATION.txt.in", values))
-        write_text(tools / "chocolateyInstall.ps1", render("chocolateyInstall.ps1.in", values))
-        write_text(tools / "chocolateyBeforeModify.ps1",
-                   render("chocolateyBeforeModify.ps1.in", values))
-        write_text(tools / "chocolateyUninstall.ps1", render("chocolateyUninstall.ps1.in", values))
+        for script in ("chocolateyInstall.ps1", "chocolateyBeforeModify.ps1", "chocolateyUninstall.ps1"):
+            write_text(tools / script,
+                       packaged_script(render(f"{script}.in", values), f"{script}.in"))
         write_text(tools / "cercano-guard.ps1", guard)
     (root / CONVENIENCE).mkdir()
     write_text(root / CONVENIENCE / f"{CONVENIENCE}.nuspec",

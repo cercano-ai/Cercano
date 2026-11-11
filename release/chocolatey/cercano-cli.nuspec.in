@@ -1,17 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Non-publishing package-definition fixture; native acceptance pending. -->
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>cercano-cli</id>
     <version>@VERSION@</version>
-    <title>Cercano CLI (experimental, unsigned)</title>
+    <packageSourceUrl>https://github.com/cercano-ai/Cercano/tree/main/release/chocolatey</packageSourceUrl>
+    <title>Cercano CLI</title>
     <authors>Cercano contributors</authors>
     <projectUrl>https://github.com/cercano-ai/Cercano</projectUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/cercano-ai/Cercano@v@VERSION@/website/app/icon.svg</iconUrl>
     <licenseUrl>https://github.com/cercano-ai/Cercano/blob/v@VERSION@/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <tags>cercano cli ai llm</tags>
-    <summary>Cercano terminal client (cercano-cli.exe).</summary>
-    <description>Installs cercano-cli.exe and its cercano-cli shim. Works with a remote agent on its own; install cercano-agent (or the cercano package) for a local agent. Package-definition fixture only, not release-ready: unsigned and native upgrade acceptance is pending. Exit cercano-cli before upgrading or uninstalling.</description>
+    <docsUrl>https://github.com/cercano-ai/Cercano/tree/v@VERSION@/docs</docsUrl>
+    <bugTrackerUrl>https://github.com/cercano-ai/Cercano/issues</bugTrackerUrl>
+    <tags>cercano cli ai llm coding-agent terminal foss</tags>
+    <summary>The Cercano terminal client (cercano-cli.exe).</summary>
+    <description>Cercano is a free and open agent and harness: use frontier providers through a subscription sign-in or API key, run open-weight models, or combine them, with routing, delegation and context management built in.
+
+This package installs the terminal client, `cercano-cli.exe`, and its `cercano-cli` command. On its own it can connect to a remote agent with `--address`; install `cercano-agent` (or the `cercano` package for both) for a local agent, which the CLI starts when needed.
+
+- Close Cercano before upgrading or uninstalling: the package refuses while any of its processes run, and never stops them for you.
+- The executable is not code signed, so Windows may show a SmartScreen warning.</description>
+    <releaseNotes>https://github.com/cercano-ai/Cercano/releases/tag/v@VERSION@</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />

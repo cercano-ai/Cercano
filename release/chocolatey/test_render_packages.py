@@ -140,6 +140,41 @@ class RenderPackagesTest(unittest.TestCase):
                 self.assertNotIn(b"\n", data.replace(b"\r\n", b""), path.name)
                 self.assertIsNone(render_packages.PLACEHOLDER.search(data.decode()), path.name)
 
+    def test_packaged_scripts_meet_community_validator_rules(self):
+        archive, digest = write_archive(self.dir)
+        self.run_render(archive, digest)
+        scripts = list(self.output.rglob("*.ps1"))
+        self.assertEqual(len(scripts), 8)
+        for path in scripts:
+            lines = path.read_text().splitlines()
+            # One header comment linking to the commented source, no others (CPMR0022).
+            self.assertTrue(lines[0].startswith("# Cercano Chocolatey package script; commented source: https://github.com/"))
+            self.assertEqual([l for l in lines[1:] if l.strip().startswith("#")], [], path.name)
+            lowered = path.read_text().lower()
+            for word in render_packages.FORBIDDEN_SCRIPT_WORDS:  # CPMR0010
+                self.assertNotIn(word, lowered, path.name)
+        guard = (self.output / "cercano-agent" / "tools" / "cercano-guard.ps1").read_text()
+        self.assertIn("GetFinalPathNameByHandleW", guard)  # here-string body kept intact
+
+    def test_packaged_script_rejects_validator_forbidden_words(self):
+        with self.assertRaisesRegex(render_packages.ValidationError, "choco upgrade"):
+            render_packages.packaged_script("Write-Host 'run choco upgrade cercano'\n", "x.ps1")
+
+    def test_nuspec_metadata_for_the_community_repository(self):
+        archive, digest = write_archive(self.dir)
+        self.run_render(archive, digest)
+        for package_id in ("cercano-agent", "cercano-cli", "cercano"):
+            text = (self.output / package_id / f"{package_id}.nuspec").read_text()
+            for element in ("projectUrl", "licenseUrl", "packageSourceUrl", "iconUrl", "docsUrl",
+                            "bugTrackerUrl", "releaseNotes", "summary", "description", "tags", "title"):
+                self.assertIn(f"<{element}>", text, f"{package_id}: {element}")
+            self.assertIn(f"https://cdn.jsdelivr.net/gh/cercano-ai/Cercano@v{VERSION}/", text)  # CPMR0076
+            self.assertNotIn("raw.githubusercontent", text)
+            self.assertNotIn("fixture", text.lower())
+            self.assertNotIn("<!--", text)
+            self.assertNotIn(",", text.split("<tags>")[1].split("</tags>")[0])  # CPMR0014
+            self.assertIn("<requireLicenseAcceptance>false</requireLicenseAcceptance>", text)  # CPMR0007
+
     def test_convenience_package_depends_on_both_and_owns_nothing(self):
         archive, digest = write_archive(self.dir)
         self.run_render(archive, digest)

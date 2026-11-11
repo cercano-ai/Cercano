@@ -1,5 +1,8 @@
 VERIFICATION
+Verification is intended to assist the Chocolatey moderators and community
+in verifying that this package's contents are trustworthy.
 
+This package is built by the Cercano project from its own release.
 @EXECUTABLE@ in this package was copied unchanged from the release archive
 @ARCHIVE_NAME@ published at:
 

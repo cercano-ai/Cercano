@@ -1,17 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Non-publishing package-definition fixture; native acceptance pending. -->
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>cercano-agent</id>
     <version>@VERSION@</version>
-    <title>Cercano agent (experimental, unsigned)</title>
+    <packageSourceUrl>https://github.com/cercano-ai/Cercano/tree/main/release/chocolatey</packageSourceUrl>
+    <title>Cercano Agent</title>
     <authors>Cercano contributors</authors>
     <projectUrl>https://github.com/cercano-ai/Cercano</projectUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/cercano-ai/Cercano@v@VERSION@/website/app/icon.svg</iconUrl>
     <licenseUrl>https://github.com/cercano-ai/Cercano/blob/v@VERSION@/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <tags>cercano agent ai llm cli</tags>
-    <summary>Cercano agent (cercano.exe).</summary>
-    <description>Installs cercano.exe and its cercano shim. Package-definition fixture only, not release-ready: unsigned, no bundled llama or model runtime, and native upgrade acceptance is pending. Installation does not start, stop or restart an agent. Exit the agent before upgrading or uninstalling.</description>
+    <docsUrl>https://github.com/cercano-ai/Cercano/tree/v@VERSION@/docs</docsUrl>
+    <bugTrackerUrl>https://github.com/cercano-ai/Cercano/issues</bugTrackerUrl>
+    <tags>cercano agent ai llm coding-agent cli foss</tags>
+    <summary>The Cercano agent (cercano.exe), which runs models and tools for Cercano clients.</summary>
+    <description>Cercano is a free and open agent and harness: use frontier providers through a subscription sign-in or API key, run open-weight models, or combine them, with routing, delegation and context management built in.
+
+This package installs the agent, `cercano.exe`, and its `cercano` command. Install `cercano-cli` (or the `cercano` package for both) to use it from a terminal.
+
+- Close Cercano before upgrading or uninstalling: the package refuses while any of its processes run, and never stops them for you.
+- The executable is not code signed, so Windows may show a SmartScreen warning.
+- A local model runtime is not bundled.</description>
+    <releaseNotes>https://github.com/cercano-ai/Cercano/releases/tag/v@VERSION@</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />
