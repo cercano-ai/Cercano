@@ -1,0 +1,102 @@
+[
+  {
+    "mode": "baseline",
+    "wall_seconds": 5.572608499787748,
+    "maxrss_bytes_darwin": 228851712,
+    "identity": "bca31109d0d75dd5fd49553b7c036fdc47949d3d8be29da963506d27793fef26",
+    "tree_digests": {
+      "CC": {
+        "path": "/usr/bin/cc",
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+        "sha256": "7a99c7481257afd38695ab9028995d37dc881b7147464ffb57f5a6bb2bed2764"
+      },
+      "CXX": {
+        "path": "/usr/bin/c++",
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+        "sha256": "668119ccc9542cb60c8460bfad3fea5ea1a95607bcb1cb535e355dde861dd1f0"
+      },
+      "sdk": {
+        "path": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+        "sha256": "5e5861be342350cba3e27cad00d724b3f0358907cf8b1ebcd67b03c525129011"
+      },
+      "developer_dir": "",
+      "goroot_sha256": "815fd1c2b48b9f8543a973eabc024a23d1e5624ae45f5ec8ab5ac727bd8bb08c",
+      "native_toolchain": "3c822063fdbeb5fdfad6749e17c131bfffec7dc73fda221c195794520404ca13"
+    }
+  },
+  {
+    "mode": "candidate",
+    "wall_seconds": 4.85170887503773,
+    "maxrss_bytes_darwin": 223526912,
+    "identity": "bca31109d0d75dd5fd49553b7c036fdc47949d3d8be29da963506d27793fef26",
+    "tree_digests": {
+      "CC": {
+        "path": "/usr/bin/cc",
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+        "sha256": "7a99c7481257afd38695ab9028995d37dc881b7147464ffb57f5a6bb2bed2764"
+      },
+      "CXX": {
+        "path": "/usr/bin/c++",
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+        "sha256": "668119ccc9542cb60c8460bfad3fea5ea1a95607bcb1cb535e355dde861dd1f0"
+      },
+      "sdk": {
+        "path": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+        "sha256": "5e5861be342350cba3e27cad00d724b3f0358907cf8b1ebcd67b03c525129011"
+      },
+      "developer_dir": "",
+      "goroot_sha256": "815fd1c2b48b9f8543a973eabc024a23d1e5624ae45f5ec8ab5ac727bd8bb08c",
+      "native_toolchain": "3c822063fdbeb5fdfad6749e17c131bfffec7dc73fda221c195794520404ca13"
+    }
+  },
+  {
+    "mode": "candidate",
+    "wall_seconds": 4.653895791154355,
+    "maxrss_bytes_darwin": 222216192,
+    "identity": "bca31109d0d75dd5fd49553b7c036fdc47949d3d8be29da963506d27793fef26",
+    "tree_digests": {
+      "CC": {
+        "path": "/usr/bin/cc",
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+        "sha256": "7a99c7481257afd38695ab9028995d37dc881b7147464ffb57f5a6bb2bed2764"
+      },
+      "CXX": {
+        "path": "/usr/bin/c++",
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+        "sha256": "668119ccc9542cb60c8460bfad3fea5ea1a95607bcb1cb535e355dde861dd1f0"
+      },
+      "sdk": {
+        "path": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+        "sha256": "5e5861be342350cba3e27cad00d724b3f0358907cf8b1ebcd67b03c525129011"
+      },
+      "developer_dir": "",
+      "goroot_sha256": "815fd1c2b48b9f8543a973eabc024a23d1e5624ae45f5ec8ab5ac727bd8bb08c",
+      "native_toolchain": "3c822063fdbeb5fdfad6749e17c131bfffec7dc73fda221c195794520404ca13"
+    }
+  },
+  {
+    "mode": "baseline",
+    "wall_seconds": 4.563965540844947,
+    "maxrss_bytes_darwin": 226279424,
+    "identity": "bca31109d0d75dd5fd49553b7c036fdc47949d3d8be29da963506d27793fef26",
+    "tree_digests": {
+      "CC": {
+        "path": "/usr/bin/cc",
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+        "sha256": "7a99c7481257afd38695ab9028995d37dc881b7147464ffb57f5a6bb2bed2764"
+      },
+      "CXX": {
+        "path": "/usr/bin/c++",
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+        "sha256": "668119ccc9542cb60c8460bfad3fea5ea1a95607bcb1cb535e355dde861dd1f0"
+      },
+      "sdk": {
+        "path": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+        "sha256": "5e5861be342350cba3e27cad00d724b3f0358907cf8b1ebcd67b03c525129011"
+      },
+      "developer_dir": "",
+      "goroot_sha256": "815fd1c2b48b9f8543a973eabc024a23d1e5624ae45f5ec8ab5ac727bd8bb08c",
+      "native_toolchain": "3c822063fdbeb5fdfad6749e17c131bfffec7dc73fda221c195794520404ca13"
+    }
+  }
+]

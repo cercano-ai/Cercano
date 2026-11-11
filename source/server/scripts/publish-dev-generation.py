@@ -63,6 +63,7 @@ neither runs the app nor configures a safe runtime. Normal launcher is unchanged
 """
 
 import argparse
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import ctypes
 import errno
@@ -174,17 +175,77 @@ def file_digest(path):
     return digest.digest()
 
 
-def tree_identity(root):
-    """Content identity, including ignored files; SDK/toolchain installs are trusted."""
-    root = Path(root)
-    digest = hashlib.sha256()
-    paths = sorted(descendant_paths(root)) if root.is_dir() else [root]
+# One pool per collection; never a pool per tree or an unbounded future per file.
+HASH_WORKERS = 3
+HASH_BATCH_SIZE = 64
+HASH_BATCH_BYTES = 4 * 1024 * 1024
+HASH_PENDING_BATCHES = 6
+
+
+def tree_batch(root, paths):
+    """Return only digest records, never file contents, in legacy Path order."""
+    records = []
     for path in paths:
         if path.is_file():
-            digest.update(str(path.relative_to(root) if path != root else path).encode())
-            digest.update(file_digest(path))
+            records.append(str(path.relative_to(root) if path != root else path).encode()
+                           + file_digest(path))
         elif path.is_symlink():
-            digest.update(str(path).encode() + os.readlink(path).encode())
+            records.append(str(path).encode() + os.readlink(path).encode())
+    return records
+
+
+def tree_batches(root):
+    """Legacy-sorted inventory, split by size hints, never used as hash input.
+
+    Large aliases each get a fresh task/read. Sizes are scheduling hints only:
+    neither these stats nor previous digests can satisfy an identity check.
+    """
+    root = Path(root)
+    paths = sorted(descendant_paths(root)) if root.is_dir() else [root]
+    batches = []
+    batch = []
+    size = 0
+    for path in paths:
+        try:
+            length = path.stat().st_size
+        except OSError:
+            # Scheduling hints only: classification/read errors are observed
+            # by tree_batch in the established logical-path order.
+            length = 0
+        if batch and (len(batch) == HASH_BATCH_SIZE or size + length > HASH_BATCH_BYTES):
+            batches.append(batch)
+            batch = []
+            size = 0
+        batch.append(path)
+        size += length
+    if batch:
+        batches.append(batch)
+    return batches
+
+
+def tree_identity(root, pool=None, paths=None):
+    """Fresh logical-file observations, assembled in exact legacy digest order.
+
+    The sorted path inventory is unchanged; queued paths and digest records are
+    bounded independently of tree size. Aliases are deliberately read again.
+    FIFO consumption selects the first failing batch/path deterministically.
+    Pool shutdown joins all outstanding reads, including on failure.
+    """
+    if pool is None:
+        with ThreadPoolExecutor(max_workers=HASH_WORKERS) as workers:
+            return tree_identity(root, workers)
+    root = Path(root)
+    digest = hashlib.sha256()
+    batches = tree_batches(root) if paths is None else paths.result()
+    pending = deque()
+    for batch in batches:
+        pending.append(pool.submit(tree_batch, root, batch))
+        if len(pending) == HASH_PENDING_BATCHES:
+            for record in pending.popleft().result():
+                digest.update(record)
+    while pending:
+        for record in pending.popleft().result():
+            digest.update(record)
     return digest.hexdigest()
 
 
@@ -234,19 +295,16 @@ def effective_identity(go, env, module):
         else:
             # Native system headers/libraries cannot be identified portably here.
             raise ValueError("cgo publication currently supported only on Darwin; use CGO_ENABLED=0")
-    # Only independent trusted toolchain trees overlap, never source snapshot
-    # reads or initial/snapshot/final collections. Keep a fixed three-worker
-    # resource bound. No alias/content hash cache.
-    if len(trees) > 1:
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            hashes = pool.map(tree_identity, (root for _, _, root in trees))
-            # Consume in discovery order: deterministic assembly and exceptions.
-            # Executor shutdown waits for other reads before propagating failure.
-            for (target, key, _), value in zip(trees, hashes):
-                target[key] = value
-    else:
+    # Fresh reads for every collection and every logical path, including aliases.
+    # Only file batches overlap: no nested tree pools, source work or collections.
+    with ThreadPoolExecutor(max_workers=HASH_WORKERS) as pool:
+        # At most five known roots (GOROOT, CC, CXX, SDK, native toolchain).
+        # Enumeration shares the same workers, overlapping scans with reads;
+        # its errors are consumed in tree order, never completion order.
+        scans = deque(pool.submit(tree_batches, root) for _, _, root in trees)
         for target, key, root in trees:
-            target[key] = tree_identity(root)
+            # Drop each completed inventory before consuming the next tree.
+            target[key] = tree_identity(root, pool, scans.popleft())
     return identity
 
 

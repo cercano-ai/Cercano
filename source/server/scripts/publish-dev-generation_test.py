@@ -149,7 +149,8 @@ output.chmod(0o755)
         identities = []
         original_cwd = Path.cwd()
         try:
-            with patch.object(publisher, "tree_identity", return_value="fixture-goroot"):
+            with patch.object(publisher, "tree_identity", return_value="fixture-goroot"), \
+                    patch.object(publisher, "tree_batches", return_value=[]):
                 for module in modules:
                     os.chdir(module)
                     identities.append(publisher.effective_identity(go, env, modules[0]))
@@ -378,6 +379,94 @@ output.chmod(0o755)
                         self.assertEqual(list(self.root.glob(".building-*")), [])
                         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["test-gen"])
                         self.assertEqual(published_state(), prior)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin signing barrier fixture")
+    def test_fresh_toolchain_checks_mutation_refusal_and_temporal_barriers(self):
+        import argparse
+        import importlib.util
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("barrier_publisher", PUBLISHER)
+        p = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(p)
+        self.assertEqual(self.publish().returncode, 0)
+        prior = {str(f.relative_to(self.root)): f.read_bytes()
+                 for f in self.root.rglob("*") if f.is_file()}
+        goroot = self.base / "toolchain"
+        goroot.mkdir()
+        tool = goroot / "input"
+        self.signing_tools()
+        env = self.env
+        original_inputs, original_output = p.inputs, p.subprocess.check_output
+        original_run, original_validate = p.subprocess.run, p.validate
+        for mutate_at in (None, 2, 3):
+            with self.subTest(mutate_at=mutate_at):
+                tool.write_bytes(b"old-toolchain")
+                stamp = tool.stat()
+                calls = 0
+                events = []
+                args = argparse.Namespace(repo=str(self.repo), go=str(self.fake), sign=True,
+                    root=str(self.root), generation=f"barrier-{mutate_at}",
+                    fingerprint=None, reuse=False)
+                def output(command, **kwargs):
+                    result = original_output(command, **kwargs)
+                    if command[1:] == ["env", "-json"]:
+                        result = json.dumps({**json.loads(result), "GOROOT": str(goroot)})
+                    return result
+                def collect(*a, **kw):
+                    nonlocal calls
+                    calls += 1
+                    events.append(f"collect-{calls}-start")
+                    if calls == mutate_at:
+                        tool.write_bytes(b"new-toolchain")
+                        os.utime(tool, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+                        self.assertEqual(tool.stat().st_size, stamp.st_size)
+                        self.assertEqual(tool.stat().st_mtime_ns, stamp.st_mtime_ns)
+                    result = original_inputs(*a, **kw)
+                    events.append(f"collect-{calls}-end")
+                    return result
+                def run(command, **kwargs):
+                    result = original_run(command, **kwargs)
+                    if len(command) > 1 and command[1] == "build":
+                        events.append("build")
+                    elif len(command) > 1 and Path(command[1]).name == "codesign-if-available.sh":
+                        events.append("sign")
+                    elif command[:2] == ["codesign", "--verify"]:
+                        events.append("verify")
+                    return result
+                def validate(path):
+                    result = original_validate(path)
+                    events.append("validate")
+                    return result
+                with patch.dict(os.environ, env, clear=True), \
+                        patch.object(p, "inputs", side_effect=collect), \
+                        patch.object(p.subprocess, "check_output", side_effect=output), \
+                        patch.object(p.subprocess, "run", side_effect=run), \
+                        patch.object(p, "validate", side_effect=validate), \
+                        patch.object(p, "rename_exclusive", wraps=p.rename_exclusive) as rename, \
+                        redirect_stdout(io.StringIO()):
+                    if mutate_at is None:
+                        p.publish(args)
+                        rename.assert_called_once()
+                    else:
+                        with self.assertRaisesRegex(ValueError, "changed"):
+                            p.publish(args)
+                        rename.assert_not_called()
+                self.assertEqual(calls, 2 if mutate_at == 2 else 3)
+                snapshot_end = events.index("collect-2-end")
+                if mutate_at == 2:
+                    self.assertNotIn("build", events)
+                else:
+                    final_start = events.index("collect-3-start")
+                    self.assertEqual(events[snapshot_end + 1:final_start],
+                        ["build", "sign", "verify", "validate",
+                         "build", "sign", "verify", "validate", "validate", "validate"])
+                self.assertEqual(list(self.root.glob(".building-*")), [])
+                self.assertEqual({str(f.relative_to(self.root)): f.read_bytes()
+                    for f in (self.root / "test-gen").rglob("*") if f.is_file()}, prior)
+                if mutate_at:
+                    self.assertFalse((self.root / args.generation).exists())
 
     def test_expected_fingerprint_and_reuse(self):
         fingerprint = self.fingerprint().stdout.strip()
@@ -892,6 +981,215 @@ class FingerprintTraversalTests(unittest.TestCase):
                             self.publisher.tree_identity(self.root)
                     self.assertIs(raised.exception, error)
 
+    def test_parallel_files_fifo_queue_bound_and_join(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        import threading
+        p = self.publisher
+        for number in range(80):
+            (self.root / f"{number:03}").write_bytes(str(number).encode())
+        expected = self.legacy_tree(self.root)
+        lock = threading.Lock()
+        release = threading.Event()
+        three_readers = threading.Event()
+        six_pending = threading.Event()
+        active = peak = pending = peak_pending = 0
+        original = p.file_digest
+        result = []
+        errors = []
+
+        class ConsumedFuture:
+            def __init__(self, future):
+                self.future = future
+            def result(self):
+                nonlocal pending
+                try:
+                    return self.future.result()
+                finally:
+                    with lock:
+                        pending -= 1
+
+        class Pool(ThreadPoolExecutor):
+            def submit(self, *args, **kwargs):
+                nonlocal pending, peak_pending
+                with lock:
+                    pending += 1
+                    peak_pending = max(peak_pending, pending)
+                    if pending == p.HASH_PENDING_BATCHES:
+                        six_pending.set()
+                return ConsumedFuture(super().submit(*args, **kwargs))
+
+        def read(path):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+                if active == 3:
+                    three_readers.set()
+            try:
+                if not release.wait(10):
+                    raise AssertionError("reader release timed out")
+                return original(path)
+            finally:
+                with lock:
+                    active -= 1
+
+        def collect():
+            try:
+                result.append(p.tree_identity(self.root))
+            except BaseException as error:
+                errors.append(error)
+
+        with patch.object(p, "ThreadPoolExecutor", Pool), \
+                patch.object(p, "HASH_BATCH_SIZE", 2), \
+                patch.object(p, "file_digest", side_effect=read):
+            thread = threading.Thread(target=collect)
+            thread.start()
+            try:
+                self.assertTrue(three_readers.wait(10))
+                self.assertTrue(six_pending.wait(10))
+                self.assertTrue(thread.is_alive())
+                self.assertEqual(peak_pending, 6)
+                self.assertEqual(peak, 3)
+            finally:
+                release.set()
+                thread.join(10)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(result, [expected])
+        self.assertEqual(active, 0)
+        self.assertEqual(pending, 0)
+        self.assertLessEqual(peak_pending, 6)
+
+    def test_error_selection_is_path_order_and_workers_join_before_raise(self):
+        from unittest.mock import patch
+        import threading
+        p = self.publisher
+        for name in ("a", "b", "c", "d", "e", "f"):
+            (self.root / name).touch()
+        later_failed = threading.Event()
+        last_finished = threading.Event()
+        first = OSError(errno.EIO, "first logical path")
+        second = OSError(errno.EACCES, "later logical path")
+        def read(path):
+            if path.name == "a":
+                if not later_failed.wait(10):
+                    raise AssertionError("later failure timed out")
+                raise first
+            if path.name == "b":
+                later_failed.set()
+                raise second
+            last_finished.set()
+            return hashlib.sha256(b"").digest()
+        with patch.object(p, "HASH_BATCH_SIZE", 1), \
+                patch.object(p, "file_digest", side_effect=read):
+            with self.assertRaises(OSError) as raised:
+                p.tree_identity(self.root)
+        self.assertIs(raised.exception, first)
+        self.assertTrue(last_finished.is_set())
+        self.assertFalse(any(t.name.startswith("ThreadPoolExecutor")
+                             for t in threading.enumerate()))
+
+    def test_batches_records_and_fresh_aliases_have_bounded_content_memory(self):
+        from unittest.mock import patch
+        p = self.publisher
+        large = self.root / "large"
+        large.write_bytes(b"x" * (p.HASH_BATCH_BYTES + 1))
+        (self.root / "alias").symlink_to("large")
+        for number in range(150):
+            (self.root / f"tiny-{number:03}").write_bytes(b"x")
+        batches = p.tree_batches(self.root)
+        self.assertTrue(all(len(batch) <= p.HASH_BATCH_SIZE for batch in batches))
+        self.assertIn([large], batches)
+        self.assertIn([self.root / "alias"], batches)
+        for batch in batches:
+            records = p.tree_batch(self.root, batch)
+            self.assertEqual(len(records), len(batch))
+            self.assertTrue(all(len(record) < 128 for record in records))
+        original = p.file_digest
+        with patch.object(p, "file_digest", wraps=original) as read:
+            before = p.tree_identity(self.root)
+            stamp = large.stat()
+            large.write_bytes(b"y" * stamp.st_size)
+            os.utime(large, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            after = p.tree_identity(self.root)
+        self.assertNotEqual(before, after)
+        self.assertEqual(after, self.legacy_tree(self.root))
+        self.assertEqual(sum(call.args[0] == large for call in read.call_args_list), 2)
+        self.assertEqual(sum(call.args[0] == self.root / "alias"
+                             for call in read.call_args_list), 2)
+
+    def test_all_toolchain_roots_share_one_file_worker_budget(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        import threading
+        p = self.publisher
+        for name in ("go", "sdk", "native"):
+            directory = self.root / name
+            directory.mkdir()
+            for number in range(8):
+                (directory / str(number)).write_bytes(name.encode())
+        for name in ("cc", "c++"):
+            (self.root / name).write_bytes(name.encode())
+        original = p.file_digest
+        lock = threading.Lock()
+        release, three = threading.Event(), threading.Event()
+        active = peak = 0
+        pools, observations, result, errors = [], [], [], []
+        class Pool(ThreadPoolExecutor):
+            def __init__(self, max_workers):
+                pools.append(max_workers)
+                super().__init__(max_workers=max_workers)
+        def read(path):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(active, peak)
+                observations.append(path)
+                if active == 3:
+                    three.set()
+            try:
+                if not release.wait(10):
+                    raise AssertionError("reader release timed out")
+                return original(path)
+            finally:
+                with lock:
+                    active -= 1
+        def output(command, **kwargs):
+            if command[1:] == ["env", "-json"]:
+                return json.dumps({"GOROOT": str(self.root / "go"), "CGO_ENABLED": "1",
+                                   "CC": "cc", "CXX": "c++"})
+            if command[0] == "/usr/bin/xcrun":
+                return str(self.root / "sdk") if command[1] == "--show-sdk-path" else str(self.root / "native/bin/clang")
+            return "compiler version"
+        def collect():
+            try:
+                result.append(p.effective_identity("go", {}, self.root))
+            except BaseException as error:
+                errors.append(error)
+        with patch.object(p.sys, "platform", "darwin"), \
+                patch.object(p.subprocess, "check_output", side_effect=output), \
+                patch.object(p.shutil, "which", side_effect=lambda tool, **kw: str(self.root / tool)), \
+                patch.object(p, "ThreadPoolExecutor", Pool), \
+                patch.object(p, "HASH_BATCH_SIZE", 1), \
+                patch.object(p, "file_digest", side_effect=read):
+            thread = threading.Thread(target=collect)
+            thread.start()
+            try:
+                self.assertTrue(three.wait(10))
+                self.assertEqual(active, 3)
+            finally:
+                release.set()
+                thread.join(10)
+            self.assertFalse(thread.is_alive())
+        self.assertFalse(errors, errors)
+        self.assertEqual(pools, [3])
+        self.assertEqual((peak, active), (3, 0))
+        self.assertEqual(len(observations), 26)
+        self.assertEqual(result[0]["goroot_sha256"], self.legacy_tree(self.root / "go"))
+        self.assertEqual(result[0]["sdk"]["sha256"], self.legacy_tree(self.root / "sdk"))
+        self.assertEqual(result[0]["native_toolchain"], self.legacy_tree(self.root / "native"))
+
     def test_bounded_identity_order_metadata_and_failure(self):
         from unittest.mock import patch
         import threading
@@ -900,7 +1198,7 @@ class FingerprintTraversalTests(unittest.TestCase):
         active = peak = 0
         lock = threading.Lock()
         calls = []
-        def tree(root):
+        def scan(root):
             nonlocal active, peak
             with lock:
                 calls.append(str(root))
@@ -909,6 +1207,9 @@ class FingerprintTraversalTests(unittest.TestCase):
             time.sleep(0.01)
             with lock:
                 active -= 1
+            return []
+        def tree(root, pool, paths):
+            paths.result()
             return "hash:" + str(root)
         def output(command, **kwargs):
             if command[1:] == ["env", "-json"]:
@@ -920,6 +1221,7 @@ class FingerprintTraversalTests(unittest.TestCase):
         with patch.object(p.sys, "platform", "darwin"), \
                 patch.object(p.subprocess, "check_output", side_effect=output), \
                 patch.object(p.shutil, "which", side_effect=lambda tool, **kw: str(self.root / tool)), \
+                patch.object(p, "tree_batches", side_effect=scan), \
                 patch.object(p, "tree_identity", side_effect=tree):
             result = p.effective_identity("go", {}, self.root)
             self.assertEqual(peak, 3)
