@@ -128,14 +128,13 @@ func (s *ConfigCoordinator) locked(ctx context.Context, fn func([]byte, os.FileM
 	if !info.Mode().IsRegular() {
 		return errors.New("configuration authority is not a regular file")
 	}
-	// Nlink is supplied by Unix Stat_t. Platforms lacking link-count evidence
-	// fail closed instead of silently splitting a potentially shared authority.
-	stat := reflect.Indirect(reflect.ValueOf(info.Sys()))
-	if !stat.IsValid() || stat.Kind() != reflect.Struct {
-		return errors.New("cannot verify configuration link count")
+	// Platforms lacking link-count evidence fail closed instead of silently
+	// splitting a potentially shared authority (see configLinkCount).
+	links, err := configLinkCount(s.path, info)
+	if err != nil {
+		return err
 	}
-	links := stat.FieldByName("Nlink")
-	if !links.IsValid() || !links.CanUint() || links.Uint() != 1 {
+	if links != 1 {
 		return errors.New("configuration authority must have one link")
 	}
 	read := s.readFile
