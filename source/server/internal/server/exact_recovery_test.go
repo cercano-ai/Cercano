@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -291,29 +292,93 @@ func TestExactRecoveryDestination(t *testing.T) {
 	}
 }
 
-func TestExactRecoveryTimeoutAndExactRetry(t *testing.T) {
-	f := newExactRecoveryFixture(t)
+// newTimedOutExactRecoveryFixture expires the server wait only after the source
+// is fenced. A client-side deadline is not a handler-completion barrier: gRPC
+// can return DeadlineExceeded before the handler clears control.active. Releasing
+// held work at that point can even let the old handler continue the transfer.
+// Keep the transport alive so the response proves the handler has returned.
+func newTimedOutExactRecoveryFixture(t *testing.T) *exactRecoveryFixture {
+	t.Helper()
+	var first sync.Once
+	cancelWait := make(chan context.CancelFunc, 1)
+	f := newExactRecoveryFixture(t, func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
+		if info.FullMethod != pb.Agent_LifecycleForceRelinquish_FullMethodName {
+			return next(ctx, req)
+		}
+		var cancel context.CancelFunc
+		first.Do(func() {
+			ctx, cancel = context.WithCancel(ctx)
+			cancelWait <- cancel
+		})
+		if cancel != nil {
+			defer cancel()
+		}
+		return next(ctx, req)
+	})
 	held, err := f.a.AdmitRetainedWork(controlOwner(f.op), broker.PersistenceWork)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(f.ctx, 80*time.Millisecond)
-	_, err = f.clients[f.a].LifecycleForceRelinquish(ctx, f.op)
-	cancel()
-	if status.Code(err) != codes.DeadlineExceeded {
-		t.Fatalf("timeout: %v", err)
+	t.Cleanup(func() { _ = held.Complete() })
+	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := f.clients[f.a].LifecycleForceRelinquish(ctx, f.op)
+		result <- err
+	}()
+	var expire context.CancelFunc
+	select {
+	case expire = <-cancelWait:
+		defer expire()
+	case <-ctx.Done():
+		t.Fatal("force handler did not start")
 	}
-	// The request may be canceled by transport just before the handler observes
-	// it. The closure is installed before the source starts its bounded wait.
-	f.a.coexistence.mu.Lock()
-	closed := len(f.a.coexistence.closures)
-	f.a.coexistence.mu.Unlock()
-	if closed != 1 {
-		t.Fatal("not fenced")
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		f.a.coexistence.mu.Lock()
+		closed := len(f.a.coexistence.closures)
+		f.a.coexistence.mu.Unlock()
+		if closed == 1 {
+			break
+		}
+		select {
+		case <-tick.C:
+		case <-ctx.Done():
+			t.Fatal("source was not fenced")
+		}
+	}
+	// The bounded persistence wait maps server context cancellation to
+	// DeadlineExceeded. The pending ticket prevents successful completion.
+	expire()
+	if err := <-result; status.Code(err) != codes.DeadlineExceeded {
+		t.Fatalf("timeout: %v", err)
 	}
 	if err := held.Complete(); err != nil {
 		t.Fatal(err)
 	}
+	return f
+}
+
+func TestExactRecoveryTimeoutAndExactRetry(t *testing.T) {
+	checkExactRecoveryTimeoutAndExactRetry(t)
+}
+
+// Exercise the scheduling pressure that exposed the client-deadline/handler-exit
+// race in CI. Each subtest has independent authenticated peers and held work.
+func TestExactRecoveryTimeoutAndExactRetryConcurrent(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			t.Parallel()
+			checkExactRecoveryTimeoutAndExactRetry(t)
+		})
+	}
+}
+
+func checkExactRecoveryTimeoutAndExactRetry(t *testing.T) {
+	t.Helper()
+	f := newTimedOutExactRecoveryFixture(t)
 	for _, field := range []string{"operation", "destination", "destination-build", "host", "conversation", "target", "epoch", "build", "receipt"} {
 		r := proto.Clone(f.op).(*pb.LifecycleControlRequest)
 		switch field {
@@ -341,8 +406,8 @@ func TestExactRecoveryTimeoutAndExactRetry(t *testing.T) {
 		if _, err := f.clients[f.a].LifecycleForceRelinquish(f.ctx, r); err == nil {
 			t.Fatalf("%s mismatch accepted", field)
 		}
-		if before != f.snapshot(t) {
-			t.Fatalf("%s rejection mutated state", field)
+		if after := f.snapshot(t); before != after {
+			t.Fatalf("%s rejection mutated state\nbefore: %s\nafter: %s", field, before, after)
 		}
 	}
 	if _, err := f.clients[f.a].LifecycleForceRelinquish(f.ctx, f.op); err != nil {
@@ -401,20 +466,7 @@ func TestExactRecoverySourceOwnershipChangedAfterPreflight(t *testing.T) {
 // The source strips it from the key and Prepare reuses the existing acceptance.
 // This probe leaves acceptance present: it never creates a replacement record.
 func TestExactRecoverySourceMissingReceiptGap(t *testing.T) {
-	f := newExactRecoveryFixture(t)
-	held, err := f.a.AdmitRetainedWork(controlOwner(f.op), broker.PersistenceWork)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(f.ctx, 80*time.Millisecond)
-	_, err = f.clients[f.a].LifecycleForceRelinquish(ctx, f.op)
-	cancel()
-	if status.Code(err) != codes.DeadlineExceeded {
-		t.Fatalf("timeout: %v", err)
-	}
-	if err := held.Complete(); err != nil {
-		t.Fatal(err)
-	}
+	f := newTimedOutExactRecoveryFixture(t)
 	r := proto.Clone(f.op).(*pb.LifecycleControlRequest)
 	r.Receipt = ""
 	got, err := f.clients[f.a].LifecycleForceRelinquish(f.ctx, r)
