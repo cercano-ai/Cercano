@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Non-publishing package-definition fixture; native acceptance pending. -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>cercano</id>
+    <version>@VERSION@</version>
+    <title>Cercano (experimental, unsigned)</title>
+    <authors>Cercano contributors</authors>
+    <projectUrl>https://github.com/cercano-ai/Cercano</projectUrl>
+    <licenseUrl>https://github.com/cercano-ai/Cercano/blob/v@VERSION@/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <tags>cercano agent cli ai llm</tags>
+    <summary>Convenience package: the Cercano agent and CLI.</summary>
+    <description>Depends on cercano-agent and cercano-cli and owns no commands or files. The dependencies are a minimum version for a coordinated release set, not an exact lock or an atomic upgrade. Package-definition fixture only, not release-ready.</description>
+    <dependencies>
+      <dependency id="cercano-agent" version="@VERSION@" />
+      <dependency id="cercano-cli" version="@VERSION@" />
+    </dependencies>
+  </metadata>
+  <files />
+</package>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Non-publishing package-definition fixture; native acceptance pending. -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>cercano-cli</id>
+    <version>@VERSION@</version>
+    <title>Cercano CLI (experimental, unsigned)</title>
+    <authors>Cercano contributors</authors>
+    <projectUrl>https://github.com/cercano-ai/Cercano</projectUrl>
+    <licenseUrl>https://github.com/cercano-ai/Cercano/blob/v@VERSION@/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <tags>cercano cli ai llm</tags>
+    <summary>Cercano terminal client (cercano-cli.exe).</summary>
+    <description>Installs cercano-cli.exe and its cercano-cli shim. Works with a remote agent on its own; install cercano-agent (or the cercano package) for a local agent. Package-definition fixture only, not release-ready: unsigned and native upgrade acceptance is pending. Exit cercano-cli before upgrading or uninstalling.</description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

@@ -1,0 +1,9 @@
+$ErrorActionPreference = 'Stop'
+# @PACKAGE_ID@ @VERSION@: refuse uninstall while an owned process runs.
+# Measured 2026-11-10 (Chocolatey 2.2.2, x64): without this, uninstall with
+# the agent running from lib reported success, removed the shim and package,
+# and stranded the running executable in lib-bkp. Chocolatey removes shims
+# before this script runs, so a refusal here may leave the shim gone until the
+# retry; the package files stay. It never stops or starts anything.
+. (Join-Path $PSScriptRoot 'cercano-guard.ps1')
+Assert-CercanoPackageNotRunning -PackageId '@PACKAGE_ID@' -Executables @('@EXECUTABLE@')

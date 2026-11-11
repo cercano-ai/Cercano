@@ -1,0 +1,9 @@
+$ErrorActionPreference = 'Stop'
+# @PACKAGE_ID@ @VERSION@: the payload (tools\@EXECUTABLE@) ships inside this
+# package, so Chocolatey has already extracted it and will create the
+# @EXECUTABLE@ shim. This script only refuses when an old or new copy is
+# running. Its throw is the refusal path Phase 1 showed Chocolatey honors:
+# the upgrade fails, the previous version is restored, and a retry after
+# exit succeeds. It never starts, stops or restarts the agent.
+. (Join-Path $PSScriptRoot 'cercano-guard.ps1')
+Assert-CercanoPackageNotRunning -PackageId '@PACKAGE_ID@' -Executables @('@EXECUTABLE@')
