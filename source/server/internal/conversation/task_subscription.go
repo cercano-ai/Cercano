@@ -40,8 +40,14 @@ func (s *sqliteStore) TaskSnapshotPage(ctx context.Context, parent, after string
 	}
 	return out, rows.Err()
 }
+
+// Keep the authorized tree outside the event lookup. CROSS JOIN prevents SQLite
+// from scanning all dispatch history before matching the requested task; each
+// matching child instead uses the (conversation_id, seq) event index.
+const taskProgressPageQuery = taskObservationTree + ` SELECT e.conversation_id,e.seq,e.kind,e.iteration,e.created_at,e.payload FROM tree t CROSS JOIN dispatch_events e ON t.child_id=e.conversation_id WHERE t.id=? AND e.seq>? AND e.kind IN ('dispatch_start','dispatch_done','note','model_response','tool_call','tool_result') ORDER BY e.seq LIMIT ?`
+
 func (s *sqliteStore) TaskProgressPage(ctx context.Context, parent, id string, after int64) ([]DispatchEvent, error) {
-	rows, err := s.db.QueryContext(ctx, taskObservationTree+` SELECT e.conversation_id,e.seq,e.kind,e.iteration,e.created_at,e.payload FROM dispatch_events e JOIN tree t ON t.child_id=e.conversation_id WHERE t.id=? AND e.seq>? AND e.kind IN ('dispatch_start','dispatch_done','note','model_response','tool_call','tool_result') ORDER BY e.seq LIMIT ?`, parent, id, after, TaskSubscriptionPageSize)
+	rows, err := s.db.QueryContext(ctx, taskProgressPageQuery, parent, id, after, TaskSubscriptionPageSize)
 	if err != nil {
 		return nil, err
 	}
