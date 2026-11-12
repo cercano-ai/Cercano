@@ -73,10 +73,9 @@ def run(repo, evidence):
             (repo / 'source/server/scripts/cercano-launcher.py').read_bytes())
         trace = root / 'publisher.trace'
         publisher = scripts / 'publish-dev-generation.py'
-        publisher.write_text('import os,sys\nfrom pathlib import Path\n'
-                             'with open(os.environ["TEST_TRACE"], "a") as f: f.write(repr(sys.argv)+"\\n")\n'
-                             'if sys.argv[1] == "fingerprint": print("synthetic-fingerprint")\n'
-                             'else: print("injected publication failure",file=sys.stderr); sys.exit(42)\n')
+        publisher.write_text('import json,os,sys\n'
+                             'with open(os.environ["TEST_TRACE"], "a") as f: f.write(json.dumps(sys.argv)+"\\n")\n'
+                             'print("injected publication failure",file=sys.stderr); sys.exit(42)\n')
         config = state / 'config.yaml'
         config.write_text('locus_mode: open_only\n')
         config.chmod(0o600)
@@ -113,9 +112,11 @@ def run(repo, evidence):
             code, output = invoke(script, env)
             assert code == 78 and 'injected publication failure' in output, (code, output)
             assert snapshot(state) == before, 'publication refusal changed file contents'
-            calls = trace.read_text().splitlines()
-            assert len(calls) == 2 and 'fingerprint' in calls[0] and 'publish' in calls[1], calls
-            assert '--sign' in calls[1] and '--reuse' in calls[1], calls
+            calls = [json.loads(line) for line in trace.read_text().splitlines()]
+            # publish-current derives the fingerprint and validates reuse internally;
+            # the ordinary launcher must request signed publication in one call.
+            assert calls == [[str(publisher), 'publish-current', '--repo', str(mock),
+                              '--sign', '--root', str(state / 'generations')]], calls
             assert not (state / 'selections').exists(), 'failed publication acquired a session'
             results.append({'case': 'mock publication failure actual entrypoint PTY',
                             'exit': code, 'unchanged_file_contents': True,
