@@ -59,14 +59,35 @@ func processRole(id Identity) (string, error) {
 }
 
 func signalIdentity(id Identity, sig syscall.Signal) error {
-	now, err := Inspect(id.PID)
+	return signalIdentityWith(id, sig, Inspect, processVersion, signalProcessVersion)
+}
+
+func signalIdentityWith(id Identity, sig syscall.Signal, inspect func(int) (Identity, error), version func(int) (uint32, error), send func(int, uint32, syscall.Signal) error) error {
+	if id.PID <= 0 || version == nil || inspect == nil || send == nil {
+		return fmt.Errorf("process identity binding unavailable")
+	}
+	// Capture BEFORE inspecting the approved incarnation. Capturing only after
+	// inspection could bind delivery to a replacement that reused the PID.
+	bound, err := version(id.PID)
+	if err != nil {
+		return err
+	}
+	now, err := inspect(id.PID)
 	if err != nil {
 		return err
 	}
 	if !now.SameProcess(id) {
 		return fmt.Errorf("identity changed pid=%d", id.PID)
 	}
-	return syscall.Kill(id.PID, sig)
+	after, err := version(id.PID)
+	if err != nil {
+		return err
+	}
+	if after != bound {
+		return fmt.Errorf("process version changed pid=%d", id.PID)
+	}
+	// Never refresh the bound token, including if delivery fails.
+	return send(id.PID, bound, sig)
 }
 
 // IsUpgradeUnidentifiedOrNonWriter excludes unavailable images and recognized
