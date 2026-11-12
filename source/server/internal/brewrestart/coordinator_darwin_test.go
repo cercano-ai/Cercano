@@ -50,6 +50,16 @@ func TestMain(m *testing.M) {
 
 func runRestartFixture() int {
 	root := os.Getenv("CERCANO_COORD_ROOT")
+	if lockPath := os.Getenv("CERCANO_OWNER_LOCK"); lockPath != "" {
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+		if err != nil {
+			return 5
+		}
+		defer f.Close()
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+			return 6
+		}
+	}
 	exe, _ := os.Executable()
 	version := filepath.Base(filepath.Dir(filepath.Dir(exe)))
 	if version == "2" {

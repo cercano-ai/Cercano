@@ -7,6 +7,15 @@ revalidate source process identity, source epoch, selected destination and owner
 contain/stop the source and use destination-authorized `LifecycleRecover`. Refuse
 uncertain containment or changed ownership. Never replay interrupted external actions.
 
+Retained-work refusal or a three-second cooperative deadline offers separate
+**Terminate the old host and recover this conversation** consent. This interrupts
+all host conversations/tasks and loses unpersisted output; affected scope is
+unknown when inventory is unavailable. Decline leaves ownership unchanged.
+The authenticated native adapter supports older hosts without a shutdown RPC,
+using verified TERM/bounded wait/KILL followed by existing guarded recovery,
+never termination on authentication/identity mismatch. See
+[forced resumption](agent/forced-server-cutover.md) for limits and warnings.
+
 The modern `LifecycleRetryReceipt`, `LifecycleRetryRelinquish`, `LifecycleRetryClaim`
 and all `LifecycleTakeover*` RPCs, their handlers, retry client wrapper, and
 original-operation discovery/confirmation coordinator have been deleted. No journal

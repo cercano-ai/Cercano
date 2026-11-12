@@ -131,14 +131,19 @@ func TestLegacyShutdownAuthenticatedTransport(t *testing.T) {
 			adapter.inspect = func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error) {
 				return brewrestart.Identity{PID: 42, StartSeconds: 1, Executable: filepath.Join(generation, "cercano")}, nil
 			}
+			signals := 0
+			adapter.terminate = func(ctx context.Context, host string, endpoint netip.AddrPort, expected brewrestart.Identity, validate func() error) error {
+				if err := validate(); err != nil {
+					return err
+				}
+				signals++
+				return nil
+			}
 			checks := 0
 			adapter.absent = func(context.Context, string) error {
 				checks++
 				if err := devFlock(lock, devLockExclusive|devLockNonBlock); err == nil {
 					t.Fatal("launch exclusion lost")
-				}
-				if checks == 1 {
-					return fmt.Errorf("draining")
 				}
 				return nil
 			}
@@ -151,10 +156,10 @@ func TestLegacyShutdownAuthenticatedTransport(t *testing.T) {
 			used := false
 			err = adapter.stopAndUseSource(ctx, id, snapshot, func() error { return nil }, func(context.Context) error { used = true; return nil })
 			if wrongToken {
-				if err == nil || used || fixture.requests.Load() != 0 {
+				if err == nil || used || fixture.requests.Load() != 0 || signals != 0 {
 					t.Fatalf("unauthenticated stop: %v", err)
 				}
-			} else if err != nil || !used || fixture.requests.Load() != 1 || checks < 3 {
+			} else if err != nil || !used || fixture.requests.Load() != 0 || signals != 1 || checks != 1 {
 				t.Fatalf("shutdown not verified: %v checks=%d", err, checks)
 			}
 		})

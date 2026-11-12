@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"path/filepath"
 	"time"
 
 	"cercano/source/server/internal/brewrestart"
@@ -32,11 +31,10 @@ func (p *developmentContainedSource) shutdownAuthenticated(ctx context.Context, 
 	if !actual.SameProcess(expected) {
 		return fmt.Errorf("authenticated source process changed")
 	}
-	return awaitAuthenticatedShutdown(ctx, validate, func(ctx context.Context) (*pb.ShutdownAgentResponse, error) {
-		return pb.NewAgentClient(conn).ShutdownAgent(ctx, &pb.ShutdownAgentRequest{Reason: "approved old-host conversation recovery"})
-	}, func(ctx context.Context) error {
-		return p.preparedAbsent(ctx, host, filepath.Dir(expected.Executable), selected.Identity.Store)
-	})
+	// Fresh confirmation authorizes bounded TERM/KILL of this exact process,
+	// not an optional RPC whose drain can retain the very work blocking resume.
+	// StopLegacyHost rechecks process incarnation and consent before signalling.
+	return p.terminate(ctx, host, endpoint, expected, validate)
 }
 
 // A response loss is deliberately blocking, even if the source subsequently dies:

@@ -36,13 +36,13 @@ func (m Model) offerContainedRecovery(offer *forcedResumeOffer) (tea.Model, tea.
 	op := o.Operation
 	client, parent, gen := m.agent, m.convID, m.taskSubscriptionGeneration
 	decline := func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil }
-	title := "Stop the old host and recover this conversation?"
-	mode := "This interrupts the WHOLE old host, including sibling conversations and tasks. Committed history is preserved. Interrupted actions are NOT replayed; external effects may remain uncertain. Consent is single-use for this source epoch and selected destination."
+	title := "Terminate the old host and recover this conversation?"
+	mode := "All conversations and tasks on the old host will be interrupted. Unpersisted output will be lost. The full affected scope is unknown when inventory is unavailable. Committed history is preserved. Interrupted actions are NOT replayed; external effects may remain uncertain. Consent is single-use for this source epoch and selected destination."
 	selectionDescription := fmt.Sprintf("Conversation %s: source %s, epoch %s, operation %s → selected destination %s.", op.Owner.Conversation, op.Source.Host, op.Owner.Epoch, op.HandoverId, op.Destination.Host)
-	hints := "y: stop whole old host and recover · n/esc/enter: cancel"
+	hints := "y: terminate old host and recover · n/esc/enter: cancel"
 	m.enqueueConfirmation(&confirmRequest{title: title, details: []string{
 		selectionDescription,
-		mode, "Recovery stops the attributed source and interrupts conversation work. A stuck drain or uncertain containment is refused. The server revalidates identities and exact ownership before reassignment. Consent applies only to this attempt."}, hints: hints, extras: map[string]func(Model) (Model, tea.Cmd){"enter": decline}, onNo: decline, onYes: func(m Model) (Model, tea.Cmd) {
+		mode, "Recovery requests graceful termination, then force kills the exact old process if necessary. Uncertain process identity or containment is refused. The server revalidates identities and exact ownership before reassignment. Consent applies only to this attempt."}, hints: hints, extras: map[string]func(Model) (Model, tea.Cmd){"enter": decline}, onNo: decline, onYes: func(m Model) (Model, tea.Cmd) {
 		m.pendingConfirm = nil
 		if m.agent != client || m.convID != parent || m.taskSubscriptionGeneration != gen || m.devHost == nil || m.devHost.busy {
 			return m, nil

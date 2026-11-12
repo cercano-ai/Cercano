@@ -31,15 +31,33 @@ to use B. Same-server terminal takeover remains a separate operation.
 
 ## Compatibility and limits
 
-Both participating server builds must implement the relevant protocol. An older
-source that lacks the new RPC returns `Unimplemented`; the new client explicitly
-reports that limitation and never falls back to terminal replacement on A.
-Consequently the live-source RPC does **not** retrofit a running historical
-executable. Dead-owner recovery is now a separate destination-side operation;
-see [dead-owner-recovery.md](dead-owner-recovery.md). It requires verified source
-absence, exclusive locks and transactional reconciliation, not cooperation
-from the dead server. Live unresolved persistence tickets are not cleared by
-this path. Restarting the CLI is not deployment of this server change.
+The destination bounds cooperative force relinquishment to three seconds (with
+ordinary relinquishment fallback for older sources). The exact historical
+`retained sessions or work prevent transition` refusal or a source deadline can
+now produce a **separate, default-No** confirmation:
+**Terminate the old host and recover this conversation**.
+
+This interrupts **all conversations and tasks on that host**, not just the
+selected conversation; unpersisted output is lost. Scope is unknown when host
+inventory is unavailable. Declining does not terminate the source or change
+ownership. Authentication/identity failures never authorize termination.
+
+Consent is single-use and binds the observed owner epoch, source host and
+process incarnation, and destination. Under source launch exclusion, the
+adapter authenticates the old host, rechecks process identity and durable
+approval, sends TERM, waits about two seconds, and escalates to KILL if needed.
+It uses native verified process signaling, not a new shutdown RPC, so old hosts
+need not implement one. Process identity is checked before every signal; epoch
+approval is rechecked before escalation. An unreadable/stale identity refuses.
+
+Only verified death/absence and exclusive ownership locks allow existing guarded
+dead-owner recovery with transactional owner/epoch revalidation. Concurrent
+ownership changes refuse or follow the already-completed claim; ownership is
+never overwritten and fencing is never bypassed. Retry after an uncertain
+result rechecks current state. See [dead-owner-recovery.md](dead-owner-recovery.md).
+The production process adapter remains limited to supported native Darwin/cgo
+hosts and recorded launcher generations. Restarting the CLI is not deployment
+of this destination-server change.
 
 A confirmed cancellation is irreversible: a failed destination preparation may
 leave the source fenced and work cancelled. The exact operation can be retried;
@@ -94,3 +112,26 @@ isolation regression failed before correction and passes in the final suite.
 An initial worker-suite run used a temporary Unix-socket path longer than the
 Darwin limit. The final runs used short `/tmp` paths; no product change was made
 for that test-environment issue.
+
+## Confirmed termination checks (2026-11-11)
+
+Passed in the isolated implementation worktree:
+
+* `go test -race ./internal/server ./internal/brewrestart -count=1 -timeout=180s`
+* `go test -race ./internal/server -run 'TestResumeTermination|TestLiveSourceRecovery|TestResume' -count=1 -timeout=120s` (including a real three-second blocked source RPC).
+* `go test -race ./cmd/cercano -run 'TestLegacy|TestDevelopmentLegacy|TestLiveSource|TestProductionResume|TestHistorical' -count=1 -timeout=120s`
+* CLI: `go test -race ./internal/ui -run 'Recovery|Resume|Reopen|Takeover|Ownership' -count=1 -timeout=120s`
+* `go build ./cmd/cercano`
+
+The new Darwin subprocess fixture ignores TERM, holds an exclusive file lock,
+rejects stale-incarnation approval without signaling, then exercises native KILL,
+verified death and lock release. Existing recovery tests cover decline, changed
+ownership, successful guarded recovery and retry; transport tests verify auth
+failure cannot signal and no shutdown RPC is required. No wire interface changed,
+so no regenerated protocol artifacts are needed.
+
+The broader cmd run is **not green**: isolated rerun of
+`TestEverydayLauncherEntrypointRefusalsPTY` still fails because its Python fixture
+expects fingerprint + publish calls but observes only `publish-current`. That
+launcher fixture is outside this change. No live hosts, user config/DBs, deployment
+or real-model acceptance were exercised.

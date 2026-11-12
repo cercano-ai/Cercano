@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cercano/source/server/internal/broker"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/recoveryguard"
@@ -372,10 +374,12 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			return nil, refusal(status.Error(codes.PermissionDenied, "authenticated source identity mismatch"))
 		}
 		stage = "force_relinquish"
-		response, err := client.LifecycleForceRelinquish(ctx, op)
+		cooperative, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		response, err := client.LifecycleForceRelinquish(cooperative, op)
 		if status.Code(err) == codes.Unimplemented {
 			stage = "legacy_relinquish"
-			response, err = client.LifecycleRelinquish(ctx, op)
+			response, err = client.LifecycleRelinquish(cooperative, op)
 			if err != nil {
 				// A lost response may already have durably reserved the exact transfer.
 				current, e := conversation.ReadOwnership(ctx, l.store, id)
@@ -396,6 +400,22 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			}
 		}
 		if err != nil {
+			// Only the exact historical admission refusal or a bounded source
+			// timeout permits a new confirmation, never an auth/identity error.
+			busy := status.Code(err) == codes.Unknown && status.Convert(err).Message() == broker.ErrAdmissionBusy.Error()
+			if busy || status.Code(err) == codes.DeadlineExceeded {
+				current, e := conversation.ReadOwnership(ctx, l.store, id)
+				if e != nil {
+					return nil, refusal(e)
+				}
+				if current.State == "reserved" && current.Owner == op.Owner.Host && current.Epoch == op.Owner.Epoch && current.Destination == l.options.Host && current.Handover == op.HandoverId {
+					return s.resumeClaim(ctx, claim)
+				}
+				if current.State != "owned" || current.Owner != op.Owner.Host || current.Epoch != op.Owner.Epoch {
+					return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed during cooperative transfer"))
+				}
+				return nil, eligible(err)
+			}
 			return nil, refusal(err)
 		}
 		stage = "validate_source_receipt"

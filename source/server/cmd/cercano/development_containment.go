@@ -19,6 +19,7 @@ type developmentContainedSource struct {
 	destination *pb.LifecycleIdentity
 	inspect     func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error)
 	stop        func(context.Context, string, netip.AddrPort, brewrestart.Identity, func() error) error
+	terminate   func(context.Context, string, netip.AddrPort, brewrestart.Identity, func() error) error
 	absent      func(context.Context, string) error
 }
 
@@ -31,7 +32,7 @@ type preparedSourceSnapshot struct {
 }
 
 func newDevelopmentContainedSource(state string, destination *pb.LifecycleIdentity) *developmentContainedSource {
-	p := &developmentContainedSource{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost}
+	p := &developmentContainedSource{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost, terminate: brewrestart.StopLegacyHost}
 	p.stop = p.shutdownAuthenticated
 	return p
 }

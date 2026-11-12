@@ -49,6 +49,8 @@ type resumeSource struct {
 	calls                         int
 	shutdowns                     int
 	beforeCooperative             func()
+	forceError                    error
+	forceBlock                    bool
 }
 
 func (s *resumeSource) ShutdownAgent(context.Context, *pb.ShutdownAgentRequest) (*pb.ShutdownAgentResponse, error) {
@@ -57,6 +59,13 @@ func (s *resumeSource) ShutdownAgent(context.Context, *pb.ShutdownAgentRequest) 
 }
 func (s *resumeSource) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	s.calls++
+	if s.forceBlock {
+		<-ctx.Done()
+		return nil, status.FromContextError(ctx.Err()).Err()
+	}
+	if s.forceError != nil {
+		return nil, s.forceError
+	}
 	if s.legacy {
 		return nil, status.Error(codes.Unimplemented, "old source")
 	}

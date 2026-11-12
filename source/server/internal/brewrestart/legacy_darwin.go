@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // PrepareLegacyHost identifies only the exact recorded source listener. It does
@@ -68,5 +69,12 @@ func StopLegacyHost(ctx context.Context, host string, endpoint netip.AddrPort, e
 		return fmt.Errorf("source process identity changed")
 	}
 	// Before entering cleanup authority, revalidate durable approval and epoch.
-	return stopVerifiedUpgradeHostValidated(ctx, upgradeTarget{expected, endpoint}, nil, signalIdentity, validate)
+	return stopVerifiedUpgradeHostValidated(ctx, upgradeTarget{expected, endpoint}, nil, func(id Identity, sig syscall.Signal) error {
+		if validate != nil {
+			if err := validate(); err != nil {
+				return err
+			}
+		}
+		return signalIdentity(id, sig)
+	}, validate)
 }
