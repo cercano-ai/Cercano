@@ -50,6 +50,7 @@ type resumeSource struct {
 	shutdowns                     int
 	beforeCooperative             func()
 	forceError                    error
+	legacyError                   error
 	forceBlock                    bool
 }
 
@@ -78,6 +79,9 @@ func (s *resumeSource) LifecycleForceRelinquish(ctx context.Context, r *pb.Lifec
 func (s *resumeSource) LifecycleRelinquish(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	if s.beforeCooperative != nil {
 		s.beforeCooperative()
+	}
+	if s.legacyError != nil {
+		return nil, s.legacyError
 	}
 	if s.blocked {
 		return nil, status.Error(codes.FailedPrecondition, "legacy source still has active clients")

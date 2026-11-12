@@ -138,7 +138,7 @@ func TestResumeFallbackPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, err := b.LifecycleResume(ctx, r)
-			eligible := mode == "missing" || mode == "unreachable" || mode == "legacy-blocked" || mode == "guard-live"
+			eligible := mode == "missing" || mode == "unreachable" || mode == "guard-live"
 			if eligible {
 				if err != nil || !got.GetConfirmationRequired() || discoveries != 1 {
 					t.Fatalf("eligible discovery: got=%v err=%v discoveries=%d", got, err, discoveries)

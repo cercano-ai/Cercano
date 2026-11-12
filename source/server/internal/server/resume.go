@@ -394,9 +394,8 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 					return nil, refusal(status.Error(codes.FailedPrecondition, "resume owner changed during cooperative transfer; refusing stale source"))
 				}
 
-				if status.Code(err) == codes.FailedPrecondition {
-					return nil, eligible(err)
-				}
+				// Legacy failures use the same exact busy/timeout classifier
+				// below; FailedPrecondition alone grants no stop authority.
 			}
 		}
 		if err != nil {

@@ -12,15 +12,24 @@ import (
 
 func TestResumeTerminationOfferAfterSourceRefusal(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		err   error
-		offer bool
+		name   string
+		err    error
+		offer  bool
+		legacy bool
 	}{
-		{"retained", broker.ErrAdmissionBusy, true},
-		{"timeout", status.Error(codes.DeadlineExceeded, "source deadline"), true},
-		{"auth", status.Error(codes.Unauthenticated, "bad token"), false},
-		{"identity", status.Error(codes.PermissionDenied, "identity mismatch"), false},
-		{"other_precondition", status.Error(codes.FailedPrecondition, "wrong identity"), false},
+		{"retained", broker.ErrAdmissionBusy, true, false},
+		{"timeout", status.Error(codes.DeadlineExceeded, "source deadline"), true, false},
+		{"auth", status.Error(codes.Unauthenticated, "bad token"), false, false},
+		{"identity", status.Error(codes.PermissionDenied, "identity mismatch"), false, false},
+		{"other_precondition", status.Error(codes.FailedPrecondition, "wrong identity"), false, false},
+		{"legacy_retained", broker.ErrAdmissionBusy, true, true},
+		{"legacy_timeout", status.Error(codes.DeadlineExceeded, "source deadline"), true, true},
+		{"legacy_auth", status.Error(codes.Unauthenticated, "bad token"), false, true},
+		{"legacy_permission", status.Error(codes.PermissionDenied, "identity mismatch"), false, true},
+		{"legacy_near_busy", status.Error(codes.Unknown, broker.ErrAdmissionBusy.Error()+" extra"), false, true},
+		{"legacy_busy_wrong_code", status.Error(codes.FailedPrecondition, broker.ErrAdmissionBusy.Error()), false, true},
+		{"legacy_identity", status.Error(codes.FailedPrecondition, "wrong identity"), false, true},
+		{"legacy_unresolved_commit", status.Error(codes.FailedPrecondition, "unresolved persistence outcomes remain"), false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -31,6 +40,11 @@ func TestResumeTerminationOfferAfterSourceRefusal(t *testing.T) {
 				t.Fatal(err)
 			}
 			source := &resumeSource{Server: a, forceError: tc.err, forceBlock: tc.name == "timeout"}
+			if tc.legacy {
+				source.legacy = true
+				source.forceError = nil
+				source.legacyError = tc.err
+			}
 			endpoint := serveResumeSource(t, source)
 			setResumeSource(b, a, endpoint)
 			bc, destination := serveCutoverFixture(t, b)
