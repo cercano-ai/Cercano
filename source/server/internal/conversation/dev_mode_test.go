@@ -18,6 +18,9 @@ func TestDevModeLegacyDatabaseMigration(t *testing.T) {
 	if err := original.EnsureConversation(ctx, "legacy", "/tmp/project", ""); err != nil {
 		t.Fatal(err)
 	}
+	if err := original.Append(ctx, Turn{ConversationID: "legacy", Role: "user", Content: "hello"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := original.(*sqliteStore).db.ExecContext(ctx, `ALTER TABLE conversations DROP COLUMN dev_work_dir`); err != nil {
 		t.Fatal(err)
 	}

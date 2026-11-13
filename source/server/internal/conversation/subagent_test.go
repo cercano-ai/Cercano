@@ -50,6 +50,12 @@ func TestList_ExcludesSubagentConversations(t *testing.T) {
 	if err := store.EnsureSubagentConversation(ctx, "sub1", "main1", "/proj", "m", nil); err != nil {
 		t.Fatalf("EnsureSubagentConversation: %v", err)
 	}
+	// Populate both so the kind filter, not the zero-turn filter, hides sub1.
+	for _, id := range []string{"main1", "sub1"} {
+		if err := store.Append(ctx, Turn{ConversationID: id, Role: "user", Content: "hello"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	infos, err := store.List(ctx, "", 0)
 	if err != nil {

@@ -285,6 +285,9 @@ func TestListIncludesRecap(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	_ = s.EnsureConversation(ctx, "c1", "", "")
+	if err := s.Append(ctx, Turn{ConversationID: "c1", Role: "user", Content: "hello"}); err != nil {
+		t.Fatal(err)
+	}
 	_ = s.UpdateRecap(ctx, "c1", "did a thing")
 	list, err := s.List(ctx, "", 0)
 	if err != nil {

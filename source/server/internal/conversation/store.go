@@ -261,8 +261,9 @@ type Store interface {
 	// one algorithmically from the content.
 	Append(ctx context.Context, t Turn) error
 
-	// List returns conversations matching projectDir (empty matches all),
-	// sorted by last_turn_at desc, capped at limit (0 = no cap).
+	// List returns main conversations with at least one persisted turn matching
+	// projectDir (empty matches all), sorted by last_turn_at desc, capped at
+	// limit (<= 0 = no cap). Empty turn content still counts as a persisted turn.
 	List(ctx context.Context, projectDir string, limit int) ([]Info, error)
 
 	// GetTurns returns all turns for a conversation, ordered by created_at.
@@ -723,14 +724,16 @@ func (s *sqliteStore) List(ctx context.Context, projectDir string, limit int) ([
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Subagent conversations (persisted dispatch loops) are hidden from the
-	// picker; they stay reachable by id via Get/GetTurns.
+	// Subagent conversations (persisted dispatch loops) and conversations with
+	// no persisted turns are hidden from the picker; they stay reachable by id
+	// via Get/GetTurns. Filter before LIMIT so empty records don't consume slots.
 	query := `
 		SELECT c.id, c.title, c.project_dir, c.model, c.started_at, c.last_turn_at,
 		       c.recap, c.recap_updated_at, c.dev_work_dir,
 		       (SELECT COUNT(*) FROM turns t WHERE t.conversation_id = c.id) AS turn_count
 		FROM conversations c
 		WHERE (? = '' OR c.project_dir = ?) AND c.kind = 'main'
+		  AND EXISTS (SELECT 1 FROM turns t WHERE t.conversation_id = c.id)
 		ORDER BY c.last_turn_at DESC`
 	args := []any{projectDir, projectDir}
 	if limit > 0 {
