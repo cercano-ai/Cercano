@@ -47,12 +47,13 @@ fix both pass; the latter also demonstrates that an actual canceled List can
 still consume its launch receipt after mutex release.
 
 `TestDevelopmentResumeTimeoutConfirmedContinuation` exercises production resume
-handlers, the private registry, token-authenticated identity, and the production
-containment adapter through timeout -> offer -> explicit confirmation -> ready.
-Only process inspection/stop/absence are disposable fixture seams; no live
-process is signalled. Recovery capacity exhaustion has separate regression
-coverage. Fresh identity and consent are not replaced by fixture shortcuts in
-the production adapter authentication path.
+handlers, real private records, token-authenticated identity, and explicit resume
+confirmation. It injects an immediate `DeadlineExceeded` and substitutes stop,
+process inspection, absence, and destination seams; no live process is signalled.
+It does not exercise an actually expired production observation through native
+stop in one flow. Timeout, ignored-callback, actual identity-lock, and recovery
+capacity-exhaustion behavior have separate tests. Fresh identity and consent are
+not replaced by fixture shortcuts in the adapter authentication path.
 
 Focused race tests (server and command packages) and all integration race tests
 passed. The first full-suite run exposed a stale test that injected source auth
@@ -66,8 +67,10 @@ Final verification used `/opt/homebrew/bin/go` (Go 1.26.3 darwin/arm64):
 - `go test -race ./test/integration -count=1 -timeout 120s`: PASS.
 - `go test -p 1 ./... -count=1 -timeout 180s`: PASS (all server packages).
 - Production command build to a disposable `/tmp` output: PASS.
-- Default-parallel full-suite runs failed in the unrelated
+- Default-parallel full-suite runs had an unclassified parallel-suite failure in
   `TestRemoteRecoveryLogsNewerHostOnce` (`launches=1`, expected zero). That test
-  passed three isolated repetitions; no modelhost code was changed. An initial
+  passed three isolated repetitions and no modelhost code was changed, but neither
+  fact establishes that the failure is unrelated or preexisting. An initial
   serial run hit the tool's five-minute ceiling; the final serial run completed
-  successfully without that ceiling.
+  successfully without that ceiling. Serial success does not replace the
+  default-parallel landing gate.
