@@ -159,7 +159,6 @@ func (s *Server) LifecycleClaim(ctx context.Context, r *pb.LifecycleControlReque
 // An uncertain peer response keeps the exact closed source reservation. Only
 // an explicit retry of the same selection may reuse it, never a new transfer.
 type outgoingControl struct {
-	takeover   bool // separate epoch-quiescence protocol; ordinary retries cannot reuse it
 	request    *pb.LifecycleControlRequest
 	active     bool
 	committing bool
@@ -207,10 +206,6 @@ func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRe
 		reserved = l.closures[o]
 		if reserved != nil {
 			state := reserved.control
-			if state != nil && state.takeover {
-				l.mu.Unlock()
-				return nil, broker.ErrAdmissionStale
-			}
 			if state != nil && !state.active && state.committing && proto.Equal(state.request, key) && (receipt == "" || receipt == state.receipt) {
 				response := &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Receipt: state.receipt, Pending: true}
 				l.mu.Unlock()

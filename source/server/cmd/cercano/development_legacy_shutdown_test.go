@@ -5,7 +5,6 @@ import (
 	"cercano/source/server/pkg/devhostauth"
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"google.golang.org/grpc"
 	"net"
@@ -18,52 +17,6 @@ import (
 
 	pb "cercano/source/server/pkg/proto"
 )
-
-func TestLegacyAuthenticatedShutdownWait(t *testing.T) {
-	for _, mode := range []string{"bounded-success", "drain-hangs", "declined", "response-loss", "refused", "cancelled", "unreadable-process"} {
-		t.Run(mode, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Millisecond)
-			defer cancel()
-			if mode == "cancelled" {
-				cancel()
-			}
-			requests, checks := 0, 0
-			err := awaitAuthenticatedShutdown(ctx, func() error {
-				if mode == "declined" {
-					return fmt.Errorf("consent declined")
-				}
-				return nil
-			}, func(context.Context) (*pb.ShutdownAgentResponse, error) {
-				requests++
-				if mode == "response-loss" {
-					return nil, fmt.Errorf("response lost")
-				}
-				return &pb.ShutdownAgentResponse{Accepted: mode != "refused"}, nil
-			}, func(context.Context) error {
-				checks++
-				if mode == "bounded-success" && checks >= 2 {
-					return nil
-				}
-				return fmt.Errorf("source live or absence unverifiable")
-			})
-			if (err == nil) != (mode == "bounded-success") {
-				t.Fatalf("err=%v", err)
-			}
-			if mode == "bounded-success" && checks < 2 {
-				t.Fatal("acceptance treated as completion")
-			}
-			if (mode == "declined" || mode == "cancelled") && requests != 0 {
-				t.Fatal("unapproved shutdown")
-			}
-			if (mode == "response-loss" || mode == "refused") && checks != 0 {
-				t.Fatal("uncertain/refused request authorized continuation")
-			}
-			if (mode == "drain-hangs" || mode == "unreadable-process") && !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("not bounded: %v", err)
-			}
-		})
-	}
-}
 
 type legacyShutdownRPCFixture struct {
 	developmentIdentityFake

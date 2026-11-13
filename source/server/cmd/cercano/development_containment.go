@@ -118,7 +118,7 @@ func (p *developmentContainedSource) Prepare(ctx context.Context, source *pb.Lif
 	return snapshot, err
 }
 
-// containSource retains launch exclusion across authenticated ShutdownAgent,
+// containSource retains launch exclusion across authenticated native termination,
 // prepared-generation absence and use. Workers are never signalled. The supported
 // host owns persistence and independent tasks; canonical workers use host callbacks.
 // The coordinator still rechecks consent/epoch transactionally inside use. This is

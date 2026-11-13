@@ -4,15 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"time"
 
 	"cercano/source/server/internal/brewrestart"
-	pb "cercano/source/server/pkg/proto"
 )
 
 // Caller holds the exact source launch lock. Credentials are loaded exclusively
 // from its private registry record. No reconnect, launcher or optional new RPC
-// participates; LifecycleList and ShutdownAgent are present in the pinned old host.
+// participates. Authenticate the pinned old host before native termination.
 func (p *developmentContainedSource) shutdownAuthenticated(ctx context.Context, host string, endpoint netip.AddrPort, expected brewrestart.Identity, validate func() error) error {
 	selected, err := selectDevelopmentPeer(p.state, p.destination, "", host)
 	if err != nil {
@@ -35,45 +33,4 @@ func (p *developmentContainedSource) shutdownAuthenticated(ctx context.Context, 
 	// not an optional RPC whose drain can retain the very work blocking resume.
 	// StopLegacyHost rechecks process incarnation and consent before signalling.
 	return p.terminate(ctx, host, endpoint, expected, validate)
-}
-
-// A response loss is deliberately blocking, even if the source subsequently dies:
-// the coordinator must reconcile with the same approval/operation, never replay
-// work. No newer status RPC or Complete field is required of historical hosts.
-func awaitAuthenticatedShutdown(ctx context.Context, validate func() error, request func(context.Context) (*pb.ShutdownAgentResponse, error), absent func(context.Context) error) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return fmt.Errorf("old source shutdown requires deadline")
-	}
-	if validate == nil {
-		return fmt.Errorf("source shutdown requires approval")
-	}
-	if err := validate(); err != nil {
-		return err
-	}
-	response, err := request(ctx)
-	if err != nil {
-		return fmt.Errorf("old source shutdown outcome uncertain: %w", err)
-	}
-	if !response.GetAccepted() {
-		return fmt.Errorf("old source refused shutdown: %s", response.GetMessage())
-	}
-	ticker := time.NewTicker(25 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("old source shutdown not death-proven: %w", err)
-		}
-		err := absent(ctx)
-		if err == nil {
-			return ctx.Err()
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("old source shutdown not death-proven (%v): %w", err, ctx.Err())
-		case <-ticker.C:
-		}
-	}
 }
