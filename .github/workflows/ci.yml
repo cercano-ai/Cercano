@@ -96,3 +96,30 @@ jobs:
           name: cli-e2e-traces
           path: test/e2e/artifacts/
           if-no-files-found: ignore
+
+  recovery-darwin-components:
+    # Component qualification only: not an end-to-end native consent/UI gate.
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: source/server
+    env:
+      CGO_ENABLED: "1"
+      CERCANO_DISABLE_CREDENTIALS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: source/server/go.mod
+          cache-dependency-path: |
+            source/server/go.sum
+            source/clients/cli/go.sum
+      - name: Native identity signal and prepared inventory components
+        run: go test -race ./internal/brewrestart -run 'Test(SignalIdentity|PreparedGenerationInventory|PreparedAbsenceClassification)' -count=1 -timeout=120s
+      - name: Authenticated adapter and asynchronous release regressions
+        run: go test -race ./cmd/cercano ./internal/server -run 'Test(PreparedAbsence|DevelopmentResumeTimeoutConfirmedContinuation|SessionCloseAsyncDurableReleaseFailure)' -count=1 -timeout=120s
+      - name: Build disposable process-exit bridge
+        run: go test -c -o "$RUNNER_TEMP/recovery-server.test" ./cmd/cercano
+      - name: CLI recovered binding after proven child exit (not native stop)
+        working-directory: source/clients/cli
+        run: CERCANO_RESUME_PROBE_BINARY="$RUNNER_TEMP/recovery-server.test" go test ./internal/ui -run '^TestDestinationResumeAfterActualProcessExit$' -count=1 -timeout=120s

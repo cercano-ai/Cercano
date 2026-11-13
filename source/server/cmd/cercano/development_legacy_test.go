@@ -173,7 +173,7 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 				bounded, done := context.WithTimeout(ctx, 75*time.Millisecond)
 				defer done()
 				err = adapter.WithStoppedSource(bounded, source, snapshot, validate, func(context.Context) error { uses++; return nil })
-				if !errors.Is(err, context.DeadlineExceeded) || uses != 0 || stops != 1 || absences != 0 {
+				if err == nil || errors.Is(err, context.DeadlineExceeded) || bounded.Err() != nil || uses != 0 || stops != 1 || absences != 0 {
 					t.Fatalf("native verification bypassed: stops=%d uses=%d absences=%d err=%v", stops, uses, absences, err)
 				}
 			} else {

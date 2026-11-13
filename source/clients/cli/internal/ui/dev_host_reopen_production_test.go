@@ -66,7 +66,7 @@ func TestReopenProductionReleasedAndDisconnected(t *testing.T) {
 					t.Fatalf("released production reopen: %+v %v", selected, err)
 				}
 			} else {
-				if err == nil || !strings.Contains(err.Error(), "destination recovery blocked") || selected.Identity.Host != destination.Identity.Host {
+				if err == nil || !strings.Contains(err.Error(), "authenticated source resolver unavailable") || selected.Identity.Host != destination.Identity.Host {
 					t.Fatalf("live/unknown source must stay on destination with blocker: %+v %v", selected, err)
 				}
 
