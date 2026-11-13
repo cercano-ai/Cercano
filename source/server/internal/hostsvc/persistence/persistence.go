@@ -1565,9 +1565,9 @@ func buildSuggestNextPromptPrompt(recap, tail string) string {
 }
 
 // SanitizeSuggestion normalizes a coproc's suggestion text: single line, no
-// surrounding quotes, capped at 80 characters. Belt-and-suspenders against
-// models that ignore the "no formatting" rule. Exported for tests in the
-// server package that lock in the normalization shape.
+// surrounding quotes. The prompt requests brevity, but never cut the returned
+// prompt mid-sentence (or mid-UTF-8 rune) to enforce that preference. Exported
+// for tests in the server package that lock in the normalization shape.
 func SanitizeSuggestion(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
@@ -1585,9 +1585,6 @@ func SanitizeSuggestion(s string) string {
 	}
 	// Drop leading list/label punctuation the model might inject anyway.
 	s = strings.TrimLeft(s, "-*•> ")
-	if len(s) > 80 {
-		s = s[:80]
-	}
 	return s
 }
 

@@ -672,10 +672,14 @@ func (p promptInput) View() string {
 			// prompt. Both render in the same Placeholder style so the
 			// input still reads as empty.
 			ghost := p.Placeholder
+			tail := ""
 			if p.Suggestion != "" {
 				ghost = p.Suggestion
+				tail = "…"
 			}
-			ghost = ansi.Truncate(ghost, textWidth, "")
+			// Preview only: indicate hidden text without modifying Suggestion.
+			// Tab accepts the complete prompt into the wrapping editor.
+			ghost = ansi.Truncate(ghost, textWidth, tail)
 			lineText = p.styles.Placeholder.Render(ghost)
 			lines = append(lines, prompt+lineText+strings.Repeat(" ", maxInt(0, textWidth-lipgloss.Width(ghost))))
 			continue

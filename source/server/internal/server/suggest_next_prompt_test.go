@@ -3,7 +3,7 @@ package server
 import "testing"
 
 // sanitizeSuggestion normalises whatever the coproc emits into a single-line,
-// 80-char, unquoted prompt suggestion. These tests lock in the shape.
+// unquoted prompt suggestion without cutting its text. These tests lock in the shape.
 func TestSanitizeSuggestion(t *testing.T) {
 	cases := []struct {
 		name string
@@ -21,7 +21,7 @@ func TestSanitizeSuggestion(t *testing.T) {
 		{"strip_bullet", "- run tests", "run tests"},
 		{"strip_asterisk", "* run tests", "run tests"},
 		{"strip_arrow", "> run tests", "run tests"},
-		{"cap_length", string(bytesRepeat('x', 100)), string(bytesRepeat('x', 80))},
+		{"preserve_length", string(bytesRepeat('x', 100)), string(bytesRepeat('x', 100))},
 		{"empty_stays_empty", "", ""},
 		{"whitespace_only_becomes_empty", "   \n  ", ""},
 	}
@@ -36,7 +36,7 @@ func TestSanitizeSuggestion(t *testing.T) {
 }
 
 // bytesRepeat avoids pulling strings.Repeat into the test file just for the
-// length-cap case.
+// long-suggestion case.
 func bytesRepeat(b byte, n int) []byte {
 	out := make([]byte, n)
 	for i := range out {
