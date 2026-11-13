@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -204,8 +203,7 @@ func reproQueuedResume(s *Server, ctx context.Context, r *pb.LifecycleControlReq
 	done <- err
 }
 
-// This intentionally reproduces a separate, out-of-scope defect.
-func TestReproResumeGlobalPreflightLock(t *testing.T) {
+func TestResumePreflightIsolation(t *testing.T) {
 	a, b, _ := lifecycleFixture(t)
 	serveCutoverFixture(t, a)
 	_, endpoint := serveCutoverFixture(t, b)
@@ -225,9 +223,14 @@ func TestReproResumeGlobalPreflightLock(t *testing.T) {
 	ctx, cancel := context.WithCancel(reproLoopbackContext())
 	defer cancel()
 	first := make(chan error, 1)
-	go func() { _, e := b.LifecycleResume(ctx, resumeRequest(b, endpoint)); first <- e }()
+	var initial *pb.LifecycleControlResponse
+	joined := false
+	go func() { var e error; initial, e = b.LifecycleResume(ctx, resumeRequest(b, endpoint)); first <- e }()
 	defer func() {
 		cancel()
+		if joined {
+			return
+		}
 		select {
 		case <-first:
 		case <-time.After(5 * time.Second):
@@ -236,8 +239,8 @@ func TestReproResumeGlobalPreflightLock(t *testing.T) {
 	}()
 	select {
 	case deadline := <-p.entered:
-		if deadline {
-			t.Fatal("preflight unexpectedly bounded")
+		if !deadline {
+			t.Fatal("preflight must be bounded")
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("preflight not reached")
@@ -248,40 +251,44 @@ func TestReproResumeGlobalPreflightLock(t *testing.T) {
 	r := resumeRequest(b, endpoint)
 	r.Owner = &pb.LifecycleOwner{Conversation: "unrelated"}
 	go reproQueuedResume(b, queuedCtx, r, done)
-	defer func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Error("queued resume did not join")
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("canceled waiter succeeded")
 		}
-	}()
-	// Observe the goroutine actually parked on the mutex: no sleep or negative
-	// timing assertion. Deadline is solely a failing-test watchdog.
-	until := time.Now().Add(5 * time.Second)
-	for {
-		buf := make([]byte, 1<<20)
-		n := runtime.Stack(buf, true)
-		blocked := false
-		for _, stack := range strings.Split(string(buf[:n]), "\n\n") {
-			if strings.Contains(stack, "reproQueuedResume") && strings.Contains(stack, "sync.(*Mutex).Lock") {
-				blocked = true
-			}
-		}
-		if blocked {
-			break
-		}
-		if time.Now().After(until) {
-			t.Fatal("queued canceled resume not observed at mutex")
-		}
-		runtime.Gosched()
+	case <-time.After(time.Second):
+		t.Fatal("canceled waiter blocked")
 	}
-	if b.coexistence.resumeMu.TryLock() {
-		b.coexistence.resumeMu.Unlock()
-		t.Fatal("resume mutex not held")
+	live := make(chan error, 1)
+	go reproQueuedResume(b, reproLoopbackContext(), r, live)
+	select {
+	case err := <-live:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("unrelated resume blocked")
 	}
-	t.Log("preflight RPC has no deadline; unrelated already-canceled resume parked on lifecycle-wide resumeMu")
-	// Cancellation unblocks RPC and all goroutines are joined by deferred cleanup.
+	close(p.release)
+	select {
+	case err := <-first:
+		joined = true
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("released resume blocked")
+	}
+	retry, err := b.LifecycleResume(reproLoopbackContext(), resumeRequest(b, endpoint))
+	if err != nil || !retry.GetReady() || initial.GetOperationId() == "" || retry.GetOperationId() != initial.GetOperationId() {
+		t.Fatalf("unstable retry: %v %v", retry, err)
+	}
+	b.coexistence.resumeGateMu.Lock()
+	remaining := len(b.coexistence.resumeGates)
+	b.coexistence.resumeGateMu.Unlock()
+	if remaining != 0 {
+		t.Fatal("resume leaked gate entries")
+	}
 }
 
 func reproLoopbackContext() context.Context {

@@ -70,9 +70,12 @@ func TestResumeRecoveryExactProof(t *testing.T) {
 				t.Fatal(err)
 			}
 			for i := 0; i < 2; i++ {
-				b.coexistence.resumeMu.Lock()
+				release, gateErr := b.coexistence.enterResume(ctx, "chat")
+				if gateErr != nil {
+					t.Fatal(gateErr)
+				}
 				proven, e := b.coexistence.reconcileRecoveredResume(ctx, "chat")
-				b.coexistence.resumeMu.Unlock()
+				release()
 				invalid := mismatch == "destination" || mismatch == "conversation"
 				if (e != nil) != invalid {
 					t.Fatalf("proof error: %v", e)

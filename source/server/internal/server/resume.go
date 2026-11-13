@@ -18,6 +18,7 @@ import (
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/recoveryguard"
 	pb "cercano/source/server/pkg/proto"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -132,8 +133,11 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	if id == "" {
 		return nil, refusal(status.Error(codes.InvalidArgument, "conversation required"))
 	}
-	l.resumeMu.Lock()
-	defer l.resumeMu.Unlock()
+	release, err := l.enterResume(ctx, id)
+	if err != nil {
+		return nil, refusal(err)
+	}
+	defer release()
 	// Recovery commits its receipt before publishing readiness. Reconcile on
 	// successful retries too, including restart after commit but before cleanup.
 	defer func() {
@@ -296,7 +300,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			if l.options.ResolveSource == nil || l.options.ControlDial == nil {
 				return nil, eligible(status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable"))
 			}
-			source, endpoint, e := l.options.ResolveSource(ctx, v.Owner)
+			source, endpoint, e := l.resolveSourceBounded(ctx, v.Owner)
 			if e != nil {
 				return nil, unavailable(e)
 			}
@@ -370,7 +374,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			return nil, eligible(status.Error(codes.FailedPrecondition, "authenticated source resolver unavailable"))
 		}
 		stage = "resolve_source"
-		source, endpoint, err := l.options.ResolveSource(ctx, op.Owner.Host)
+		source, endpoint, err := l.resolveSourceBounded(ctx, op.Owner.Host)
 		if err != nil {
 			return nil, unavailable(err)
 		}
@@ -378,14 +382,21 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			return nil, refusal(status.Error(codes.FailedPrecondition, "source identity changed"))
 		}
 		stage = "dial_source"
-		conn, err := l.options.ControlDial(ctx, endpoint, source)
+		conn, err := boundedPreflight(ctx, func(phase context.Context) (*grpc.ClientConn, error) {
+			return l.options.ControlDial(phase, endpoint, source)
+		})
 		if err != nil {
+			if conn != nil {
+				conn.Close()
+			}
 			return nil, unavailable(err)
 		}
 		defer conn.Close()
 		client := pb.NewAgentClient(conn)
 		stage = "check_source"
-		check, err := client.LifecycleList(ctx, &pb.LifecycleControlRequest{Target: op.Source})
+		check, err := boundedPreflight(ctx, func(phase context.Context) (*pb.LifecycleControlResponse, error) {
+			return client.LifecycleList(phase, &pb.LifecycleControlRequest{Target: op.Source})
+		})
 		if err != nil {
 			return nil, unavailable(err)
 		}
@@ -501,7 +512,7 @@ func (l *coexistenceLifecycle) resolveResumeAcceptanceLocked(a *IncomingAcceptan
 	return nil
 }
 
-// reconcileRecoveredResume runs under resumeMu. A historical transactional
+// reconcileRecoveredResume runs under the conversation resume gate. A historical transactional
 // recovery receipt proves only that this exact source epoch was superseded at
 // this destination; it grants neither ownership nor readiness. Keep the journal
 // so a crash/retry can repeat cleanup, and reaffirm publication before resolving

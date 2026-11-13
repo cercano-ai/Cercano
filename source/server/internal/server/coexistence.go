@@ -55,8 +55,10 @@ type CoexistenceOptions struct {
 type coexistenceLifecycle struct {
 	launches         map[string]*pb.LifecycleControlRequest
 	mu               sync.Mutex
-	resumeMu         sync.Mutex                           // serialize operation journal updates, never held by peer callbacks
-	recoveryOffers   map[string]*containedRecoveryConsent // guarded by resumeMu, single use
+	resumeGateMu     sync.Mutex // protects only the keyed gate registry
+	resumeGates      map[string]*resumeGate
+	recoveryOffersMu sync.Mutex
+	recoveryOffers   map[string]*containedRecoveryConsent // guarded by recoveryOffersMu; immutable after publication
 	retireMu         sync.Mutex
 	retireDone       chan struct{}
 	retired          chan struct{}

@@ -44,8 +44,7 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 		return nil, true, status.Error(codes.FailedPrecondition, "live-source recovery requires a qualified containment adapter")
 	}
 	if r.RecoveryChallenge != "" {
-		c := l.recoveryOffers[r.RecoveryChallenge]
-		delete(l.recoveryOffers, r.RecoveryChallenge)
+		c := l.takeRecoveryOffer(r.RecoveryChallenge)
 		if c == nil || c.offer.Operation.GetLegacyProcessIdentity() == "" || time.Now().After(c.expires) || !r.ConfirmOriginalRecovery || !proto.Equal(c.requester, r.Requester) || c.offer.Operation.Owner.Conversation != id {
 			return nil, true, status.Error(codes.PermissionDenied, "fresh single-use live-source confirmation required")
 		}
@@ -62,11 +61,11 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 			if string(encoded) != c.liveState || current != state || current.Owner != op.Owner.Host || current.Epoch != op.Owner.Epoch || (current.State != "owned" && current.State != "reserved") {
 				return status.Error(codes.FailedPrecondition, "live-source consent is stale")
 			}
-			selection, e := l.options.RecoverySelection(ctx, l.options.Host)
+			selection, e := l.recoverySelectionBounded(ctx, l.options.Host)
 			if e != nil {
 				return e
 			}
-			source, _, e := l.options.ResolveSource(ctx, op.Source.Host)
+			source, _, e := l.resolveSourceBounded(ctx, op.Source.Host)
 			if e != nil {
 				return e
 			}
@@ -95,7 +94,7 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 		}
 		result.CurrentOwner = true
 		result.OperationId = op.HandoverId
-		result.OriginalRecovery = c.offer
+		result.OriginalRecovery = proto.Clone(c.offer).(*pb.LifecycleOriginalRecovery)
 		return result, true, nil
 	}
 	if state.Owner == "" || (state.State != "owned" && state.State != "reserved") {
@@ -104,11 +103,11 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 	if r.Requester == nil || r.Requester.Host == state.Owner || l.options.ResolveSource == nil || l.options.RecoverySelection == nil {
 		return nil, true, status.Error(codes.FailedPrecondition, "authenticated source and selected destination required")
 	}
-	src, _, err := l.options.ResolveSource(ctx, state.Owner)
+	src, _, err := l.resolveSourceBounded(ctx, state.Owner)
 	if err != nil {
 		return nil, true, err
 	}
-	selection, err := l.options.RecoverySelection(ctx, l.options.Host)
+	selection, err := l.recoverySelectionBounded(ctx, l.options.Host)
 	if err != nil {
 		return nil, true, err
 	}
@@ -136,18 +135,10 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 		return nil, true, err
 	}
 	offer := &pb.LifecycleOriginalRecovery{Operation: op, Selection: selection, Challenge: nonce}
-	if l.recoveryOffers == nil {
-		l.recoveryOffers = make(map[string]*containedRecoveryConsent)
+	if err := l.publishRecoveryOffer(nonce, &containedRecoveryConsent{liveState: string(encoded), offer: proto.Clone(offer).(*pb.LifecycleOriginalRecovery), requester: proto.Clone(r.Requester).(*pb.LifecycleIdentity), expires: time.Now().Add(5 * time.Minute)}); err != nil {
+		return nil, true, err
 	}
-	for key, c := range l.recoveryOffers {
-		if time.Now().After(c.expires) || (proto.Equal(c.requester, r.Requester) && c.offer.Operation.Owner.Conversation == id) {
-			delete(l.recoveryOffers, key)
-		}
-	}
-	if len(l.recoveryOffers) >= 128 {
-		return nil, true, status.Error(codes.ResourceExhausted, "too many recovery confirmations")
-	}
-	l.recoveryOffers[nonce] = &containedRecoveryConsent{liveState: string(encoded), offer: proto.Clone(offer).(*pb.LifecycleOriginalRecovery), requester: proto.Clone(r.Requester).(*pb.LifecycleIdentity), expires: time.Now().Add(5 * time.Minute)}
+
 	return &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Owner: owner, OperationId: op.HandoverId, ConfirmationRequired: true, OriginalRecovery: offer}, true, nil
 }
 
@@ -163,4 +154,31 @@ func recoveryNonce() (string, error) {
 	var b [32]byte
 	_, err := rand.Read(b[:])
 	return hex.EncodeToString(b[:]), err
+}
+
+// Publication transfers ownership of c to the registry; callers must not mutate it.
+func (l *coexistenceLifecycle) publishRecoveryOffer(nonce string, c *containedRecoveryConsent) error {
+	l.recoveryOffersMu.Lock()
+	defer l.recoveryOffersMu.Unlock()
+	if l.recoveryOffers == nil {
+		l.recoveryOffers = make(map[string]*containedRecoveryConsent)
+	}
+	now := time.Now()
+	for key, old := range l.recoveryOffers {
+		if now.After(old.expires) || (proto.Equal(old.requester, c.requester) && old.offer.Operation.Owner.Conversation == c.offer.Operation.Owner.Conversation) {
+			delete(l.recoveryOffers, key)
+		}
+	}
+	if len(l.recoveryOffers) >= 128 {
+		return status.Error(codes.ResourceExhausted, "too many recovery confirmations")
+	}
+	l.recoveryOffers[nonce] = c
+	return nil
+}
+func (l *coexistenceLifecycle) takeRecoveryOffer(challenge string) *containedRecoveryConsent {
+	l.recoveryOffersMu.Lock()
+	defer l.recoveryOffersMu.Unlock()
+	c := l.recoveryOffers[challenge]
+	delete(l.recoveryOffers, challenge)
+	return c
 }

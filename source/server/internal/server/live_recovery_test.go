@@ -38,7 +38,7 @@ func (p *containedFixture) WithStoppedSource(ctx context.Context, _ *pb.Lifecycl
 	return use(ctx)
 }
 func TestLiveSourceRecovery(t *testing.T) {
-	for _, mode := range []string{"recover", "reserved", "stale", "uncertain", "expiry", "decline", "refreshed"} {
+	for _, mode := range []string{"recover", "reserved", "stale", "uncertain", "expiry", "decline", "refreshed", "cross-conversation"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}})
 			a, b, _ := lifecycleFixture(t)
@@ -91,7 +91,16 @@ func TestLiveSourceRecovery(t *testing.T) {
 			}
 			switch mode {
 			case "expiry":
-				l.recoveryOffers[r.RecoveryChallenge].expires = time.Now().Add(-time.Second)
+				l.recoveryOffersMu.Lock()
+				old := *l.recoveryOffers[r.RecoveryChallenge]
+				old.expires = time.Now().Add(-time.Second)
+				l.recoveryOffers[r.RecoveryChallenge] = &old
+				l.recoveryOffersMu.Unlock()
+			case "cross-conversation":
+				if _, err := a.Retain(ctx, "other"); err != nil {
+					t.Fatal(err)
+				}
+				r.Owner = &pb.LifecycleOwner{Conversation: "other"}
 			case "decline":
 				r.ConfirmOriginalRecovery = false
 			case "refreshed":
@@ -111,6 +120,7 @@ func TestLiveSourceRecovery(t *testing.T) {
 				}
 				// A declined, expired, stale or failed attempt cannot be replayed.
 				r.Requester = l.controlIdentity()
+				r.Owner = &pb.LifecycleOwner{Conversation: "live"}
 				r.ConfirmOriginalRecovery = true
 				replay, err := b.LifecycleResume(ctx, r)
 				if err == nil || replay != nil || p.stop != 0 {

@@ -330,7 +330,13 @@ func selectDevelopmentRecord(state string, own *proto.LifecycleIdentity, endpoin
 }
 func developmentSourceResolver(state string, own *proto.LifecycleIdentity) func(context.Context, string) (*proto.LifecycleIdentity, string, error) {
 	return func(ctx context.Context, host string) (*proto.LifecycleIdentity, string, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
 		r, err := selectDevelopmentPeer(state, own, "", host)
+		if expired := ctx.Err(); expired != nil {
+			return nil, "", expired
+		}
 		if err != nil {
 			return nil, "", err
 		}
@@ -341,11 +347,20 @@ func developmentSourceResolver(state string, own *proto.LifecycleIdentity) func(
 // Selection is read from the same private records used by pinned peer dialing.
 func developmentRecoverySelection(state string, own *proto.LifecycleIdentity) func(context.Context, string) (*proto.LifecycleRecoverySelection, error) {
 	return func(ctx context.Context, host string) (*proto.LifecycleRecoverySelection, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		r, err := selectDevelopmentRecord(state, own, "", host, true)
+		if expired := ctx.Err(); expired != nil {
+			return nil, expired
+		}
 		if err != nil {
 			return nil, err
 		}
 		if err = developmentPrivatePath(r.TokenFile, false); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		return &proto.LifecycleRecoverySelection{Identity: r.Identity, Endpoint: r.Endpoint, TokenFile: r.TokenFile}, nil
@@ -356,7 +371,13 @@ func developmentPeerDial(state string, own *proto.LifecycleIdentity) func(contex
 		if want == nil {
 			return nil, fmt.Errorf("exact peer identity required")
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		selected, err := selectDevelopmentPeer(state, own, "", want.Host)
+		if expired := ctx.Err(); expired != nil {
+			return nil, expired
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -369,6 +390,9 @@ func developmentPeerDial(state string, own *proto.LifecycleIdentity) func(contex
 		}
 		auth, err := devhostauth.Load(selected.Identity.Host, selected.TokenFile)
 		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
