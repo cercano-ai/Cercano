@@ -62,7 +62,16 @@ The test skips without the explicit binary and is Darwin-build constrained.
 children** in `recovery-darwin-acceptance` on `macos-14`, retaining the component
 regressions and process-exit bridge. Hosted CI execution is not claimed here.
 
-## Local verification, 2026-11-13
+## Landed status and historical verification, 2026-11-13
+
+Full native acceptance landed in local main at
+`f736b1b43a214990ba0f4141a12edec1af8f8c11`, following independent review
+with no blockers. The reviewer independently passed three normal and two
+race-instrumented executions. The remaining audit diagnostics and retry fixes
+landed at `a08f94f1f7afb66d866588ea86eea6e25c05905f`.
+
+The following verification was performed before landing, not rerun for this
+documentation correction:
 
 On Darwin, normal acceptance passed three repetitions and the race-instrumented
 CLI plus children passed two. Relevant CLI recovery/bridge integration tests,
@@ -70,5 +79,10 @@ full CLI suite, full server suite (`go test ./... -count=1`), server build
 (`go build -o bin/cercano ./cmd/cercano/`), and race component regressions for
 native identity/inventory, authenticated adapter, and asynchronous release passed.
 The full server suite emitted existing macOS Keychain deprecation warnings.
-No deployment, restart, push, or landing was performed. Independent review is
-still required.
+That verification did not deploy, restart, or push; the subsequent local landing
+and completed review are recorded above. Hosted CI execution remains unobserved,
+and cross-version/architecture macOS private API qualification remains open.
+Registry-rescan cleanup is optional and deferred. Older hosts that cannot freshly
+authenticate intentionally fail closed. The earlier historical parallel-suite
+failure remains unclassified despite later full-suite passes; see
+[bounded observation](bounded-resume-observation-blocker.md).

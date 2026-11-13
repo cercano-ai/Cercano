@@ -38,7 +38,7 @@ fences and writer absence remain mandatory. No claim is made that returning
 from a client RPC joins a remote mutation. Arbitrary context-ignoring mutating
 adapters are not made bounded by this observation mechanism.
 
-## Disposable verification
+## Historical disposable verification
 
 Reproduction against the original identity implementation: both
 `TestIdentityIndependentOfLifecycleMutex` and `TestIdentityWhileActualListQueued`
@@ -75,18 +75,20 @@ Final verification used `/opt/homebrew/bin/go` (Go 1.26.3 darwin/arm64):
   successfully without that ceiling. Serial success does not replace the
   default-parallel landing gate.
 
-## Remaining audit review — 2026-11-13
+## Landed audit fixes and historical verification — 2026-11-13
 
-Baseline bounded identity-only observation is landed in local main `f888165d`.
-The remaining audit branch `fix/remaining-recovery-audit` is not landed or pushed.
-It adds correlated, safe asynchronous terminal release failure diagnostics without
-clearing unresolved blockers/ownership, and retries final prepared-writer absence
+Baseline bounded identity-only observation landed in local main `f888165d`.
+The remaining audit diagnostics and retry fixes landed in local main at
+`a08f94f1f7afb66d866588ea86eea6e25c05905f`.
+They add correlated, safe asynchronous terminal release failure diagnostics without
+clearing unresolved blockers/ownership, and retry final prepared-writer absence
 only for positively attributed prepared processes. Permanent, uncertain and
 unsupported-platform refusals return immediately with cause. Duplicate validation,
 launch exclusion, exact identity revalidation and legacy policies remain intact.
-Registry-rescan cleanup is deferred; no PID-kill fallback was added.
+Registry-rescan cleanup is optional and deferred; no PID-kill fallback was added.
 
-Verification on this macOS checkout:
+Historical prelanding verification on this macOS checkout (not rerun for this
+documentation correction):
 
 - Targeted normal and race regressions cover async durable-release failure,
   prepared absence/classification/inventory, authenticated timeout continuation,
@@ -108,20 +110,24 @@ Verification on this macOS checkout:
 
 ### Native acceptance boundary
 
-The added `recovery-darwin-components` macos-14 CI job runs native identity signal
-and prepared-inventory components, authenticated-adapter regressions, and the CLI
-proven-child-exit bridge. CI execution itself has not been observed here. This is
-**not** production CLI consent -> authenticated native stop -> recovered UI/state
-end-to-end acceptance. The consent/adapter test substitutes process inspection,
-stop and absence seams; the CLI bridge starts from an already-exited source.
-Neither may be presented as full native acceptance.
+[Full native recovery acceptance](full-native-recovery-acceptance.md) landed in
+local main at `f736b1b43a214990ba0f4141a12edec1af8f8c11`, independently reviewed
+with no blockers (reviewer: three normal and two race executions). It integrates
+real CLI-model consent, authenticated native containment, guarded recovery, and
+history hydration in one flow. It is **not** PTY/terminal, installed-launcher, or
+real-inference acceptance. The earlier consent/adapter test substitutes process
+seams and the CLI bridge starts from an already-exited source; those component
+tests alone still do not establish full native acceptance.
 
-A complete acceptance harness still needs an explicit choice: a disposable,
-canonical prepared-generation launcher running real production CLI/hosts and
-native stop, versus extending the test-host bridge with launcher/authentication
-wiring (still not terminal acceptance). No production test mode or alternate
-identity authority was invented to bridge that gap. macOS private API availability
-across supported OS/architecture versions remains a qualification gap; one local
-Darwin run and a single proposed runner do not close it. Older hosts unable to
-freshly authenticate remain fail-closed. No live user process/config/database was
-intentionally changed; only disposable test-owned children and stores were used.
+The current `.github/workflows/ci.yml` job is `recovery-darwin-acceptance` on
+`macos-14`. It retains native identity/prepared-inventory, authenticated-adapter,
+and CLI proven-child-exit regressions and adds three normal and two race full
+acceptance executions with instrumented children. Hosted execution remains
+unobserved. Full server/CLI suites and the server build passed before landing;
+these are historical results, not validation rerun for this docs correction.
+
+macOS private API availability across supported OS/architecture versions remains
+an open qualification gap; local Darwin runs and one configured runner do not
+close it. Older hosts unable to freshly authenticate intentionally remain
+fail-closed. No live user process/config/database was intentionally changed by
+these tests; only disposable test-owned children and stores were used.

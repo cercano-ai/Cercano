@@ -50,7 +50,14 @@ are included.
 - Full internal/server and internal/broker suites passed, including a final
   race-enabled run after the test additions.
 
-Serialization and bounded identity-only observation are now in local main through
-`f888165d`. The remaining audit fixes on `fix/remaining-recovery-audit` are
-review-only and not landed or pushed. Historical List test descriptions above
-are not the current ordinary preflight contract.
+## Current status / supersession
+
+Serialization and bounded identity-only observation landed in local main through
+`f888165d`; the remaining audit diagnostics and retry fixes landed at
+`a08f94f1f7afb66d866588ea86eea6e25c05905f`. Full native recovery acceptance
+subsequently landed at `f736b1b43a214990ba0f4141a12edec1af8f8c11` following
+independent review with no blockers. See
+[bounded observation](../bounded-resume-observation-blocker.md) and
+[full native recovery acceptance](../full-native-recovery-acceptance.md) for
+current status and qualification limits. The verification above is historical;
+its List test descriptions are not the current ordinary preflight contract.
