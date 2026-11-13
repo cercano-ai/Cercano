@@ -5,11 +5,13 @@ package brewrestart
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -80,5 +82,31 @@ func TestPreparedGenerationInventory(t *testing.T) {
 		exe, argv, e := recoveryProcessArguments(child.Process.Pid)
 		id, ie := Inspect(child.Process.Pid)
 		t.Fatalf("unlinked generation process admitted: exe=%q argv=%q err=%v id=%+v inspect=%v", exe, argv, e, id, ie)
+	}
+}
+
+func TestPreparedAbsenceClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name, executable string
+		cause            error
+		present          bool
+	}{
+		{"present", "/prepared/cercano", nil, true},
+		{"unrelated", "/other/cercano", nil, false},
+		{"uncertain", "relative", nil, false},
+		{"permission", "", syscall.EPERM, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := verifyPreparedWritersAbsent(context.Background(), "/prepared", func() ([]int, error) { return []int{123}, nil }, func(int) (string, []string, error) { return tc.executable, nil, tc.cause }, func(int) (Identity, error) { return Identity{}, tc.cause })
+			if errors.Is(err, ErrPreparedProcessPresent) != tc.present {
+				t.Fatalf("classification: %v", err)
+			}
+			if tc.cause != nil && !errors.Is(err, tc.cause) {
+				t.Fatalf("lost cause: %v", err)
+			}
+			if tc.name == "uncertain" && err == nil {
+				t.Fatal("uncertain admitted")
+			}
+		})
 	}
 }

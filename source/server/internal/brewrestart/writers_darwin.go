@@ -52,7 +52,7 @@ func verifyPreparedWritersAbsent(ctx context.Context, generation string, list fu
 			return fmt.Errorf("uncertain kernel executable pid=%d", pid)
 		}
 		if executable == filepath.Join(generation, "cercano") {
-			return fmt.Errorf("source generation process still present pid=%d", pid)
+			return fmt.Errorf("%w pid=%d", ErrPreparedProcessPresent, pid)
 		}
 	}
 	return nil

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"path/filepath"
@@ -202,16 +203,32 @@ func (p *developmentContainedSource) WithStoppedSource(ctx context.Context, sour
 		return fmt.Errorf("exact prepared source snapshot required")
 	}
 	return p.containSource(ctx, source, snapshot, validate, func(ctx context.Context, generation, store string) error {
-		for {
-			err := brewrestart.VerifyPreparedWritersAbsent(ctx, generation, store)
-			if err == nil {
-				return use(ctx)
-			}
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("source writer containment refused: %v: %w", err, ctx.Err())
-			case <-time.After(25 * time.Millisecond):
-			}
+		if err := waitPreparedWritersAbsent(ctx, func(ctx context.Context) error {
+			return brewrestart.VerifyPreparedWritersAbsent(ctx, generation, store)
+		}); err != nil {
+			return err
 		}
+		return use(ctx)
 	})
+}
+
+// Observation stays inside the caller's generation launch exclusion.
+func waitPreparedWritersAbsent(ctx context.Context, verify func(context.Context) error) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := verify(ctx)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, brewrestart.ErrPreparedProcessPresent) {
+			return fmt.Errorf("source writer containment refused: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("source writer containment refused: %w: %w", err, ctx.Err())
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }
