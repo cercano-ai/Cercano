@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -80,8 +81,8 @@ func TestCoordinatedDistinctAndConflictingChanges(t *testing.T) {
 	if _, err := a.Save(context.Background(), base, Defaults()); !errors.Is(err, ErrConfigConflict) {
 		t.Fatalf("stale full save: %v", err)
 	}
-	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0600 {
+	// Windows has no Unix permission bits (Go reports 0666 for writable files).
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatal("mode changed")
 	}
 }
