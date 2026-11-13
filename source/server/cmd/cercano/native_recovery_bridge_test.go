@@ -35,6 +35,9 @@ func TestNativeRecoveryBridge(t *testing.T) {
 	if root == "" || (role != "source" && role != "destination") {
 		t.Skip("explicit disposable native recovery harness only")
 	}
+	if os.Getenv("CERCANO_DISABLE_CREDENTIALS") != "1" {
+		t.Fatal("native recovery bridge requires disabled credentials")
+	}
 	ctx := context.Background()
 	state := filepath.Join(root, "state")
 	generation := filepath.Join(root, role)
@@ -79,10 +82,19 @@ func TestNativeRecoveryBridge(t *testing.T) {
 		o.startupAdmission = productionStartupAdmission{paths: productionAuthorityPaths{config: o.ConfigAuthority, conversations: identity.Store}, generationPreflight: true, bounded: &binding}
 		s, resources, e := newProductionDevelopmentHostWithDependencies(ctx, o, auth, enabledDevelopmentFakes(t, developmentProductionDependencies{}))
 		must(e)
+		// enabledDevelopmentFakes permits construction only with injected memory
+		// credentials and synthetic backends. Restore the harness policy before
+		// exposing any RPCs; the production attestation must report that boundary.
+		t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 		srv = s
 		defer resources.Wait(ctx)
 	}
 	defer srv.CloseCoexistenceStore()
+	policy, err := srv.GetCredentialPolicy(ctx, &pb.GetCredentialPolicyRequest{})
+	must(err)
+	if !policy.GetCredentialsDisabled() {
+		t.Fatal("native recovery bridge must attest disabled credentials before publication")
+	}
 	transport := grpc.NewServer(auth.ServerOptions()...)
 	if role == "source" {
 		pb.RegisterAgentServer(transport, nativeRecoverySource{srv})
