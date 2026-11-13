@@ -473,8 +473,7 @@ func (s *Server) resumeClaim(ctx context.Context, r *pb.LifecycleControlRequest)
 	if err == nil {
 		l := s.coexistence
 		l.mu.Lock()
-		cap := l.owners[r.Owner.Conversation]
-		ready := cap != nil && l.ready[ownerOf(cap)] && proto.Equal(wireOwner(ownerOf(cap)), response.Owner)
+		ready := l.currentAndAdmissibleLocked(controlOwner(&pb.LifecycleControlRequest{Owner: response.Owner}))
 		l.mu.Unlock()
 		v, e := conversation.ReadOwnership(ctx, l.store, r.Owner.Conversation)
 		if e != nil {

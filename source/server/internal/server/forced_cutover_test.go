@@ -204,6 +204,7 @@ func TestForcedCutoverCancelsAdmittedForegroundAndWaitsForWriteback(t *testing.T
 	if _, err := b.Retain(context.Background(), owner.Conversation); err == nil {
 		t.Fatal("destination acquired before writeback")
 	}
+	assertReconnectRefused(t, a, owner)
 	work.finish()
 	ctx, cancelRetry := context.WithTimeout(context.Background(), time.Second)
 	defer cancelRetry()

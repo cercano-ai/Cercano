@@ -138,9 +138,7 @@ func TestResumeRecoverySupersession(t *testing.T) {
 
 }
 
-// The remaining tests intentionally reproduce separate, out-of-scope defects.
-
-func TestReproResumeFencedReconnect(t *testing.T) {
+func TestResumeFencedReconnect(t *testing.T) {
 	ctx := reproLoopbackContext()
 	a, b, _ := lifecycleFixture(t)
 	serveCutoverFixture(t, a)
@@ -166,19 +164,22 @@ func TestReproResumeFencedReconnect(t *testing.T) {
 	}
 	reconnect := &pb.LifecycleControlRequest{Target: a.coexistence.controlIdentity(), Owner: wireOwner(owner)}
 	acquired, err := a.LifecycleAcquire(ctx, reconnect)
-	if err != nil || acquired.GetOwner().GetEpoch() != owner.Epoch {
-		t.Fatalf("acquire: %v %v", acquired, err)
+	if err == nil || acquired.GetReady() || acquired.GetCurrentOwner() {
+		t.Fatalf("closed acquire: %v %v", acquired, err)
 	}
 	got, err := a.LifecycleResume(ctx, reconnect)
-	if err != nil || !got.GetReady() || !got.GetCurrentOwner() {
-		t.Fatalf("predicted false readiness: %v %v", got, err)
+	if !errors.Is(err, broker.ErrAdmissionBusy) || got.GetReady() || got.GetCurrentOwner() {
+		t.Fatalf("closed resume: %v %v", got, err)
 	}
 	if ticket, e := a.AdmitRetainedWork(owner, broker.ForegroundWork); e == nil {
 		ticket.Complete()
 		t.Fatal("fenced owner admitted work")
-	} else {
-		t.Logf("acquire succeeds; resume ready=%v current_owner=%v; admission=%v", got.Ready, got.CurrentOwner, e)
 	}
+	v, err := conversation.ReadOwnership(ctx, a.coexistence.store, "chat")
+	if err != nil || v.State != "owned" || v.Owner != owner.Host || v.Epoch != owner.Epoch {
+		t.Fatalf("closed admission must not change durable ownership: %+v %v", v, err)
+	}
+
 }
 
 // The fake peer blocks only a real preflight RPC, never fabricates ownership.
@@ -203,6 +204,7 @@ func reproQueuedResume(s *Server, ctx context.Context, r *pb.LifecycleControlReq
 	done <- err
 }
 
+// This intentionally reproduces a separate, out-of-scope defect.
 func TestReproResumeGlobalPreflightLock(t *testing.T) {
 	a, b, _ := lifecycleFixture(t)
 	serveCutoverFixture(t, a)

@@ -65,7 +65,7 @@ func (s *Server) LifecycleAcquire(ctx context.Context, r *pb.LifecycleControlReq
 	l.mu.Lock()
 	if capability := l.owners[r.GetOwner().GetConversation()]; capability != nil {
 		owner := ownerOf(capability)
-		if l.ready[owner] {
+		if l.currentAndAdmissibleLocked(owner) {
 			if e := l.observeLaunchLocked(owner); e != nil {
 				l.mu.Unlock()
 				return nil, e
@@ -143,8 +143,7 @@ func (s *Server) LifecycleClaim(ctx context.Context, r *pb.LifecycleControlReque
 	// capability and the exact durable owner, not merely a handover result.
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	cap := l.owners[o.Conversation]
-	if cap == nil || ownerOf(cap) != o || !l.ready[o] {
+	if !l.currentAndAdmissibleLocked(o) {
 		return nil, status.Error(codes.FailedPrecondition, "claim receipt is historical or destination is not ready; refresh conversation ownership before resuming")
 	}
 	current, err := conversation.ReadOwnership(ctx, l.store, o.Conversation)

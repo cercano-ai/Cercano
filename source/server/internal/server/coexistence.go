@@ -243,6 +243,19 @@ func (s *Server) ListRetained() ([]broker.Owner, error) {
 	return out, nil
 }
 
+// currentAndAdmissibleLocked distinguishes an initialized ownership capability
+// from one that can accept reconnects. Caller holds l.mu; CheckRetained takes
+// the admission lock and checks the exact epoch without reopening admission.
+// This is a point-in-time check, not a reservation for subsequent work.
+func (l *coexistenceLifecycle) currentAndAdmissibleLocked(o broker.Owner) bool {
+	cap := l.owners[o.Conversation]
+	if cap == nil || ownerOf(cap) != o || !l.ready[o] {
+		return false
+	}
+	_, _, open := l.admission.CheckRetained(o)
+	return open
+}
+
 // AttachRetained never acquires, launches, or resumes. Detach the returned handle
 // for transport cleanup; ownership survives disconnect.
 func (s *Server) AttachRetained(o broker.Owner) (*broker.Attachment, error) {
