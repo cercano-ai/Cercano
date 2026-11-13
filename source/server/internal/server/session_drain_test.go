@@ -2,6 +2,7 @@ package server
 
 import (
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/internal/failurelog"
 	"cercano/source/server/pkg/agentclient"
 	pb "cercano/source/server/pkg/proto"
 	"context"
@@ -10,6 +11,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,6 +145,13 @@ func TestSessionDisconnectRetainsAfterCompletion(t *testing.T) {
 func TestSessionCloseAsyncDurableReleaseFailure(t *testing.T) {
 	s, next, _ := lifecycleFixture(t)
 	l := s.coexistence
+	path := filepath.Join(t.TempDir(), "failures.jsonl")
+	w, err := failurelog.NewWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	s.failureLog = w
 	o, err := s.Retain(t.Context(), "async-release-failure")
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +179,7 @@ func TestSessionCloseAsyncDurableReleaseFailure(t *testing.T) {
 	defer cancel()
 	terminal := "pane"
 	l.mu.Lock()
-	err = l.relinquishLocked(request, o, nil, &terminal, nil)
+	err = s.relinquishLocked(request, o, nil, &terminal, nil)
 	reservation := l.closures[o]
 	l.mu.Unlock()
 	if err != nil {
@@ -246,5 +257,17 @@ func TestSessionCloseAsyncDurableReleaseFailure(t *testing.T) {
 	}
 	if workctx.Err() != nil {
 		t.Fatalf("callback canceled independent work: %v", workctx.Err())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"operation":"terminal_release"`) || !strings.Contains(string(data), o.Conversation) || !strings.Contains(string(data), o.Epoch) {
+		t.Fatalf("missing correlated async diagnostic: %s", data)
+	}
+	for _, secret := range []string{"injected async release failure", l.options.StorePath, "pane"} {
+		if strings.Contains(string(data), secret) {
+			t.Fatalf("sensitive diagnostic: %s", data)
+		}
 	}
 }

@@ -365,7 +365,7 @@ func (s *Server) relinquish(ctx context.Context, o broker.Owner, requester *brok
 	if a != nil {
 		h = &a.h
 	}
-	return l.relinquishLocked(ctx, o, requester, nil, h)
+	return s.relinquishLocked(ctx, o, requester, nil, h)
 }
 
 type relinquishReservation struct {
@@ -403,7 +403,8 @@ func (l *coexistenceLifecycle) reserveRelinquishLocked(o broker.Owner, requester
 	l.closures[o] = r
 	return r, nil
 }
-func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Owner, requester *broker.Attachment, terminal *string, h *broker.IncomingHandover) error {
+func (s *Server) relinquishLocked(ctx context.Context, o broker.Owner, requester *broker.Attachment, terminal *string, h *broker.IncomingHandover) error {
+	l := s.coexistence
 	// Terminal release is session closure, not a quiescent handover or an
 	// administrative release. Retain the exact owner and host ticket until all
 	// accepted work (including descendants and persistence) has drained.
@@ -437,7 +438,9 @@ func (l *coexistenceLifecycle) relinquishLocked(ctx context.Context, o broker.Ow
 			defer l.mu.Unlock()
 			// The request/transport lifetime must not cancel retained writeback.
 			// commitRelinquishLocked retains unresolved blockers on every failure.
-			_ = l.commitRelinquishLocked(context.Background(), o, r, nil)
+			if err := l.commitRelinquishLocked(context.Background(), o, r, nil); err != nil {
+				s.logLifecycleRefusalLocked(l, &pb.LifecycleControlRequest{Owner: wireOwner(o)}, "terminal_release", "source", "commit", "async_terminal_drain", err)
+			}
 		})
 	}
 	r, e := l.reserveRelinquishLocked(o, requester, terminal)

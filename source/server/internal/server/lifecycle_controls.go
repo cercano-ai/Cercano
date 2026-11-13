@@ -264,7 +264,7 @@ func (s *Server) controlRelinquish(ctx context.Context, r *pb.LifecycleControlRe
 		e = l.commitRelinquishLocked(ctx, o, reserved, h)
 		reserved.control.completed = e == nil
 	} else {
-		e = l.relinquishLocked(ctx, o, nil, &terminal, h)
+		e = s.relinquishLocked(ctx, o, nil, &terminal, h)
 	}
 	response := &pb.LifecycleControlResponse{Identity: l.controlIdentity(), Receipt: receipt, Pending: transfer}
 	if e != nil {

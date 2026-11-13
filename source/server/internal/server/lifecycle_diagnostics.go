@@ -65,6 +65,15 @@ func (s *Server) logLifecycleResumeRefusal(l *coexistenceLifecycle, r *pb.Lifecy
 }
 
 func (s *Server) logLifecycleRefusal(l *coexistenceLifecycle, r *pb.LifecycleControlRequest, operation, side, stage, check string, err error) {
+	if l != nil {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+	}
+	s.logLifecycleRefusalLocked(l, r, operation, side, stage, check, err)
+}
+
+// Caller holds l.mu, so asynchronous release reports the exact failed snapshot.
+func (s *Server) logLifecycleRefusalLocked(l *coexistenceLifecycle, r *pb.LifecycleControlRequest, operation, side, stage, check string, err error) {
 	if s.failureLog == nil {
 		return
 	}
@@ -79,7 +88,6 @@ func (s *Server) logLifecycleRefusal(l *coexistenceLifecycle, r *pb.LifecycleCon
 	// l is non-nil only after exact target selection and authentication succeeded.
 	// Do not log even caller-supplied identifiers on a denied control request.
 	if l != nil {
-		l.mu.Lock()
 		requested := controlOwner(r)
 		if requested.Host == "" && requested.Epoch == "" {
 			if cap := l.owners[requested.Conversation]; cap != nil {
@@ -87,7 +95,6 @@ func (s *Server) logLifecycleRefusal(l *coexistenceLifecycle, r *pb.LifecycleCon
 			}
 		}
 		snapshot := l.snapshotBlockersLocked(requested)
-		l.mu.Unlock()
 		fields["conversation_id"] = requested.Conversation
 		fields["host_id"] = l.options.Host
 		fields["handover_id"] = r.GetHandoverId()
