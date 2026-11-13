@@ -651,10 +651,12 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// keeping the server's stored providers raw so the dispatch engine can wrap
 	// them per-dispatch without double-counting.
 	// agentCollector is hoisted so the coproc engine sink can reference it below.
+	accounting.sender = enterpriseHost
 	agentCollector, closeAgentTelemetry, err := composeProductionAccounting(admission, generateSessionID(), accounting)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[WARN] Failed to initialize agent telemetry: %v\n", err)
 	} else {
+		agentCollector.SetManagedIdentityRequired(enterpriseHost.PolicyManaged)
 		srv.SetUsageSink(server.UsageEventSink(agentCollector.Emit))
 		srv.SetAccountingCollector(agentCollector)
 		if recapGen != nil {

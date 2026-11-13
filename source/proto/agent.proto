@@ -2502,6 +2502,19 @@ message AccountingAttemptObservation {
   // Adapter-measured wire presence of reasoning deltas; observations, not costs.
   optional int64 reasoning_chunks = 21;
   optional int64 reasoning_bytes = 22;
+  // Immutable metadata captured before the physical adapter call. Missing
+  // values from older workers mean unknown; never infer a connection from a
+  // profile display name, provider, model, or route alone.
+  string requested_provider = 23;
+  string requested_model = 24;
+  string route_id = 25;
+  string source_connection_id = 26;
+  string report_organization_id = 27;
+  string report_host_id = 28;
+  int64 report_profile_version = 29;
+  string report_task_type = 30;
+  string requested_route_id = 31;
+  string requested_source_connection_id = 32;
 }
 
 // Sender retains ownership until persisted=true is received. Receivers reject

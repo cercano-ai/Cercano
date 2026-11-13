@@ -355,14 +355,15 @@ func (s *SQLiteStore) Close() error {
 // Collector provides async, non-blocking telemetry collection.
 // MCP handlers call Emit/EmitCloudUsage without waiting for the write to complete.
 type Collector struct {
-	attempts     *AccountingCollector
-	drainContext context.Context
-	cancelDrain  context.CancelFunc
-	store        Store
-	events       chan *Event
-	cloud        chan CloudUsageReport
-	done         chan struct{}
-	sessionID    string // auto-applied to all emitted events
+	attempts                *AccountingCollector
+	drainContext            context.Context
+	cancelDrain             context.CancelFunc
+	store                   Store
+	events                  chan *Event
+	cloud                   chan CloudUsageReport
+	done                    chan struct{}
+	sessionID               string      // auto-applied to all emitted events
+	managedIdentityRequired func() bool // checked only on worker batch admission
 
 	// mu guards closed so Emit/EmitCloudUsage never send on the channels after
 	// Close has closed them. Close takes the write lock (waiting for any in-flight
@@ -545,6 +546,15 @@ func (c *Collector) MarkAccountingIncomplete(reason string) {
 	}
 }
 
+// SetManagedIdentityRequired lets the host expose an old-worker coverage gap.
+// The callback runs on the worker batch path, not the bounded physical-call
+// AttemptSink. It cannot grant reporting identity or rewrite an observation.
+func (c *Collector) SetManagedIdentityRequired(required func() bool) {
+	c.mu.Lock()
+	c.managedIdentityRequired = required
+	c.mu.Unlock()
+}
+
 // TryAttemptBatch receives worker-owned observations without taking ownership
 // of a rejected batch. Session defaults are added to a private value copy.
 func (c *Collector) TryAttemptBatch(observations []usage.AttemptObservation) (<-chan bool, error) {
@@ -552,13 +562,16 @@ func (c *Collector) TryAttemptBatch(observations []usage.AttemptObservation) (<-
 		return nil, fmt.Errorf("invalid accounting batch size")
 	}
 	c.mu.RLock()
-	attempts, session := c.attempts, c.sessionID
+	attempts, session, required := c.attempts, c.sessionID, c.managedIdentityRequired
 	c.mu.RUnlock()
 	if attempts == nil {
 		return nil, fmt.Errorf("attempt accounting not enabled")
 	}
 	batch := append([]usage.AttemptObservation(nil), observations...)
 	for i := range batch {
+		if batch[i].Report.ProfileVersion == 0 && required != nil && required() {
+			attempts.MarkCoverageIncomplete("managed worker observation missing report identity")
+		}
 		if batch[i].Attribution.SessionID == "" {
 			batch[i].Attribution.SessionID = session
 		}

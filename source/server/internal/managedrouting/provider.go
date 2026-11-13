@@ -17,6 +17,7 @@ import (
 	"cercano/source/server/internal/inference/resilience"
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/managedsettings"
+	"cercano/source/server/internal/usage"
 	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
 )
 
@@ -37,7 +38,10 @@ func Build(ctx context.Context, plan managedsettings.RoutePlan, build Builder) (
 		if candidate.Provider == nil && err == nil {
 			err = fmt.Errorf("managed route %q is unavailable", route.ID)
 		}
-		nodes[i] = &boundRoute{route: route, destination: plan.Destination, candidate: candidate, err: err, fallback: i > 0}
+		nodes[i] = &boundRoute{route: route, destination: plan.Destination, candidate: candidate, err: err, fallback: i > 0, task: plan.Task, requestedRouteID: plan.Routes[0].ID}
+	}
+	for _, node := range nodes {
+		node.requestedSourceConnectionID = nodes[0].candidate.SourceConnectionID
 	}
 	var next *chain
 	for i := len(nodes) - 1; i >= 0; i-- {
@@ -100,11 +104,12 @@ func (p *chain) RuntimeContext(ctx context.Context, _ string, prepare bool) (llm
 }
 
 type boundRoute struct {
-	route       v1.Route
-	destination string
-	candidate   inference.Candidate
-	err         error
-	fallback    bool
+	route                                               v1.Route
+	destination                                         string
+	candidate                                           inference.Candidate
+	err                                                 error
+	fallback                                            bool
+	task, requestedRouteID, requestedSourceConnectionID string
 }
 
 func (p *boundRoute) Name() string {
@@ -141,6 +146,10 @@ func (p *boundRoute) request(ctx context.Context, req inference.Call) (context.C
 		return ctx, req, p.err
 	}
 	req.Model = p.route.Model
+	ctx = usage.WithAttemptRoute(ctx, p.route.ID, p.candidate.SourceConnectionID, p.route.Provider, p.route.Model)
+	if snapshot, ok := managedsettings.FromContext(ctx); ok {
+		ctx = usage.WithReportIdentity(ctx, usage.ReportIdentity{OrganizationID: snapshot.Policy.Scope.OrganizationID, HostID: snapshot.Policy.Scope.HostID, ProfileVersion: snapshot.Policy.Revision, TaskType: p.task, RequestedRouteID: p.requestedRouteID, RequestedSourceConnectionID: p.requestedSourceConnectionID})
+	}
 	// Model identities are explicit in a managed plan. A saved quality-tier model
 	// or a previous provider's model must not overwrite the selected identity.
 	req.Tier = ""

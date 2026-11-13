@@ -33,6 +33,9 @@ func FromContext(ctx context.Context) (Snapshot, bool) {
 }
 func clone(s Snapshot) Snapshot {
 	s.Policy.AllowedRoutes = append([]v1.Route{}, s.Policy.AllowedRoutes...)
+	for i := range s.Policy.AllowedRoutes {
+		s.Policy.AllowedRoutes[i].AllowedSourceConnectionIDs = append([]string{}, s.Policy.AllowedRoutes[i].AllowedSourceConnectionIDs...)
+	}
 	s.Policy.TaskDefaults = append([]v1.TaskDefault{}, s.Policy.TaskDefaults...)
 	for i := range s.Policy.TaskDefaults {
 		s.Policy.TaskDefaults[i].FallbackRouteIDs = append([]string{}, s.Policy.TaskDefaults[i].FallbackRouteIDs...)

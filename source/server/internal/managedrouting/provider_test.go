@@ -10,6 +10,7 @@ import (
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/managedsettings"
 	"cercano/source/server/internal/modelpolicy"
+	"cercano/source/server/internal/usage"
 	v1 "github.com/bryancostanich/Cercano/source/enterpriseapi/v1"
 )
 
@@ -22,6 +23,66 @@ type routeFixture struct {
 	prepareErr error
 	window     int
 	after      func()
+}
+
+type accountingRouteFixture struct{ inference.Provider }
+
+func (p accountingRouteFixture) TargetFor(model, tier string) llm.ServingRoute {
+	return p.Provider.(interface {
+		TargetFor(string, string) llm.ServingRoute
+	}).TargetFor(model, tier)
+}
+func (p accountingRouteFixture) RuntimeContext(ctx context.Context, model string, prepare bool) (llm.RuntimeContext, error) {
+	return p.Provider.(interface {
+		RuntimeContext(context.Context, string, bool) (llm.RuntimeContext, error)
+	}).RuntimeContext(ctx, model, prepare)
+}
+func (p accountingRouteFixture) Chat(ctx context.Context, r inference.Call) (inference.Result, error) {
+	a := usage.StartAttempt(ctx, "openai", r.Model)
+	result, err := p.Provider.Chat(ctx, r)
+	if err != nil {
+		a.Finish(usage.Failed)
+	} else {
+		a.Finish(usage.Completed)
+	}
+	return result, err
+}
+
+func TestFallbackAndRetryKeepPhysicalSourcePerAttempt(t *testing.T) {
+	plan := testPlan()
+	plan.Routes = plan.Routes[:2]
+	var calls []string
+	var observations []usage.AttemptObservation
+	ctx := usage.WithAttempts(t.Context(), func(a usage.AttemptObservation) bool { observations = append(observations, a); return true }, usage.Attribution{})
+	provider, err := Build(ctx, plan, func(_ context.Context, r v1.Route) (inference.Candidate, error) {
+		fixture := &routeFixture{route: r, calls: &calls, window: 32768}
+		if r.ID == "first" {
+			fixture.err = networkError()
+		}
+		return inference.Candidate{Provider: accountingRouteFixture{Provider: fixture}, SourceConnectionID: "connection-" + r.ID}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Chat(ctx, inference.Call{Model: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(calls, ",") != "first,first,second" || len(observations) != 6 {
+		t.Fatalf("calls=%v observations=%+v", calls, observations)
+	}
+	for i, want := range []string{"connection-first", "connection-first", "connection-second"} {
+		start, end := observations[2*i], observations[2*i+1]
+		wantRoute := "first"
+		if i == 2 {
+			wantRoute = "second"
+		}
+		if start.ID == "" || start.ID != end.ID || start.SourceConnectionID != want || end.SourceConnectionID != want || start.RouteID != wantRoute {
+			t.Fatalf("attempt %d source lost: %+v %+v", i, start, end)
+		}
+		if i > 0 && start.ID == observations[2*(i-1)].ID {
+			t.Fatal("retry reused physical attempt ID")
+		}
+	}
 }
 
 func (p *routeFixture) Name() string { return p.route.Provider }

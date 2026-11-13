@@ -287,11 +287,31 @@ func (c *AccountingCollector) run() {
 			}
 			continue
 		}
-		observations := make([]usage.AttemptObservation, 0, len(batch))
-		for _, q := range batch {
-			if q.remoteHealth == nil {
-				observations = append(observations, q.observation)
+		// Attempt rows/outbox and remote health records have separate commit
+		// boundaries. Keep their acknowledgments separate across retries.
+		persisted := make([]bool, len(batch))
+		acknowledge := func(i int, committed bool) {
+			q := batch[i]
+			c.mu.Lock()
+			delete(c.pending, q.sequence)
+			if receipt := q.receipt; receipt != nil {
+				if !committed {
+					receipt.failed = true
+				}
+				receipt.remaining--
+				if receipt.remaining == 0 {
+					receipt.signal(!receipt.failed)
+					delete(c.receipts, receipt)
+				}
 			}
+			if committed {
+				c.health.Persisted++
+				c.health.LastPersistence = time.Now().UTC()
+			} else {
+				// A failed acknowledgment does not prove no commit occurred.
+				c.health.Uncertain++
+			}
+			c.mu.Unlock()
 		}
 		var err error
 		for attempt := 0; attempt <= c.options.MaxRetries; attempt++ {
@@ -304,12 +324,26 @@ func (c *AccountingCollector) run() {
 			}
 			if initialized {
 				err = nil
+				observations := make([]usage.AttemptObservation, 0, len(batch))
+				for i, q := range batch {
+					if !persisted[i] && q.remoteHealth == nil {
+						observations = append(observations, q.observation)
+					}
+				}
 				if len(observations) > 0 {
 					err = c.store.WriteAttempts(ctx, observations)
+					if err == nil {
+						for i, q := range batch {
+							if !persisted[i] && q.remoteHealth == nil {
+								persisted[i] = true
+								acknowledge(i, true)
+							}
+						}
+					}
 				}
 				if err == nil {
-					for _, q := range batch {
-						if q.remoteHealth != nil {
+					for i, q := range batch {
+						if !persisted[i] && q.remoteHealth != nil {
 							store, ok := c.store.(accountingHealthStore)
 							if !ok {
 								err = errors.New("accounting store does not support health records")
@@ -319,6 +353,8 @@ func (c *AccountingCollector) run() {
 							if err != nil {
 								break
 							}
+							persisted[i] = true
+							acknowledge(i, true)
 						}
 					}
 				}
@@ -355,29 +391,17 @@ func (c *AccountingCollector) run() {
 			case <-timer.C:
 			}
 		}
-		c.mu.Lock()
-		for _, q := range batch {
-			delete(c.pending, q.sequence)
-			if receipt := q.receipt; receipt != nil {
-				if err != nil {
-					receipt.failed = true
-				}
-				receipt.remaining--
-				if receipt.remaining == 0 {
-					receipt.signal(!receipt.failed)
-					delete(c.receipts, receipt)
-				}
+		for i := range batch {
+			if !persisted[i] {
+				acknowledge(i, false)
 			}
 		}
+		c.mu.Lock()
 		if err == nil {
-			c.health.Persisted += uint64(len(batch))
-			c.health.LastPersistence = time.Now().UTC()
 			if !c.health.CoverageIncomplete && c.health.Lost == 0 && c.health.Uncertain == 0 {
 				c.health.LastError = ""
 			}
 		} else {
-			// Failed acknowledgments do not establish whether a commit reached disk.
-			c.health.Uncertain += uint64(len(batch))
 			c.health.LastError = fmt.Sprintf("accounting write unacknowledged after %d retries", c.options.MaxRetries)
 		}
 		c.mu.Unlock()

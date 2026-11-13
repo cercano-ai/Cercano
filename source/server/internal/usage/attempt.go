@@ -34,17 +34,34 @@ const (
 // repeated or out-of-order delivery without counting a model call twice.
 // Final counts can still be unknown (e.g. canceled before usage was returned).
 type AttemptObservation struct {
-	ID          string         `json:"id"`
-	Revision    uint64         `json:"revision"`
-	Attribution Attribution    `json:"attribution"`
-	Provider    string         `json:"provider"`
-	Model       string         `json:"model"`
-	Profile     string         `json:"profile"`
-	Destination string         `json:"destination"`
-	StartedAt   time.Time      `json:"started_at"`
-	EndedAt     time.Time      `json:"ended_at"`
-	Outcome     Outcome        `json:"outcome"`
-	Tokens      llm.TokenUsage `json:"tokens"`
+	ID                 string         `json:"id"`
+	Revision           uint64         `json:"revision"`
+	Attribution        Attribution    `json:"attribution"`
+	Provider           string         `json:"provider"`
+	Model              string         `json:"model"`
+	RequestedProvider  string         `json:"requested_provider,omitempty"`
+	RequestedModel     string         `json:"requested_model,omitempty"`
+	RouteID            string         `json:"route_id,omitempty"`
+	SourceConnectionID string         `json:"source_connection_id,omitempty"`
+	Report             ReportIdentity `json:"report,omitempty"`
+	Profile            string         `json:"profile"`
+	Destination        string         `json:"destination"`
+	StartedAt          time.Time      `json:"started_at"`
+	EndedAt            time.Time      `json:"ended_at"`
+	Outcome            Outcome        `json:"outcome"`
+	Tokens             llm.TokenUsage `json:"tokens"`
+}
+
+// ReportIdentity is pinned from the verified managed policy and the selected
+// route plan. It is metadata for a later durable usage report, never authority
+// for inference or a substitute for the host's authenticated connection.
+type ReportIdentity struct {
+	OrganizationID              string `json:"organization_id,omitempty"`
+	HostID                      string `json:"host_id,omitempty"`
+	ProfileVersion              int64  `json:"profile_version,omitempty"`
+	TaskType                    string `json:"task_type,omitempty"`
+	RequestedRouteID            string `json:"requested_route_id,omitempty"`
+	RequestedSourceConnectionID string `json:"requested_source_connection_id,omitempty"`
 }
 
 // AttemptSink must only perform bounded in-memory admission. No storage, wire
@@ -54,9 +71,12 @@ type AttemptObservation struct {
 type AttemptSink func(AttemptObservation) bool
 
 type attemptContext struct {
-	profile, destination string
-	sink                 AttemptSink
-	attribution          Attribution
+	profile, destination        string
+	routeID, sourceConnectionID string
+	routeProvider, routeModel   string
+	report                      ReportIdentity
+	sink                        AttemptSink
+	attribution                 Attribution
 }
 type attemptContextKey struct{}
 
@@ -93,9 +113,19 @@ func StartAttempt(ctx context.Context, provider, model string) *Attempt {
 	if config.sink == nil {
 		return nil
 	}
+	requestedProvider, requestedModel := provider, model
+	if config.routeProvider != "" {
+		requestedProvider = config.routeProvider
+	}
+	if config.routeModel != "" {
+		requestedModel = config.routeModel
+	}
 	a := &Attempt{sink: config.sink, observation: AttemptObservation{
 		ID:       NewIdentity(),
 		Revision: 1, Attribution: config.attribution, Provider: provider, Model: model,
+		RequestedProvider: requestedProvider, RequestedModel: requestedModel,
+		RouteID: config.routeID, SourceConnectionID: config.sourceConnectionID,
+		Report:  config.report,
 		Profile: config.profile, Destination: config.destination,
 		StartedAt: time.Now().UTC(), Outcome: Started,
 	}}
@@ -212,5 +242,41 @@ func WithAttemptProfile(ctx context.Context, profile, destination string) contex
 		return ctx
 	}
 	config.profile, config.destination = profile, destination
+	return context.WithValue(ctx, attemptContextKey{}, config)
+}
+
+// WithAttemptSource records the selected signed route and physical connection
+// before the adapter starts a call. Fallback invokes this separately for each
+// physical attempt; later provider observations cannot rewrite the connection.
+func WithAttemptSource(ctx context.Context, routeID, sourceConnectionID string) context.Context {
+	config, _ := ctx.Value(attemptContextKey{}).(attemptContext)
+	if config.sink == nil {
+		return ctx
+	}
+	config.routeID, config.sourceConnectionID = routeID, sourceConnectionID
+	return context.WithValue(ctx, attemptContextKey{}, config)
+}
+
+// WithAttemptRoute preserves the signed route's physical API provider
+// separately from the adapter's user-defined backend label.
+func WithAttemptRoute(ctx context.Context, routeID, sourceConnectionID, provider, model string) context.Context {
+	config, _ := ctx.Value(attemptContextKey{}).(attemptContext)
+	if config.sink == nil {
+		return ctx
+	}
+	config.routeID, config.sourceConnectionID = routeID, sourceConnectionID
+	config.routeProvider, config.routeModel = provider, model
+	return context.WithValue(ctx, attemptContextKey{}, config)
+}
+
+// WithReportIdentity binds a managed attempt to the pinned organization and
+// host before dispatch. Missing identity means the attempt is local only and
+// must not be uploaded under a later or different enterprise login.
+func WithReportIdentity(ctx context.Context, identity ReportIdentity) context.Context {
+	config, _ := ctx.Value(attemptContextKey{}).(attemptContext)
+	if config.sink == nil {
+		return ctx
+	}
+	config.report = identity
 	return context.WithValue(ctx, attemptContextKey{}, config)
 }

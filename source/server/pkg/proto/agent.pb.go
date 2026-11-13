@@ -18294,8 +18294,21 @@ type AccountingAttemptObservation struct {
 	// Adapter-measured wire presence of reasoning deltas; observations, not costs.
 	ReasoningChunks *int64 `protobuf:"varint,21,opt,name=reasoning_chunks,json=reasoningChunks,proto3,oneof" json:"reasoning_chunks,omitempty"`
 	ReasoningBytes  *int64 `protobuf:"varint,22,opt,name=reasoning_bytes,json=reasoningBytes,proto3,oneof" json:"reasoning_bytes,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Immutable metadata captured before the physical adapter call. Missing
+	// values from older workers mean unknown; never infer a connection from a
+	// profile display name, provider, model, or route alone.
+	RequestedProvider           string `protobuf:"bytes,23,opt,name=requested_provider,json=requestedProvider,proto3" json:"requested_provider,omitempty"`
+	RequestedModel              string `protobuf:"bytes,24,opt,name=requested_model,json=requestedModel,proto3" json:"requested_model,omitempty"`
+	RouteId                     string `protobuf:"bytes,25,opt,name=route_id,json=routeId,proto3" json:"route_id,omitempty"`
+	SourceConnectionId          string `protobuf:"bytes,26,opt,name=source_connection_id,json=sourceConnectionId,proto3" json:"source_connection_id,omitempty"`
+	ReportOrganizationId        string `protobuf:"bytes,27,opt,name=report_organization_id,json=reportOrganizationId,proto3" json:"report_organization_id,omitempty"`
+	ReportHostId                string `protobuf:"bytes,28,opt,name=report_host_id,json=reportHostId,proto3" json:"report_host_id,omitempty"`
+	ReportProfileVersion        int64  `protobuf:"varint,29,opt,name=report_profile_version,json=reportProfileVersion,proto3" json:"report_profile_version,omitempty"`
+	ReportTaskType              string `protobuf:"bytes,30,opt,name=report_task_type,json=reportTaskType,proto3" json:"report_task_type,omitempty"`
+	RequestedRouteId            string `protobuf:"bytes,31,opt,name=requested_route_id,json=requestedRouteId,proto3" json:"requested_route_id,omitempty"`
+	RequestedSourceConnectionId string `protobuf:"bytes,32,opt,name=requested_source_connection_id,json=requestedSourceConnectionId,proto3" json:"requested_source_connection_id,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *AccountingAttemptObservation) Reset() {
@@ -18480,6 +18493,76 @@ func (x *AccountingAttemptObservation) GetReasoningBytes() int64 {
 		return *x.ReasoningBytes
 	}
 	return 0
+}
+
+func (x *AccountingAttemptObservation) GetRequestedProvider() string {
+	if x != nil {
+		return x.RequestedProvider
+	}
+	return ""
+}
+
+func (x *AccountingAttemptObservation) GetRequestedModel() string {
+	if x != nil {
+		return x.RequestedModel
+	}
+	return ""
+}
+
+func (x *AccountingAttemptObservation) GetRouteId() string {
+	if x != nil {
+		return x.RouteId
+	}
+	return ""
+}
+
+func (x *AccountingAttemptObservation) GetSourceConnectionId() string {
+	if x != nil {
+		return x.SourceConnectionId
+	}
+	return ""
+}
+
+func (x *AccountingAttemptObservation) GetReportOrganizationId() string {
+	if x != nil {
+		return x.ReportOrganizationId
+	}
+	return ""
+}
+
+func (x *AccountingAttemptObservation) GetReportHostId() string {
+	if x != nil {
+		return x.ReportHostId
+	}
+	return ""
+}
+
+func (x *AccountingAttemptObservation) GetReportProfileVersion() int64 {
+	if x != nil {
+		return x.ReportProfileVersion
+	}
+	return 0
+}
+
+func (x *AccountingAttemptObservation) GetReportTaskType() string {
+	if x != nil {
+		return x.ReportTaskType
+	}
+	return ""
+}
+
+func (x *AccountingAttemptObservation) GetRequestedRouteId() string {
+	if x != nil {
+		return x.RequestedRouteId
+	}
+	return ""
+}
+
+func (x *AccountingAttemptObservation) GetRequestedSourceConnectionId() string {
+	if x != nil {
+		return x.RequestedSourceConnectionId
+	}
+	return ""
 }
 
 // Sender retains ownership until persisted=true is received. Receivers reject
@@ -23222,7 +23305,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x18\n" +
 	"\awarning\x18\x04 \x01(\tR\awarning\x12%\n" +
 	"\x0econfig_written\x18\x05 \x01(\bR\rconfigWritten\x12!\n" +
-	"\flive_applied\x18\x06 \x01(\bR\vliveApplied\"\x83\b\n" +
+	"\flive_applied\x18\x06 \x01(\bR\vliveApplied\"\xd7\v\n" +
 	"\x1cAccountingAttemptObservation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x04R\brevision\x12!\n" +
@@ -23248,7 +23331,17 @@ const file_agent_proto_rawDesc = "" +
 	"\vusage_final\x18\x14 \x01(\bR\n" +
 	"usageFinal\x12.\n" +
 	"\x10reasoning_chunks\x18\x15 \x01(\x03H\aR\x0freasoningChunks\x88\x01\x01\x12,\n" +
-	"\x0freasoning_bytes\x18\x16 \x01(\x03H\bR\x0ereasoningBytes\x88\x01\x01B\x18\n" +
+	"\x0freasoning_bytes\x18\x16 \x01(\x03H\bR\x0ereasoningBytes\x88\x01\x01\x12-\n" +
+	"\x12requested_provider\x18\x17 \x01(\tR\x11requestedProvider\x12'\n" +
+	"\x0frequested_model\x18\x18 \x01(\tR\x0erequestedModel\x12\x19\n" +
+	"\broute_id\x18\x19 \x01(\tR\arouteId\x120\n" +
+	"\x14source_connection_id\x18\x1a \x01(\tR\x12sourceConnectionId\x124\n" +
+	"\x16report_organization_id\x18\x1b \x01(\tR\x14reportOrganizationId\x12$\n" +
+	"\x0ereport_host_id\x18\x1c \x01(\tR\freportHostId\x124\n" +
+	"\x16report_profile_version\x18\x1d \x01(\x03R\x14reportProfileVersion\x12(\n" +
+	"\x10report_task_type\x18\x1e \x01(\tR\x0ereportTaskType\x12,\n" +
+	"\x12requested_route_id\x18\x1f \x01(\tR\x10requestedRouteId\x12C\n" +
+	"\x1erequested_source_connection_id\x18  \x01(\tR\x1brequestedSourceConnectionIdB\x18\n" +
 	"\x16_started_at_utc_microsB\x16\n" +
 	"\x14_ended_at_utc_microsB\x0f\n" +
 	"\r_input_tokensB\x10\n" +
