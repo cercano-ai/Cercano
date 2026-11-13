@@ -145,8 +145,8 @@ func (m *Model) ensureSubAgentTab(id, parentID, title string, tools []string) *c
 	m.chatTabs.tabs[id] = tab
 	m.chatTabs.order = append(m.chatTabs.order, id)
 	// Deliberately do NOT steal focus: the parent turn is still streaming in
-	// main while its dispatch runs. The new tab shows in the strip with an
-	// activity dot; the user switches to it when they choose.
+	// main while its dispatch runs. The new tab shows in the strip with a
+	// working indicator; the user switches to it when they choose.
 	return &tab.view
 }
 
@@ -181,8 +181,14 @@ func (m *Model) chatTabItems() []tabStripItem {
 		label := tab.title
 		if tab.errored {
 			label += " !"
+		} else if tab.isWorkingAgent() {
+			label += " " + string(workingAgentFrames[m.workingAgentFrame])
 		} else if !tab.done && id != mainChatTabID {
-			label += " •"
+			if tab.taskStatus == "accepted" {
+				label += " ○"
+			} else {
+				label += " •"
+			}
 		}
 		items = append(items, tabStripItem{ID: id, Label: label, Closable: id != mainChatTabID})
 	}

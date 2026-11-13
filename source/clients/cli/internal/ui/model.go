@@ -98,9 +98,8 @@ type Model struct {
 	// sub-agent tab created mid-turn, or the last one closed) cannot leave bodyH
 	// and scrollbarTop stale — which pushes the status bar off-screen and
 	// misaligns the tab-click row until some other event forces a relayout.
-	stripShown         bool
-	agentActivityShown bool
-	agentActivityFrame int // tick-owned: rendering and hit testing see the same glyph
+	stripShown        bool
+	workingAgentFrame int // tick-owned: tab rendering and hit testing see the same glyph
 
 	// contentScrollbarDragging is the same gesture, but for a reusable content
 	// page scrollbar rather than the main chat scrollback.
@@ -1051,7 +1050,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			if cmd := next.ensureTaskSubscription(); cmd != nil {
 				nextCmd = tea.Batch(nextCmd, cmd)
 			}
-			if next.hasRunningAgentActivity() {
+			if next.hasWorkingAgentTabs() {
 				nextCmd = tea.Batch(nextCmd, next.ensureAnimTick())
 			}
 			if cmd := next.conversationSearchCmd(); cmd != nil {
@@ -1068,7 +1067,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		cmd := m.applyTaskSubscription(update)
 		// Durable child lifecycle events bypass the main stream handlers. Their
 		// chrome must reserve/reclaim rows in this same frame too.
-		if (m.hasSubAgentTabs() && !m.contentPageActive()) != m.stripShown || (m.agentActivityHeight() > 0) != m.agentActivityShown {
+		if (m.hasSubAgentTabs() && !m.contentPageActive()) != m.stripShown {
 			m.relayout()
 		}
 		return m, cmd
@@ -1291,11 +1290,6 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		if m.taskPane.Expanded && m.taskPaneHit(mouse.X, mouse.Y) {
 			// The expanded pane body belongs to task interactions; do not let a
 			// click through to scrollback selection behind the right-side drawer.
-			return m, nil
-		}
-		if id := m.agentActivityHit(mouse.X, mouse.Y); id != "" {
-			m.switchChatTab(id)
-			m.refreshViewport()
 			return m, nil
 		}
 		if m.hasSubAgentTabs() && mouse.Y == m.scrollbarTop-2 {
@@ -2989,8 +2983,8 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		// (e.g. from toolEntryStartMsg) from doubling the tick rate.
 		m.animTickActive = false
 		frameTime := time.Time(msg)
-		if m.hasRunningAgentActivity() {
-			m.agentActivityFrame = int(frameTime.UnixMilli()/80) % 10
+		if m.hasWorkingAgentTabs() {
+			m.workingAgentFrame = int(frameTime.UnixMilli()/80) % len(workingAgentFrames)
 		}
 		m.mainChat().SetAnimationTime(frameTime)
 		if av := m.activeChat(); av != nil && av != m.mainChat() {
@@ -3001,7 +2995,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		}
 		contentRepaint := false
 		animRepaint := false
-		keep := m.hasRunningAgentActivity()
+		keep := m.hasWorkingAgentTabs()
 		// Flush coalesced stream events: token deltas and progress notes set
 		// chatDirty instead of rebuilding per event, so this frame carries
 		// their repaint. Keep ticking while the stream is alive — the next
@@ -3662,10 +3656,7 @@ func (m *Model) relayout() {
 	// the viewport is one row too tall and shoves the status bar off-screen.
 	recapH := 0
 	if n := len(m.recapLines()); n > 0 {
-		recapH = n
-		if m.agentActivityHeight() == 0 {
-			recapH++ // spacer above recap only when no activity row precedes it
-		}
+		recapH = n + 1 // standalone recap spacer
 	}
 	queuedH := 0
 	if !m.contentPageActive() {
@@ -3675,7 +3666,7 @@ func (m *Model) relayout() {
 	// this width; the body claims whatever rows are left.
 	m.input.SetWidth(contentW - 4)
 	inputH := m.input.Height()
-	bodyH := m.height - chromeNoInput - inputH - splashH - suggestH - recapH - queuedH - searchH - m.agentActivityHeight()
+	bodyH := m.height - chromeNoInput - inputH - splashH - suggestH - recapH - queuedH - searchH
 	if m.hasSubAgentTabs() && !m.contentPageActive() {
 		bodyH -= 2 // chat tab strip row + its underline rule
 	}
@@ -3693,7 +3684,6 @@ func (m *Model) relayout() {
 	// Record the strip's shown-state so refreshViewport() can detect a drift
 	// (a tab created/closed between layouts) and re-run us before painting.
 	m.stripShown = m.hasSubAgentTabs() && !m.contentPageActive()
-	m.agentActivityShown = m.agentActivityHeight() > 0
 	m.refreshViewport()
 }
 
@@ -3845,7 +3835,7 @@ func (m *Model) refreshViewport() {
 	// reserved). Re-lay-out first; relayout() calls back here with stripShown in
 	// sync, so this recurses at most once. Single choke point that keeps every
 	// tab-mutation path (create, sweep, close) self-correcting.
-	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown || (m.agentActivityHeight() > 0) != m.agentActivityShown {
+	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown {
 		m.relayout()
 		return
 	}
@@ -3861,7 +3851,7 @@ func (m *Model) refreshVisibleDynamicViewport() {
 	// structural, so fall back to the full layout pass that recalculates bodyH and
 	// scrollbarTop. Ordinary token deltas keep the existing layout and repaint only
 	// visible dynamic units; this is the hot path while the model streams.
-	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown || (m.agentActivityHeight() > 0) != m.agentActivityShown {
+	if want := m.hasSubAgentTabs() && !m.contentPageActive(); want != m.stripShown {
 		m.relayout()
 		return
 	}
@@ -5645,9 +5635,6 @@ func (m Model) composeFrame() (parts []string, inputIdx int) {
 			parts = append(parts, m.styles.BorderDim.Render(strings.Repeat("▔", m.width)))
 		}
 		parts = append(parts, m.renderViewportWithScrollbar())
-		if row, _ := m.agentActivityRow(); row != "" {
-			parts = append(parts, "", row)
-		}
 		if m.recap != "" {
 			parts = append(parts, m.renderRecap())
 		}
@@ -6003,10 +5990,6 @@ func (m Model) renderRecap() string {
 	lines := m.recapLines()
 	if len(lines) == 0 {
 		return ""
-	}
-	// Activity already has breathing room above it; keep recap directly below.
-	if m.agentActivityHeight() > 0 {
-		return strings.Join(lines, "\n")
 	}
 	return "\n" + strings.Join(lines, "\n")
 }
