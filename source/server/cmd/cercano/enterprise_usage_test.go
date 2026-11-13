@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -80,7 +81,7 @@ func TestEnterpriseUsageBoundsWholeRequest(t *testing.T) {
 	}
 	outbox := &fakeUsageOutbox{events: rows}
 	sender := &fakeUsageSender{status: enterprise.HostStatus{Managed: true, Status: enterprise.Status{Connected: true, OrganizationID: "org", HostID: "host"}}, fail: true}
-	if err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err == nil {
+	if _, err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err == nil {
 		t.Fatal("expected synthetic network failure")
 	}
 	if sender.lastEvents < 1 || sender.lastEvents >= 64 {
@@ -90,7 +91,7 @@ func TestEnterpriseUsageBoundsWholeRequest(t *testing.T) {
 func TestEnterpriseUsageLostResponseReplayAndScope(t *testing.T) {
 	outbox := &fakeUsageOutbox{events: []telemetry.PendingEnterpriseEvent{{AttemptID: "attempt", Revision: 1, Payload: json.RawMessage(`{"attempt_id":"attempt","revision":1}`)}}}
 	sender := &fakeUsageSender{status: enterprise.HostStatus{Managed: true, Status: enterprise.Status{Connected: true, OrganizationID: "org", HostID: "host"}}, fail: true}
-	if err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err == nil || outbox.retired {
+	if _, err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err == nil || outbox.retired {
 		t.Fatal("lost response retired event")
 	}
 	if outbox.scope != [2]string{"org", "host"} {
@@ -98,26 +99,26 @@ func TestEnterpriseUsageLostResponseReplayAndScope(t *testing.T) {
 	}
 	sender.fail = false
 	sender.wrong = true
-	if err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err == nil || outbox.retired {
+	if _, err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err == nil || outbox.retired {
 		t.Fatal("wrong batch retired event")
 	}
 	sender.wrong = false
 	sender.oldSchema = true
-	if err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err == nil || outbox.retired {
+	if _, err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err == nil || outbox.retired {
 		t.Fatal("old-server reply retired v2 event")
 	}
 	sender.oldSchema = false
-	if err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err != nil || !outbox.retired {
+	if _, err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err != nil || !outbox.retired {
 		t.Fatalf("replay not retired: %v", err)
 	}
 	if sender.batchIDs[0] != sender.batchIDs[1] || sender.batchIDs[1] != sender.batchIDs[2] || sender.batchIDs[2] != sender.batchIDs[3] {
 		t.Fatal("batch identity changed across replay")
 	}
-	if err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err != nil || sender.calls != 4 {
+	if _, err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err != nil || sender.calls != 4 {
 		t.Fatalf("empty outbox resent: %v %d", err, sender.calls)
 	}
 	sender.status.Status.OrganizationID = "foreign"
-	if err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err != nil || outbox.scope != [2]string{"foreign", "host"} {
+	if _, err := sendPendingEnterpriseUsage(t.Context(), outbox, sender); err != nil || outbox.scope != [2]string{"foreign", "host"} {
 		t.Fatalf("foreign scope bypass: %v %v", err, outbox.scope)
 	}
 }
@@ -143,7 +144,7 @@ func TestEnterpriseUsageSQLiteRestartAfterLostReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	sender := &fakeUsageSender{status: enterprise.HostStatus{Managed: true, Status: enterprise.Status{Connected: true, OrganizationID: org, HostID: host}}, fail: true}
-	if err := sendPendingEnterpriseUsage(t.Context(), store, sender); err == nil {
+	if _, err := sendPendingEnterpriseUsage(t.Context(), store, sender); err == nil {
 		t.Fatal("expected lost response")
 	}
 	if err := store.Close(); err != nil {
@@ -152,7 +153,7 @@ func TestEnterpriseUsageSQLiteRestartAfterLostReply(t *testing.T) {
 	store = open()
 	defer store.Close()
 	sender.fail = false
-	if err := sendPendingEnterpriseUsage(t.Context(), store, sender); err != nil {
+	if _, err := sendPendingEnterpriseUsage(t.Context(), store, sender); err != nil {
 		t.Fatal(err)
 	}
 	if sender.calls != 2 || sender.batchIDs[0] != sender.batchIDs[1] {
@@ -161,5 +162,168 @@ func TestEnterpriseUsageSQLiteRestartAfterLostReply(t *testing.T) {
 	pending, err := store.PendingEnterpriseUsage(t.Context(), org, host, 64)
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("receipt not durable: %d %v", len(pending), err)
+	}
+}
+
+// cancelWhenDrained makes completion observable without waiting for a retry
+// interval. The deadline in the test is only a deadlock guard.
+type cancelWhenDrained struct {
+	usageOutbox
+	cancel context.CancelFunc
+}
+
+func (s cancelWhenDrained) PendingEnterpriseUsage(ctx context.Context, org, host string, limit int) ([]telemetry.PendingEnterpriseEvent, error) {
+	events, err := s.usageOutbox.PendingEnterpriseUsage(ctx, org, host, limit)
+	if err == nil && len(events) == 0 {
+		s.cancel()
+	}
+	return events, err
+}
+
+type drainingUsageSender struct {
+	fakeUsageSender
+	batches []int
+}
+
+func (s *drainingUsageSender) ReportUsage(_ context.Context, _, _, batch string, events []json.RawMessage) (enterprise.UsageResponse, error) {
+	s.batches = append(s.batches, len(events))
+	response := enterprise.UsageResponse{SchemaVersion: "cercano.usage-report.v2", BatchID: batch}
+	for i, raw := range events {
+		var event struct {
+			ID       string `json:"attempt_id"`
+			Revision uint64 `json:"revision"`
+		}
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return response, err
+		}
+		// All three valid receipt statuses remove events from the eligible
+		// queue, including rejected rows retained for manual reconciliation.
+		status := []string{"accepted", "already_accepted", "rejected"}[i%3]
+		ack := enterprise.UsageReceipt{Index: i, AttemptID: event.ID, Revision: event.Revision, Status: status}
+		if status == "rejected" {
+			ack.ErrorCode = "invalid_event"
+		}
+		response.Acknowledgments = append(response.Acknowledgments, ack)
+	}
+	return response, nil
+}
+
+func TestEnterpriseUsageDrainsSQLiteBacklog(t *testing.T) {
+	store, err := telemetry.NewSQLiteStore(filepath.Join(t.TempDir(), "usage.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.InitializeAccounting(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var observations []usage.AttemptObservation
+	for i := 0; i < 130; i++ {
+		observations = append(observations, usage.AttemptObservation{ID: fmt.Sprintf("attempt-%03d", i), Revision: 1, StartedAt: time.Now().UTC(), Outcome: usage.Started, RequestedProvider: "openai", RequestedModel: "model", RouteID: "route", Report: usage.ReportIdentity{OrganizationID: "org", HostID: "host", ProfileVersion: 1, TaskType: "chat"}})
+	}
+	if err := store.WriteAttempts(t.Context(), observations); err != nil {
+		t.Fatal(err)
+	}
+	sender := &drainingUsageSender{fakeUsageSender: fakeUsageSender{status: enterprise.HostStatus{Managed: true, Status: enterprise.Status{Connected: true, OrganizationID: "org", HostID: "host"}}}}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	runEnterpriseUsage(ctx, cancelWhenDrained{usageOutbox: store, cancel: cancel}, sender)
+	if !reflect.DeepEqual(sender.batches, []int{64, 64, 2}) {
+		t.Fatalf("backlog not immediately drained: batches=%v", sender.batches)
+	}
+	pending, err := store.PendingEnterpriseUsage(t.Context(), "org", "host", 64)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("pending=%d err=%v", len(pending), err)
+	}
+}
+
+type controlledUsageOutbox struct {
+	fakeUsageOutbox
+	keepPending bool
+	readError   error
+	ackError    error
+}
+
+func (s *controlledUsageOutbox) PendingEnterpriseUsage(ctx context.Context, org, host string, limit int) ([]telemetry.PendingEnterpriseEvent, error) {
+	if s.readError != nil {
+		return nil, s.readError
+	}
+	return s.fakeUsageOutbox.PendingEnterpriseUsage(ctx, org, host, limit)
+}
+func (s *controlledUsageOutbox) ApplyEnterpriseUsageAcks(ctx context.Context, org, host string, sent []telemetry.PendingEnterpriseEvent, acks []telemetry.EnterpriseUsageAck) error {
+	if s.ackError != nil {
+		return s.ackError
+	}
+	if s.keepPending {
+		return nil
+	}
+	return s.fakeUsageOutbox.ApplyEnterpriseUsageAcks(ctx, org, host, sent, acks)
+}
+
+func TestEnterpriseUsageProgress(t *testing.T) {
+	for _, name := range []string{"accepted", "unchanged", "empty", "ineligible", "read-error", "send-error", "ack-error", "mismatched-response", "canceled"} {
+		t.Run(name, func(t *testing.T) {
+			outbox := &controlledUsageOutbox{fakeUsageOutbox: fakeUsageOutbox{events: []telemetry.PendingEnterpriseEvent{{AttemptID: "attempt", Revision: 1, Payload: json.RawMessage(`{"attempt_id":"attempt","revision":1}`)}}}}
+			sender := &fakeUsageSender{status: enterprise.HostStatus{Managed: true, Status: enterprise.Status{Connected: true, OrganizationID: "org", HostID: "host"}}}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			wantError, wantCalls := false, 1
+			switch name {
+			case "unchanged":
+				outbox.keepPending = true
+			case "empty":
+				outbox.events = nil
+				wantCalls = 0
+			case "ineligible":
+				sender.status.Managed = false
+				wantCalls = 0
+			case "read-error":
+				outbox.readError = errors.New("read failed")
+				wantError = true
+				wantCalls = 0
+			case "send-error":
+				sender.fail = true
+				wantError = true
+			case "ack-error":
+				outbox.ackError = errors.New("commit failed")
+				wantError = true
+			case "mismatched-response":
+				sender.wrong = true
+				wantError = true
+			case "canceled":
+				cancel()
+				wantError = true
+				wantCalls = 0
+			}
+			progress, err := sendPendingEnterpriseUsage(ctx, outbox, sender)
+			if progress != (name == "accepted") || (err != nil) != wantError || sender.calls != wantCalls {
+				t.Fatalf("progress=%v err=%v calls=%d", progress, err, sender.calls)
+			}
+		})
+	}
+}
+
+type cancelingUsageSender struct {
+	fakeUsageSender
+	cancel      context.CancelFunc
+	sawDeadline bool
+}
+
+func (s *cancelingUsageSender) ReportUsage(ctx context.Context, _, _, _ string, _ []json.RawMessage) (enterprise.UsageResponse, error) {
+	s.calls++
+	_, s.sawDeadline = ctx.Deadline()
+	s.cancel()
+	<-ctx.Done()
+	return enterprise.UsageResponse{}, ctx.Err()
+}
+
+func TestEnterpriseUsageCancellationDuringUpload(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	outbox := &fakeUsageOutbox{events: []telemetry.PendingEnterpriseEvent{{AttemptID: "attempt", Revision: 1, Payload: json.RawMessage(`{"attempt_id":"attempt","revision":1}`)}}}
+	sender := &cancelingUsageSender{fakeUsageSender: fakeUsageSender{status: enterprise.HostStatus{Managed: true, Status: enterprise.Status{Connected: true, OrganizationID: "org", HostID: "host"}}}, cancel: cancel}
+	runEnterpriseUsage(ctx, outbox, sender)
+	if sender.calls != 1 || !sender.sawDeadline || outbox.retired {
+		t.Fatalf("calls=%d deadline=%v retired=%v", sender.calls, sender.sawDeadline, outbox.retired)
 	}
 }
