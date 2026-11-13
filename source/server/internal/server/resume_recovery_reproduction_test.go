@@ -1,12 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -245,6 +247,58 @@ func TestResumePreflightIsolation(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("preflight not reached")
 	}
+	// A real same-conversation RPC must wait before touching its durable journal.
+	journal := resumeJournal(b.coexistence, "chat")
+	before, err := os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var operation pb.LifecycleControlRequest
+	if err := json.Unmarshal(before, &operation); err != nil {
+		t.Fatal(err)
+	}
+	sameCtx, sameCancel := context.WithCancel(reproLoopbackContext())
+	sameDone := make(chan error, 1)
+	go reproQueuedResume(b, sameCtx, resumeRequest(b, endpoint), sameDone)
+	sameJoined := false
+	defer func() {
+		sameCancel()
+		if !sameJoined {
+			<-sameDone
+		}
+	}()
+	until := time.After(time.Second)
+	for {
+		b.coexistence.resumeGateMu.Lock()
+		refs := b.coexistence.resumeGates["chat"].refs
+		b.coexistence.resumeGateMu.Unlock()
+		if refs == 2 {
+			break
+		}
+		select {
+		case e := <-sameDone:
+			sameJoined = true
+			t.Fatalf("same conversation escaped gate: %v", e)
+		case <-until:
+			t.Fatal("same conversation did not queue")
+		default:
+			runtime.Gosched()
+		}
+	}
+	sameCancel()
+	select {
+	case e := <-sameDone:
+		sameJoined = true
+		if !errors.Is(e, context.Canceled) {
+			t.Fatalf("queued cancellation: %v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued resume did not cancel")
+	}
+	after, err := os.ReadFile(journal)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("queued resume changed journal: %v", err)
+	}
 	queuedCtx, queuedCancel := context.WithCancel(reproLoopbackContext())
 	queuedCancel()
 	done := make(chan error, 1)
@@ -282,6 +336,17 @@ func TestResumePreflightIsolation(t *testing.T) {
 	retry, err := b.LifecycleResume(reproLoopbackContext(), resumeRequest(b, endpoint))
 	if err != nil || !retry.GetReady() || initial.GetOperationId() == "" || retry.GetOperationId() != initial.GetOperationId() {
 		t.Fatalf("unstable retry: %v %v", retry, err)
+	}
+	after, err = os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retried pb.LifecycleControlRequest
+	if err := json.Unmarshal(after, &retried); err != nil {
+		t.Fatal(err)
+	}
+	if retried.Receipt == "" || retried.Receipt != operation.Receipt || retried.HandoverId != operation.HandoverId || retry.OperationId != operation.HandoverId {
+		t.Fatal("operation/receipt changed across serialized retry")
 	}
 	b.coexistence.resumeGateMu.Lock()
 	remaining := len(b.coexistence.resumeGates)

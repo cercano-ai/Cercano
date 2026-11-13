@@ -94,12 +94,18 @@ func TestResumeGateContextTokenRace(t *testing.T) {
 }
 
 func TestBoundedPreflightExpirationClassification(t *testing.T) {
-	for _, translated := range []error{nil, context.DeadlineExceeded, status.Error(codes.Unavailable, "translated"), status.Error(codes.PermissionDenied, "auth")} {
+	for _, translated := range []error{nil, context.DeadlineExceeded, status.Error(codes.DeadlineExceeded, "peer deadline"), status.Error(codes.Unavailable, "translated"), status.Error(codes.PermissionDenied, "auth")} {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		_, err := boundedPreflight(ctx, func(phase context.Context) (int, error) { <-phase.Done(); return 0, translated })
 		cancel()
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("expired phase classified as %v", err)
+		}
+	}
+	for _, deadline := range []error{context.DeadlineExceeded, status.Error(codes.DeadlineExceeded, "peer deadline")} {
+		_, err := boundedPreflight(context.Background(), func(context.Context) (int, error) { return 0, deadline })
+		if !errors.Is(err, context.DeadlineExceeded) && status.Code(err) != codes.DeadlineExceeded {
+			t.Fatalf("deadline classification: %v", err)
 		}
 	}
 	_, err := boundedPreflight(context.Background(), func(phase context.Context) (int, error) {
