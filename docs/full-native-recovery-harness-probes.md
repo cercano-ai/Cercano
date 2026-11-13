@@ -1,7 +1,9 @@
 # Full native recovery acceptance: baseline probes
 
-Status: investigation only. No integrated acceptance test has been implemented;
-no new coverage or CI qualification is claimed by this note.
+Status: historical investigation-only baseline. The subsequent implementation
+and its exact coverage/limitations are documented in
+[full-native-recovery-acceptance.md](full-native-recovery-acceptance.md).
+The baseline results below remain component-only evidence.
 
 ## Local baseline, 2026-11-13
 

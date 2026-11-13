@@ -97,8 +97,9 @@ jobs:
           path: test/e2e/artifacts/
           if-no-files-found: ignore
 
-  recovery-darwin-components:
-    # Component qualification only: not an end-to-end native consent/UI gate.
+  recovery-darwin-acceptance:
+    # Test-owned native processes, real CLI model consent and history hydration.
+    # Synthetic inference dependencies; no installed service or terminal driver.
     runs-on: macos-14
     defaults:
       run:
@@ -123,3 +124,11 @@ jobs:
       - name: CLI recovered binding after proven child exit (not native stop)
         working-directory: source/clients/cli
         run: CERCANO_RESUME_PROBE_BINARY="$RUNNER_TEMP/recovery-server.test" go test ./internal/ui -run '^TestDestinationResumeAfterActualProcessExit$' -count=1 -timeout=120s
+      - name: Full native recovery acceptance repeated
+        working-directory: source/clients/cli
+        run: CERCANO_RESUME_PROBE_BINARY="$RUNNER_TEMP/recovery-server.test" go test ./internal/ui -run '^TestFullNativeRecoveryAcceptance$' -count=3 -timeout=180s
+      - name: Build race-instrumented native bridge
+        run: go test -race -c -o "$RUNNER_TEMP/recovery-server-race.test" ./cmd/cercano
+      - name: Full native recovery acceptance race
+        working-directory: source/clients/cli
+        run: CERCANO_RESUME_PROBE_BINARY="$RUNNER_TEMP/recovery-server-race.test" go test -race ./internal/ui -run '^TestFullNativeRecoveryAcceptance$' -count=2 -timeout=180s
