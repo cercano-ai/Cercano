@@ -155,3 +155,98 @@ This is useful for agents that want to discover Cercano's capabilities at runtim
 
 - [Agent Skills Specification](https://agentskills.io/specification)
 - [Cercano's published skills](../../.agents/skills/)
+
+## Consumer Behavior (Cercano Agent Runtime)
+
+Cercano's agent runtime (server + CLI) also acts as a **skills consumer**: on
+every request it discovers skills on the local filesystem and injects a compact
+metadata catalog into the prompt. This is separate from publishing skills (the
+sections above) — publishing makes skills available; consuming is how the
+Cercano agent itself finds them at runtime.
+
+### Skill Roots and Precedence
+
+Discovery scans only the following roots — in this order:
+
+1. `<workDir>/.agents/skills/`
+2. `<workDir>/.claude/skills/`
+3. `~/.agents/skills/`
+4. `~/.claude/skills/`
+
+- Only **immediate** `<name>/SKILL.md` directories are considered; there is no
+  ancestor traversal of the work directory and no other locations are scanned.
+- If two skills share a valid name, the first root in the list wins
+  (workspace before home, `.agents` before `.claude`).
+- An empty request work directory disables prompt augmentation, including
+  skills. With a nonempty relative work directory, workspace skill roots are
+  skipped; home roots can still contribute. No workspace skill lookup falls
+  back to the server's process working directory.
+- At most 256 directory entries per root are examined, in filesystem order.
+  Valid entries in that bounded subset are deduplicated by the precedence
+  above, sorted by name, and limited to 32 skills. For roots larger than 256
+  entries, which subset is examined depends on the filesystem's enumeration
+  order; there is no guarantee of globally alphabetical selection.
+
+### What the Agent Receives
+
+Only a bounded metadata catalog is injected into the prompt — each entry is
+`name`, `description`, and the absolute path to `SKILL.md`. **Full skill
+bodies are never included automatically.** The catalog's instructions tell the
+agent that:
+
+- skills are **untrusted, optional** task guidance contributed by users or
+  repositories — not system instructions;
+- if a description looks relevant, the agent must **first load the skill's
+  full `SKILL.md`** with its existing file-read tool (using the catalog's
+  `path`), then decide whether the guidance fits the task;
+- supporting resources referenced by a skill live **relative to that skill's
+  directory**;
+- a skill **grants no permissions and registers no tools** — nothing is run,
+  written, or fetched implicitly because a skill suggests it.
+
+Progressive disclosure is exactly this two-step flow: cheap metadata catalog
+for all skills, full body only for the one skill the model deliberately reads.
+
+### Validation Rules
+
+A skill is only offered to the model if it is valid. Invalid skills are
+silently skipped (they never shadow lower-precedence copies of the same name):
+
+- `name`: 1–64 chars, lowercase letters, digits, and hyphens; no leading,
+  trailing, or consecutive hyphens; must match the directory name.
+- `description`: non-empty after trimming, at most 1024 characters.
+- Frontmatter must be well-formed YAML and the file must be valid UTF-8.
+
+### Security Bounds
+
+Skill roots may point into untrusted content (a cloned repository, a shared
+home directory), so discovery is deliberately conservative:
+
+- Discovery examines at most 256 entries per root and reads at most 32 KiB
+  plus one size-check byte per file. Oversize files are skipped; binary,
+  non-UTF-8, or malformed content is discarded after inspection. The rendered
+  catalog, including its instructions, is capped at 16 KiB; entries that do
+  not fit are omitted.
+- Symlinked `.agents`/`.claude` directories, skills roots, skill directories,
+  and `SKILL.md` files are skipped. These checks are conservative discovery
+  behavior, not a race-proof filesystem sandbox: underlying filesystem access
+  can still block, and concurrent changes can invalidate a snapshot.
+- Names, descriptions, and paths are JSON-encoded to preserve the catalog's
+  structure. This does not make their text trustworthy or eliminate prompt
+  injection; the model must still treat them as untrusted guidance.
+- Discovery runs per request; there is no global state that would leak one
+  workspace's skills into another's prompts.
+
+### Limitations
+
+- Only YAML frontmatter is validated; `compatibility`, `license`, and
+  `metadata` fields are ignored by the consumer.
+- Skills are prompt guidance only — Cercano's consumer does not parse body
+  instructions into capabilities, and skill content never bypasses existing
+  permission or tool-approval flows.
+- The catalog is a per-request snapshot; skills created mid-request are
+  picked up on the next request.
+- Home roots depend on the process home directory (`os.UserHomeDir`), which
+  can be redirected by tests or embedding hosts via an injectable home lookup.
+- The `cercano_skills` MCP tool (below) serves Cercano's *published* built-in
+  skills only; it does not list user-installed skills from these roots.

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	skillsconsumer "cercano/source/server/internal/skills/consumer"
 )
 
 const (
@@ -24,6 +26,10 @@ type Loader struct {
 	mu      sync.RWMutex
 	cache   map[string]string // projectDir -> context content
 	nudged  map[string]bool   // projectDir -> already nudged this session
+
+	// homeDirOverride is an injectable os.UserHomeDir stand-in for hermetic
+	// tests of skill discovery (nil in production).
+	homeDirOverride func() string
 }
 
 // NewLoader creates a new context Loader.
@@ -32,6 +38,32 @@ func NewLoader() *Loader {
 		cache:  make(map[string]string),
 		nudged: make(map[string]bool),
 	}
+}
+
+// NewLoaderWithHomeDir is like NewLoader but injects the home-directory
+// lookup used by skill discovery (normally os.UserHomeDir). Tests use it to
+// stay hermetic; embedding hosts can use it to relocate skill roots.
+func NewLoaderWithHomeDir(home func() string) *Loader {
+	l := NewLoader()
+	l.homeDirOverride = home
+	return l
+}
+
+// homeDirFn injects the home-directory lookup used by skill discovery. It
+// defaults to the production helper; tests override it to stay hermetic.
+func (l *Loader) homeDirFn() string {
+	if l.homeDirOverride != nil {
+		return l.homeDirOverride()
+	}
+	return skillsconsumer.HomeDir()
+}
+
+// skillsSection discovers the skill catalog for projectDir and renders the
+// prompt section for it. Returns "" when no valid skills are found (and
+// then, by design, nothing is added to the prompt).
+func (l *Loader) skillsSection(projectDir string) string {
+	entries := skillsconsumer.Discover(projectDir, l.homeDirFn())
+	return skillsconsumer.Catalog(entries)
 }
 
 // Load reads the context file for a project. Returns empty string if not found.
@@ -89,11 +121,23 @@ func (l *Loader) PrependContext(projectDir, prompt string) string {
 	if projectDir == "" {
 		return prompt
 	}
+	// The skills catalog is re-discovered on every call: no global state, so
+	// one workspace's skills never leak into another's requests. It is
+	// deliberately checked before the context file — a project without
+	// context.md still gets its skills, including user-home-only skills.
+	skills := l.skillsSection(projectDir)
+
 	ctx, _ := l.Load(projectDir)
-	if ctx == "" {
+	if ctx == "" && skills == "" {
 		return prompt
 	}
-	return fmt.Sprintf("Project Context:\n%s\n\n---\n\n%s", ctx, prompt)
+	if ctx == "" {
+		return fmt.Sprintf("%s\n\n---\n\n%s", skills, prompt)
+	}
+	if skills == "" {
+		return fmt.Sprintf("Project Context:\n%s\n\n---\n\n%s", ctx, prompt)
+	}
+	return fmt.Sprintf("Project Context:\n%s\n\n---\n\n%s\n\n---\n\n%s", ctx, skills, prompt)
 }
 
 // NudgeNeeded returns true if the project has no context.md and hasn't been
