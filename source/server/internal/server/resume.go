@@ -134,6 +134,15 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	}
 	l.resumeMu.Lock()
 	defer l.resumeMu.Unlock()
+	// Recovery commits its receipt before publishing readiness. Reconcile on
+	// successful retries too, including restart after commit but before cleanup.
+	defer func() {
+		if finalErr == nil && result.GetReady() {
+			if _, e := l.reconcileRecoveredResume(ctx, id); e != nil {
+				result, finalErr = nil, e
+			}
+		}
+	}()
 	// Confirmation is a single-use recovery continuation, never another
 	// cooperative attempt (which could change the consent-bound row).
 	_, containedRecovery := l.options.RecoverySource.(ContainedSourceStop)
@@ -215,6 +224,12 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		if err != nil {
 			return nil, refusal(err)
 		}
+		// Cleanup is independent of readiness: after a crash, a recovered local
+		// row still requires explicit ownership restoration/recovery. Its durable
+		// receipt can nevertheless resolve the obsolete cooperative participation.
+		if _, e := l.reconcileRecoveredResume(ctx, id); e != nil {
+			return nil, refusal(e)
+		}
 		// Recovery repeats both the guarded death check and exact owner/epoch check.
 		stage = "guarded_recovery"
 		if v.State == "owned" && v.Owner != l.options.Host && l.options.RecoveryGuard != nil {
@@ -256,6 +271,10 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 					readErr = os.ErrNotExist
 				} else if !errors.Is(e, sql.ErrNoRows) {
 					return nil, refusal(e)
+				} else if recovered, e := l.reconcileRecoveredResume(ctx, id); e != nil {
+					return nil, refusal(e)
+				} else if recovered {
+					readErr = os.ErrNotExist
 				}
 			}
 		}
@@ -483,37 +502,54 @@ func (l *coexistenceLifecycle) resolveResumeAcceptanceLocked(a *IncomingAcceptan
 	return nil
 }
 
-// resumeRecover is called under resumeMu: no negotiation for this journal can be
-// in flight. A successful guarded exact-epoch recovery fences every late source
-// reservation for that epoch. Resolve only this journal's exact acceptance, not
-// unrelated participation (including other handovers for the same conversation).
-func (s *Server) resumeRecover(ctx context.Context, r *pb.LifecycleRecoverRequest) (*pb.LifecycleControlResponse, error) {
-	l := s.coexistence
+// reconcileRecoveredResume runs under resumeMu. A historical transactional
+// recovery receipt proves only that this exact source epoch was superseded at
+// this destination; it grants neither ownership nor readiness. Keep the journal
+// so a crash/retry can repeat cleanup, and reaffirm publication before resolving
+// any in-process acceptance. Current ownership alone is never evidence.
+func (l *coexistenceLifecycle) reconcileRecoveredResume(ctx context.Context, id string) (bool, error) {
+	path := resumeJournal(l, id)
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
 	var op pb.LifecycleControlRequest
-	b, err := os.ReadFile(resumeJournal(l, r.Conversation))
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
+	if err = json.Unmarshal(b, &op); err != nil {
+		return false, err
 	}
-	if err == nil {
-		if err = json.Unmarshal(b, &op); err != nil {
-			return nil, err
-		}
+	if !proto.Equal(op.Destination, l.controlIdentity()) || op.GetOwner().GetConversation() != id {
+		return false, status.Error(codes.FailedPrecondition, "resume journal selection mismatch")
 	}
-	got, err := s.LifecycleRecover(ctx, r)
-	if err != nil || !got.GetReady() {
-		return got, err
+	// A completed cooperative journal need not contain an acceptance. It is
+	// not recovery proof, and must retain its existing completed-claim behavior.
+	if op.HandoverId == "" || op.Receipt == "" || op.Source == nil || op.Owner.Host == "" || op.Owner.Epoch == "" || op.Source.Host != op.Owner.Host {
+		return false, nil
 	}
-	if !proto.Equal(op.Destination, l.controlIdentity()) || !proto.Equal(op.Owner, r.ExpectedOwner) || op.HandoverId == "" || op.Receipt == "" || op.Source == nil || op.Source.Host != r.ExpectedOwner.GetHost() {
-		return got, nil
+	recovery := conversation.RecoveryID(id, conversation.OwnershipState{Owner: op.Owner.Host, Epoch: op.Owner.Epoch}, l.options.Host)
+	if _, err = conversation.HandoverResult(ctx, l.store, id, l.options.Host, recovery); errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if err = syncResumePublication(path, l.resumeJournalSync); err != nil {
+		return false, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for h, a := range l.incoming {
-		if h.Conversation == op.Owner.Conversation && h.SourceHost == op.Owner.Host && h.SourceEpoch == op.Owner.Epoch && h.HandoverID == op.HandoverId && h.DestinationHost == l.options.Host && a.receipt == op.Receipt && a.sourceBuild == op.Source.Build {
+		if h.Conversation == id && h.SourceHost == op.Owner.Host && h.SourceEpoch == op.Owner.Epoch && h.HandoverID == op.HandoverId && h.DestinationHost == l.options.Host && a.receipt == op.Receipt && a.sourceBuild == op.Source.Build {
 			if err = l.resolveResumeAcceptanceLocked(a); err != nil {
-				return nil, err
+				return false, err
 			}
 		}
 	}
-	return got, nil
+	return true, nil
+}
+
+// The shared successful-resume reconciliation also covers guarded recovery.
+func (s *Server) resumeRecover(ctx context.Context, r *pb.LifecycleRecoverRequest) (*pb.LifecycleControlResponse, error) {
+	return s.LifecycleRecover(ctx, r)
 }

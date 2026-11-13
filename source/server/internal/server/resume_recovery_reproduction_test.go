@@ -21,94 +21,124 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// These are green reproductions of defects, not desired-invariant regression tests.
 // All ownership/journal transitions use real lifecycle paths and disposable stores.
-func TestReproResumeRecoverySupersession(t *testing.T) {
-	ctx := reproLoopbackContext()
-	a, b, c := lifecycleFixture(t)
-	serveCutoverFixture(t, a)
-	_, endpoint := serveCutoverFixture(t, b)
-	source := &resumeSource{Server: a, forceError: broker.ErrAdmissionBusy}
-	setResumeSource(b, a, serveResumeSource(t, source))
-	if _, err := a.Retain(ctx, "chat"); err != nil {
-		t.Fatal(err)
-	}
-	p := &containedFixture{beforeStop: func() {
-		// Simulated process termination releases its real ownership lock, not its row.
-		if err := a.coexistence.owners["chat"].Close(); err != nil {
-			t.Error(err)
+func TestResumeRecoverySupersession(t *testing.T) {
+	for _, failCleanup := range []bool{false, true} {
+		for _, restart := range []bool{false, true} {
+			t.Run(map[bool]string{false: "same-process", true: "restart"}[restart]+map[bool]string{false: "", true: "-cleanup-failure"}[failCleanup], func(t *testing.T) {
+				ctx := reproLoopbackContext()
+				a, b, c := lifecycleFixture(t)
+				serveCutoverFixture(t, a)
+				_, endpoint := serveCutoverFixture(t, b)
+				source := &resumeSource{Server: a, forceError: broker.ErrAdmissionBusy}
+				setResumeSource(b, a, serveResumeSource(t, source))
+				if _, err := a.Retain(ctx, "chat"); err != nil {
+					t.Fatal(err)
+				}
+				p := &containedFixture{beforeStop: func() {
+					// Simulated process termination releases its real ownership lock, not its row.
+					if err := a.coexistence.owners["chat"].Close(); err != nil {
+						t.Error(err)
+					}
+				}}
+				b.coexistence.options.RecoverySource = p
+				b.coexistence.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) {
+					return &pb.LifecycleRecoverySelection{Identity: b.coexistence.controlIdentity(), Endpoint: endpoint, TokenFile: "fixture"}, nil
+				}
+				r := resumeRequest(b, endpoint)
+				r.Requester = b.coexistence.controlIdentity()
+				offer, err := b.LifecycleResume(ctx, r)
+				if err != nil || !offer.GetConfirmationRequired() {
+					t.Fatalf("offer: %v %v", offer, err)
+				}
+				data, err := os.ReadFile(resumeJournal(b.coexistence, "chat"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var op pb.LifecycleControlRequest
+				if err = json.Unmarshal(data, &op); err != nil {
+					t.Fatal(err)
+				}
+				if len(b.coexistence.incoming) != 1 {
+					t.Fatalf("incoming before recovery: %d", len(b.coexistence.incoming))
+				}
+				var exact *IncomingAcceptance
+				for _, v := range b.coexistence.incoming {
+					exact = v
+				}
+				want := broker.IncomingHandover{Conversation: "chat", SourceHost: op.Owner.Host, SourceEpoch: op.Owner.Epoch, HandoverID: op.HandoverId, DestinationHost: "B"}
+				if exact.h != want || exact.receipt != op.Receipt {
+					t.Fatalf("acceptance does not match durable journal: %+v", exact.h)
+				}
+				r.RecoveryChallenge = offer.OriginalRecovery.Challenge
+				r.ConfirmOriginalRecovery = true
+				if failCleanup {
+					b.coexistence.resumeJournalSync = func(*os.File) error { return errors.New("cleanup sync failure") }
+				}
+				got, err := b.LifecycleResume(ctx, r)
+				if failCleanup {
+					if err == nil || got != nil || b.coexistence.incoming[exact.h] != exact || p.stop != 1 {
+						t.Fatalf("uncertain cleanup: %v %v", got, err)
+					}
+					b.coexistence.resumeJournalSync = nil
+					if restart {
+						// The receipt survives release as well as a crash before cleanup.
+						cap := b.coexistence.owners["chat"]
+						if e := b.ReleaseRetained(ctx, ownerOf(cap), nil); e != nil {
+							t.Fatal(e)
+						}
+						b, _, endpoint = restartResumeFixture(t, b)
+					}
+					r = resumeRequest(b, endpoint)
+					got, err = b.LifecycleResume(ctx, r)
+				}
+
+				if err != nil || !got.GetReady() || p.stop != 1 {
+					t.Fatalf("recovery: %v %v stops=%d", got, err, p.stop)
+				}
+				if b.coexistence.incoming[exact.h] != nil {
+					t.Fatal("superseded exact acceptance retained")
+				}
+				if _, err = conversation.HandoverResult(ctx, b.coexistence.store, "chat", "B", op.HandoverId); !errors.Is(err, sql.ErrNoRows) {
+					t.Fatalf("old cooperative result: %v", err)
+				}
+				receipt, err := conversation.HandoverResult(ctx, b.coexistence.store, "chat", "B", conversation.RecoveryID("chat", conversation.OwnershipState{Owner: op.Owner.Host, Epoch: op.Owner.Epoch}, "B"))
+				if err != nil || receipt == "" {
+					t.Fatalf("recovery receipt: %q %v", receipt, err)
+				}
+				if err = b.ReleaseRetained(ctx, controlOwner(&pb.LifecycleControlRequest{Owner: got.Owner}), nil); err != nil {
+					t.Fatal(err)
+				}
+				foreign, err := c.Retain(ctx, "chat")
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.RecoveryChallenge = ""
+				r.ConfirmOriginalRecovery = false
+				if restart {
+					b, _, endpoint = restartResumeFixture(t, b)
+					r = resumeRequest(b, endpoint)
+				}
+				serveCutoverFixture(t, c)
+				setResumeSource(b, c, serveResumeSource(t, &resumeSource{Server: c}))
+				got, err = b.LifecycleResume(ctx, r)
+				if err != nil || !got.GetReady() || got.Owner.Epoch == foreign.Epoch {
+					t.Fatalf("resume later foreign epoch: %v %v", got, err)
+				}
+				for i := 0; i < 2; i++ {
+					retry, e := b.LifecycleResume(ctx, r)
+					if e != nil || !retry.GetReady() || retry.Owner.Epoch != got.Owner.Epoch {
+						t.Fatalf("retry: %v %v", retry, e)
+					}
+				}
+				releaseResumeAndRetire(t, b, got)
+			})
 		}
-	}}
-	b.coexistence.options.RecoverySource = p
-	b.coexistence.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) {
-		return &pb.LifecycleRecoverySelection{Identity: b.coexistence.controlIdentity(), Endpoint: endpoint, TokenFile: "fixture"}, nil
 	}
-	r := resumeRequest(b, endpoint)
-	r.Requester = b.coexistence.controlIdentity()
-	offer, err := b.LifecycleResume(ctx, r)
-	if err != nil || !offer.GetConfirmationRequired() {
-		t.Fatalf("offer: %v %v", offer, err)
-	}
-	data, err := os.ReadFile(resumeJournal(b.coexistence, "chat"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var op pb.LifecycleControlRequest
-	if err = json.Unmarshal(data, &op); err != nil {
-		t.Fatal(err)
-	}
-	if len(b.coexistence.incoming) != 1 {
-		t.Fatalf("incoming before recovery: %d", len(b.coexistence.incoming))
-	}
-	var exact *IncomingAcceptance
-	for _, v := range b.coexistence.incoming {
-		exact = v
-	}
-	want := broker.IncomingHandover{Conversation: "chat", SourceHost: op.Owner.Host, SourceEpoch: op.Owner.Epoch, HandoverID: op.HandoverId, DestinationHost: "B"}
-	if exact.h != want || exact.receipt != op.Receipt {
-		t.Fatalf("acceptance does not match durable journal: %+v", exact.h)
-	}
-	r.RecoveryChallenge = offer.OriginalRecovery.Challenge
-	r.ConfirmOriginalRecovery = true
-	got, err := b.LifecycleResume(ctx, r)
-	if err != nil || !got.GetReady() || p.stop != 1 {
-		t.Fatalf("recovery: %v %v stops=%d", got, err, p.stop)
-	}
-	if b.coexistence.incoming[exact.h] != exact {
-		t.Fatal("predicted stale exact acceptance absent")
-	}
-	if _, err = conversation.HandoverResult(ctx, b.coexistence.store, "chat", "B", op.HandoverId); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("old cooperative result: %v", err)
-	}
-	receipt, err := conversation.CurrentRecoveryResult(ctx, b.coexistence.store, "chat", "B", got.Owner.Epoch)
-	if err != nil || receipt == "" {
-		t.Fatalf("recovery receipt: %q %v", receipt, err)
-	}
-	if err = b.ReleaseRetained(ctx, controlOwner(&pb.LifecycleControlRequest{Owner: got.Owner}), nil); err != nil {
-		t.Fatal(err)
-	}
-	// Desired: retirement succeeds once the recovered owner is released.
-	if err = b.RetireCoexistence(ctx); !errors.Is(err, broker.ErrAdmissionBusy) {
-		t.Fatalf("predicted retirement blocker: %v", err)
-	}
-	t.Logf("recovered ready=true; old exact incoming retained=%d; owners=%d; retirement=%v; cooperative result=sql.ErrNoRows", len(b.coexistence.incoming), len(b.coexistence.owners), err)
-	foreign, err := c.Retain(ctx, "chat")
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.RecoveryChallenge = ""
-	r.ConfirmOriginalRecovery = false
-	// Desired: the completed recovery supersedes the journal for this new epoch.
-	_, err = b.LifecycleResume(ctx, r)
-	if status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "resume owner changed; refusing stale operation") {
-		t.Fatalf("predicted stale journal refusal: %v", err)
-	}
-	current, e := conversation.ReadOwnership(ctx, b.coexistence.store, "chat")
-	if e != nil || current.Owner != foreign.Host || current.Epoch != foreign.Epoch {
-		t.Fatalf("foreign ownership changed: %+v %v", current, e)
-	}
-	t.Logf("later foreign owner=%s; resume=%v", current.Owner, err)
+
 }
+
+// The remaining tests intentionally reproduce separate, out-of-scope defects.
 
 func TestReproResumeFencedReconnect(t *testing.T) {
 	ctx := reproLoopbackContext()
