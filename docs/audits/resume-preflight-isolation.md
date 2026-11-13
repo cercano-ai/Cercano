@@ -12,12 +12,15 @@ sweep/capacity/insert. The capacity remains 128, expiry five minutes, and consum
 remains single-use even on refusal. Published records are immutable; responses
 clone stored offers. No callbacks or I/O run under the registry mutex.
 
-Source resolution (including recovery revalidation), authenticated dial, and List
-use five-second child contexts; shorter caller deadlines win. Phase expiration
-is checked before classifying adapter errors, including translated Unavailable.
-Exact authenticated List identity remains the boundary before the existing shared
-three-second cooperative force/legacy budget. No short deadline is imposed over
-the entire stop/recover critical section.
+Current observation supersedes the original List-based preflight: ordinary
+resume uses bounded identity-only authentication and the trusted private record
+for Store binding, never LifecycleList. Normal and recovery observation each
+have an independent eight-slot pool and five-second budget; timed-out callbacks
+retain capacity until joined. Late connections are closed. Identity is immutable
+and does not wait on the lifecycle mutex. See
+[bounded observation](../bounded-resume-observation-blocker.md).
+Old hosts that cannot freshly authenticate still fail closed. No short deadline
+is imposed over the complete stop/recover critical section.
 
 ## Limits
 
@@ -29,7 +32,7 @@ resume gate. Existing authority locks can still serialize critical ownership wor
 No new authority policy, readiness changes, or live configuration/host operations
 are included.
 
-## Verification
+## Historical verification (serialization unit)
 
 - The original global-lock reproduction was run before implementation; it exposed
   an unbounded List and an unrelated canceled resume parked behind the global lock.
@@ -47,4 +50,7 @@ are included.
 - Full internal/server and internal/broker suites passed, including a final
   race-enabled run after the test additions.
 
-This unit is checkpointed on its isolated branch only; not landed or pushed.
+Serialization and bounded identity-only observation are now in local main through
+`f888165d`. The remaining audit fixes on `fix/remaining-recovery-audit` are
+review-only and not landed or pushed. Historical List test descriptions above
+are not the current ordinary preflight contract.

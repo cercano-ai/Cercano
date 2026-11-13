@@ -1,6 +1,10 @@
 # Destination-driven resume verification
 
-Branch: `fix/destination-resume`, based on local main `1c070493acb2`.
+Historical branch: `fix/destination-resume`, based on then-main `1c070493acb2`.
+Destination-driven recovery and bounded identity-only observation are included
+in local main through `f888165d`; the historical commands below are not fresh
+verification of this review branch. See the current audit addendum in
+[bounded observation](bounded-resume-observation-blocker.md).
 
 ## Reproduction and correction
 

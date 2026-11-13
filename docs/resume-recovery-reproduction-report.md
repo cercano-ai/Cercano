@@ -1,6 +1,12 @@
-# Resume/recovery reproductions
+# Historical resume/recovery reproductions
 
-Base inspected: main `5351fc14e80c339253b35bf814b57489be170e89` (the audit base is still current). Test-only branch `test/resume-recovery-reproductions`. No production edits.
+Base inspected: main `5351fc14e80c339253b35bf814b57489be170e89` (historical audit base, no longer current). Test-only branch `test/resume-recovery-reproductions`. No production edits.
+
+This report preserves observations at that historical base, not current defects.
+Subsequent recovery, serialization, and bounded identity-only observation changes
+are in local main through `f888165d`. Ordinary resume no longer calls List;
+see [current observation](bounded-resume-observation-blocker.md). The test names
+and line numbers below describe the reproduction snapshot.
 
 ## Predictions established before execution
 
