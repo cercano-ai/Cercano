@@ -100,7 +100,7 @@ jobs:
   recovery-darwin-acceptance:
     # Test-owned native processes, real CLI model consent and history hydration.
     # Synthetic inference dependencies; no installed service or terminal driver.
-    runs-on: macos-14
+    runs-on: macos-15  # Supported pinned Apple Silicon image (macOS 14 retired).
     defaults:
       run:
         working-directory: source/server

@@ -20,8 +20,17 @@ import (
 	"google.golang.org/grpc/peer"
 )
 
-// Real lifecycle handlers, private registry, token authentication, and production
-// containment adapter. Only process inspection/stop/absence are disposable seams.
+// Use the existing orchestration-only seam for this substituted-process test.
+// Production WithStoppedSource retains its unconditional native final verifier;
+// real process containment is covered by the Darwin native acceptance tests.
+type resumeObservationSource struct{ *developmentContainedSource }
+
+func (s resumeObservationSource) WithStoppedSource(ctx context.Context, source *pb.LifecycleIdentity, snapshot string, validate func() error, use func(context.Context) error) error {
+	return s.stopAndUseSource(ctx, source, snapshot, validate, use)
+}
+
+// Real lifecycle handlers, private registry, token authentication, and containment
+// orchestration. Only process inspection/stop/absence are disposable seams.
 func TestDevelopmentResumeTimeoutConfirmedContinuation(t *testing.T) {
 	state, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -99,7 +108,14 @@ func TestDevelopmentResumeTimeoutConfirmedContinuation(t *testing.T) {
 		stops++
 		return cap.Close()
 	}
-	adapter.absent = func(context.Context, string) error { return nil }
+	absenceChecks := 0
+	adapter.absent = func(context.Context, string) error {
+		if stops != 1 {
+			return fmt.Errorf("absence checked before source stop")
+		}
+		absenceChecks++
+		return nil
+	}
 	options.Host, options.Build = destination.Host, destination.Build
 	options.ControlAuthorize = func(context.Context) error { return nil }
 	options.ResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {
@@ -107,7 +123,7 @@ func TestDevelopmentResumeTimeoutConfirmedContinuation(t *testing.T) {
 	}
 	options.RecoveryResolveSource = developmentSourceResolver(state, destination)
 	options.ControlDial = developmentPeerDial(state, destination)
-	options.RecoverySource = adapter
+	options.RecoverySource = resumeObservationSource{adapter}
 	options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) {
 		return &pb.LifecycleRecoverySelection{Identity: destination, Endpoint: "127.0.0.1:12345", TokenFile: token}, nil
 	}
@@ -124,8 +140,8 @@ func TestDevelopmentResumeTimeoutConfirmedContinuation(t *testing.T) {
 	request.ConfirmOriginalRecovery = true
 	request.RecoveryChallenge = offer.OriginalRecovery.Challenge
 	result, err := b.LifecycleResume(ctx, request)
-	if err != nil || !result.GetReady() || stops != 1 {
-		t.Fatalf("continuation: %v %v stops=%d", result, err, stops)
+	if err != nil || !result.GetReady() || stops != 1 || absenceChecks != 1 {
+		t.Fatalf("continuation: %v %v stops=%d absenceChecks=%d", result, err, stops, absenceChecks)
 	}
 	if err := b.ReleaseRetained(ctx, broker.Owner{Conversation: result.Owner.Conversation, Host: result.Owner.Host, Epoch: result.Owner.Epoch}, nil); err != nil {
 		t.Fatal(err)
