@@ -261,6 +261,11 @@ func TestDestinationResumeRejectsSourceAuthAndOwnerRaces(t *testing.T) {
 				t.Fatal(err)
 			}
 			source := &resumeSource{Server: a, unauth: mode == "source-auth"}
+			if mode == "source-auth" {
+				b.coexistence.options.ControlDial = func(context.Context, string, *pb.LifecycleIdentity) (*grpc.ClientConn, error) {
+					return nil, status.Error(codes.Unauthenticated, "bad source token")
+				}
+			}
 			sourceEndpoint := serveResumeSource(t, source)
 			calls := 0
 			b.coexistence.options.ResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {

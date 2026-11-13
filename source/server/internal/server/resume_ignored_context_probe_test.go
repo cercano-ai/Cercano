@@ -128,3 +128,20 @@ func TestResumeIgnoredResolverOffersRecovery(t *testing.T) {
 		t.Fatal("timeout stopped source")
 	}
 }
+
+func TestRecoveryObservationReservedCapacity(t *testing.T) {
+	l := &coexistenceLifecycle{observations: observationLimit}
+	if _, err := observePreflight(context.Background(), l, func(context.Context) (int, error) { t.Error("saturated observer ran"); return 0, nil }, nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	value, err := observePreflight(recoveryObservationContext(context.Background()), l, func(context.Context) (int, error) { return 42, nil }, nil)
+	if err != nil || value != 42 {
+		t.Fatalf("recovery starved: %d %v", value, err)
+	}
+	l.observationMu.Lock()
+	l.recoveryObservations = observationLimit
+	l.observationMu.Unlock()
+	if _, err := observePreflight(recoveryObservationContext(context.Background()), l, func(context.Context) (int, error) { t.Error("saturated recovery ran"); return 0, nil }, nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+}

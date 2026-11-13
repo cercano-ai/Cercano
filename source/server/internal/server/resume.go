@@ -400,14 +400,8 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		}
 		defer conn.Close()
 		client := pb.NewAgentClient(conn)
-		stage = "check_source"
-		check, err := client.LifecycleList(preflight, &pb.LifecycleControlRequest{Target: op.Source})
-		if err != nil {
-			return nil, unavailable(err)
-		}
-		if !proto.Equal(check.Identity, op.Source) {
-			return nil, refusal(status.Error(codes.PermissionDenied, "authenticated source identity mismatch"))
-		}
+		// ControlDial authenticates the exact trusted-record identity. List is
+		// mutating and an RPC deadline cannot join its remote handler.
 		stage = "force_relinquish"
 		cooperative, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()

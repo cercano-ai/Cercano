@@ -20,8 +20,8 @@ func (s *Server) GetDevelopmentHostIdentity(ctx context.Context, _ *proto.GetDev
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	// Options are immutable after construction; admission synchronizes its own
+	// retired snapshot. Never queue identity behind receipt/database work.
 	retired, _, _ := l.admission.CheckRetained(broker.Owner{})
 	return &proto.GetDevelopmentHostIdentityResponse{HostInstance: l.options.Host, Build: l.options.Build, Contract: l.options.Contract.Contract, SchemaVersion: int32(l.options.Contract.SchemaVersion), Retired: retired}, nil
 }

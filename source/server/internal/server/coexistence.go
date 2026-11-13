@@ -54,29 +54,30 @@ type CoexistenceOptions struct {
 }
 
 type coexistenceLifecycle struct {
-	observationMu    sync.Mutex
-	observations     int
-	launches         map[string]*pb.LifecycleControlRequest
-	mu               sync.Mutex
-	resumeGateMu     sync.Mutex // protects only the keyed gate registry
-	resumeGates      map[string]*resumeGate
-	recoveryOffersMu sync.Mutex
-	recoveryOffers   map[string]*containedRecoveryConsent // guarded by recoveryOffersMu; immutable after publication
-	retireMu         sync.Mutex
-	retireDone       chan struct{}
-	retired          chan struct{}
-	retireErr        error
-	storeCloseOnce   sync.Once
-	storeCloseErr    error
-	options          CoexistenceOptions
-	store            conversation.Store
-	admission        *broker.Admission
-	owners           map[string]*conversation.Ownership
-	incoming         map[broker.IncomingHandover]*IncomingAcceptance
-	ready            map[broker.Owner]bool
-	acquisitionStage map[broker.Owner]string // diagnostic only; guarded by mu
-	closures         map[broker.Owner]*relinquishReservation
-	forced           map[broker.Owner]bool
+	observationMu        sync.Mutex
+	observations         int
+	recoveryObservations int
+	launches             map[string]*pb.LifecycleControlRequest
+	mu                   sync.Mutex
+	resumeGateMu         sync.Mutex // protects only the keyed gate registry
+	resumeGates          map[string]*resumeGate
+	recoveryOffersMu     sync.Mutex
+	recoveryOffers       map[string]*containedRecoveryConsent // guarded by recoveryOffersMu; immutable after publication
+	retireMu             sync.Mutex
+	retireDone           chan struct{}
+	retired              chan struct{}
+	retireErr            error
+	storeCloseOnce       sync.Once
+	storeCloseErr        error
+	options              CoexistenceOptions
+	store                conversation.Store
+	admission            *broker.Admission
+	owners               map[string]*conversation.Ownership
+	incoming             map[broker.IncomingHandover]*IncomingAcceptance
+	ready                map[broker.Owner]bool
+	acquisitionStage     map[broker.Owner]string // diagnostic only; guarded by mu
+	closures             map[broker.Owner]*relinquishReservation
+	forced               map[broker.Owner]bool
 
 	// nil uses directory Sync; testable publication boundary.
 	resumeJournalSync func(*os.File) error

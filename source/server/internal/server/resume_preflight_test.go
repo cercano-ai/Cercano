@@ -25,7 +25,7 @@ func (p *countedPreflightRecovery) Prepare(ctx context.Context, id *pb.Lifecycle
 
 func TestResumePreAuthTimeoutMatrix(t *testing.T) {
 	for _, mode := range []string{"raw", "grpc", "translated"} {
-		for _, phase := range []string{"resolve-new", "resolve-journal", "dial", "list", "list-child", "resolve-child", "recovery-resolve", "recovery-selection"} {
+		for _, phase := range []string{"resolve-new", "resolve-journal", "dial", "resolve-child", "recovery-resolve", "recovery-selection"} {
 			t.Run(mode+"/"+phase, func(t *testing.T) {
 				a, b, _ := lifecycleFixture(t)
 				serveCutoverFixture(t, a)

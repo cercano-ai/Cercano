@@ -190,12 +190,12 @@ type reproListPeer struct {
 	release chan struct{}
 }
 
-func (p *reproListPeer) LifecycleList(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+func (p *reproListPeer) LifecycleForceRelinquish(ctx context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	_, deadline := ctx.Deadline()
 	p.entered <- deadline
 	select {
 	case <-p.release:
-		return p.Server.LifecycleList(ctx, r)
+		return p.Server.LifecycleForceRelinquish(ctx, r)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

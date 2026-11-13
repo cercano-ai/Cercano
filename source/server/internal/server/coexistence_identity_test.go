@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"cercano/source/server/pkg/agentclient"
 	"cercano/source/server/pkg/proto"
@@ -74,5 +75,59 @@ func TestCoexistenceIdentityPinnedIntegration(t *testing.T) {
 	}
 	if err := c.ReconnectPinnedSession(ctx); !errors.As(err, &refusal) || refusal.State != proto.RetainedSessionState_RETAINED_SESSION_STATE_RETIRED {
 		t.Fatalf("retired: %v", err)
+	}
+}
+
+// List owns this same mutex while observing receipts and querying the database.
+func TestIdentityIndependentOfLifecycleMutex(t *testing.T) {
+	a, _, _ := lifecycleFixture(t)
+	a.coexistence.mu.Lock()
+	done := make(chan error, 1)
+	go func() { _, err := a.GetDevelopmentHostIdentity(context.Background(), nil); done <- err }()
+	select {
+	case err := <-done:
+		a.coexistence.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		a.coexistence.mu.Unlock()
+		<-done
+		t.Fatal("production identity blocked behind lifecycle/List mutex")
+	}
+}
+
+// A canceled List can still acquire the mutex and consume a receipt. This is
+// why ordinary authentication must not issue List, even synchronously over RPC.
+func TestIdentityWhileActualListQueued(t *testing.T) {
+	a, ctx, request := launchFixture(t)
+	acquireLaunch(t, a, ctx, request)
+	l := a.coexistence
+	l.mu.Lock()
+	listCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { _, err := a.LifecycleList(listCtx, request); done <- err }()
+	cancel()
+	identity := make(chan error, 1)
+	go func() { _, err := a.GetDevelopmentHostIdentity(ctx, nil); identity <- err }()
+	select {
+	case err := <-identity:
+		if err != nil {
+			l.mu.Unlock()
+			<-done
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		l.mu.Unlock()
+		<-done
+		<-identity
+		t.Fatal("identity queued behind actual List's lifecycle mutex")
+	}
+	l.mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := l.launches[request.LaunchOperation].LaunchAction; got != "delivered" {
+		t.Fatalf("late List receipt=%s", got)
 	}
 }

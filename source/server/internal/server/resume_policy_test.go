@@ -64,6 +64,10 @@ func TestResumeFallbackPolicy(t *testing.T) {
 					return nil
 				}
 				r.DestinationEndpoint = ""
+			case "source-auth":
+				l.options.ControlDial = func(context.Context, string, *pb.LifecycleIdentity) (*grpc.ClientConn, error) {
+					return nil, status.Error(codes.Unauthenticated, "secret-token")
+				}
 			case "auth":
 				l.options.ControlAuthorize = func(context.Context) error { return status.Error(codes.Unauthenticated, "secret-token") }
 			case "identity":

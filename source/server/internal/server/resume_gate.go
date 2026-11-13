@@ -57,6 +57,11 @@ func (l *coexistenceLifecycle) enterResume(ctx context.Context, id string) (func
 const observationLimit = 8
 
 type observationBudgetKey struct{}
+type recoveryObservationKey struct{}
+
+func recoveryObservationContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, recoveryObservationKey{}, true)
+}
 
 // Only read-only callbacks belong here. Coordinators, journal work, Prepare,
 // ownership and stop operations must remain joined to their foreground caller.
@@ -68,13 +73,18 @@ func observePreflight[T any](ctx context.Context, l *coexistenceLifecycle, call 
 	if err := phase.Err(); err != nil {
 		return zero, err
 	}
+	var counter *int
 	if l != nil {
+		counter = &l.observations
+		if recovery, _ := ctx.Value(recoveryObservationKey{}).(bool); recovery {
+			counter = &l.recoveryObservations
+		}
 		l.observationMu.Lock()
-		if l.observations >= observationLimit {
+		if *counter >= observationLimit {
 			l.observationMu.Unlock()
 			return zero, context.DeadlineExceeded
 		}
-		l.observations++
+		*counter++
 		l.observationMu.Unlock()
 	}
 	type result struct {
@@ -84,7 +94,7 @@ func observePreflight[T any](ctx context.Context, l *coexistenceLifecycle, call 
 	done := make(chan result)
 	go func() {
 		if l != nil {
-			defer func() { l.observationMu.Lock(); l.observations--; l.observationMu.Unlock() }()
+			defer func() { l.observationMu.Lock(); *counter--; l.observationMu.Unlock() }()
 		}
 		value, err := call(phase)
 		select {
@@ -128,7 +138,7 @@ func (l *coexistenceLifecycle) resolveSourceBounded(ctx context.Context, host st
 	return r.identity, r.endpoint, err
 }
 func (l *coexistenceLifecycle) recoverySelectionBounded(ctx context.Context, host string) (*pb.LifecycleRecoverySelection, error) {
-	return observePreflight(observationContext(ctx), l, func(phase context.Context) (*pb.LifecycleRecoverySelection, error) {
+	return observePreflight(recoveryObservationContext(observationContext(ctx)), l, func(phase context.Context) (*pb.LifecycleRecoverySelection, error) {
 		return l.options.RecoverySelection(phase, host)
 	}, nil)
 }
@@ -143,7 +153,7 @@ func (l *coexistenceLifecycle) recoverySourceBounded(ctx context.Context, host s
 	if resolver == nil {
 		return nil, "", status.Error(codes.FailedPrecondition, "independent recovery source observer unavailable")
 	}
-	r, err := observePreflight(ctx, l, func(phase context.Context) (resolved, error) {
+	r, err := observePreflight(recoveryObservationContext(ctx), l, func(phase context.Context) (resolved, error) {
 		id, endpoint, err := resolver(phase, host)
 		return resolved{id, endpoint}, err
 	}, nil)
