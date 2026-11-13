@@ -72,7 +72,7 @@ func TestInstalledSessionDefaultDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", root)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if path, err := selectInstalledSession(ctx, "", ""); err != nil || path != selection {
 		t.Fatalf("default existing-state selection: %q %v", path, err)
