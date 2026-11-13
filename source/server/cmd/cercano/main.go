@@ -387,13 +387,14 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 		generationLifecycle, err = server.NewCoexistenceServer(context.Background(), server.CoexistenceOptions{
 			StorePath: admission.paths.conversations, Build: admission.bounded.build, Host: admission.bounded.host,
 			Contract: conversation.DevelopmentCoexistenceDeclaration(), ControlAuthorize: g.auth.Authorize,
-			ControlDial:        developmentPeerDial(g.options.State, g.options.Identity),
-			ResolveSource:      developmentSourceResolver(g.options.State, g.options.Identity),
-			RecoverySelection:  developmentRecoverySelection(g.options.State, g.options.Identity),
-			RecoveryGuard:      developmentRecoveryGuard(g.options.State, g.options.Identity),
-			RecoverySource:     newDevelopmentContainedSource(g.options.State, g.options.Identity),
-			Reload:             func(context.Context, conversation.Store, *conversation.Ownership) error { return nil },
-			CloseParticipation: func(context.Context) error { return closeRuntime() },
+			ControlDial:           developmentPeerDial(g.options.State, g.options.Identity),
+			ResolveSource:         developmentSourceResolver(g.options.State, g.options.Identity),
+			RecoverySelection:     developmentRecoverySelection(g.options.State, g.options.Identity),
+			RecoveryResolveSource: developmentSourceResolver(g.options.State, g.options.Identity),
+			RecoveryGuard:         developmentRecoveryGuard(g.options.State, g.options.Identity),
+			RecoverySource:        newDevelopmentContainedSource(g.options.State, g.options.Identity),
+			Reload:                func(context.Context, conversation.Store, *conversation.Ownership) error { return nil },
+			CloseParticipation:    func(context.Context) error { return closeRuntime() },
 		})
 		if err != nil {
 			return "", nil, err

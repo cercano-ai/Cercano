@@ -262,6 +262,21 @@ func newDevelopmentHostTransport(srv *server.Server, dependencies *preparedShutd
 }
 
 func developmentDialIdentity(ctx context.Context, endpoint string, auth *devhostauth.Auth, want *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
+	conn, err := developmentObserveIdentity(ctx, endpoint, auth, want)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := proto.NewAgentClient(conn).LifecycleList(ctx, &proto.LifecycleControlRequest{Target: want}); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("exact lifecycle identity: %w", err)
+	}
+	return conn, nil
+}
+
+// Historical identity RPCs omit Store. Callers must first pin the full identity
+// to a trusted private host record (including the database binding). This RPC
+// freshly authenticates host/build/contract/schema without mutating List.
+func developmentObserveIdentity(ctx context.Context, endpoint string, auth *devhostauth.Auth, want *proto.LifecycleIdentity) (*grpc.ClientConn, error) {
 	if !devLoopback(endpoint) || want == nil {
 		return nil, fmt.Errorf("invalid peer identity or endpoint")
 	}
@@ -277,10 +292,6 @@ func developmentDialIdentity(ctx context.Context, endpoint string, auth *devhost
 	if got.HostInstance != want.Host || got.Build != want.Build || got.Contract != want.Contract || got.SchemaVersion != want.Schema || got.Retired {
 		conn.Close()
 		return nil, fmt.Errorf("authenticated peer identity mismatch")
-	}
-	if _, err := proto.NewAgentClient(conn).LifecycleList(ctx, &proto.LifecycleControlRequest{Target: want}); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("exact lifecycle identity: %w", err)
 	}
 	return conn, nil
 }
@@ -397,7 +408,7 @@ func developmentPeerDial(state string, own *proto.LifecycleIdentity) func(contex
 		}
 		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		return developmentDialIdentity(probe, endpoint, auth, selected.Identity)
+		return developmentObserveIdentity(probe, endpoint, auth, selected.Identity)
 	}
 }
 func publishDevelopmentRecord(path string, record developmentHostSelection) error {

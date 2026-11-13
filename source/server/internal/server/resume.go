@@ -166,6 +166,9 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 	// exact reservation claim. Only a typed live-source refusal permits fallback.
 	var guardFailure error
 	ordinary := func() (*pb.LifecycleControlResponse, error) {
+		preflight, cancelPreflight := context.WithTimeout(ctx, 5*time.Second)
+		defer cancelPreflight()
+		ctx := context.WithValue(ctx, observationBudgetKey{}, preflight)
 		eligible := func(err error) error {
 			if guardFailure != nil {
 				stage = "guarded_recovery"
@@ -174,7 +177,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			return &resumeDiscoveryEligible{refusal(err)}
 		}
 		unavailable := func(err error) error {
-			if errors.Is(err, os.ErrNotExist) || status.Code(err) == codes.NotFound || status.Code(err) == codes.Unavailable {
+			if (ctx.Err() == nil && (errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded)) || errors.Is(err, os.ErrNotExist) || status.Code(err) == codes.NotFound || status.Code(err) == codes.Unavailable {
 				return eligible(err)
 			}
 			return refusal(err)
@@ -382,8 +385,12 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			return nil, refusal(status.Error(codes.FailedPrecondition, "source identity changed"))
 		}
 		stage = "dial_source"
-		conn, err := boundedPreflight(ctx, func(phase context.Context) (*grpc.ClientConn, error) {
+		conn, err := observePreflight(preflight, l, func(phase context.Context) (*grpc.ClientConn, error) {
 			return l.options.ControlDial(phase, endpoint, source)
+		}, func(conn *grpc.ClientConn) {
+			if conn != nil {
+				conn.Close()
+			}
 		})
 		if err != nil {
 			if conn != nil {
@@ -394,9 +401,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		defer conn.Close()
 		client := pb.NewAgentClient(conn)
 		stage = "check_source"
-		check, err := boundedPreflight(ctx, func(phase context.Context) (*pb.LifecycleControlResponse, error) {
-			return client.LifecycleList(phase, &pb.LifecycleControlRequest{Target: op.Source})
-		})
+		check, err := client.LifecycleList(preflight, &pb.LifecycleControlRequest{Target: op.Source})
 		if err != nil {
 			return nil, unavailable(err)
 		}
@@ -461,7 +466,7 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 		return result, finalErr
 	}
 	finalErr = discovery.error
-	if !containedRecovery || ctx.Err() != nil || errors.Is(finalErr, context.Canceled) || errors.Is(finalErr, context.DeadlineExceeded) {
+	if !containedRecovery || ctx.Err() != nil || errors.Is(finalErr, context.Canceled) {
 		return result, finalErr
 	}
 	// Preserve the ordinary cause even when discovery succeeds or fails with a

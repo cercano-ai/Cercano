@@ -3,6 +3,8 @@ package server
 import (
 	pb "cercano/source/server/pkg/proto"
 	"context"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"time"
 )
 
@@ -50,21 +52,68 @@ func (l *coexistenceLifecycle) enterResume(ctx context.Context, id string) (func
 	return release, nil
 }
 
-// Callbacks must honor context. Synchronous filesystem lookups cannot be forcibly
-// canceled; never abandon an I/O goroutine. Check expiration before classifying
-// even an adapter-translated Unavailable as discovery eligible.
-func boundedPreflight[T any](ctx context.Context, call func(context.Context) (T, error)) (T, error) {
+// observationLimit is lifecycle-wide, not per request. A timed-out observer keeps
+// its slot until it actually returns; saturation never creates another goroutine.
+const observationLimit = 8
+
+type observationBudgetKey struct{}
+
+// Only read-only callbacks belong here. Coordinators, journal work, Prepare,
+// ownership and stop operations must remain joined to their foreground caller.
+// An unbuffered handoff assigns cleanup to exactly one owner.
+func observePreflight[T any](ctx context.Context, l *coexistenceLifecycle, call func(context.Context) (T, error), discard func(T)) (T, error) {
 	phase, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var zero T
 	if err := phase.Err(); err != nil {
 		return zero, err
 	}
-	value, err := call(phase)
-	if expired := phase.Err(); expired != nil {
-		return value, expired
+	if l != nil {
+		l.observationMu.Lock()
+		if l.observations >= observationLimit {
+			l.observationMu.Unlock()
+			return zero, context.DeadlineExceeded
+		}
+		l.observations++
+		l.observationMu.Unlock()
 	}
-	return value, err
+	type result struct {
+		value T
+		err   error
+	}
+	done := make(chan result)
+	go func() {
+		if l != nil {
+			defer func() { l.observationMu.Lock(); l.observations--; l.observationMu.Unlock() }()
+		}
+		value, err := call(phase)
+		select {
+		case done <- result{value, err}:
+		case <-phase.Done():
+			if discard != nil {
+				discard(value)
+			}
+		}
+	}()
+	select {
+	case <-phase.Done():
+		return zero, phase.Err()
+	case r := <-done:
+		if err := phase.Err(); err != nil {
+			if discard != nil {
+				discard(r.value)
+			}
+			return zero, err
+		}
+		return r.value, r.err
+	}
+}
+
+func observationContext(ctx context.Context) context.Context {
+	if budget, ok := ctx.Value(observationBudgetKey{}).(context.Context); ok {
+		return budget
+	}
+	return ctx
 }
 
 func (l *coexistenceLifecycle) resolveSourceBounded(ctx context.Context, host string) (*pb.LifecycleIdentity, string, error) {
@@ -72,14 +121,31 @@ func (l *coexistenceLifecycle) resolveSourceBounded(ctx context.Context, host st
 		identity *pb.LifecycleIdentity
 		endpoint string
 	}
-	r, err := boundedPreflight(ctx, func(phase context.Context) (resolved, error) {
+	r, err := observePreflight(observationContext(ctx), l, func(phase context.Context) (resolved, error) {
 		id, endpoint, err := l.options.ResolveSource(phase, host)
 		return resolved{id, endpoint}, err
-	})
+	}, nil)
 	return r.identity, r.endpoint, err
 }
 func (l *coexistenceLifecycle) recoverySelectionBounded(ctx context.Context, host string) (*pb.LifecycleRecoverySelection, error) {
-	return boundedPreflight(ctx, func(phase context.Context) (*pb.LifecycleRecoverySelection, error) {
+	return observePreflight(observationContext(ctx), l, func(phase context.Context) (*pb.LifecycleRecoverySelection, error) {
 		return l.options.RecoverySelection(phase, host)
-	})
+	}, nil)
+}
+
+// Recovery uses an independent trusted-record observer, never normal discovery.
+func (l *coexistenceLifecycle) recoverySourceBounded(ctx context.Context, host string) (*pb.LifecycleIdentity, string, error) {
+	type resolved struct {
+		identity *pb.LifecycleIdentity
+		endpoint string
+	}
+	resolver := l.options.RecoveryResolveSource
+	if resolver == nil {
+		return nil, "", status.Error(codes.FailedPrecondition, "independent recovery source observer unavailable")
+	}
+	r, err := observePreflight(ctx, l, func(phase context.Context) (resolved, error) {
+		id, endpoint, err := resolver(phase, host)
+		return resolved{id, endpoint}, err
+	}, nil)
+	return r.identity, r.endpoint, err
 }

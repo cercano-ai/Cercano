@@ -113,6 +113,7 @@ func setResumeSource(b, a *Server, endpoint string) {
 	b.coexistence.options.ResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {
 		return a.coexistence.controlIdentity(), endpoint, nil
 	}
+	b.coexistence.options.RecoveryResolveSource = b.coexistence.options.ResolveSource
 }
 func TestDestinationResumeLegacy(t *testing.T) {
 	for _, blocked := range []bool{false, true} {

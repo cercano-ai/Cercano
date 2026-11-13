@@ -1,6 +1,35 @@
 # Bounded resume observation: pre-fix investigation
 
-Status: blocked; no production fix applied.
+Status: resolved under the approved historical saved-record database binding.
+
+## Resolution
+
+Normal resolution and safe authentication use a lifecycle-wide eight-slot
+observation pool and one shared five-second ordinary preflight budget. Expired
+observers keep their slots until completion; late connections are closed by the
+sole result owner. Recovery uses an independent saved-record resolver, never
+reruns the wedged normal resolver, and freshly authenticates the historical
+identity RPC without LifecycleList. The trusted private record supplies Store;
+host/build/contract/schema still come from fresh authenticated identity.
+
+Prepare, source stop, launch exclusion, journal and ownership operations remain
+foreground/joined. Exact process identity, fresh consent, epoch fences and writer
+absence remain mandatory. Caller cancellation cannot publish an offer. The
+cooperative LifecycleList remains synchronous because it can mutate launch
+observation; it uses its RPC deadline, not abandonable background execution.
+An arbitrary context-ignoring mutating adapter is deliberately not bounded by
+this observation mechanism.
+
+Verified in disposable fixtures:
+
+- `go test -race ./internal/server ./cmd/cercano ./test/integration -run 'Test(Bounded|Observation|Resume|LiveSource|LegacyShutdown|DevelopmentAuthenticated|DevelopmentLegacyProductionAdapter)' -count=1 -timeout 120s` (integration has no matching tests).
+- `go test -race ./test/integration -count=1 -timeout 120s`.
+- `go test ./... -count=1 -timeout 180s`.
+
+All passed. Earlier runs exposed fixture omissions (loopback peer/destination
+routing and the new authentication seam); these were corrected before the
+final runs. No live host termination or configuration/database operation was
+used for validation. The investigation below is retained as historical context.
 
 ## Smallest reproduction
 

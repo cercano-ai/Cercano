@@ -15,12 +15,13 @@ import (
 )
 
 type developmentContainedSource struct {
-	state       string
-	destination *pb.LifecycleIdentity
-	inspect     func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error)
-	stop        func(context.Context, string, netip.AddrPort, brewrestart.Identity, func() error) error
-	terminate   func(context.Context, string, netip.AddrPort, brewrestart.Identity, func() error) error
-	absent      func(context.Context, string) error
+	state        string
+	destination  *pb.LifecycleIdentity
+	inspect      func(context.Context, string, netip.AddrPort) (brewrestart.Identity, error)
+	stop         func(context.Context, string, netip.AddrPort, brewrestart.Identity, func() error) error
+	terminate    func(context.Context, string, netip.AddrPort, brewrestart.Identity, func() error) error
+	absent       func(context.Context, string) error
+	authenticate func(context.Context, string, *pb.LifecycleIdentity) error
 }
 
 var _ server.ContainedSourceStop = (*developmentContainedSource)(nil)
@@ -34,6 +35,15 @@ type preparedSourceSnapshot struct {
 func newDevelopmentContainedSource(state string, destination *pb.LifecycleIdentity) *developmentContainedSource {
 	p := &developmentContainedSource{state: state, destination: destination, inspect: brewrestart.PrepareLegacyHost, terminate: brewrestart.StopLegacyHost}
 	p.stop = p.shutdownAuthenticated
+	p.authenticate = func(ctx context.Context, endpoint string, identity *pb.LifecycleIdentity) error {
+		phase, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		conn, err := developmentPeerDial(state, destination)(phase, endpoint, identity)
+		if err != nil {
+			return err
+		}
+		return conn.Close()
+	}
 	return p
 }
 
@@ -107,6 +117,11 @@ func (p *developmentContainedSource) Prepare(ctx context.Context, source *pb.Lif
 			b, marshalErr := json.Marshal(preparedSourceSnapshot{Record: record, Absent: true})
 			snapshot = string(b)
 			return marshalErr
+		}
+		if p.authenticate != nil {
+			if err := p.authenticate(ctx, endpoint.String(), source); err != nil {
+				return err
+			}
 		}
 		if id.Executable != filepath.Join(record.Generation, "cercano") {
 			return fmt.Errorf("source executable does not match recorded generation")

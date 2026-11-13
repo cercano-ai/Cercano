@@ -68,6 +68,9 @@ func TestDevelopmentLegacyProductionAdapter(t *testing.T) {
 			defer lock.Close()
 			id := brewrestart.Identity{PID: 42, UID: uint32(os.Getuid()), StartSeconds: 100, Executable: filepath.Join(generation, "cercano")}
 			adapter := newDevelopmentContainedSource(state, dest)
+			// Transport authentication is exercised by TestLegacyShutdown; this fixture
+			// isolates generation, process, consent and writer-exclusion checks.
+			adapter.authenticate = func(context.Context, string, *pb.LifecycleIdentity) error { return nil }
 			if adapter.inspect == nil || adapter.stop == nil || adapter.absent != nil {
 				t.Fatal("production must use prepared-generation absence, not an override")
 			}

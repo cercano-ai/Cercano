@@ -21,6 +21,14 @@ import (
 type legacyShutdownRPCFixture struct {
 	developmentIdentityFake
 	requests atomic.Int32
+	lists    atomic.Int32
+}
+
+// Historical List can be wedged while identity authentication remains available.
+func (f *legacyShutdownRPCFixture) LifecycleList(ctx context.Context, _ *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+	f.lists.Add(1)
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 func (f *legacyShutdownRPCFixture) ShutdownAgent(context.Context, *pb.ShutdownAgentRequest) (*pb.ShutdownAgentResponse, error) {
@@ -103,8 +111,17 @@ func TestLegacyShutdownAuthenticatedTransport(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 			snapshot, err := adapter.Prepare(ctx, id)
+			if wrongToken {
+				if err == nil || signals != 0 {
+					t.Fatalf("unauthenticated preparation: %v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			if fixture.lists.Load() != 0 {
+				t.Fatal("preparation called historical List")
 			}
 			used := false
 			err = adapter.stopAndUseSource(ctx, id, snapshot, func() error { return nil }, func(context.Context) error { used = true; return nil })
@@ -112,7 +129,7 @@ func TestLegacyShutdownAuthenticatedTransport(t *testing.T) {
 				if err == nil || used || fixture.requests.Load() != 0 || signals != 0 {
 					t.Fatalf("unauthenticated stop: %v", err)
 				}
-			} else if err != nil || !used || fixture.requests.Load() != 0 || signals != 1 || checks != 1 {
+			} else if fixture.lists.Load() != 0 || err != nil || !used || fixture.requests.Load() != 0 || signals != 1 || checks != 1 {
 				t.Fatalf("shutdown not verified: %v checks=%d", err, checks)
 			}
 		})

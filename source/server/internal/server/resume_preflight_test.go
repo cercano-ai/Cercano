@@ -81,6 +81,9 @@ func TestResumePreAuthTimeoutMatrix(t *testing.T) {
 					}
 					return resolve(ctx, host)
 				}
+				if phase == "recovery-resolve" {
+					l.options.RecoveryResolveSource = l.options.ResolveSource
+				}
 				if phase == "dial" {
 					l.options.ControlDial = func(ctx context.Context, _ string, _ *pb.LifecycleIdentity) (*grpc.ClientConn, error) {
 						return nil, translated(ctx)
@@ -105,6 +108,13 @@ func TestResumePreAuthTimeoutMatrix(t *testing.T) {
 				result, err := b.LifecycleResume(ctx, r)
 				if budget == 10*time.Second && ctx.Err() != nil {
 					t.Fatal("caller expired before child phase returned")
+				}
+				wantOffer := phase != "recovery-resolve" && phase != "recovery-selection" && (mode != "translated" || budget == 10*time.Second)
+				if wantOffer && ctx.Err() == nil {
+					if err != nil || !result.GetConfirmationRequired() || stop.stop != 0 || stop.prepares.Load() != 1 || force.Load() != 0 {
+						t.Fatalf("timeout did not offer safe confirmation: %v %v", result, err)
+					}
+					return
 				}
 				if (!errors.Is(err, context.DeadlineExceeded) && status.Code(err) != codes.DeadlineExceeded) || result.GetConfirmationRequired() || stop.stop != 0 || stop.prepares.Load() != 0 || force.Load() != 0 {
 					t.Fatalf("pre-auth expiration granted authority: %v %v stops=%d prepares=%d force=%d", result, err, stop.stop, stop.prepares.Load(), force.Load())

@@ -65,7 +65,7 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 			if e != nil {
 				return e
 			}
-			source, _, e := l.resolveSourceBounded(ctx, op.Source.Host)
+			source, _, e := l.recoverySourceBounded(ctx, op.Source.Host)
 			if e != nil {
 				return e
 			}
@@ -100,10 +100,10 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 	if state.Owner == "" || (state.State != "owned" && state.State != "reserved") {
 		return nil, false, nil
 	}
-	if r.Requester == nil || r.Requester.Host == state.Owner || l.options.ResolveSource == nil || l.options.RecoverySelection == nil {
+	if r.Requester == nil || r.Requester.Host == state.Owner || l.options.RecoveryResolveSource == nil || l.options.RecoverySelection == nil {
 		return nil, true, status.Error(codes.FailedPrecondition, "authenticated source and selected destination required")
 	}
-	src, _, err := l.resolveSourceBounded(ctx, state.Owner)
+	src, _, err := l.recoverySourceBounded(ctx, state.Owner)
 	if err != nil {
 		return nil, true, err
 	}
@@ -118,6 +118,9 @@ func (s *Server) liveSourceRecovery(ctx context.Context, l *coexistenceLifecycle
 		return nil, true, status.Error(codes.FailedPrecondition, "resolved source is not the durable owner")
 	}
 	snapshot, err := l.options.RecoverySource.Prepare(ctx, src)
+	if ctx.Err() != nil {
+		return nil, true, ctx.Err()
+	}
 	if err != nil {
 		return nil, true, err
 	}

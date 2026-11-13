@@ -278,7 +278,7 @@ func newProductionDevelopmentHostWithDependencies(ctx context.Context, o develop
 		WritableSettings: true,
 		Watchdog:         deps.watchdog,
 		CloudBuilder:     deps.cloudBuilder,
-		Coexistence:      server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), ResolveSource: developmentSourceResolver(o.State, o.Identity), RecoverySelection: developmentRecoverySelection(o.State, o.Identity), RecoveryGuard: developmentRecoveryGuard(o.State, o.Identity), RecoverySource: newDevelopmentContainedSource(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(ctx context.Context) error { return resources.Wait(ctx) }},
+		Coexistence:      server.CoexistenceOptions{ControlAuthorize: auth.Authorize, ControlDial: developmentPeerDial(o.State, o.Identity), ResolveSource: developmentSourceResolver(o.State, o.Identity), RecoverySelection: developmentRecoverySelection(o.State, o.Identity), RecoveryResolveSource: developmentSourceResolver(o.State, o.Identity), RecoveryGuard: developmentRecoveryGuard(o.State, o.Identity), RecoverySource: newDevelopmentContainedSource(o.State, o.Identity), StorePath: database, Host: o.Host, Build: o.Identity.Build, Contract: conversation.DevelopmentCoexistenceDeclaration(), CloseParticipation: func(ctx context.Context) error { return resources.Wait(ctx) }},
 		Config:           cfg, ConfigPath: configPath, Secrets: st, RoutingPath: filepath.Join(diagnostics, "routing.jsonl"), FailurePath: filepath.Join(diagnostics, "failures.jsonl"),
 		Agent: func(prepared conversation.Store) (*agent.Agent, error) {
 			store, err = admission.conversationStore(prepared, nil)

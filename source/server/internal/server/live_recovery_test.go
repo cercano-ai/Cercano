@@ -62,7 +62,7 @@ func TestLiveSourceRecovery(t *testing.T) {
 			l := b.coexistence
 			l.options.RecoverySource = p
 			l.options.ControlAuthorize = func(context.Context) error { return nil }
-			l.options.ResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {
+			l.options.RecoveryResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {
 				return a.coexistence.controlIdentity(), "127.0.0.1:1", nil
 			}
 			l.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) {
@@ -184,7 +184,7 @@ func TestLiveRecoveryConsentMutationBeforeStop(t *testing.T) {
 				l.options.ControlAuthorize = func(context.Context) error { return nil }
 				source := a.coexistence.controlIdentity()
 				selection := &pb.LifecycleRecoverySelection{Identity: l.controlIdentity(), Endpoint: "127.0.0.1:2", TokenFile: "token"}
-				l.options.ResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {
+				l.options.RecoveryResolveSource = func(context.Context, string) (*pb.LifecycleIdentity, string, error) {
 					return source, "127.0.0.1:1", nil
 				}
 				l.options.RecoverySelection = func(context.Context, string) (*pb.LifecycleRecoverySelection, error) { return selection, nil }

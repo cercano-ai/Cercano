@@ -37,10 +37,11 @@ type CoexistenceOptions struct {
 	// ResolveSource selects only the exact owner from trusted local records; ControlDial authenticates that exact identity, not merely its endpoint.
 	ResolveSource func(context.Context, string) (*pb.LifecycleIdentity, string, error)
 	// RecoverySelection supplies private-record CLI credentials, never journal hints.
-	RecoverySelection  func(context.Context, string) (*pb.LifecycleRecoverySelection, error)
-	ControlDial        func(context.Context, string, *pb.LifecycleIdentity) (*grpc.ClientConn, error)
-	Contract           conversation.CoexistenceDeclaration
-	CloseParticipation func(context.Context) error
+	RecoveryResolveSource func(context.Context, string) (*pb.LifecycleIdentity, string, error)
+	RecoverySelection     func(context.Context, string) (*pb.LifecycleRecoverySelection, error)
+	ControlDial           func(context.Context, string, *pb.LifecycleIdentity) (*grpc.ClientConn, error)
+	Contract              conversation.CoexistenceDeclaration
+	CloseParticipation    func(context.Context) error
 	// Reload is a read-only legacy reload hook, called under the lifecycle lock
 	// before registration. It must not schedule owned completion; use StageReload
 	// when pending outcomes need admission tickets.
@@ -53,6 +54,8 @@ type CoexistenceOptions struct {
 }
 
 type coexistenceLifecycle struct {
+	observationMu    sync.Mutex
+	observations     int
 	launches         map[string]*pb.LifecycleControlRequest
 	mu               sync.Mutex
 	resumeGateMu     sync.Mutex // protects only the keyed gate registry

@@ -205,3 +205,8 @@ func TestRecoveryOfferConcurrentBinding(t *testing.T) {
 		seen[key] = true
 	}
 }
+
+// Each helper test owns an isolated lifecycle observation pool.
+func boundedPreflight[T any](ctx context.Context, call func(context.Context) (T, error)) (T, error) {
+	return observePreflight(ctx, &coexistenceLifecycle{}, call, nil)
+}
