@@ -102,19 +102,21 @@ and builds/verifies `darwin-arm64` binaries.
 
 **Existing-tag runner recovery:** rerunning an old run or dispatching its old
 tag uses the old workflow, not a runner fix on another branch. In particular,
-`v0.27.0` points at source with the unsupported `macos-14` runner. Dispatching a
-fixed branch with `version=0.27.0` is also rejected: checkout uses the selected
-workflow ref, and every platform validates HEAD against the version tag (the
-macOS builder checks again). Do not move the tag, bypass validation, or set
-`CERCANO_ALLOW_UNTAGGED` to work around this. Releasing the unchanged existing
-tag with a corrected workflow requires a separately reviewed recovery change
-that decouples the trusted workflow ref from an explicit, validated tag checkout
-on **all three platforms**, while preserving the build-time HEAD/tag checks and
-protected approval. Until that exists, there is no valid dispatch of this
-runner-only fix for `v0.27.0`.
+`v0.27.0` contains the unsupported `macos-14` runner. Dispatch this corrected
+workflow from a reviewed recovery branch with `version=0.27.0` and
+`publish=false` to build the unchanged tag without moving it. Every platform
+validates the version before deriving an explicit `refs/tags/v<version>`
+checkout, then verifies that HEAD is that tag's commit. Logs identify both the
+source commit and the workflow ref/commit. All build scripts, tests, workflow
+fixtures read by those tests, and publication/tap tooling come from the tag;
+only the executing workflow comes from the selected ref. Thus the old source's
+runner assertions still read its own matching workflow fixture. Never move the
+tag, bypass validation, or set `CERCANO_ALLOW_UNTAGGED` for recovery. Protected
+environment approval is still required for signing, even with `publish=false`.
 
 `.github/workflows/release-macos.yml` is a **single-run release**. Dispatch it
-from the exact commit tagged `v<version>`, with the stable version without `v`.
+from a trusted, reviewed workflow ref, with the stable version without `v`.
+The release source is always the exact commit tagged `v<version>`.
 Leave **publish enabled (the default)** for a release. No prior rehearsal run
 or second dispatch is required.
 
@@ -137,9 +139,9 @@ release or tap is written. This is not a prerequisite for a release. A later
 new dispatch is a new build, not promotion of a previous dry run's artifacts.
 
 **Manual-only:** no push, tag or pull-request trigger exists. The selected
-workflow ref must resolve to the exact tagged commit; validation rejects a tag
-on a different commit. Creating/pushing the tag and configuring the protected
-environment are separate operator actions. Review the selected source before
+workflow ref may differ from the tagged source; validation rejects any source
+checkout that does not match the tag. Creating/pushing the tag and configuring
+the protected environment are separate operator actions. Review both refs before
 approving; keep required reviewers and environment deployment restrictions.
 The removed automatic, unsigned `release.yml` must not be restored.
 

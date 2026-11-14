@@ -58,8 +58,22 @@ jobs:
       archive: ${{ steps.build.outputs.archive }}
       sha256: ${{ steps.build.outputs.sha256 }}
     steps:
+      # The manually selected ref supplies only the workflow. All release code,
+      # tests (including their workflow fixture), and tap tooling come from the tag.
+      - name: Validate source version
+        id: source
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "::error::Version must be stable X.Y.Z without a leading v: $VERSION"; exit 1; }
+          echo "ref=refs/tags/v$VERSION" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ steps.source.outputs.ref }}
           fetch-depth: 0  # build script requires the version tag to exist
           persist-credentials: false
 
@@ -78,7 +92,9 @@ jobs:
           TAG_COMMIT="$(git rev-parse --verify "refs/tags/v$VERSION^{commit}")" \
             || { echo "::error::No commit tag v$VERSION in this repository."; exit 1; }
           [[ "$TAG_COMMIT" == "$(git rev-parse --verify 'HEAD^{commit}')" ]] \
-            || { echo "::error::Selected workflow ref does not match v$VERSION; refusing to label different source as this release."; exit 1; }
+            || { echo "::error::Checked-out source does not match v$VERSION; refusing to label different source as this release."; exit 1; }
+          echo "Release source: refs/tags/v$VERSION at $TAG_COMMIT"
+          echo "Workflow: ${GITHUB_WORKFLOW_REF:-local} at ${GITHUB_SHA:-local}"
 
       - name: Run release test gate
         run: |
@@ -322,8 +338,22 @@ jobs:
       archive: ${{ steps.build.outputs.archive }}
       sha256: ${{ steps.build.outputs.sha256 }}
     steps:
+      # The manually selected ref supplies only the workflow. All release code,
+      # tests (including their workflow fixture), and tap tooling come from the tag.
+      - name: Validate source version
+        id: source
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "::error::Version must be stable X.Y.Z without a leading v: $VERSION"; exit 1; }
+          echo "ref=refs/tags/v$VERSION" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ steps.source.outputs.ref }}
           fetch-depth: 0  # the build script requires the version tag to exist
 
       - uses: actions/setup-go@v5
@@ -342,7 +372,9 @@ jobs:
           TAG_COMMIT="$(git rev-parse --verify "refs/tags/v$VERSION^{commit}")" \
             || { echo "::error::No commit tag v$VERSION in this repository."; exit 1; }
           [[ "$TAG_COMMIT" == "$(git rev-parse --verify 'HEAD^{commit}')" ]] \
-            || { echo "::error::Selected workflow ref does not match v$VERSION; refusing to label different source as this release."; exit 1; }
+            || { echo "::error::Checked-out source does not match v$VERSION; refusing to label different source as this release."; exit 1; }
+          echo "Release source: refs/tags/v$VERSION at $TAG_COMMIT"
+          echo "Workflow: ${GITHUB_WORKFLOW_REF:-local} at ${GITHUB_SHA:-local}"
 
       - name: Run release test gate
         shell: bash
@@ -438,8 +470,22 @@ jobs:
       archive: ${{ steps.build.outputs.archive }}
       sha256: ${{ steps.build.outputs.sha256 }}
     steps:
+      # The manually selected ref supplies only the workflow. All release code,
+      # tests (including their workflow fixture), and tap tooling come from the tag.
+      - name: Validate source version
+        id: source
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "::error::Version must be stable X.Y.Z without a leading v: $VERSION"; exit 1; }
+          echo "ref=refs/tags/v$VERSION" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ steps.source.outputs.ref }}
           fetch-depth: 0  # the build script requires the version tag to exist
 
       - uses: actions/setup-go@v5
@@ -457,7 +503,9 @@ jobs:
           TAG_COMMIT="$(git rev-parse --verify "refs/tags/v$VERSION^{commit}")" \
             || { echo "::error::No commit tag v$VERSION in this repository."; exit 1; }
           [[ "$TAG_COMMIT" == "$(git rev-parse --verify 'HEAD^{commit}')" ]] \
-            || { echo "::error::Selected workflow ref does not match v$VERSION; refusing to label different source as this release."; exit 1; }
+            || { echo "::error::Checked-out source does not match v$VERSION; refusing to label different source as this release."; exit 1; }
+          echo "Release source: refs/tags/v$VERSION at $TAG_COMMIT"
+          echo "Workflow: ${GITHUB_WORKFLOW_REF:-local} at ${GITHUB_SHA:-local}"
 
       - uses: actions/setup-python@v5
         with:

@@ -17,6 +17,7 @@ Apple, or prove that a real signed release succeeds.
 
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 import subprocess
@@ -583,26 +584,82 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("refs/tags/v$VERSION", run)
         self.assertIn("[1-9][0-9]*", run)
 
-    def test_validation_rejects_a_tag_on_another_commit(self):
-        script = self.step("build", "validate inputs")["run"]
+    def test_every_platform_checks_out_validated_tag_before_running_source(self):
+        for job in ("build", "build-windows", "build-linux"):
+            with self.subTest(job=job):
+                steps = self.jobs[job]["steps"]
+                validation = self.step(job, "validate source version")
+                self.assertIs(steps[0], validation)
+                self.assertEqual(validation["id"], "source")
+                self.assertEqual(validation["env"], {"VERSION": "${{ inputs.version }}"})
+                self.assertEqual(validation["shell"], "bash")
+                checkouts = [s for s in steps if s.get("uses", "").startswith("actions/checkout@")]
+                self.assertEqual(len(checkouts), 1)
+                checkout = checkouts[0]
+                self.assertIs(steps[1], checkout)
+                self.assertEqual(checkout["with"]["ref"], "${{ steps.source.outputs.ref }}")
+                self.assertEqual(checkout["with"]["fetch-depth"], 0)
+                identity = self.step(job, "validate inputs")
+                self.assertLess(steps.index(checkout), steps.index(identity))
+                self.assertLess(steps.index(identity), steps.index(self.step(job, "release test gate")))
+
+    def test_source_version_rejects_unsafe_input_before_emitting_ref(self):
+        for job in ("build", "build-windows", "build-linux"):
+            script = self.step(job, "validate source version")["run"]
+            for version in ("", "v1.2.3", "01.2.3", "1.2.3-rc1", "../main",
+                            "1.2.3\nref=refs/heads/main", "$(touch injected)"):
+                with self.subTest(job=job, version=version), tempfile.TemporaryDirectory() as directory:
+                    output = Path(directory) / "output"
+                    result = subprocess.run(
+                        [bash_executable(), "-c", script], cwd=directory,
+                        env={**os.environ, "VERSION": version, "GITHUB_OUTPUT": str(output)},
+                        capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+                    self.assertFalse((Path(directory) / "injected").exists())
+
+    def test_recovery_builds_tag_not_workflow_ref_and_rejects_source_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
             def git(*args):
                 return subprocess.run(["git", *args], cwd=directory, check=True,
-                                      capture_output=True, text=True)
+                                      capture_output=True, text=True).stdout.strip()
             git("init")
             git("config", "user.name", "Release Test")
             git("config", "user.email", "test@example.invalid")
             git("commit", "--allow-empty", "-m", "tagged source")
             git("tag", "-a", "v1.2.3", "-m", "release fixture")
-            def validate():
-                return subprocess.run([bash_executable(), "-c", 'VERSION=1.2.3\n' + script],
-                                      cwd=directory, capture_output=True, text=True)
-            self.assertEqual(validate().returncode, 0)
-            git("commit", "--allow-empty", "-m", "different source")
-            result = validate()
-            self.assertNotEqual(result.returncode, 0,
-                                "a tag on another commit must not label this checkout")
-            self.assertIn("does not match", result.stdout + result.stderr)
+            source = git("rev-parse", "HEAD")
+            git("commit", "--allow-empty", "-m", "corrected workflow")
+            workflow = git("rev-parse", "HEAD")
+            self.assertNotEqual(source, workflow)
+            for job in ("build", "build-windows", "build-linux"):
+                with self.subTest(job=job):
+                    output = Path(directory) / "output"
+                    output.unlink(missing_ok=True)
+                    env = {**os.environ, "VERSION": "1.2.3", "GITHUB_OUTPUT": str(output),
+                           "GITHUB_SHA": workflow, "GITHUB_WORKFLOW_REF": "fixture@recovery"}
+                    preflight = self.step(job, "validate source version")["run"]
+                    subprocess.run([bash_executable(), "-c", preflight], cwd=directory,
+                                   env=env, check=True, capture_output=True)
+                    self.assertEqual(output.read_text(), "ref=refs/tags/v1.2.3\n")
+                    # Model checkout's validated ref, not the selected workflow ref.
+                    git("checkout", "--detach", output.read_text().strip().removeprefix("ref="))
+                    script = self.step(job, "validate inputs")["run"]
+                    def validate():
+                        return subprocess.run([bash_executable(), "-c", script],
+                                              cwd=directory, env=env, capture_output=True, text=True)
+                    result = validate()
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn(source, result.stdout)
+                    self.assertIn(workflow, result.stdout)
+                    self.assertEqual(git("rev-parse", "HEAD"), source)
+                    git("checkout", "--detach", workflow)
+                    result = validate()
+                    self.assertNotEqual(result.returncode, 0,
+                                        "a tag on another commit must not label this checkout")
+                    self.assertIn("does not match", result.stdout + result.stderr)
+                    env["VERSION"] = "9.9.9"
+                    self.assertNotEqual(validate().returncode, 0, "missing tag must fail closed")
 
     def test_certificate_preflight_executes_with_empty_password(self):
         script = self.step("build", "import signing identity")["run"]
@@ -650,7 +707,9 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("update_tap.py", step["run"])
         self.assertNotIn("--skip", step["run"])
         self.assertNotIn("gh release", step["run"])
-        self.assertFalse(job["steps"][0]["with"]["persist-credentials"])
+        checkout = next(step for step in job["steps"]
+                        if step.get("uses", "").startswith("actions/checkout@"))
+        self.assertFalse(checkout["with"]["persist-credentials"])
 
     def test_concurrency_prevents_overlapping_runs_for_a_version(self):
         concurrency = self.workflow["concurrency"]
