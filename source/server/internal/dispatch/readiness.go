@@ -60,5 +60,7 @@ func OpenModelReadyFor(c config.Config, effectiveModel string) bool {
 }
 
 func looksLikePath(s string) bool {
-	return strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~/") || strings.HasPrefix(s, "./") || strings.HasPrefix(s, "../")
+	// Use native path semantics for Windows drive and UNC paths, while keeping
+	// the existing explicit POSIX/relative prefixes and opaque model IDs intact.
+	return filepath.IsAbs(s) || strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~/") || strings.HasPrefix(s, "./") || strings.HasPrefix(s, "../")
 }
