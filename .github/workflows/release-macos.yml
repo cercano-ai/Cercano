@@ -51,7 +51,7 @@ jobs:
     concurrency:
       group: cercano-homebrew-tap
       cancel-in-progress: false
-    runs-on: macos-14  # Apple Silicon
+    runs-on: macos-15  # Standard Apple Silicon (arm64); deployment target remains macOS 12.0
     environment: release
     timeout-minutes: 60
     outputs:

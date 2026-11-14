@@ -93,6 +93,26 @@ verification time, since Apple's ticket contents are captured at submission.
 
 ## Release workflow (GitHub Actions)
 
+The signing job pins the standard `macos-15` Apple Silicon runner. GitHub's
+[hosted runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories)
+lists this label as arm64 (M1); `macos-15-intel` is not interchangeable.
+The host OS is independent of the archive's macOS **12.0** deployment floor:
+`build-macos-release.sh` still pins that floor in the environment and CGO flags
+and builds/verifies `darwin-arm64` binaries.
+
+**Existing-tag runner recovery:** rerunning an old run or dispatching its old
+tag uses the old workflow, not a runner fix on another branch. In particular,
+`v0.27.0` points at source with the unsupported `macos-14` runner. Dispatching a
+fixed branch with `version=0.27.0` is also rejected: checkout uses the selected
+workflow ref, and every platform validates HEAD against the version tag (the
+macOS builder checks again). Do not move the tag, bypass validation, or set
+`CERCANO_ALLOW_UNTAGGED` to work around this. Releasing the unchanged existing
+tag with a corrected workflow requires a separately reviewed recovery change
+that decouples the trusted workflow ref from an explicit, validated tag checkout
+on **all three platforms**, while preserving the build-time HEAD/tag checks and
+protected approval. Until that exists, there is no valid dispatch of this
+runner-only fix for `v0.27.0`.
+
 `.github/workflows/release-macos.yml` is a **single-run release**. Dispatch it
 from the exact commit tagged `v<version>`, with the stable version without `v`.
 Leave **publish enabled (the default)** for a release. No prior rehearsal run

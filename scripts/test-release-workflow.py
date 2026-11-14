@@ -143,8 +143,17 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertEqual(protected, ["build"])
         self.assertEqual(self.jobs["build"]["environment"], "release")
 
-    def test_build_runs_on_apple_silicon(self):
-        self.assertEqual(self.jobs["build"]["runs-on"], "macos-14")
+    def test_build_runs_on_supported_standard_apple_silicon(self):
+        # GitHub's standard runner table lists macos-15 as arm64 (M1).
+        # macos-14 provisioning fails with unsupported macos-14-arm64-us-default.
+        self.assertEqual(self.jobs["build"]["runs-on"], "macos-15")
+
+    def test_runner_upgrade_preserves_arm64_and_macos_12_deployment_floor(self):
+        builder = (REPO / "scripts" / "build-macos-release.sh").read_text()
+        self.assertIn("GOOS=darwin GOARCH=arm64 CGO_ENABLED=1", builder)
+        self.assertIn("export MACOSX_DEPLOYMENT_TARGET=12.0", builder)
+        for flag in ("CGO_CFLAGS", "CGO_LDFLAGS"):
+            self.assertIn(f"export {flag}='-O2 -g -mmacosx-version-min=12.0'", builder)
 
     def test_publication_waits_for_all_platforms_and_supports_dry_run(self):
         self.assertEqual(self.jobs["build"]["needs"], ["build-windows", "build-linux"])
