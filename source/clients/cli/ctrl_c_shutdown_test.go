@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,10 +19,11 @@ import (
 // This peer measures RPC/transport lifetime, not production broker accounting.
 type shutdownPeer struct {
 	proto.UnimplementedAgentServer
-	releases atomic.Int32
-	streams  atomic.Int32
-	started  chan struct{}
-	ended    chan struct{}
+	releases      atomic.Int32
+	streams       atomic.Int32
+	started       chan struct{}
+	ended         chan struct{}
+	hydrationGate chan struct{}
 }
 
 func (*shutdownPeer) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
@@ -46,6 +48,53 @@ func (p *shutdownPeer) StreamProcessRequest(_ *proto.ProcessRequestRequest, s pr
 	return s.Context().Err()
 }
 
+// Return a successful empty history, including the actual hydration-complete
+// marker. An RPC returning (or failing) is not proof the UI processed it.
+func (p *shutdownPeer) StreamResumeConversationViewportFirst(req *proto.ResumeConversationViewportFirstRequest, stream proto.Agent_StreamResumeConversationViewportFirstServer) error {
+	select {
+	case <-p.hydrationGate:
+	case <-stream.Context().Done():
+		return stream.Context().Err()
+	}
+	for _, kind := range []proto.ResumeConversationViewportFirstEvent_Kind{
+		proto.ResumeConversationViewportFirstEvent_TAIL,
+		proto.ResumeConversationViewportFirstEvent_BACKFILL_COMPLETE,
+		proto.ResumeConversationViewportFirstEvent_HYDRATION_COMPLETE,
+	} {
+		if err := stream.Send(&proto.ResumeConversationViewportFirstEvent{Kind: kind, ConversationId: req.GetConversationId()}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Observe readiness on the program's reducer goroutine, not from the RPC peer.
+// Reflection keeps this private-state observation test-only: there is no new
+// production readiness API, polling, or concurrent access to the live model.
+// Require the true -> false transition AND a cleared error so initial false and
+// a failed hydration cannot accidentally satisfy the barrier.
+type shutdownReadyModel struct {
+	cliui.Model
+	ready     chan struct{}
+	hydrating chan struct{}
+}
+
+func (m shutdownReadyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	wasHydrating := reflect.ValueOf(m.Model).FieldByName("resumeHydrating").Bool()
+	next, cmd := m.Model.Update(msg)
+	m.Model = next.(cliui.Model)
+	state := reflect.ValueOf(m.Model)
+	if m.hydrating != nil && !wasHydrating && state.FieldByName("resumeHydrating").Bool() {
+		close(m.hydrating)
+		m.hydrating = nil
+	}
+	if m.ready != nil && wasHydrating && !state.FieldByName("resumeHydrating").Bool() && state.FieldByName("errMsg").String() == "" {
+		close(m.ready)
+		m.ready = nil
+	}
+	return m, cmd
+}
+
 func TestCtrlCProgramShutdown(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", root)
@@ -64,7 +113,7 @@ func TestCtrlCProgramShutdown(t *testing.T) {
 				name += "/unconfirmed-interruption"
 			}
 			t.Run(name, func(t *testing.T) {
-				peer := &shutdownPeer{started: make(chan struct{}), ended: make(chan struct{})}
+				peer := &shutdownPeer{started: make(chan struct{}), ended: make(chan struct{}), hydrationGate: make(chan struct{})}
 				l, err := net.Listen("tcp", "127.0.0.1:0")
 				if err != nil {
 					t.Fatal(err)
@@ -86,14 +135,41 @@ func TestCtrlCProgramShutdown(t *testing.T) {
 				r, w := io.Pipe()
 				defer r.Close()
 				defer w.Close()
-				p := tea.NewProgram(m, tea.WithInput(r), tea.WithOutput(io.Discard), tea.WithoutRenderer(), tea.WithoutSignalHandler())
+				ready := make(chan struct{})
+				hydrating := make(chan struct{})
+				p := tea.NewProgram(shutdownReadyModel{Model: m, ready: ready, hydrating: hydrating}, tea.WithInput(r), tea.WithOutput(io.Discard), tea.WithoutRenderer(), tea.WithoutSignalHandler())
 				type result struct {
 					model tea.Model
 					err   error
 				}
 				done := make(chan result, 1)
-				go func() { f, e := p.Run(); done <- result{f, e} }()
+				go func() {
+					f, e := p.Run()
+					// Keep the production post-Run hook operating on the real UI model.
+					if wrapped, ok := f.(shutdownReadyModel); ok {
+						f = wrapped.Model
+					}
+					done <- result{f, e}
+				}()
 				defer p.Kill()
+				// Hold the hydration RPC until the reducer has entered hydration.
+				// This deterministically exercises the formerly racy startup window.
+				select {
+				case <-hydrating:
+				case <-time.After(5 * time.Second):
+					t.Fatal("UI did not start startup hydration")
+				}
+				select {
+				case <-ready:
+					t.Fatal("UI became ready before hydration completed")
+				default:
+				}
+				close(peer.hydrationGate)
+				select {
+				case <-ready:
+				case <-time.After(5 * time.Second):
+					t.Fatal("UI did not complete startup hydration")
+				}
 				if busy {
 					// Send through the real UI update path; do not call its cleanup methods.
 					p.Send(tea.KeyPressMsg{Code: 'h', Text: "hello"})
