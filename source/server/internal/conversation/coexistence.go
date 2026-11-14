@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 )
 
@@ -187,7 +189,10 @@ func coexistenceURI(path, mode string) (string, error) {
 		return "", err
 	}
 	// Treat the argument as a filesystem path, never as a caller-supplied DSN.
-	u := url.URL{Scheme: "file", Path: absolute}
+	u, err := coexistenceFileURL(absolute, runtime.GOOS == "windows")
+	if err != nil {
+		return "", err
+	}
 	q := url.Values{"mode": {mode}}
 	// Connection-local settings must also apply to replacement connections. These
 	// do not migrate schema or modify persistent SQLite settings.
@@ -203,6 +208,27 @@ func coexistenceURI(path, mode string) (string, error) {
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+// coexistenceFileURL encodes an already absolute filesystem path, not a DSN.
+// The platform argument keeps Windows normalization testable on other hosts.
+func coexistenceFileURL(absolute string, windows bool) (url.URL, error) {
+	if windows {
+		absolute = strings.ReplaceAll(absolute, `\`, "/")
+		// SQLite file URI authorities do not support remote hosts. Do not turn
+		// UNC or extended/device namespaces into apparently local drive paths.
+		if strings.HasPrefix(absolute, "//") {
+			return url.URL{}, fmt.Errorf("coexistence SQLite file URIs do not support Windows UNC or device paths")
+		}
+		if len(absolute) < 3 || absolute[1] != ':' || absolute[2] != '/' ||
+			!((absolute[0] >= 'A' && absolute[0] <= 'Z') || (absolute[0] >= 'a' && absolute[0] <= 'z')) {
+			return url.URL{}, fmt.Errorf("coexistence SQLite file URI requires an absolute Windows drive path")
+		}
+		// A leading slash keeps the drive out of the URI authority; URL.String
+		// then produces file:///C:/... and escapes path delimiters exactly once.
+		absolute = "/" + absolute
+	}
+	return url.URL{Scheme: "file", Path: absolute}, nil
 }
 
 func openCoexistenceDB(path, mode string) (*sql.DB, error) {
