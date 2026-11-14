@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>cercano</id>
+    <version>@VERSION@</version>
+    <packageSourceUrl>https://github.com/cercano-ai/Cercano/tree/main/release/chocolatey</packageSourceUrl>
+    <title>Cercano</title>
+    <authors>Cercano contributors</authors>
+    <projectUrl>https://github.com/cercano-ai/Cercano</projectUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/cercano-ai/Cercano@v@VERSION@/website/app/icon.svg</iconUrl>
+    <licenseUrl>https://github.com/cercano-ai/Cercano/blob/v@VERSION@/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <docsUrl>https://github.com/cercano-ai/Cercano/tree/v@VERSION@/docs</docsUrl>
+    <bugTrackerUrl>https://github.com/cercano-ai/Cercano/issues</bugTrackerUrl>
+    <tags>cercano agent cli ai llm coding-agent foss</tags>
+    <summary>Cercano, a free and open agent and harness: the agent and the terminal client.</summary>
+    <description>Cercano is a free and open agent and harness: use frontier providers through a subscription sign-in or API key, run open-weight models, or combine them, with routing, delegation and context management built in.
+
+This package installs `cercano-agent` and `cercano-cli`; run `cercano-cli` to start. It owns no files itself.
+
+- Close Cercano before upgrading or uninstalling: the packages refuse while any of their processes run, and never stop them for you.
+- The executables are not code signed, so Windows may show a SmartScreen warning.
+- A local model runtime is not bundled.</description>
+    <releaseNotes>https://github.com/cercano-ai/Cercano/releases/tag/v@VERSION@</releaseNotes>
+    <dependencies>
+      <dependency id="cercano-agent" version="@VERSION@" />
+      <dependency id="cercano-cli" version="@VERSION@" />
+    </dependencies>
+  </metadata>
+  <files />
+</package>

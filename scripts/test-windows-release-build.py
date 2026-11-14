@@ -78,6 +78,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         (sandbox / "scripts").mkdir(parents=True, exist_ok=True)
         shutil.copy2(SCRIPT, sandbox / "scripts" / SCRIPT.name)
         shutil.copy2(REPO / "scripts/runtime_inventory.py", sandbox / "scripts/runtime_inventory.py")
+        shutil.copy2(REPO / "scripts/pe_check.py", sandbox / "scripts/pe_check.py")
         (sandbox / "LICENSE").write_text("license text\n")
         for relative in ("source/server/cmd/cercano", "source/clients/cli"):
             (sandbox / relative).mkdir(parents=True, exist_ok=True)

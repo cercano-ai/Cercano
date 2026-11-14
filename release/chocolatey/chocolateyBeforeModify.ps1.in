@@ -1,0 +1,7 @@
+$ErrorActionPreference = 'Stop'
+# @PACKAGE_ID@ @VERSION@: early notice before upgrade or uninstall. Warning
+# only: Chocolatey does not treat a throw here as a veto, and a throw can skip
+# the backup that rollback needs. chocolateyInstall.ps1 and
+# chocolateyUninstall.ps1 are the refusals. Do not add a throw here.
+. (Join-Path $PSScriptRoot 'cercano-guard.ps1')
+Assert-CercanoPackageNotRunning -PackageId '@PACKAGE_ID@' -Executables @('@EXECUTABLE@') -WarnOnly

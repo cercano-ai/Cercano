@@ -45,6 +45,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+import pe_check
 import runtime_inventory
 
 STABLE_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
@@ -116,21 +117,9 @@ def build(module_dir, package, output, version):
 
 def verify_pe(binary: Path) -> None:
     """Require an executable AMD64 PE32+ header, not just a DOS MZ stub."""
-    import struct
-    with open(binary, "rb") as f:
-        dos = f.read(64)
-        if len(dos) != 64 or dos[:2] != b"MZ":
-            fail(f"{binary.name}: not a Windows PE executable")
-        offset = struct.unpack_from("<I", dos, 60)[0]
-        if offset < 64 or offset > binary.stat().st_size - 26:
-            fail(f"{binary.name}: invalid PE header offset")
-        f.seek(offset)
-        header = f.read(26)
-    machine = struct.unpack_from("<H", header, 4)[0]
-    flags = struct.unpack_from("<H", header, 22)[0]
-    magic = struct.unpack_from("<H", header, 24)[0]
-    if header[:4] != b"PE\0\0" or machine != 0x8664 or magic != 0x20b or not flags & 2 or flags & 0x2000:
-        fail(f"{binary.name}: expected Windows x64 PE32+ executable")
+    problem = pe_check.x64_pe_problem(binary.read_bytes())
+    if problem:
+        fail(f"{binary.name}: {problem}")
 
 
 def write_zip(archive, entries):
