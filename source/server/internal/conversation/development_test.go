@@ -2,8 +2,11 @@ package conversation
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 )
 
@@ -39,13 +42,18 @@ func TestDevelopmentStoreRefusesLegacyAndAliases(t *testing.T) {
 	if string(before) != string(after) {
 		t.Fatal("legacy database modified")
 	}
-	alias := filepath.Join(root, "alias.db")
-	if err := os.Symlink(legacy, alias); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareDevelopmentStore(ctx, alias); err == nil {
-		t.Fatal("accepted symlink")
-	}
+	t.Run("symlink", func(t *testing.T) {
+		alias := filepath.Join(root, "alias.db")
+		if err := os.Symlink(legacy, alias); err != nil {
+			if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+				t.Skipf("symlink creation requires unavailable privilege: %v", err)
+			}
+			t.Fatal(err)
+		}
+		if err := PrepareDevelopmentStore(ctx, alias); err == nil {
+			t.Fatal("accepted symlink")
+		}
+	})
 	empty := filepath.Join(root, "empty.db")
 	if err := os.WriteFile(empty, nil, 0600); err != nil {
 		t.Fatal(err)
@@ -54,14 +62,17 @@ func TestDevelopmentStoreRefusesLegacyAndAliases(t *testing.T) {
 		t.Fatal("adopted empty file")
 	}
 	public := filepath.Join(root, "public")
-	if err := os.Mkdir(public, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(public, 0755); err != nil {
-		t.Fatal(err)
-	}
+	assertParentUnchanged := makeNonprivateDevelopmentTestDirectory(t, public)
 	if err := PrepareDevelopmentStore(ctx, filepath.Join(public, "new.db")); err == nil {
-		t.Fatal("accepted nonprivate parent")
+		t.Error("accepted nonprivate parent")
+	}
+	assertParentUnchanged()
+	entries, err := os.ReadDir(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("refused parent mutated: created %v", entries)
 	}
 	fixture := filepath.Join(root, "fixture.db")
 	if err := PrepareCoexistence(ctx, fixture); err != nil {

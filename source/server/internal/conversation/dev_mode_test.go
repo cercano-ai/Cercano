@@ -10,6 +10,7 @@ import (
 
 func TestDevModeLegacyDatabaseMigration(t *testing.T) {
 	ctx := context.Background()
+	devDir := t.TempDir()
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	original, err := Open(path)
 	if err != nil {
@@ -34,14 +35,14 @@ func TestDevModeLegacyDatabaseMigration(t *testing.T) {
 	if err != nil || info.DevWorkDir != "" || info.ProjectDir != "/tmp/project" {
 		t.Fatalf("legacy metadata changed: %+v %v", info, err)
 	}
-	if err := migrated.SetDevWorkDir(ctx, "legacy", "/tmp/dev-repo"); err != nil {
+	if err := migrated.SetDevWorkDir(ctx, "legacy", devDir); err != nil {
 		t.Fatal(err)
 	}
 	list, err := migrated.List(ctx, "", 0)
-	if err != nil || len(list) != 1 || list[0].DevWorkDir != "/tmp/dev-repo" {
+	if err != nil || len(list) != 1 || list[0].DevWorkDir != devDir {
 		t.Fatalf("list metadata lost: %+v %v", list, err)
 	}
-	if err := migrated.SetDevWorkDir(ctx, "missing", "/tmp/dev-repo"); !errors.Is(err, sql.ErrNoRows) {
+	if err := migrated.SetDevWorkDir(ctx, "missing", devDir); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatal("missing conversation silently accepted", err)
 	}
 	if err := migrated.SetDevWorkDir(ctx, "legacy", "relative/path"); err == nil {
@@ -50,6 +51,7 @@ func TestDevModeLegacyDatabaseMigration(t *testing.T) {
 }
 func TestDevModeFollowsConversationRollover(t *testing.T) {
 	ctx := context.Background()
+	devDir := t.TempDir()
 	s, err := Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -58,14 +60,14 @@ func TestDevModeFollowsConversationRollover(t *testing.T) {
 	if err := s.EnsureConversation(ctx, "before", "/tmp/original", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetDevWorkDir(ctx, "before", "/tmp/dev-repo"); err != nil {
+	if err := s.SetDevWorkDir(ctx, "before", devDir); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateRolledOver(ctx, "after", "/tmp/original", "", "before", Turn{Role: "user", Content: "handoff"}); err != nil {
 		t.Fatal(err)
 	}
 	info, err := s.Get(ctx, "after")
-	if err != nil || info.DevWorkDir != "/tmp/dev-repo" {
+	if err != nil || info.DevWorkDir != devDir {
 		t.Fatalf("rollover lost explicit dev mode: %+v %v", info, err)
 	}
 }

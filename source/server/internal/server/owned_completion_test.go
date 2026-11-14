@@ -52,6 +52,19 @@ func preparedWakeFixtureWithConfig(t *testing.T, cfg config.Config, scheduling .
 	if err != nil {
 		t.Fatal(err)
 	}
+	var cap *conversation.Ownership
+	// The fixture owns the full server, including diagnostic writers. Drain
+	// producers and close server resources before releasing ownership/store;
+	// register now so later setup failures also run the same teardown.
+	t.Cleanup(func() {
+		if err := s.Shutdown(); err != nil {
+			t.Errorf("shutdown prepared fixture: %v", err)
+		}
+		if cap != nil {
+			_ = cap.Close()
+		}
+		_ = s.coexistence.store.Close()
+	})
 	engine := dispatch.NewEngine(func() inference.Tiers { return inference.Tiers{Open: ownedSyntheticProvider{}} }, func() locus.Mode { return locus.Mode("local") }, nil)
 	engine.SetAgenticRunner(func(context.Context, dispatch.Spec, inference.Selection, string) (dispatch.Result, error) {
 		return dispatch.Result{Text: "child finished"}, nil
@@ -61,7 +74,7 @@ func preparedWakeFixtureWithConfig(t *testing.T, cfg config.Config, scheduling .
 	if err != nil {
 		t.Fatal(err)
 	}
-	cap := s.coexistence.owners["parent"]
+	cap = s.coexistence.owners["parent"]
 	ctx := WithPreparedTaskOwnership(conversation.WithOwnership(t.Context(), cap), owner, cap)
 	if err := s.persistSvc.Store().EnsureConversation(ctx, "parent", "", "fixture"); err != nil {
 		t.Fatal(err)
@@ -69,14 +82,6 @@ func preparedWakeFixtureWithConfig(t *testing.T, cfg config.Config, scheduling .
 	if !s.ensureTaskManager() {
 		t.Fatal("manager")
 	}
-	t.Cleanup(func() {
-		s.closeTaskManager()
-		_ = cap.Close()
-		_ = s.coexistence.store.Close()
-		if s.visionStore != nil {
-			_ = s.visionStore.Close()
-		}
-	})
 	tasks := s.persistSvc.Store().(conversation.TaskStore)
 	record := conversation.TaskRecord{ID: "one", ParentID: "parent", ChildID: "child", Status: "accepted", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	if err := tasks.InsertTask(ctx, record); err != nil {

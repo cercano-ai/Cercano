@@ -1,9 +1,13 @@
 package conversation
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -52,17 +56,38 @@ func TestCoexistenceReadOnlyWaitsForTransientLock(t *testing.T) {
 
 func TestCoexistenceReadOnlyConnectionTimeout(t *testing.T) {
 	_, path, _ := developmentOwnershipFixture(t)
-	db, err := openCoexistenceDB(path, "ro")
-	mustCoexist(t, err)
-	defer db.Close()
-	for i := 0; i < 2; i++ {
-		var timeout int
-		mustCoexist(t, db.QueryRowContext(context.Background(), "PRAGMA busy_timeout").Scan(&timeout))
-		if timeout != 5000 {
-			t.Fatalf("read-only busy_timeout = %d, want 5000", timeout)
-		}
-		// Force the pool to replace its connection; the setting must survive.
-		db.SetMaxIdleConns(0)
+	for _, tc := range []struct {
+		name string
+		open func(string) (*sql.DB, error)
+		want int
+	}{
+		{"generic", func(path string) (*sql.DB, error) { return openCoexistenceDB(path, "ro") }, 5000},
+		{"preflight", openPreflightCoexistenceDB, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := tc.open(path)
+			mustCoexist(t, err)
+			defer db.Close()
+			for i := 0; i < 3; i++ {
+				conn, err := db.Conn(context.Background())
+				mustCoexist(t, err)
+				var timeout int
+				err = conn.QueryRowContext(context.Background(), "PRAGMA busy_timeout").Scan(&timeout)
+				mustCoexist(t, err)
+				if timeout != tc.want {
+					t.Fatalf("read-only busy_timeout = %d, want %d", timeout, tc.want)
+				}
+				// Read-only mode must survive replacement along with busy_timeout.
+				_, err = conn.ExecContext(context.Background(), "CREATE TABLE forbidden (id INTEGER)")
+				var coded interface{ Code() int }
+				if !errors.As(err, &coded) || coded.Code()&0xff != 8 { // SQLITE_READONLY
+					t.Fatalf("read-only write: %v", err)
+				}
+				// Returning this connection closes it, forcing a fresh driver connection.
+				db.SetMaxIdleConns(0)
+				mustCoexist(t, conn.Close())
+			}
+		})
 	}
 }
 
@@ -78,7 +103,55 @@ func TestCoexistenceReadOnlyLockDeadline(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("locked preflight: got %v, want deadline exceeded", err)
 	}
-	if elapsed := time.Since(started); elapsed > 6*time.Second {
+	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("locked preflight exceeded bounded wait: %s", elapsed)
+	}
+}
+
+func TestCoexistenceReadOnlyLockCanceled(t *testing.T) {
+	ctx, path, store := developmentOwnershipFixture(t)
+	_, err := store.db.Exec("PRAGMA journal_mode=DELETE; BEGIN EXCLUSIVE;")
+	mustCoexist(t, err)
+	defer store.db.Exec("ROLLBACK")
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	timer := time.AfterFunc(50*time.Millisecond, cancel)
+	defer timer.Stop()
+	started := time.Now()
+	err = PreflightCoexistence(ctx, path, DevelopmentCoexistenceDeclaration())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("locked preflight: got %v, want canceled", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("locked preflight exceeded bounded wait: %s", elapsed)
+	}
+}
+
+func TestCoexistencePreflightNoMutation(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "fixture %#.db")
+	mustCoexist(t, PrepareCoexistence(ctx, path))
+	// Use a closed rollback-journal fixture to compare durable bytes and ensure
+	// admission creates no sidecars, schema, or other files.
+	db, err := openCoexistenceDB(path, "rw")
+	mustCoexist(t, err)
+	_, err = db.Exec("PRAGMA journal_mode=DELETE")
+	mustCoexist(t, err)
+	mustCoexist(t, db.Close())
+	before, err := os.ReadFile(path)
+	mustCoexist(t, err)
+	mustCoexist(t, PreflightCoexistence(ctx, path, CurrentCoexistenceDeclaration()))
+	if err := PreflightCoexistence(ctx, path, DevelopmentCoexistenceDeclaration()); err == nil {
+		t.Fatal("accepted wrong declaration")
+	}
+	after, err := os.ReadFile(path)
+	mustCoexist(t, err)
+	if !bytes.Equal(before, after) {
+		t.Fatal("preflight changed database bytes")
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	mustCoexist(t, err)
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(path) {
+		t.Fatalf("preflight created files: %v", entries)
 	}
 }

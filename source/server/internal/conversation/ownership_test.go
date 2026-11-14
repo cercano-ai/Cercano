@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -112,6 +114,8 @@ func TestOwnershipEveryMutationFamily(t *testing.T) {
 	mustCoexist(t, s.InsertTask(valid, TaskRecord{ID: "task", ParentID: "c", Status: "accepted"}))
 	run, err := s.CreateAutonomyRun(valid, AutonomyRun{ConversationID: "c", State: "running"})
 	mustCoexist(t, err)
+	repoDir, err := filepath.Abs(t.TempDir())
+	mustCoexist(t, err)
 	ops := map[string]func(context.Context) error{
 		"ensure":   func(c context.Context) error { return s.EnsureConversation(c, "c", "", "") },
 		"subagent": func(c context.Context) error { return s.EnsureSubagentConversation(c, "child", "c", "", "", nil) },
@@ -124,7 +128,7 @@ func TestOwnershipEveryMutationFamily(t *testing.T) {
 		"rename":     func(c context.Context) error { return s.Rename(c, "c", "changed") },
 		"title":      func(c context.Context) error { return s.SetGeneratedTitle(c, "c", "changed") },
 		"recap":      func(c context.Context) error { return s.UpdateRecap(c, "c", "changed") },
-		"devdir":     func(c context.Context) error { return s.SetDevWorkDir(c, "c", "/synthetic") },
+		"devdir":     func(c context.Context) error { return s.SetDevWorkDir(c, "c", repoDir) },
 		"dismiss":    func(c context.Context) error { return s.MarkSubagentDismissed(c, "c") },
 		"compaction": func(c context.Context) error { return s.SaveCompaction(c, Compaction{ConversationID: "c"}) },
 		"history_usage": func(c context.Context) error {
@@ -274,40 +278,72 @@ func TestOwnershipFencedTablesComplete(t *testing.T) {
 }
 
 func TestOwnershipPathAliases(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "fixture.db")
-	if err := PrepareCoexistence(ctx, path); err != nil {
-		t.Fatal(err)
-	}
-	a, err := OpenCoexistence(ctx, path, CurrentCoexistenceDeclaration())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.Close()
-	o := take(t, ctx, a, "c", "A")
-	alias := filepath.Join(filepath.Dir(path), "alias.db")
-	if err := os.Symlink(path, alias); err != nil {
-		t.Fatal(err)
-	}
-	b, err := OpenCoexistence(ctx, alias, CurrentCoexistenceDeclaration())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.Close()
-	_, err = AcquireOwnership(ctx, b, "c", "B")
-	refused(t, err)
-	if err := o.Release(ctx); err != nil {
-		t.Fatal(err)
-	}
-	take(t, ctx, b, "c", "B")
-	hard := filepath.Join(filepath.Dir(path), "hard.db")
-	if err := os.Link(path, hard); err != nil {
-		t.Fatal(err)
-	}
-	_, err = OpenCoexistence(ctx, hard, CurrentCoexistenceDeclaration())
-	if err == nil || !strings.Contains(err.Error(), "hard-linked") {
-		t.Fatalf("hard-link alias: %v", err)
-	}
+	t.Run("symlink", func(t *testing.T) {
+		ctx, path, a := ownershipFixture(t)
+		alias := filepath.Join(filepath.Dir(path), "alias.db")
+		if err := os.Symlink(path, alias); err != nil {
+			const errorPrivilegeNotHeld syscall.Errno = 1314 // ERROR_PRIVILEGE_NOT_HELD
+			if runtime.GOOS == "windows" && errors.Is(err, errorPrivilegeNotHeld) {
+				t.Skipf("symlink creation requires unavailable privilege: %v", err)
+			}
+			t.Fatal(err)
+		}
+		// Preflight precedes EvalSymlinks: Windows rejects the reparse object,
+		// while Unix canonicalizes it before ownership contention is checked.
+		b, err := OpenCoexistence(ctx, alias, CurrentCoexistenceDeclaration())
+		if runtime.GOOS == "windows" {
+			if b != nil {
+				t.Cleanup(func() { b.Close() })
+			}
+			const want = "unsupported coexistence object type"
+			if err == nil || err.Error() != want {
+				t.Fatalf("symlink alias: got %v, want %q", err, want)
+			}
+			return
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { b.Close() })
+		o := take(t, ctx, a, "c", "A")
+		t.Cleanup(func() {
+			if o != nil {
+				if err := o.Release(ctx); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+		_, err = AcquireOwnership(ctx, b, "c", "B")
+		refused(t, err)
+		if err := o.Release(ctx); err != nil {
+			t.Fatal(err)
+		}
+		o = nil
+		next := take(t, ctx, b, "c", "B")
+		t.Cleanup(func() {
+			if err := next.Release(ctx); err != nil {
+				t.Error(err)
+			}
+		})
+	})
+	t.Run("hardlink", func(t *testing.T) {
+		ctx, path, _ := ownershipFixture(t)
+		hard := filepath.Join(filepath.Dir(path), "hard.db")
+		if err := os.Link(path, hard); err != nil {
+			t.Fatal(err)
+		}
+		store, err := OpenCoexistence(ctx, hard, CurrentCoexistenceDeclaration())
+		if store != nil {
+			t.Cleanup(func() { store.Close() })
+		}
+		want := "coexistence hard-linked database paths unsupported"
+		if runtime.GOOS == "windows" {
+			want = "coexistence hard-linked file paths unsupported"
+		}
+		if err == nil || err.Error() != want {
+			t.Fatalf("hard-link alias: got %v, want %q", err, want)
+		}
+	})
 }
 
 func TestOwnershipReplacementConnectionCascade(t *testing.T) {

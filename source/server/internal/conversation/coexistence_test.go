@@ -4,16 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"syscall"
 	"testing"
 	"time"
 )
 
 func TestCoexistencePreparedRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "fixture ?#.db")
+	// Keep real filenames portable; URI-only tests separately exercise '?'.
+	path := filepath.Join(t.TempDir(), "fixture %#.db")
 	mustCoexist(t, PrepareCoexistence(ctx, path))
 	d := CurrentCoexistenceDeclaration()
 	mustCoexist(t, PreflightCoexistence(ctx, path, d))
@@ -100,7 +104,13 @@ func TestPrepareCoexistenceRefusesExisting(t *testing.T) {
 				mustCoexist(t, err)
 				mustCoexist(t, s.Close())
 			case "symlink":
-				mustCoexist(t, os.Symlink("absent-target", path))
+				err := os.Symlink("absent-target", path)
+				// ERROR_PRIVILEGE_NOT_HELD: Windows requires symlink privilege
+				// or Developer Mode. Other failures remain fixture failures.
+				if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+					t.Skipf("symlink unavailable without changing privileges: %v", err)
+				}
+				mustCoexist(t, err)
 			}
 			before, err := os.Lstat(path)
 			mustCoexist(t, err)

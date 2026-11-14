@@ -2,9 +2,7 @@ package conversation
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
-	"os"
 )
 
 // RestoreClaimedHandover reopens only the exact still-current durable claim.
@@ -23,8 +21,7 @@ func RestoreClaimedHandover(ctx context.Context, store Store, id, host, handover
 	if err != nil {
 		return nil, err
 	}
-	dir := s.coexistencePath + ".ownership-locks"
-	f, err := os.OpenFile(fmt.Sprintf("%s/%x.lock", dir, sha256.Sum256([]byte(id))), os.O_RDWR, 0600)
+	f, err := openOwnershipLock(s.coexistencePath, id, false)
 	if err != nil {
 		return nil, err
 	}

@@ -64,12 +64,8 @@ func recoverDeadOwner(ctx context.Context, store Store, conversationID string, e
 			}
 		}
 	}()
-	dir := s.coexistencePath + ".ownership-locks"
-	if err = os.MkdirAll(dir, 0700); err != nil {
-		return nil, err
-	}
 	for _, id := range ids {
-		f, e := os.OpenFile(fmt.Sprintf("%s/%x.lock", dir, sha256.Sum256([]byte(id))), os.O_CREATE|os.O_RDWR, 0600)
+		f, e := openOwnershipLock(s.coexistencePath, id, true)
 		if e != nil {
 			return nil, e
 		}

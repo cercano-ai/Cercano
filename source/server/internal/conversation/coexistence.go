@@ -59,17 +59,16 @@ func PrepareDevelopmentStore(ctx context.Context, path string) error {
 	if resolved != parent {
 		return fmt.Errorf("development store parent must not contain aliases")
 	}
-	info, err := os.Stat(parent)
-	if err != nil {
+	if err := validatePrivateDirectory(parent); err != nil {
 		return err
-	}
-	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
-		return fmt.Errorf("development store parent must be private")
 	}
 	return prepareCoexistence(ctx, path, DevelopmentCoexistenceDeclaration())
 }
 
 func prepareCoexistence(ctx context.Context, path string, d CoexistenceDeclaration) error {
+	if err := validateCoexistencePrivacy(path); err != nil {
+		return err
+	}
 	uri, err := coexistenceURI(path, "rw")
 	if err != nil {
 		return err
@@ -79,6 +78,9 @@ func prepareCoexistence(ctx context.Context, path string, d CoexistenceDeclarati
 		return fmt.Errorf("prepare coexistence destination: %w", err)
 	}
 	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := validateCoexistencePrivacy(path); err != nil {
 		return err
 	}
 	s, err := Open(uri)
@@ -115,14 +117,14 @@ func prepareCoexistence(ctx context.Context, path string, d CoexistenceDeclarati
 // expected must match both this build and the prepared store exactly. Callers
 // can use the selected peer's declaration here; unknown labels fail closed.
 func PreflightCoexistence(ctx context.Context, path string, expected CoexistenceDeclaration) error {
-	db, err := openCoexistenceDB(path, "ro")
+	db, err := openPreflightCoexistenceDB(path)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	// WAL recovery can return SQLITE_BUSY_RECOVERY without invoking SQLite's
 	// busy handler. Retry only reads, with a fresh snapshot after rollback, and
-	// bound the entire preflight (including busy-handler waits).
+	// let this context-aware loop own the entire wait (no driver busy wait).
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	for {
@@ -181,6 +183,10 @@ func OpenCoexistence(ctx context.Context, path string, expected CoexistenceDecla
 }
 
 func coexistenceURI(path, mode string) (string, error) {
+	return coexistenceURIWithBusyTimeout(path, mode, 5000)
+}
+
+func coexistenceURIWithBusyTimeout(path, mode string, busyMS int) (string, error) {
 	if path == "" || path == ":memory:" {
 		return "", fmt.Errorf("coexistence requires an explicit fixture file path")
 	}
@@ -196,7 +202,7 @@ func coexistenceURI(path, mode string) (string, error) {
 	q := url.Values{"mode": {mode}}
 	// Connection-local settings must also apply to replacement connections. These
 	// do not migrate schema or modify persistent SQLite settings.
-	q["_pragma"] = []string{"busy_timeout(5000)"}
+	q["_pragma"] = []string{fmt.Sprintf("busy_timeout(%d)", busyMS)}
 	if mode == "rw" {
 		q["_pragma"] = append(q["_pragma"], "foreign_keys(1)")
 		// Ownership transitions and fenced writes read before writing. Admit the
@@ -232,7 +238,20 @@ func coexistenceFileURL(absolute string, windows bool) (url.URL, error) {
 }
 
 func openCoexistenceDB(path, mode string) (*sql.DB, error) {
-	uri, err := coexistenceURI(path, mode)
+	return openCoexistenceDBWithBusyTimeout(path, mode, 5000)
+}
+
+func openPreflightCoexistenceDB(path string) (*sql.DB, error) {
+	// SQLite busy handlers can outlive a canceled query context. Disable waiting
+	// in the URI so every pooled/replacement connection uses preflight retries.
+	return openCoexistenceDBWithBusyTimeout(path, "ro", 0)
+}
+
+func openCoexistenceDBWithBusyTimeout(path, mode string, busyMS int) (*sql.DB, error) {
+	if err := validateCoexistencePrivacy(path); err != nil {
+		return nil, err
+	}
+	uri, err := coexistenceURIWithBusyTimeout(path, mode, busyMS)
 	if err != nil {
 		return nil, err
 	}

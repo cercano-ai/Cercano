@@ -2,14 +2,12 @@ package conversation
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
-	"syscall"
 )
 
 // OwnershipConflict identifies expected contention or a row requiring explicit
@@ -106,17 +104,13 @@ func acquireOwnershipFrom(ctx context.Context, store Store, id, host, handover, 
 		return nil, fmt.Errorf("conversation and exact host instance required")
 	}
 	// Hash the conversation ID, never the epoch. Lock files are NEVER removed.
-	dir := s.coexistencePath + ".ownership-locks"
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(fmt.Sprintf("%s/%x.lock", dir, sha256.Sum256([]byte(id))), os.O_CREATE|os.O_RDWR, 0600)
+	f, err := openOwnershipLock(s.coexistencePath, id, true)
 	if err != nil {
 		return nil, err
 	}
 	if err := lockOwnershipFile(f); err != nil {
 		f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+		if ownershipLockContended(err) {
 			return nil, &OwnershipConflict{Cause: fmt.Errorf("conversation %q lock contention: %w", id, err)}
 		}
 		return nil, err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -22,8 +23,8 @@ import (
 //  3. Reopen the database through the production resolver and assert the
 //     conversation, its turns, and the config file survive byte-for-byte.
 //
-// Isolation: HOME points at a temp directory for the whole test, so the
-// production DefaultPath resolver writes only there. CERCANO_CONVERSATIONS_DB
+// Isolation: HOME (and USERPROFILE on Windows) points at a temp directory,
+// so the production DefaultPath resolver writes only there. CERCANO_CONVERSATIONS_DB
 // is explicitly cleared so an ambient developer override cannot redirect this
 // test onto the real database. Nothing under the developer's real
 // ~/.config/cercano is opened, read, or written, and no agent is started.
@@ -34,9 +35,12 @@ func TestUpgradePreservesUserData(t *testing.T) {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Point the production resolver at the isolated HOME, and make sure no
-	// inherited override can aim it at the real database.
+	// DefaultPath uses os.UserHomeDir, not APPDATA or XDG_CONFIG_HOME.
+	// Isolate its exact platform input and clear the database override.
 	t.Setenv("HOME", home)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+	}
 	t.Setenv("CERCANO_CONVERSATIONS_DB", "")
 
 	dbPath, err := DefaultPath()
@@ -93,12 +97,19 @@ func TestUpgradePreservesUserData(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Windows executable aliases use hardlinks so this data-preservation test
+	// needs no symlink privilege. Both forms still reference the keg inode;
+	// replacement and removal below must preserve all user-state assertions.
+	linkExecutable := os.Symlink
+	if runtime.GOOS == "windows" {
+		linkExecutable = os.Link
+	}
 	names := []string{"cercano", "cercano-cli"}
 	for _, name := range names {
 		if err := os.WriteFile(filepath.Join(oldKeg, name), []byte("old "+name), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(filepath.Join(oldKeg, name), filepath.Join(prefix, name)); err != nil {
+		if err := linkExecutable(filepath.Join(oldKeg, name), filepath.Join(prefix, name)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -119,7 +130,7 @@ func TestUpgradePreservesUserData(t *testing.T) {
 		if err := os.Remove(link); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(filepath.Join(newKeg, name), link); err != nil {
+		if err := linkExecutable(filepath.Join(newKeg, name), link); err != nil {
 			t.Fatal(err)
 		}
 	}
