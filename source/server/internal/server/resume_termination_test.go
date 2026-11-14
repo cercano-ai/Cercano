@@ -17,6 +17,12 @@ func TestResumeTerminationOfferAfterSourceRefusal(t *testing.T) {
 		offer  bool
 		legacy bool
 	}{
+		{"forced_unresolved", status.Error(codes.FailedPrecondition, "forced cutover fenced old clients; 6 unresolved persistence outcomes remain (not evidence of running work)"), true, false},
+		{"forced_unresolved_legacy", status.Error(codes.FailedPrecondition, "forced cutover fenced old clients; 6 unresolved persistence outcomes remain (not evidence of running work)"), false, true},
+		{"forced_near_suffix", status.Error(codes.FailedPrecondition, sixUnresolved+" extra"), false, false},
+		{"forced_near_prefix", status.Error(codes.FailedPrecondition, "prefix "+sixUnresolved), false, false},
+		{"forced_wrong_code", status.Error(codes.Unknown, sixUnresolved), false, false},
+		{"cancelled", status.Error(codes.Canceled, sixUnresolved), false, false},
 		{"retained", broker.ErrAdmissionBusy, true, false},
 		{"timeout", status.Error(codes.DeadlineExceeded, "source deadline"), true, false},
 		{"auth", status.Error(codes.Unauthenticated, "bad token"), false, false},

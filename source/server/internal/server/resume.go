@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"time"
 
@@ -23,6 +24,15 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
+
+// Match only the forced-cutover persistence-uncertainty refusal, including its
+// positive canonical count. This is discovery eligibility, not persistence or
+// death proof; legacy relinquish and generic preconditions remain terminal.
+var forcedPersistenceRefusal = regexp.MustCompile(`^forced cutover fenced old clients; [1-9][0-9]* unresolved persistence outcomes remain \(not evidence of running work\)$`)
+
+func isForcedPersistenceRefusal(err error) bool {
+	return status.Code(err) == codes.FailedPrecondition && forcedPersistenceRefusal.MatchString(status.Convert(err).Message())
+}
 
 // The journal is private, store-adjacent and bound to the exact destination.
 // Like development host records it is atomically published and directory-synced.
@@ -428,10 +438,13 @@ func (s *Server) LifecycleResume(ctx context.Context, r *pb.LifecycleControlRequ
 			}
 		}
 		if err != nil {
-			// Only the exact historical admission refusal or a bounded source
-			// timeout permits a new confirmation, never an auth/identity error.
+			// Only exact known refusals or a bounded source timeout permit
+			// discovery, never arbitrary preconditions or auth/identity errors.
+			// Persistence uncertainty from forced cutover does not prove running
+			// work, successful persistence, or permission to stop the source.
 			busy := status.Code(err) == codes.Unknown && status.Convert(err).Message() == broker.ErrAdmissionBusy.Error()
-			if busy || status.Code(err) == codes.DeadlineExceeded {
+			forcedUncertain := stage == "force_relinquish" && isForcedPersistenceRefusal(err)
+			if busy || forcedUncertain || status.Code(err) == codes.DeadlineExceeded {
 				current, e := conversation.ReadOwnership(ctx, l.store, id)
 				if e != nil {
 					return nil, refusal(e)

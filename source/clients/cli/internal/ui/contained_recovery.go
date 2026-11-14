@@ -37,7 +37,7 @@ func (m Model) offerContainedRecovery(offer *forcedResumeOffer) (tea.Model, tea.
 	client, parent, gen := m.agent, m.convID, m.taskSubscriptionGeneration
 	decline := func(m Model) (Model, tea.Cmd) { m.pendingConfirm = nil; return m, nil }
 	title := "Terminate the old host and recover this conversation?"
-	mode := "All conversations and tasks on the old host will be interrupted. Unpersisted output will be lost. The full affected scope is unknown when inventory is unavailable. Committed history is preserved. Interrupted actions are NOT replayed; external effects may remain uncertain. Consent is single-use for this source epoch and selected destination."
+	mode := "All conversations and tasks on the old host will be interrupted. Unpersisted output will be lost. The full affected scope is unknown when inventory is unavailable. Committed history is preserved. Unresolved persistence outcomes remain uncertain; recovery does not prove those writes succeeded. Interrupted actions are NOT replayed; external effects may remain uncertain. Consent is single-use for this source epoch and selected destination."
 	selectionDescription := fmt.Sprintf("Conversation %s: source %s, epoch %s, operation %s → selected destination %s.", op.Owner.Conversation, op.Source.Host, op.Owner.Epoch, op.HandoverId, op.Destination.Host)
 	hints := "y: terminate old host and recover · n/esc/enter: cancel"
 	m.enqueueConfirmation(&confirmRequest{title: title, details: []string{

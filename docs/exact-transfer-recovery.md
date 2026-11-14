@@ -7,8 +7,13 @@ revalidate source process identity, source epoch, selected destination and owner
 contain/stop the source and use destination-authorized `LifecycleRecover`. Refuse
 uncertain containment or changed ownership. Never replay interrupted external actions.
 
-Retained-work refusal or a three-second cooperative deadline offers separate
-**Terminate the old host and recover this conversation** consent. This interrupts
+Retained-work refusal, a three-second cooperative deadline, or the exact forced
+cutover refusal `forced cutover fenced old clients; N unresolved persistence outcomes
+remain (not evidence of running work)` (positive count, from ForceRelinquish only)
+offers separate **Terminate the old host and recover this conversation** consent.
+Generic/legacy unresolved-commit preconditions and near matches remain refusals.
+Unresolved persistence is uncertainty, not evidence of running work or successful
+writes. Recovery neither clears those tickets nor establishes persistence success. This interrupts
 all host conversations/tasks and loses unpersisted output; affected scope is
 unknown when inventory is unavailable. Decline leaves ownership unchanged.
 The authenticated native adapter supports older hosts without a shutdown RPC,

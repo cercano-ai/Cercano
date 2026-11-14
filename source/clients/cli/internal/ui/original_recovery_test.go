@@ -22,7 +22,7 @@ func TestLiveSourceRecoveryUI(t *testing.T) {
 			offered, _ := m.offerForcedResume(&forcedResumeOffer{destination: selected, original: o})
 			m = offered.(Model)
 			details := strings.Join(m.pendingConfirm.details, " ")
-			for _, text := range []string{"All conversations and tasks", "Unpersisted output will be lost", "scope is unknown", "force kills the exact old process", "NOT replayed", "single-use"} {
+			for _, text := range []string{"All conversations and tasks", "Unpersisted output will be lost", "scope is unknown", "Unresolved persistence outcomes remain uncertain", "recovery does not prove those writes succeeded", "force kills the exact old process", "NOT replayed", "single-use"} {
 				if !strings.Contains(details, text) {
 					t.Fatalf("missing disclosure %s: %s", text, details)
 				}
