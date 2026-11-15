@@ -1,6 +1,7 @@
 """Offline review only: inert archives and private tap snapshots, no brew."""
 import contextlib
 import io
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -60,9 +61,51 @@ class PreparationTest(unittest.TestCase):
         target = self.tap / 'Formula/cercano.rb'
         target.write_text(old)
         plan = self.prepare()
-        self.assertEqual(plan['files'][0]['before_sha256'], p.sha(old))
+        self.assertEqual(plan['files'][0]['before_sha256'], p.sha(old.encode('utf-8')))
         self.assertIn('explicit-operator-only', plan['migration_policy'])
         self.assertEqual(target.read_text(), old)
+
+    def test_crlf_desired_is_not_canonical(self):
+        for name in p.NAMES:
+            source = self.formulas / name
+            canonical = source.read_bytes()
+            source.write_bytes(canonical.replace(b'\n', b'\r\n'))
+            with self.subTest(name=name), self.assertRaises(u.Failure):
+                self.prepare()
+            source.write_bytes(canonical)
+
+    def test_crlf_before_hash_is_actual_snapshot_bytes(self):
+        old = b'url "https://example.invalid/old"\r\nversion "1.2.2"\r\nsha256 "' + b'0' * 64 + b'"\r\n'
+        target = self.tap / 'Formula/cercano.rb'
+        target.write_bytes(old)
+        plan = self.prepare()
+        self.assertEqual(plan['files'][0]['before_sha256'], hashlib.sha256(old).hexdigest())
+        self.assertEqual(target.read_bytes(), old)
+
+    def test_cli_untrusted_diagnostics_are_fixed_and_bounded(self):
+        sentinel = 'PREPARATION_SECRET_SENTINEL'
+        base = ['--version', VERSION, '--sha256', self.digest,
+                '--archive', str(self.archive), '--formulas', str(self.formulas),
+                '--tap', str(self.tap)]
+        malformed = self.root / sentinel
+        malformed.write_bytes(self.archive.read_bytes())
+        cases = [('--version', sentinel), ('--archive', str(self.root / sentinel / 'missing')),
+                 ('--archive', str(malformed))]
+        # Also exercise a correctly named but structurally invalid tar.
+        self.archive.write_bytes(b'not a tar ' + sentinel.encode())
+        cases.append(('--sha256', r.hash_archive(self.archive)))
+        for option, value in cases:
+            argv = base.copy()
+            argv[argv.index(option) + 1] = value
+            output, errors = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                result = p.main(argv)
+            with self.subTest(option=option, value=value):
+                self.assertEqual(result, 1)
+                self.assertEqual(output.getvalue(), '')
+                self.assertEqual(errors.getvalue(), 'Preparation refused: invalid or unreadable inputs.\n')
+                self.assertNotIn(sentinel, errors.getvalue())
+        self.assertEqual(list((self.tap / 'Formula').iterdir()), [])
 
     def test_each_missing_tampered_or_symlink_component_refused(self):
         for name in p.NAMES:
@@ -112,6 +155,26 @@ class PreparationTest(unittest.TestCase):
         self.assertEqual(output.getvalue(), '')
         self.assertIn('Preparation refused', errors.getvalue())
         self.assertEqual(len(list((self.tap / 'Formula').iterdir())), 1)
+
+    def test_cli_usage_error_preserves_exit_two_without_raw_arguments(self):
+        output, errors = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            with self.assertRaises(SystemExit) as caught:
+                p.main(['--PREPARATION_SECRET_SENTINEL'])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertEqual(output.getvalue(), '')
+        self.assertEqual(errors.getvalue(), 'Preparation refused: invalid command line.\n')
+
+    def test_invalid_utf8_is_refused_without_normalization(self):
+        for target in (self.formulas / 'cercano.rb', self.tap / 'Formula/cercano.rb'):
+            original = target.read_bytes() if target.exists() else None
+            target.write_bytes(b'\xff')
+            with self.assertRaises(UnicodeDecodeError):
+                self.prepare()
+            if original is None:
+                target.unlink()
+            else:
+                target.write_bytes(original)
 
     def test_archive_digest_refused_before_plan(self):
         self.archive.write_bytes(b'not the trusted archive')

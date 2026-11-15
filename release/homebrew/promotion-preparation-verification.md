@@ -20,7 +20,7 @@ authenticated by this offline tool.
 
 `prepare_promotion.py` validates the archive, exact canonical sibling set and a
 private tap snapshot before emitting a review-only plan. It records content,
-before/after text hashes and update/no-op decisions for all three paths. A later
+before/after byte hashes and update/no-op decisions for all three paths. A later
 separately authorized publisher still needs a genuine single-commit transaction
 with base compare-and-swap and public asset/provenance checks. No such live
 transaction is enabled. Do not dispatch the release workflow: it has non-tap
@@ -37,7 +37,7 @@ unlink, overwrite, removal or expanded runtime guarantee was added.
 
 ## Local tests
 
-All commands passed in this worktree; no test failure required a fix:
+Original preparation-slice results (historical, before the review fixes below):
 
 | Command | Result |
 | --- | --- |
@@ -99,6 +99,56 @@ Keep the worktree for review; do not land or publish yet. Still required:
   reviewed-base compare-and-swap, dependency availability and preserved downgrade,
   drift, public-asset provenance/checksum and transport guards.
 
-No live transaction exists in this slice; legacy sequential Contents API helpers
+No live transaction is enabled in this slice; legacy sequential Contents API helpers
 are not a fallback. Tap base and all inputs must be revalidated before any future
 application. This is bounded preparation, not release readiness.
+
+
+## Independent-review corrections and current verification
+
+The preparer previously accepted CRLF desired formulas after universal-newline
+normalization and hashed LF-normalized old text rather than snapshot bytes.
+New regressions were run before the fix: all three CRLF desired cases failed to
+refuse, and the CRLF before hash differed from SHA-256 of the actual bytes.
+Malformed version/path/archive cases also reproduced raw sentinel-bearing
+validation/path diagnostics and raw tar errors (8 failing subcases total).
+The fix uses byte reads, strict UTF-8 decoding without newline normalization,
+canonical encoded-byte comparisons and actual-byte hashes. CLI refusals now use
+fixed bounded diagnostics, retaining validation exit 1, usage exit 2 and success
+exit 0. Tests also cover invalid UTF-8 and no partial stdout/tap mutation.
+
+The isolated coordinated publisher core remains disabled, with no CLI or workflow
+integration. Current self-contained fake-API regressions cover expectedHeadOid,
+stale advance/rewind and boundary races, counterfeit legacy refusal, and sanitized
+transport diagnostics. The new integration regression calls the real preparer
+with an inert archive and a monolith-shaped snapshot, then proves the resulting
+review plan is refused by the test-enabled publisher without mutation. This is
+not a historical production formula or native migration execution. Eligibility
+remains absent or exact canonical split sets only; monolith migration and live
+asset/provenance/native acceptance are not supplied by this core.
+
+Current post-fix checks (2026-11-14), all passed with no skips:
+
+| Command | Result |
+| --- | --- |
+| `python3 -m unittest discover -s release/homebrew -p 'test_*.py'` | 70 tests |
+| `ruby release/homebrew/test_formula.rb` | 5 tests, 40 assertions |
+| `python3 scripts/test-release-workflow.py` | 51 tests |
+| `python3 scripts/test-macos-release-build.py` | 12 tests |
+| `python3 scripts/test-macos-release-verify.py` | 23 tests |
+| `git diff --check` | clean |
+
+### Historical candidate evidence attribution
+
+Removed `OldCandidateRegressions`, which depended on a developer's external
+`homebrew-coordinated` worktree and otherwise skipped. Its embedded harness
+imported that checkout's `formula_set` and `update_tap`, test-enabled its guard,
+and injected snapshot/REST functions: it asserted a non-force ancestor rewind
+was accepted, a commented legacy-install substring was classified as legacy,
+and an injected OSError sentinel escaped. These are historical candidate harness
+claims preserved from the removed test, **not rerun or independently verified in
+this review pass**, not real GitHub production execution, and not a model of old
+code presented as production evidence. No old candidate was vendored. Current
+correctness is tested solely against this worktree, without that checkout or a
+skip. Earlier public archive/tap evidence above is likewise historical; this pass
+performs no download, publication, install or VM activity.

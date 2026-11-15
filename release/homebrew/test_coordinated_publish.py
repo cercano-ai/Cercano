@@ -4,9 +4,12 @@ import copy
 import io
 import json
 from pathlib import Path
-import subprocess
-import sys
 import unittest
+import tempfile
+
+import prepare_promotion as preparation
+import render_formula as renderer
+from test_render_formula import write_archive, VERSION
 from unittest.mock import patch
 
 import coordinated_publish as p
@@ -168,6 +171,37 @@ class PublisherTests(unittest.TestCase):
             self.assertEqual(self.fake.contents, before)
             self.assertEqual(self.fake.mutations, [])
 
+    def test_real_prepared_monolith_plan_refused_even_test_enabled(self):
+        # Real preparer, inert archive, historical-shaped DSL; not an old checkout.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive, digest = write_archive(root)
+            formulas = root / 'rendered'
+            formulas.mkdir()
+            renderer.build(['--version', VERSION, '--sha256', digest,
+                            '--archive', str(archive), '--output', str(formulas / 'cercano.rb')])
+            tap = root / 'tap'
+            (tap / 'Formula').mkdir(parents=True)
+            monolith = (b'class Cercano < Formula\n'
+                        b'  url "https://example.invalid/old"\n'
+                        b'  version "1.2.2"\n  sha256 "' + b'b' * 64 + b'"\n'
+                        b'  def install\n'
+                        b'    bin.install "bin/cercano", "bin/cercano-cli"\n'
+                        b'  end\nend\n')
+            (tap / 'Formula/cercano.rb').write_bytes(monolith)
+            plan = preparation.prepare(VERSION, digest, archive, formulas, tap, BASE)
+            self.assertEqual(plan['files'][0]['before_sha256'], p.sha(monolith))
+            self.assertEqual([x['action'] for x in plan['files']], ['update'] * 3)
+            self.fake.contents[p.PATHS[0]] = monolith
+            before = self.fake.contents.copy()
+            self.assertTrue(p.PUBLICATION_ACCEPTED)  # test-local gate only
+            with self.assertRaisesRegex(p.Failure, 'Partial before set refused'):
+                p.publish(plan, SECRET, self.fake)
+            self.assertEqual(self.fake.contents, before)
+            self.assertTrue(self.fake.calls)  # Reached before-state validation, not gate refusal.
+            self.assertEqual(self.fake.mutations, [])
+            self.assertEqual((tap / 'Formula/cercano.rb').read_bytes(), monolith)
+
     def test_same_version_conflict_and_downgrade(self):
         for version in ('0.20.4', '0.20.5'):
             self.fake = Fake(); self.fake.contents = p.expected(version, 'b' * 64)
@@ -243,58 +277,6 @@ class PublisherTests(unittest.TestCase):
         self.assertNotIn(SECRET, request.full_url)
         self.assertNotIn(SECRET.encode(), request.data)
         self.assertNotIn(SECRET, str(caught.exception))
-
-
-class OldCandidateRegressions(unittest.TestCase):
-    def test_read_only_candidate_reproductions(self):
-        # A subprocess prevents candidate imports from contaminating discovery.
-        candidate = Path('/Users/bryancostanich/git_repos/cercano-ai/Cercano/.worktrees/homebrew-coordinated/release/homebrew')
-        if not candidate.is_dir():
-            self.skipTest('read-only historical candidate unavailable')
-        script = r'''
-import formula_set as f
-import update_tap as u
-f.PUBLICATION_ACCEPTED = True
-wanted = f.expected('0.20.4', 'a' * 64)
-# The old non-force ref update accepts an ancestor rewind: generated commit
-# is a descendant of that ancestor, not a compare-and-swap of reviewed head.
-head = 'reviewed-descendant'
-ancestor = 'rewound-ancestor'
-state = [head]
-def snapshot(token):
-    return state[0], 'tree', {}
-u.snapshot = snapshot
-seen = []
-def api(method, path, token, payload=None):
-    seen.append((method, payload))
-    if path.endswith('/git/trees'): return {'sha':'tree-new'}
-    if path.endswith('/git/commits'):
-        state[0] = ancestor
-        return {'sha':'commit-descending-from-reviewed-head'}
-    assert method == 'PATCH' and payload['force'] is False
-    # Git non-force allows ancestor -> descendant, even after rewind.
-    return {'object': {'sha': payload['sha']}}
-u.api = api
-assert u.publish_set(wanted, '0.20.4', 'a' * 64, 'offline') == 'updated'
-assert state[0] == ancestor
-print('stale-rewind-reproduced')
-# A comment containing the legacy install substring is classified as legacy.
-text = 'version "0.20.3"\nsha256 "' + 'b'*64 + '"\nurl "https://invalid.example"\n#     bin.install "bin/cercano", "bin/cercano-cli"\n'
-assert f.decision({'cercano.rb':text}, wanted, '0.20.4', 'a'*64) == 'update'
-print('counterfeit-legacy-reproduced')
-# Candidate lets a diagnostic sentinel from injected transport escape.
-def failing(*args, **kwargs): raise OSError('DIAGNOSTIC_SENTINEL')
-u.snapshot = failing
-try: u.publish_set(wanted, '0.20.4', 'a'*64, 'offline')
-except OSError as error: assert 'DIAGNOSTIC_SENTINEL' in str(error)
-else: raise AssertionError('expected diagnostic propagation')
-print('diagnostic-sentinel-reproduced')
-'''
-        result = subprocess.run([sys.executable, '-c', script], cwd=candidate,
-                                capture_output=True, text=True, timeout=20)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines(), ['stale-rewind-reproduced',
-            'counterfeit-legacy-reproduced', 'diagnostic-sentinel-reproduced'])
 
 
 if __name__ == '__main__':
