@@ -1,11 +1,14 @@
 """Isolated, disabled publisher. Plans are comparisons, never authorization.
 
-No CLI and no environment override. A future acceptance change must be reviewed.
+The bounded CLI cannot override acceptance. A future acceptance change must be reviewed.
 The injectable API has signature (query, variables, token); tests need no network.
 """
+import argparse
 import base64
 import hashlib
 import json
+import os
+import sys
 from pathlib import Path
 import re
 import urllib.request
@@ -18,6 +21,15 @@ REPOSITORY = 'cercano-ai/homebrew-cercano'
 LIMIT = 256 * 1024
 OID = re.compile(r'[0-9a-f]{40}')
 DIGEST = re.compile(r'[0-9a-f]{64}')
+# Immutable reviewed transition: base, full before tuple, destination, archive.
+# Neither a preparation plan nor CLI input can extend this authorization.
+REVIEWED_TRANSITION = (
+    'caffd060597d6ca9706c9fa4db0c7c042722d7ef',
+    ('50f68b11106b7ca865bd931a0e945fc454c4275283d9e93ade230c2f548be5be', None, None),
+    '0.27.0',
+    '18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0',
+)
+HISTORICAL_SIZE = 2239
 
 
 class Failure(Exception):
@@ -27,6 +39,23 @@ class Failure(Exception):
 def require(condition, message):
     if not condition:
         raise Failure(message)
+
+
+def strict_json(body):
+    require(len(body) <= LIMIT, 'JSON exceeds limit')
+
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            require(key not in result, 'Duplicate JSON key')
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise Failure('Invalid JSON constant')
+
+    return json.loads(body.decode('utf-8'), object_pairs_hook=pairs,
+                      parse_constant=invalid_constant)
 
 
 def sha(content):
@@ -57,7 +86,7 @@ def api(query, variables, token):
         with urllib.request.build_opener(NoRedirect()).open(request, timeout=30) as response:
             body = response.read(LIMIT + 1)
         require(len(body) <= LIMIT, 'API response exceeds limit')
-        return json.loads(body)
+        return strict_json(body)
     except Exception:
         raise Failure('API request failed') from None
 
@@ -135,7 +164,7 @@ def snapshot(client, token):
 
 def validate_plan(plan):
     try:
-        require(type(plan) is dict and plan['schema'] == 1, 'Invalid plan')
+        require(type(plan) is dict and type(plan['schema']) is int and plan['schema'] == 1, 'Invalid plan')
         base = plan['tap_base_sha']
         require(type(base) is str and OID.fullmatch(base), 'Reviewed base required')
         desired = expected(plan['version'], plan['archive_sha256'])
@@ -159,9 +188,14 @@ def validate_plan(plan):
         raise Failure('Invalid reviewed preparation plan') from None
 
 
-def validate_before(contents, before, desired, version):
+def validate_before(contents, before, desired, version, base, digest):
     require({p: sha(v) if v is not None else None for p, v in contents.items()} == before,
             'Before files differ from reviewed plan; fresh review required')
+    transition = (base, tuple(before[p] for p in PATHS), version, digest)
+    if transition == REVIEWED_TRANSITION:
+        require(len(contents[PATHS[0]]) == HISTORICAL_SIZE,
+                'Historical byte size differs')
+        return
     if all(v is None for v in contents.values()):
         return
     require(all(v is not None for v in contents.values()), 'Partial before set refused')
@@ -198,7 +232,7 @@ def _publish(plan, token, client):
         if contents == desired and parents == [base] and message == marker:
             return 'reconciled'
         raise Failure('Branch base changed; fresh review required')
-    validate_before(contents, before, desired, plan['version'])
+    validate_before(contents, before, desired, plan['version'], base, plan['archive_sha256'])
     if contents == desired:
         return 'unchanged'
     payload = {'branch': {'repositoryNameWithOwner': REPOSITORY, 'branchName': 'main'},
@@ -222,3 +256,33 @@ def _publish(plan, token, client):
         if commit is None or head == commit:
             return 'updated' if commit else 'reconciled'
     raise Failure('Publication uncertain or base changed; fresh review required')
+
+
+class SafeParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.exit(2, 'Publication refused: invalid command line.\n')
+
+
+def main(argv=None):
+    parser = SafeParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--plan', type=Path, required=True)
+    args = parser.parse_args(argv)
+    # Before opening the plan, reading credentials, or performing any API reads.
+    if not PUBLICATION_ACCEPTED:
+        print('Publication disabled: acceptance pending.', file=sys.stderr)
+        return 1
+    try:
+        with args.plan.open('rb') as source:
+            plan = strict_json(source.read(LIMIT + 1))
+        result = publish(plan, os.environ.get('HOMEBREW_TAP_TOKEN', ''))
+        require(result in ('updated', 'unchanged', 'reconciled'), 'Invalid result')
+    except Exception:
+        print('Publication refused: invalid inputs or unconfirmed publication; no retry attempted.',
+              file=sys.stderr)
+        return 1
+    print('Publication confirmed.')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

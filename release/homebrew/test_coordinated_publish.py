@@ -28,6 +28,25 @@ def plan_for(before=None):
                  'after_sha256': p.sha(desired[path])} for path in p.PATHS]}
 
 
+ARTIFACTS = Path(__file__).resolve().parents[2] / 'efforts/homebrew-native-migration-20261115/artifacts'
+
+
+def historical_before():
+    return {p.PATHS[0]: (ARTIFACTS / 'historical-cercano.rb').read_bytes(),
+            p.PATHS[1]: None, p.PATHS[2]: None}
+
+
+def historical_plan(before=None, base=p.REVIEWED_TRANSITION[0],
+                    version=p.REVIEWED_TRANSITION[2], digest=p.REVIEWED_TRANSITION[3]):
+    before = historical_before() if before is None else before
+    desired = p.expected(version, digest)
+    return {'schema': 1, 'version': version, 'archive_sha256': digest,
+            'tap_base_sha': base, 'files': [
+                {'path': path, 'content': desired[path].decode(),
+                 'before_sha256': p.sha(before[path]) if before[path] is not None else None,
+                 'after_sha256': p.sha(desired[path])} for path in p.PATHS]}
+
+
 class Fake:
     def __init__(self):
         self.head = BASE
@@ -90,6 +109,97 @@ class PublisherTests(unittest.TestCase):
 
     def publish(self):
         return p.publish(self.plan, SECRET, self.fake)
+
+    def historical(self, before=None, **kwargs):
+        self.fake = Fake()
+        self.fake.contents = historical_before() if before is None else before
+        self.plan = historical_plan(self.fake.contents, **kwargs)
+        self.fake.head = self.plan['tap_base_sha']
+
+    def test_exact_historical_transition_atomic_and_reconciled(self):
+        before = historical_before()
+        self.assertEqual(len(before[p.PATHS[0]]), 2239)
+        self.assertEqual(tuple(p.sha(before[x]) if before[x] is not None else None
+                               for x in p.PATHS), p.REVIEWED_TRANSITION[1])
+        for mode in ('success', 'lost', 'malformed-after'):
+            with self.subTest(mode=mode):
+                self.historical()
+                self.fake.mode = mode
+                self.assertEqual(self.publish(), 'updated' if mode == 'success' else 'reconciled')
+                self.assertEqual(self.publish(), 'reconciled')
+                self.assertEqual(len(self.fake.mutations), 1)
+                mutation = self.fake.mutations[0]
+                self.assertEqual(mutation['expectedHeadOid'], p.REVIEWED_TRANSITION[0])
+                self.assertEqual(mutation['branch'], {
+                    'repositoryNameWithOwner': p.REPOSITORY, 'branchName': 'main'})
+                self.assertEqual(set(mutation['fileChanges']), {'additions'})
+                self.assertEqual(self.fake.contents, p.expected(*p.REVIEWED_TRANSITION[2:]))
+                self.assertEqual([x['path'] for x in mutation['fileChanges']['additions']], list(p.PATHS))
+
+    def test_historical_transition_never_retries_uncertain_mutation(self):
+        for mode in ('timeout-before', 'malformed-before', 'read-failure'):
+            self.historical()
+            self.fake.mode = mode
+            with self.assertRaises(p.Failure):
+                self.publish()
+            self.assertEqual(len(self.fake.mutations), 1)
+
+    def test_historical_altered_bytes_even_with_fresh_before_hash_refused(self):
+        original = historical_before()[p.PATHS[0]]
+        for content in (original + b' ', original.replace(b'\n', b'\r\n'),
+                        b'# counterfeit version "0.25.2"\n' + original):
+            before = historical_before()
+            before[p.PATHS[0]] = content
+            self.historical(before)
+            with self.assertRaises(p.Failure):
+                self.publish()
+            self.assertEqual(self.fake.mutations, [])
+        # A reviewed hash is also checked against actual snapshot bytes.
+        self.historical()
+        self.fake.contents[p.PATHS[0]] = original + b' '
+        with self.assertRaisesRegex(p.Failure, 'Before files differ'):
+            self.publish()
+        self.assertEqual(self.fake.mutations, [])
+
+    def test_historical_wrong_base_destination_digest_or_partial_presence_refused(self):
+        for kwargs in ({'base': BASE}, {'version': '0.27.1'},
+                       {'version': '0.25.1'}, {'version': '0.25.2'},
+                       {'digest': 'b' * 64}):
+            with self.subTest(kwargs=kwargs):
+                self.historical(**kwargs)
+                with self.assertRaises(p.Failure):
+                    self.publish()
+                self.assertEqual(self.fake.mutations, [])
+        for path in p.PATHS[1:]:
+            before = historical_before()
+            before[path] = p.expected(*p.REVIEWED_TRANSITION[2:])[path]
+            self.historical(before)
+            with self.assertRaises(p.Failure):
+                self.publish()
+            self.assertEqual(self.fake.mutations, [])
+
+    @unittest.skipUnless((ARTIFACTS / 'cercano-0.27.0-darwin-arm64.tar.gz').is_file(),
+                         'local release archive required; never downloaded by tests')
+    def test_actual_historical_prepare_to_publish_fake_api(self):
+        archive = ARTIFACTS / 'cercano-0.27.0-darwin-arm64.tar.gz'
+        base, _, version, digest = p.REVIEWED_TRANSITION
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            formulas = root / 'rendered'
+            formulas.mkdir()
+            renderer.build(['--version', version, '--sha256', digest,
+                            '--archive', str(archive), '--output', str(formulas / 'cercano.rb')])
+            tap = root / 'tap'
+            (tap / 'Formula').mkdir(parents=True)
+            old = historical_before()[p.PATHS[0]]
+            (tap / p.PATHS[0]).write_bytes(old)
+            self.plan = preparation.prepare(version, digest, archive, formulas, tap, base)
+            self.fake.head, self.fake.contents = base, historical_before()
+            self.assertEqual(self.publish(), 'updated')
+            self.assertEqual(len(self.fake.mutations), 1)
+            self.assertEqual((tap / p.PATHS[0]).read_bytes(), old)
+            self.assertFalse((tap / p.PATHS[1]).exists())
+            self.assertFalse((tap / p.PATHS[2]).exists())
 
     def test_disabled_no_network_even_with_bad_plan(self):
         with patch.object(p, 'PUBLICATION_ACCEPTED', False):
@@ -277,6 +387,82 @@ class PublisherTests(unittest.TestCase):
         self.assertNotIn(SECRET, request.full_url)
         self.assertNotIn(SECRET.encode(), request.data)
         self.assertNotIn(SECRET, str(caught.exception))
+
+
+class CLITests(unittest.TestCase):
+    def invoke(self, args):
+        out, err = io.StringIO(), io.StringIO()
+        with patch('sys.stdout', out), patch('sys.stderr', err):
+            status = p.main(args)
+        return status, out.getvalue(), err.getvalue()
+
+    def test_disabled_before_plan_credentials_or_network_reads(self):
+        self.assertFalse(p.PUBLICATION_ACCEPTED)
+        class NoCredentialRead(dict):
+            def get(self, key, default=None):
+                if key == 'HOMEBREW_TAP_TOKEN':
+                    raise AssertionError('credential read')
+                return super().get(key, default)
+        with patch.object(Path, 'open', side_effect=AssertionError('file read')), \
+             patch.object(p.os, 'environ', NoCredentialRead(p.os.environ)), \
+             patch.object(p, 'api', side_effect=AssertionError('network')):
+            self.assertEqual(self.invoke(['--plan', SECRET]),
+                             (1, '', 'Publication disabled: acceptance pending.\n'))
+
+    def test_no_overrides_or_abbreviations(self):
+        for flag in ('--force', '--enable', '--repository', '--branch', '--token', '--pla'):
+            with self.subTest(flag=flag), patch('sys.stderr', io.StringIO()) as err:
+                with self.assertRaises(SystemExit) as caught:
+                    p.main(['--plan', 'unused', flag, SECRET])
+                self.assertEqual(caught.exception.code, 2)
+                self.assertEqual(err.getvalue(), 'Publication refused: invalid command line.\n')
+
+    def test_strict_json_rejections_no_publication_no_input_leaks(self):
+        bodies = [b'{"schema":1,"schema":1}', b'{"files":[{"x":1,"x":2}]}',
+                  b'{} {}', b'{}' + SECRET.encode(), b' ' * (p.LIMIT + 1),
+                  b'{"x":NaN}', b'{"x":Infinity}', b'\xff', b'[] trailing']
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(p, 'PUBLICATION_ACCEPTED', True), \
+             patch.object(p, 'publish') as publish:
+            path = Path(tmp) / 'plan.json'
+            for body in bodies:
+                path.write_bytes(body)
+                result = self.invoke(['--plan', str(path)])
+                self.assertEqual(result, (1, '',
+                    'Publication refused: invalid inputs or unconfirmed publication; no retry attempted.\n'))
+            publish.assert_not_called()
+
+    def test_cli_historical_plan_uses_real_publisher_with_fake_api(self):
+        original = p.publish
+        fake = Fake()
+        fake.head, fake.contents = p.REVIEWED_TRANSITION[0], historical_before()
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(p, 'PUBLICATION_ACCEPTED', True), \
+             patch.dict(p.os.environ, {'HOMEBREW_TAP_TOKEN': SECRET}), \
+             patch.object(p, 'publish', side_effect=lambda plan, token: original(plan, token, fake)):
+            path = Path(tmp) / 'plan.json'
+            path.write_text(json.dumps(historical_plan()))
+            self.assertEqual(self.invoke(['--plan', str(path)]),
+                             (0, 'Publication confirmed.\n', ''))
+            self.assertEqual(len(fake.mutations), 1)
+            self.assertTrue(all(token == SECRET for _, _, token in fake.calls))
+
+    def test_env_token_and_fixed_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(p, 'PUBLICATION_ACCEPTED', True), \
+             patch.dict(p.os.environ, {'HOMEBREW_TAP_TOKEN': SECRET}):
+            path = Path(tmp) / 'plan.json'
+            path.write_text(json.dumps(plan_for()))
+            for result in ('updated', 'unchanged', 'reconciled'):
+                with patch.object(p, 'publish', return_value=result) as publish:
+                    self.assertEqual(self.invoke(['--plan', str(path)]),
+                                     (0, 'Publication confirmed.\n', ''))
+                    publish.assert_called_once_with(plan_for(), SECRET)
+            with patch.object(p, 'publish', side_effect=OSError(SECRET)):
+                status, out, err = self.invoke(['--plan', str(path)])
+                self.assertEqual(status, 1)
+                self.assertEqual(out, '')
+                self.assertNotIn(SECRET, err)
 
 
 if __name__ == '__main__':
