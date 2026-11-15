@@ -15,8 +15,8 @@ from promote_to_tap import PromotionError
 NAMES = ('cercano.rb', 'cercano-agent.rb', 'cercano-cli.rb')
 
 
-def sha(text):
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+def sha(content):
+    return hashlib.sha256(content).hexdigest()
 
 
 def prepare(version, digest, archive, formulas, tap, tap_base_sha=None):
@@ -39,17 +39,21 @@ def prepare(version, digest, archive, formulas, tap, tap_base_sha=None):
     for name in NAMES:
         source = formulas / name
         require(source.is_file() and not source.is_symlink(), f'Missing or symlink formula: {name}')
-        expected = renderer.render(Path(__file__).with_name(name + '.in').read_text(),
+        expected = renderer.render(Path(__file__).with_name(name + '.in').read_bytes().decode('utf-8'),
                                    version, archive.name, digest)
-        require(source.read_text() == expected, f'Formula differs from trusted template: {name}')
+        desired_bytes = expected.encode('utf-8')
+        source_bytes = source.read_bytes()
+        source_bytes.decode('utf-8')  # Strict decoding; never normalize newlines.
+        require(source_bytes == desired_bytes, f'Formula differs from trusted template: {name}')
         target = directory / name
         require(not target.is_symlink(), f'Symlink tap target: {name}')
         require(not target.exists() or target.is_file(), f'Non-file tap target: {name}')
-        existing = target.read_text() if target.exists() else None
+        existing_bytes = target.read_bytes() if target.exists() else None
+        existing = existing_bytes.decode('utf-8') if existing_bytes is not None else None
         action = decision(existing, expected, version, digest)
         entries.append({'path': 'Formula/' + name, 'action': action,
-                        'before_sha256': sha(existing) if existing is not None else None,
-                        'after_sha256': sha(expected), 'content': expected})
+                        'before_sha256': sha(existing_bytes) if existing_bytes is not None else None,
+                        'after_sha256': sha(desired_bytes), 'content': expected})
     return {'schema': 1, 'status': 'review-only-publication-blocked',
             'version': version, 'archive_sha256': digest, 'files': entries,
             'tap_base_sha': tap_base_sha,
@@ -62,8 +66,13 @@ def prepare(version, digest, archive, formulas, tap, tap_base_sha=None):
             ]}
 
 
+class SafeParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.exit(2, 'Preparation refused: invalid command line.\n')
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = SafeParser(description=__doc__)
     parser.add_argument('--version', required=True)
     parser.add_argument('--sha256', required=True)
     parser.add_argument('--archive', type=Path, required=True)
@@ -74,8 +83,8 @@ def main(argv=None):
     try:
         plan = prepare(args.version, args.sha256, args.archive, args.formulas, args.tap,
                        args.tap_base_sha)
-    except (Failure, PromotionError, renderer.ValidationError, OSError, ValueError, tarfile.TarError) as error:
-        print(f'Preparation refused: {error}', file=sys.stderr)
+    except (Failure, PromotionError, renderer.ValidationError, OSError, ValueError, tarfile.TarError):
+        print('Preparation refused: invalid or unreadable inputs.', file=sys.stderr)
         return 1
     print(json.dumps(plan, indent=2, sort_keys=True))
     return 0

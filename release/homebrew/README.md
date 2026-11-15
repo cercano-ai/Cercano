@@ -79,9 +79,12 @@ python3 release/homebrew/prepare_promotion.py --version 1.2.3 \
 ```
 
 Stdout is a review-only JSON plan containing **exactly three** paths, trusted
-canonical formula contents, before/after text hashes and update/no-op decisions.
+canonical formula contents, before/after byte hashes and update/no-op decisions.
 Capture it in a new private evidence file if wanted; the tool itself writes
-nothing. All siblings must match the repository templates exactly (no legacy-owner
+nothing. Inputs are strictly UTF-8 decoded without newline normalization; CRLF siblings
+are not canonical. Refusals emit fixed bounded diagnostics (exit 1 for input
+validation, exit 2 for CLI usage errors), never raw paths or archive errors.
+All siblings must match the repository templates exactly (no legacy-owner
 exception); the archive must pass checksum, layout and inventory validation.
 Every existing formula is checked for downgrade and same-version checksum/text
 drift. A missing component is an addition, not permission to omit it. Symlink
@@ -97,8 +100,17 @@ This deliberately stops **before tap mutation**. A future separately authorized
 publisher must stage the whole set in one commit and compare-and-swap the reviewed
 tap base, revalidating all inputs and dependencies. It must not revive sequential
 single-file Contents API writes or force updates. Even all-no-op plans do not
-prove published assets, native behavior or distribution trust. Existing helper
-transport tests do not implement or authorize a coordinated live transaction.
+prove published assets, native behavior or distribution trust. The isolated `coordinated_publish.py` core is disabled unconditionally in
+production, has no CLI/workflow integration, and does not authorize publication.
+Its self-contained fake-API tests exercise `expectedHeadOid`, stale advance/rewind
+and races, counterfeit legacy refusal and sanitized diagnostics. A real preparer
+plan over an inert monolith-shaped snapshot is refused even with the test-local
+gate enabled: preparation is not migration eligibility. The publisher accepts
+only absent or exact canonical split before sets; historical monolith migration,
+public asset/provenance integration and native acceptance remain unsupported.
+Historical candidate repro attribution is recorded in the
+[verification notes](promotion-preparation-verification.md#historical-candidate-evidence-attribution),
+not an external-checkout-dependent current test.
 
 ## Publication is blocked
 
