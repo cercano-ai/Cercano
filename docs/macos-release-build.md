@@ -226,78 +226,40 @@ None of these prove that a real toolchain, a real Developer ID signature, real
 notarization, or an actual Actions run succeeds; those need the real build, a
 networked notarization, and optionally a clean-Mac rehearsal.
 
-## Automatic tap update after publication
+## Homebrew coordinated preparation — publication blocked
 
-Publication-enabled runs finish with **Publish verified formula to tap** in
-the same protected job, only after publication succeeds; dry runs (`publish=false`)
-never write to the tap. It updates only `Formula/cercano.rb` on
-`cercano-ai/homebrew-cercano`'s `main`, with no pull request or approval prompt.
+The archive now renders **three** formulas: `cercano-agent`, `cercano-cli`
+and the dependency-only `cercano` convenience formula. A single-formula Contents
+API update is not a supported promotion path. Earlier instructions here for
+an automatic `Formula/cercano.rb` write and tap-only recovery dispatch were
+obsolete and have been withdrawn.
 
-Before writing, the updater checks the CI archive and regenerated formula,
-then downloads the publicly published macOS archive and its checksum sidecar.
-Both must match the digest recorded by the build. Nothing is extracted or run.
-An identical installed formula is a successful no-op. A newer version, or a
-same-version change of digest/formula, is refused. Concurrent edits use the
-Contents API's blob-SHA precondition; a conflict causes up to three fresh
-read/validate attempts, never a force update. Other tap files are untouched.
+Both workflows still call `update_tap.py`, but it unconditionally refuses before
+credentials, network access or tap writes. `promote_to_tap.py` also refuses local
+promotion, even with `--skip-download`. **Do not dispatch either workflow**:
+the macOS release workflow contains other release-publication actions outside
+this tap guard. No publication is authorized by successful offline tests.
 
-### One-time credential setup
+Use the [Homebrew preparation guide](../release/homebrew/README.md) to validate
+all three rendered formulas against the local archive and produce a read-only
+review plan from a private tap snapshot. This does not update a checkout or tap,
+create commits, download release assets, or grant release approval. Missing old
+single-formula artifacts cannot be promoted by bypassing sibling validation.
 
-Create a **fine-grained personal access token** at
-<https://github.com/settings/personal-access-tokens/new>:
+The approved migration policy is **explicit one-time operator migration**, not
+automatic unlink, overwrite or removal. Its instructions are for a separately
+authorized disposable rehearsal only. Historical tap distribution is established
+(official v0.25.2 monolith; personal v0.20.3); installed-user applicability, real
+migration/failure recovery, native changed-source A/B behavior, real local
+inference after idle/restart with unchanged external runtime paths, human
+acceptance, and final signed/notarized-package smoke remain gates. Existing
+same-source synthetic native evidence does not satisfy them; see the
+[human acceptance handoff](../efforts/macos-native-validation-closeout/human-acceptance.md).
 
-- Resource owner: `cercano-ai`.
-- Repository access: **Only select repositories**, then **homebrew-cercano**.
-- Repository permission: **Contents: Read and write**. Metadata read access
-  is implicit. Do not grant workflow, administration, or all-repository access.
-- Choose an expiration and renew before it expires.
-
-Add it to Cercano's `release` environment as **HOMEBREW_TAP_TOKEN**:
-<https://github.com/cercano-ai/Cercano/settings/environments>.
-Enter it directly in GitHub, not chat, source, or a command-line argument.
-The workflow supplies it only to the formula-update step. It uses the normal
-Actions token for read-only release metadata requests and no credentials for public
-artifact downloads. Authenticated API redirects are refused.
-
-### Recovery
-
-A missing/expired token, unavailable artifact, or concurrent conflicting change
-fails the tap step **after** the release is already published. The release stays
-published; do not delete/recreate its assets or rerun the consolidated release
-job (that would rebuild and then refuse to overwrite). Correct the issue and
-use the **tap-only recovery workflow** below with the original release run ID.
-Its provenance gate accepts a completed consolidated run only if verification,
-artifact upload, publication and both platform jobs succeeded, even if the tap
-step failed. It also supports the earlier separate-job release layout. Artifacts
-are retained for 14 days, so recover promptly. The recovery workflow has its own
-protected approval; that is an exceptional recovery, not a normal release gate.
-
-A downgrade refusal means a newer release already reached the tap. Leave it
-alone. Same-version formula changes require deliberate manual review rather
-than an automated overwrite. If the tap's branch protections forbid direct
-commits, explicitly configure an allowed automation identity rather than
-bypassing protections.
-
-This automation requires the workflow change on the selected release commit
-and the secret provisioned. It does not retroactively update earlier releases
-such as v0.20.3, nor has a live cross-repository write been verified by offline tests.
-
-### Tap-only update for an already-published release
-
-For a published release whose tap update failed (or predates automatic tap
-updates), run the dedicated recovery workflow on current `main`, supplying the
-original release run ID:
-
-```bash
-gh workflow run update-homebrew.yml --repo cercano-ai/Cercano --ref main \
-  -f version=0.20.3 -f run_id=36933561441
-```
-
-This checks the published tag's commit against the completed release workflow,
-requires successful verification/publication steps and platform jobs (or the
-legacy signing/publication jobs), and downloads the macOS
-artifact from that exact run. It then performs the same checksum/template/public
-asset verification and guarded tap update. It does not build, sign, retag,
-republish assets, or update Windows/Linux packages. The source Actions artifact
-must still be within its retention period. This workflow shares the automatic
-release job's concurrency group and uses the same narrow token.
+Future separately authorized live promotion must review the entire set, make all
+three dependency definitions available in one commit, and compare-and-swap the
+reviewed tap base without force updates. It must preserve downgrade, same-version
+drift, published-asset checksum/provenance, and least-privilege transport guards.
+There is no enabled implementation of that transaction in this slice; the old
+single-file API helpers are not a safe fallback. Do not provision credentials,
+retry recovery dispatch, or remove guards to work around this boundary.
