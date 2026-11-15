@@ -225,8 +225,8 @@ The Linux tarball and Windows ZIP examples are pinned to release **0.24.0**;
 they do not identify the latest release or the Chocolatey package version. Both
 leave the binaries together in the extracted `bin` directory; no administrator
 access or PATH changes are needed. Linux and Windows remain **experimental,
-not supported releases**. Linux has no documented package-manager installation
-path; no apt package or repository availability is verified. Chocolatey
+not supported releases**. An APT package for installation via `apt-get` is
+planned for Linux but is not yet available. Chocolatey
 submission does not establish approval or default-source availability.
 Checksums verify download integrity, not publisher identity.
 
