@@ -1,3 +1,5 @@
+> Update: the authorized continuation subsequently passed historical install/hook and manual split migration on the separate UID5501 fixture. See [CONTINUATION.md](CONTINUATION.md) for superseding results, containment corrections and remaining gates. The blocked results below are preserved historical evidence.
+
 # Native migration rehearsal — BLOCKED before historical install
 
 ## Result

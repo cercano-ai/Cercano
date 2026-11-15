@@ -6,7 +6,13 @@ raise 'privileged process group' unless (Process.groups & [0,20,80]).empty?
 File.write("#{r}/tmp/allowed-probe", 'INERT')
 raise 'positive read/write failed' unless File.read("#{r}/tmp/allowed-probe") == 'INERT'
 puts 'PASS owned-prefix read/write'
-s=UNIXServer.new("#{r}/tmp/allowed-probe.sock"); s.close
+sock="#{r}/tmp/allowed-probe-#{Process.pid}.sock"
+s=UNIXServer.new(sock); s.close; File.unlink(sock)
+# Signal zero is an existence/permission probe and delivers no signal.
+raise 'self existence probe failed' unless Process.kill(0,Process.pid) == 1
+puts 'PASS self kill(0) existence probe (not destructive signaling)'
+helper=Integer(ARGV.fetch(0))
+raise 'helper must be separate process' if helper == Process.pid
 puts 'PASS UNIX-domain bind'
 failures=[]
 probes={
@@ -18,7 +24,7 @@ probes={
  'real-brew write-open'=> ->{File.open('/opt/homebrew/README.md','r+').close},
  'old-fixture read'=> ->{File.open('/opt/cercano-migration-20261115/safety.sb','r').close},
  'TCP loopback synthetic endpoint'=> ->{Socket.tcp('127.0.0.1',49382,connect_timeout:1).close},
- 'signal permission inert self-zero'=> ->{Process.kill(0,Process.pid)}
+ 'TERM to owned inert helper'=> ->{Process.kill('TERM',helper)}
 }
 probes.each do |name,fn|
  begin
