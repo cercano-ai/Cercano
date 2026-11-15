@@ -6,10 +6,12 @@ Cercano's supported platform today is macOS (Apple Silicon), distributed as a
 signed and notarized tarball plus a Homebrew formula via
 [release-macos.yml](../.github/workflows/release-macos.yml) — see
 [macos-release-build.md](macos-release-build.md). For Windows there is a
-single bounded deliverable: a manual, opt-in **unsigned** `windows-x64` ZIP
-produced by the same manual release pipeline. There is no installer, no
-signing, or claim of full Windows support yet. A supported Windows release is
-the intended next deliverable; this artifact is its first build-and-smoke-test milestone.
+manual, opt-in **unsigned** `windows-x64` ZIP produced by the same manual
+release pipeline. Chocolatey v0.27.0 packages have also been submitted, with
+moderation/availability not confirmed; see the [Windows installation guide](installation-windows.md)
+for status, commands, and upgrade precautions. There is no signing or claim
+of full Windows support. The artifact details below describe the ZIP pipeline,
+not Chocolatey approval or complete runtime acceptance.
 
 ## What is produced
 
@@ -95,8 +97,9 @@ This artifact is a stepping stone. A *supported* Windows release still owes:
    (so far unobserved) fallout rather than skipping it.
 3. **Documented OS support floor** — which Windows 10/11 builds are supported,
    validated on a real machine.
-4. **Distribution & install story** — decide among an MSI/`winget` package,
-   scoop/choco, or plain ZIP; document upgrade/downgrade and uninstall.
+4. **Distribution & install story** — complete Chocolatey moderation and
+   release/migration acceptance; submission alone does not establish availability
+   or a supported lifecycle. See the [installation guide](installation-windows.md).
 5. **Runtime verification** — the agent's process management (`procx`),
    local model runtime (`llamaserver`), and keyring behavior verified
    end-to-end on Windows, including long-running processes and job objects.

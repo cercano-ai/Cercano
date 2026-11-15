@@ -149,11 +149,17 @@ cercano-cli
 The client starts the agent (`cercano`) automatically; you do not need to start
 it separately. Intel Macs are not supported by this release.
 
-To upgrade:
+For an existing split-package installation, upgrade all three formulas:
 
 ```bash
-brew upgrade cercano
+brew upgrade cercano-ai/cercano/cercano cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli
 ```
+
+Since v0.27.0, `cercano` installs the separate `cercano-agent` and `cercano-cli`
+formulas and owns no binaries. The split has no automatic agent-restart hook.
+**Older monolithic installs:** read the migration precautions before upgrading;
+do not force link overwrites. Published formulas still carry runtime/migration
+acceptance caveats.
 
 See the [macOS installation guide](docs/installation-macos.md) for first-run
 setup, upgrade troubleshooting, and development-launcher PATH conflicts.
@@ -179,7 +185,23 @@ including credential storage requiring a desktop Secret Service/KWallet.
 
 ### Windows x64 (experimental, unsigned)
 
-In PowerShell, download, verify, extract, and launch the published release:
+**Chocolatey v0.27.0 was submitted, not confirmed approved.** Last known status:
+`cercano-agent` and `cercano-cli` Pending automated review; the `cercano`
+convenience package is waiting on dependencies. A public status recheck on
+2026-11-15 returned HTTP 403, so default-source availability is not confirmed.
+Once approved and available from your configured source, in an elevated PowerShell:
+
+```powershell
+choco install cercano -y
+cercano-cli
+```
+
+For individual components and dependency-aware upgrades (`choco upgrade cercano -y`),
+see the [Windows installation guide](docs/installation-windows.md). Windows
+remains experimental and unsigned; submission does not change that status.
+
+Until packages are available, use the ZIP: in PowerShell, download, verify,
+extract, and launch the published release:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -199,8 +221,7 @@ Windows may show an unknown-publisher warning. See the
 
 These examples use release **0.24.0** and leave both binaries together in the
 extracted `bin` directory; no administrator access or PATH changes are needed.
-Linux and Windows remain **experimental, not supported releases**. The current
-website lists apt and Chocolatey as coming soon, not available install methods.
+Linux and Windows remain **experimental, not supported releases**. The apt package remains planned; Chocolatey availability is subject to moderation.
 Checksums verify download integrity, not publisher identity.
 
 ### First run

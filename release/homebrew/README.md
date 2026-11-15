@@ -1,7 +1,16 @@
-# Homebrew split — non-publishing definitions
+# Homebrew split package definitions
 
-**Not release-ready.** These definitions prepare Phase 4 in parallel with runtime
-retention/activation work; they are not native acceptance or a support claim.
+## Published status and installation
+
+The v0.27.0 split was published to the official `cercano-ai/cercano` tap in
+[commit `0557c9e`](https://github.com/cercano-ai/homebrew-cercano/commit/0557c9ee7725f7f83832b30359381ea7e413216c).
+Use `brew install cercano-ai/cercano/cercano`, then `cercano-cli`.
+See the [macOS installation guide](../../docs/installation-macos.md) for component
+installs, upgrades and existing-monolith precautions.
+
+**Publication is not native acceptance.** The published formulas still carry
+fixture/not-release-ready caveats. These source definitions and the bounded
+workflow guards below do not establish full runtime or migration readiness.
 
 | Formula | Commands installed | Package dependencies |
 | --- | --- | --- |
@@ -57,9 +66,10 @@ directory as a releasable set.
 Hash, strict tar layout and inventory checks remain mandatory; signatures,
 notarization, architecture and binary-reported version are not verified here.
 
-## Publication is blocked
+## Source workflow publication guards
 
-The macOS review artifact explicitly includes all three rendered formulas;
+The following describes the checked-in workflow guards, not whether the tap
+already contains formulas. The macOS review artifact includes all three rendered formulas;
 this upload manifest change does not enable tap publication. Both
 `.github/workflows/release-macos.yml` and `update-homebrew.yml` invoke
 `update_tap.py`, whose `update()` now fails closed

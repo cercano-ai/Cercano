@@ -228,7 +228,7 @@ export default function Home() {
           <div className="install-copy">
             <p className="section-label">Install Cercano</p>
             <h2 id="install-title">Install in one line.</h2>
-            <p>Homebrew installation is available now for macOS. Package-manager releases for Linux and Windows are next.</p>
+            <p>Homebrew split packages are published for macOS. Chocolatey v0.27.0 packages were submitted for Windows; approval and availability are not confirmed. Linux apt packaging is still planned.</p>
           </div>
 
           <div className="install-panel" aria-label="Cercano installation options">
@@ -244,12 +244,14 @@ export default function Home() {
             </div>
             <p className="after-install">Then run <code>cercano-cli</code>. Configure providers, local models, routing, and permissions from inside the TUI.</p>
 
-            <div className="package-roadmap" aria-label="Upcoming package managers">
+            <div className="package-roadmap" aria-label="Package manager status">
               <div><span>apt</span><small>Linux · coming soon</small></div>
-              <div><span>Chocolatey</span><small>Windows · coming soon</small></div>
+              <div><span>Chocolatey</span><small>Windows · moderation pending</small></div>
             </div>
 
             <div className="install-links">
+              <a href={`${projectUrl}/blob/main/docs/installation-macos.md`}>macOS install and migration precautions</a>
+              <a href={`${projectUrl}/blob/main/docs/installation-windows.md`}>Windows install (experimental, unsigned)</a>
               <a href={`${projectUrl}/releases`}>Releases</a>
               <a href={`${projectUrl}/blob/main/docs/agent/self-dev.md`}>Build from source</a>
             </div>

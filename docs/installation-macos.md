@@ -3,7 +3,7 @@
 Cercano is distributed for **Apple Silicon Macs running macOS 12 (Monterey) or
 later**. Intel Macs are not supported by this release.
 
-The standalone formula is published in the dedicated
+The formulas are published in the official dedicated
 [`cercano-ai/homebrew-cercano`](https://github.com/cercano-ai/homebrew-cercano)
 tap. The personal `bryancostanich/homebrew-tap` remains separate; its Cercano
 formula is deprecated.
@@ -14,7 +14,19 @@ formula is deprecated.
 brew install cercano-ai/cercano/cercano
 ```
 
-This installs two binaries:
+Since v0.27.0, `cercano` is a dependency-only convenience formula: it installs
+`cercano-agent` and `cercano-cli`, which own the two commands below. The split was
+published in [tap commit `0557c9e`](https://github.com/cercano-ai/homebrew-cercano/commit/0557c9ee7725f7f83832b30359381ea7e413216c).
+The published definitions still carry fixture/not-release-ready caveats: publication
+is not evidence of full runtime or old-monolith migration acceptance. No local
+llama/model runtime is bundled.
+
+For component-only installs, use `brew install cercano-ai/cercano/cercano-agent`
+or `brew install cercano-ai/cercano/cercano-cli`. Neither component depends on
+the other; CLI-only use needs a remote agent (`cercano-cli --address HOST:PORT`).
+For a local interactive session, install both via the convenience formula.
+
+Commands installed:
 
 | Binary | Role |
 |---|---|
@@ -45,40 +57,34 @@ history live in `~/.config/cercano/`, outside the Homebrew installation.
 
 ## Upgrading
 
-```bash
-brew upgrade cercano
-```
-
-**A successful upgrade restarts a running agent for you.** The agent finishes
-its in-flight work, shuts down cleanly, and the new version starts in its
-place; connected clients reconnect. This is what makes the upgrade actually
-take effect rather than leaving the old version running.
-
-Specifically:
-
-- If an agent is running, it is drained and replaced.
-- If no agent is running, **nothing is started**. Upgrading never launches an
-  agent you did not ask for.
-- If the download or installation fails, your running agent is left alone.
-
-If the post-install restart reports a failure, the new files are already
-installed — only the restart did not complete. Retry it:
+For an existing **split-package** installation:
 
 ```bash
-cercano restart-after-upgrade
+brew update
+brew upgrade cercano-ai/cercano/cercano cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli
 ```
 
-Or restart from an attached client with `/restart-agent`.
+The component names are explicit because the convenience formula owns no
+binaries and its unversioned dependencies do not promise matching versions or
+atomic upgrades. For component-only installs, upgrade only the components you
+use. Check both installed command versions afterwards.
 
-### If you run the agent on a custom port
+The v0.27.0 split formulas have **no post-install restart or service hooks**:
+installation/upgrade does not start, stop, or restart an agent. A running agent
+may still be the old version; save work and arrange a controlled restart before
+expecting new behavior. Do not assume the old monolithic formula's automatic
+restart behavior still applies.
 
-If you set the port through an environment variable rather than the config
-file, Homebrew will not inherit it, and the restart cannot find your agent.
-Pass the address explicitly:
+### Existing monolithic installs
 
-```bash
-cercano restart-after-upgrade --address 127.0.0.1:50053
-```
+Before upgrading an older `cercano` formula that owns both binaries, inspect
+`brew list --versions cercano cercano-agent cercano-cli`, `brew list cercano`,
+and `which -a cercano cercano-cli`. The old keg can conflict with component
+links during dependency-first upgrades. Migration is not yet documented as a
+validated automatic path. Preserve your working installation and configuration;
+if Homebrew reports conflicts, stop and seek release-specific migration guidance.
+Do not force overwrites, remove packages, or delete files to bypass a conflict.
+This guide does not prescribe an automatic migration.
 
 ## PATH conflicts with a development checkout
 
@@ -93,22 +99,21 @@ which -a cercano cercano-cli
 Homebrew installs to `/opt/homebrew/bin`. If a development path appears first,
 that copy wins, and `brew upgrade` will not change which binary you run.
 
-This matters for upgrades too: the restart only acts on an agent belonging to
-the **same Homebrew installation**. A development agent is deliberately left
-alone rather than being restarted with Homebrew binaries.
+The split formulas do not restart either installed or development agents.
 
 ## Troubleshooting
 
 **"cercano" cannot be opened because the developer cannot be verified.**
 Released binaries are signed with a Developer ID and notarized by Apple, so
 this should not happen. If it does, you likely have an unsigned build from
-another source. Reinstall with `brew reinstall cercano`.
+another source. Check the binary path and release provenance before proceeding;
+reinstalling the dependency-only `cercano` formula does not replace component binaries.
 
 **The client cannot reach the agent.** Confirm nothing else is bound to the
 configured port, then start a fresh agent by running `cercano-cli` again.
 
-**The upgrade restart failed.** See the retry commands above. Your data is not
-affected — configuration and conversations are stored outside the installation.
+**The running version did not change.** Package upgrades and agent activation
+are separate. Check command paths and arrange a controlled restart after saving work.
 
 **Checking versions.** Both binaries report their own version offline:
 
@@ -121,20 +126,9 @@ A client and agent from different versions can still talk to each other;
 Cercano does not block on a version mismatch. Restarting the agent after an
 upgrade is still worthwhile so you actually get the new version.
 
-## Uninstalling
+## Package ownership and user data
 
-```bash
-brew uninstall cercano
-```
-
-**Your data is deliberately kept.** Uninstalling removes the binaries but
-leaves `~/.config/cercano/` intact, including your configuration and
-conversation history, so reinstalling resumes where you left off.
-
-To remove everything, delete that directory yourself:
-
-```bash
-rm -rf ~/.config/cercano
-```
-
-Any locally downloaded models are stored separately and are also left in place.
+The convenience formula owns no commands; removing it alone does not mean the
+component binaries were removed. Configuration and conversations live outside
+Homebrew in `~/.config/cercano/`; downloaded models are separate too. Do not
+remove user data as part of an upgrade or migration.

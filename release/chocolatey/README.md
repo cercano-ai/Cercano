@@ -1,5 +1,13 @@
 # Chocolatey packages
 
+All three v0.27.0 packages were submitted successfully; this is not approval.
+Last known: agent/CLI Pending automated review, convenience package waiting on
+dependencies. Public package-page rechecks on 2026-11-15 returned HTTP 403, so
+current approval/default-source availability remains unconfirmed. See the
+[Windows installation guide](../../docs/installation-windows.md) for package
+links, install commands, and dependency-aware upgrades. Windows remains
+experimental and unsigned.
+
 Windows phase 2 package definitions for `efforts/cross-platform-updates/plan.md`.
 The rendered packages are written to pass the community repository's
 package validator; publishing them (account, API key, `choco push`) and
