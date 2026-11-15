@@ -1673,3 +1673,943 @@ PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
 
 STDERR:
 
+
+## Record 81 status=127
+GUEST 08196962-608d-4fde-8284-49a5f020fea6
+id; dscl . -list /Users UniqueID; dscl . -list /Groups PrimaryGroupID; ls -la /opt/cercano-migration-20261115; cat /opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb | head -140; cat /opt/cercano-migration-20261115/tap/Formula/cercano.rb; ls /opt/cercano-migration-20261115/artifacts; prlctl --version
+STDOUT:
+uid=0(root) gid=0(wheel) groups=0(wheel),1(daemon),2(kmem),3(sys),4(tty),5(operator),8(procview),9(procmod),12(everyone),20(staff),29(certusers),61(localaccounts),80(admin),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae),701(com.apple.sharepoint.group.1)
+_accessoryupdater        278
+_amavisd                 83
+_analyticsd              263
+_aonsensed               300
+_appinstalld             273
+_appleevents             55
+_applepay                260
+_appowner                87
+_appserver               79
+_appstore                33
+_ard                     67
+_assetcache              235
+_astris                  245
+_atsserver               97
+_audiomxd                294
+_avbdeviced              229
+_avphidbridge            288
+_backgroundassets        291
+_biome                   289
+_calendar                93
+_captiveagent            258
+_ces                     32
+_clamav                  82
+_cmiodalassistants       262
+_coreaudiod              202
+_coremediaiod            236
+_coreml                  280
+_corespeechd             306
+_ctkd                    259
+_cvmsroot                212
+_cvs                     72
+_cyrus                   77
+_darwindaemon            284
+_datadetectors           257
+_demod                   275
+_devdocs                 59
+_devicemgr               220
+_diagnosticservicesd     307
+_diskimagesiod           271
+_displaypolicyd          244
+_distnote                241
+_dovecot                 214
+_dovenull                227
+_dpaudio                 215
+_driverkit               270
+_eligibilityd            297
+_eppc                    71
+_findmydevice            254
+_fpsd                    265
+_ftp                     98
+_gamecontrollerd         247
+_geod                    56
+_hidd                    261
+_iconservices            240
+_installassistant        25
+_installcoordinationd    274
+_installer               96
+_jabber                  84
+_kadmin_admin            218
+_kadmin_changepw         219
+_knowledgegraphd         279
+_krb_anonymous           234
+_krb_changepw            232
+_krb_kadmin              231
+_krb_kerberos            233
+_krb_krbtgt              230
+_krbfast                 246
+_krbtgt                  217
+_launchservicesd         239
+_lda                     211
+_locationd               205
+_logd                    272
+_lp                      26
+_mailman                 78
+_mbsetupuser             248
+_mcxalr                  54
+_mdnsresponder           65
+_mds_stores              308
+_mmaintenanced           283
+_mobileasset             253
+_mobilegestalthelper     293
+_modelmanagerd           301
+_mysql                   74
+_naturallanguaged        304
+_nearbyd                 268
+_netbios                 222
+_netstatistics           228
+_networkd                24
+_neuralengine            296
+_notification_proxy      285
+_nsurlsessiond           242
+_oahd                    441
+_ondemand                249
+_postfix                 27
+_postgres                216
+_qtss                    76
+_reportmemoryexception   269
+_reportsystemmemory      302
+_rmd                     277
+_sandbox                 60
+_screensaver             203
+_scsd                    31
+_securityagent           92
+_sntpd                   281
+_softwareupdate          200
+_spinandd                305
+_spotlight               89
+_sshd                    75
+_svn                     73
+_swtransparencyd         303
+_systemstatusd           298
+_taskgated               13
+_teamsserver             94
+_terminusd               295
+_timed                   266
+_timezone                210
+_tokend                  91
+_trustd                  282
+_trustevaluationagent    208
+_unknown                 99
+_update_sharing          95
+_usbmuxd                 213
+_uucp                    4
+_warmd                   224
+_webauthserver           221
+_windowserver            88
+_www                     70
+_wwwproxy                252
+_xserverdocs             251
+daemon                   1
+nobody                   -2
+root                     0
+test                     501
+_accessoryupdater                278
+_amavisd                         83
+_analyticsd                      263
+_analyticsusers                  250
+_aonsensed                       300
+_appinstalld                     273
+_appleevents                     55
+_applepay                        260
+_appowner                        87
+_appserveradm                    81
+_appserverusr                    79
+_appstore                        33
+_ard                             67
+_assetcache                      235
+_astris                          245
+_atsserver                       97
+_audiomxd                        294
+_avphidbridge                    288
+_backgroundassets                291
+_biome                           289
+_calendar                        93
+_captiveagent                    258
+_ces                             32
+_clamav                          82
+_cmiodalassistants               262
+_coreaudiod                      202
+_coremediaiod                    236
+_coreml                          280
+_corespeechd                     306
+_ctkd                            259
+_cvms                            212
+_cvs                             72
+_darwindaemon                    284
+_datadetectors                   257
+_demod                           275
+_detachedsig                     207
+_devdocs                         59
+_developer                       204
+_devicemgr                       220
+_diagnosticservicesd             307
+_diskimagesiod                   271
+_displaypolicyd                  244
+_distnote                        241
+_dovenull                        227
+_dpaudio                         215
+_driverkit                       270
+_eligibilityd                    297
+_eppc                            71
+_findmydevice                    254
+_fpsd                            265
+_gamecontrollerd                 247
+_geod                            56
+_guest                           201
+_hidd                            261
+_iconservices                    240
+_installassistant                25
+_installcoordinationd            274
+_installer                       96
+_jabber                          84
+_keytabusers                     30
+_knowledgegraphd                 279
+_launchservicesd                 239
+_lda                             211
+_locationd                       205
+_logd                            272
+_lp                              26
+_lpadmin                         98
+_lpoperator                      100
+_mailman                         78
+_mbsetupuser                     248
+_mcxalr                          54
+_mdnsresponder                   65
+_mds_stores                      308
+_mmaintenanced                   283
+_mobileasset                     253
+_mobilegestalthelper             293
+_modelmanagerd                   301
+_mysql                           74
+_naturallanguaged                304
+_nearbyd                         268
+_netbios                         222
+_netstatistics                   228
+_networkd                        24
+_neuralengine                    296
+_notification_proxy              285
+_nsurlsessiond                   242
+_oahd                            441
+_odchpass                        209
+_ondemand                        249
+_postdrop                        28
+_postfix                         27
+_postgres                        216
+_qtss                            76
+_reportmemoryexception           269
+_reportsystemmemory              302
+_rmd                             277
+_sandbox                         60
+_screensaver                     203
+_scsd                            31
+_securityagent                   92
+_sntpd                           281
+_softwareupdate                  200
+_spinandd                        305
+_spotlight                       89
+_sshd                            75
+_svn                             73
+_swtransparencyd                 303
+_systemstatusd                   298
+_taskgated                       13
+_teamsserver                     94
+_terminusd                       295
+_timed                           266
+_timezone                        210
+_tokend                          91
+_trustd                          282
+_trustevaluationagent            208
+_unknown                         99
+_update_sharing                  95
+_usbmuxd                         213
+_uucp                            66
+_warmd                           224
+_webauthserver                   221
+_webdeveloper                    264
+_windowserver                    88
+_www                             70
+_wwwproxy                        252
+_xserverdocs                     251
+accessibility                    90
+admin                            80
+authedusers                      50
+bin                              7
+certusers                        29
+com.apple.access_disabled        396
+com.apple.access_ftp             395
+com.apple.access_remote_ae       400
+com.apple.access_screensharing   398
+com.apple.access_sessionkey      397
+com.apple.access_ssh             399
+com.apple.sharepoint.group.1     701
+consoleusers                     53
+daemon                           1
+dialer                           68
+everyone                         12
+group                            16
+interactusers                    51
+kmem                             2
+localaccounts                    61
+mail                             6
+netaccounts                      62
+netusers                         52
+network                          69
+nobody                           -2
+nogroup                          -1
+operator                         5
+owner                            10
+procmod                          9
+procview                         8
+staff                            20
+sys                              3
+tty                              4
+utmp                             45
+wheel                            0
+total 48
+drwxr-xr-x  16 test  staff   512 Nov 15 00:13 .
+drwxr-xr-x   4 root  wheel   128 Nov 15 00:07 ..
+drwxrwxrwx   4 test  staff   128 Nov 15 00:06 artifacts
+drwxrwxrwx  14 test  staff   448 Nov 15 00:12 brew
+-rw-rw-rw-   1 root  staff   735 Nov 15 00:12 brew-fixture.sh
+-rw-rw-rw-   1 root  staff   980 Nov 15 00:12 brew-fixture.sh.b64
+drwxrwxrwx   8 test  staff   256 Nov 15 00:12 cache
+drwxr-xr-x   6 test  staff   192 Nov 15 00:12 home
+drwxrwxrwx   4 test  staff   128 Nov 15 00:06 inspect
+drwxrwxrwx   2 test  staff    64 Nov 15 00:22 logs
+-rw-rw-rw-   1 test  staff   232 Nov 15 00:13 safety.sb
+-rw-rw-rw-   1 test  staff  1162 Nov 15 00:08 setup.sh
+-rw-rw-rw-   1 test  staff  1552 Nov 15 00:08 setup.sh.b64
+drwxrwxrwx   4 test  staff   128 Nov 15 00:12 tap
+drwxrwxrwx   2 test  staff    64 Nov 15 00:13 tmp
+-rw-rw-rw-   1 root  staff     4 Nov 15 00:12 transport-probe
+# typed: strict
+# frozen_string_literal: true
+
+require "etc"
+require "io/console"
+require "pty"
+require "tempfile"
+require "system_command"
+require "exceptions"
+require "mktemp"
+require "utils/fork"
+require "utils/output"
+
+# Helper class for running a sub-process inside of a sandboxed environment.
+class Sandbox
+  include Utils::Output::Mixin
+  extend Utils::Output::Mixin
+
+  # Privileged groups that are expected to be able to use a working sandbox.
+  PRIVILEGED_GROUPS = %w[admin staff root wheel].freeze
+
+  # Home-relative credential paths needed by Git downloads.
+  GIT_CREDENTIAL_PATHS = %w[.ssh .gitconfig .git-credentials .config/gh .netrc].freeze
+  private_constant :GIT_CREDENTIAL_PATHS
+
+  # A read-only descriptor identifies Homebrew's sandbox across exec, without trusting ENV.
+  INHERITANCE_FD = 198
+
+  class SandboxPathFilter
+    sig { returns(String) }
+    attr_reader :path
+
+    sig { returns(Symbol) }
+    attr_reader :type
+
+    sig { params(path: String, type: Symbol).void }
+    def initialize(path:, type:)
+      @path = T.let(path.freeze, String)
+      @type = type
+    end
+  end
+  private_constant :SandboxPathFilter
+
+  class SandboxRule
+    sig { returns(T::Boolean) }
+    attr_reader :allow
+
+    sig { returns(String) }
+    attr_reader :operation
+
+    sig { returns(T.nilable(SandboxPathFilter)) }
+    attr_reader :filter
+
+    sig { returns(T.nilable(String)) }
+    attr_reader :modifier
+
+    sig {
+      params(allow: T::Boolean, operation: String, filter: T.nilable(SandboxPathFilter),
+             modifier: T.nilable(String)).void
+    }
+    def initialize(allow:, operation:, filter:, modifier:)
+      @allow = allow
+      @operation = operation
+      @filter = filter
+      @modifier = modifier
+    end
+  end
+  private_constant :SandboxRule
+
+  # Configuration profile for a sandbox.
+  class SandboxProfile
+    sig { returns(T::Array[SandboxRule]) }
+    attr_reader :rules
+
+    sig { void }
+    def initialize
+      @rules = T.let([], T::Array[SandboxRule])
+    end
+
+    sig { params(rule: SandboxRule).void }
+    def add_rule(rule)
+      @rules << rule
+    end
+  end
+  private_constant :SandboxProfile
+
+  sig { returns(T::Boolean) }
+  def self.available?
+    false
+  end
+
+  sig { returns(T::Boolean) }
+  def self.full_write_isolation? = true
+
+  # Whether Homebrew is itself running inside another sandbox, which would make
+  # its own nested sandbox hang (macOS) or fail to start (Linux). Overridden
+  # per-OS.
+  sig { returns(T::Boolean) }
+  def self.nested_sandbox? = false
+
+  # Skip Homebrew's own sandbox when it is opted into via
+  # `$HOMEBREW_AVOID_NESTED_SANDBOXING` and already running inside another
+  # sandbox. The skip is only supported for an unprivileged user in a custom
+  # prefix; error out explaining why rather than silently sandboxing (and
+  # hanging) when either is not the case.
+  sig { returns(T::Boolean) }
+  def self.avoid_nested_sandboxing?
+    return false unless Homebrew::EnvConfig.avoid_nested_sandboxing?
+    return false unless nested_sandbox?
+
+    if Homebrew.default_prefix?
+      odie "Refusing to skip the sandbox: `$HOMEBREW_AVOID_NESTED_SANDBOXING` is set " \
+           "inside another sandbox but Homebrew is using its default prefix " \
+           "(#{HOMEBREW_PREFIX}); this is only supported in a custom prefix."
+    end
+
+    privileged_group = PRIVILEGED_GROUPS.find do |name|
+      group = Etc.getgrnam(name)
+      group && Process.groups.include?(group.gid)
+    rescue ArgumentError
+      false
+    end
+    if privileged_group
+      odie "Refusing to skip the sandbox: `$HOMEBREW_AVOID_NESTED_SANDBOXING` is set " \
+           "inside another sandbox but you are in the privileged `#{privileged_group}` " \
+           "group; this is only supported for an unprivileged user."
+    end
+
+    true
+  end
+
+  sig { params(step: String, warn_without_sandbox: T::Boolean).returns(T::Boolean) }
+  def self.use_for?(step, warn_without_sandbox: true)
+    return false if inherited_sandbox?
+
+    unless available?
+      opoo_once "Sandbox unavailable: #{step} without sandboxing!" if warn_without_sandbox
+      return false
+    end
+
+# Release template, not a publishable formula until all placeholders are filled.
+# Use a signed/notarized two-binary archive that includes restart-after-upgrade.
+class Cercano < Formula
+  desc "AI-powered development tool with local/cloud model routing"
+  homepage "https://github.com/cercano-ai/Cercano"
+  url "file:///opt/cercano-migration-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz"
+  version "0.25.2"
+  sha256 "e57b4ff87d23241588df64e6f106b087775bb6c8939611fc9c540e907efef664"
+  license "MIT"
+
+  # Monterey is macOS 12, the deployment target the binaries are built against.
+  # Homebrew refuses installation on older systems and on Intel rather than
+  # letting a user install binaries that cannot run.
+  depends_on macos: :monterey
+  depends_on arch: :arm64
+
+  def install
+    bin.install "bin/cercano", "bin/cercano-cli"
+  end
+
+  # Homebrew invokes this after installing/linking the new keg. Never restart
+  # from install itself: a download/unpack/install failure must leave the old
+  # agent alone. The coordinator is a no-op when no owned agent is running.
+  def post_install
+    system bin/"cercano", "restart-after-upgrade"
+  end
+
+  def caveats
+    <<~EOS
+      Start the terminal client with cercano-cli.
+      A successful upgrade restarts an existing agent after draining work.
+      An absent agent is not started by installation or upgrade.
+      If post-install restart fails, inspect the reported error and agent logs.
+      Retry with: #{bin}/cercano restart-after-upgrade
+      Manual restart from an attached client: /restart-agent
+    EOS
+  end
+
+  # Runs with no credentials, no model downloads and no network, so every
+  # command here must work offline. Each binary prints its own name, verified
+  # against real builds.
+  #
+  # Deliberately does NOT invoke `restart-after-upgrade` without --help: that
+  # command acts on a running agent, and `brew test` must not restart the
+  # user's agent as a side effect.
+  test do
+    assert_match "cercano v#{version}", shell_output("#{bin}/cercano --version")
+    assert_match "cercano-cli v#{version}", shell_output("#{bin}/cercano-cli --version")
+    assert_match "Usage:", shell_output("#{bin}/cercano restart-after-upgrade --help")
+  end
+end
+cercano-0.25.2-darwin-arm64.tar.gz
+cercano-0.27.0-darwin-arm64.tar.gz
+
+STDERR:
+/bin/bash: line 1: prlctl: command not found
+
+
+## Record 82 status=0
+GUEST 08196962-608d-4fde-8284-49a5f020fea6
+set -e; ls /opt/cercano-migration-20261115/artifacts; ls /Library/Keychains; ls -l /Users/test/.zshrc /Users/test/.zprofile /Users/test/Library/Keychains 2>/dev/null || true; find /opt/cercano-migration-20261115/brew/Library/Taps -name cercano.rb; cat /opt/cercano-migration-20261115/tap/Formula/cercano.rb; du -sh /opt/cercano-migration-20261115/brew; df -h /opt
+STDOUT:
+cercano-0.25.2-darwin-arm64.tar.gz
+cercano-0.27.0-darwin-arm64.tar.gz
+.fl043D1EDD
+.fl947E1BDB
+System.keychain
+apsd.keychain
+system-keychain-2.db
+system-keychain-2.db-shm
+system-keychain-2.db-wal
+-rw-rw-rw-  1 test  staff  47 Nov  3 22:21 /Users/test/.zprofile
+
+/Users/test/Library/Keychains:
+total 72
+-r--r--r--  1 test  staff      0 Nov  3 21:56 .fl34AC2A0A
+drwx------  6 test  staff    192 Nov  3 21:57 06356F7A-5AA1-5577-8EAA-11DA06792AE7
+-rw-r--r--  1 test  staff  34932 Nov  6 09:57 login.keychain-db
+/opt/cercano-migration-20261115/brew/Library/Taps/native/homebrew-migration/Formula/cercano.rb
+/opt/cercano-migration-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb
+# Release template, not a publishable formula until all placeholders are filled.
+# Use a signed/notarized two-binary archive that includes restart-after-upgrade.
+class Cercano < Formula
+  desc "AI-powered development tool with local/cloud model routing"
+  homepage "https://github.com/cercano-ai/Cercano"
+  url "file:///opt/cercano-migration-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz"
+  version "0.25.2"
+  sha256 "e57b4ff87d23241588df64e6f106b087775bb6c8939611fc9c540e907efef664"
+  license "MIT"
+
+  # Monterey is macOS 12, the deployment target the binaries are built against.
+  # Homebrew refuses installation on older systems and on Intel rather than
+  # letting a user install binaries that cannot run.
+  depends_on macos: :monterey
+  depends_on arch: :arm64
+
+  def install
+    bin.install "bin/cercano", "bin/cercano-cli"
+  end
+
+  # Homebrew invokes this after installing/linking the new keg. Never restart
+  # from install itself: a download/unpack/install failure must leave the old
+  # agent alone. The coordinator is a no-op when no owned agent is running.
+  def post_install
+    system bin/"cercano", "restart-after-upgrade"
+  end
+
+  def caveats
+    <<~EOS
+      Start the terminal client with cercano-cli.
+      A successful upgrade restarts an existing agent after draining work.
+      An absent agent is not started by installation or upgrade.
+      If post-install restart fails, inspect the reported error and agent logs.
+      Retry with: #{bin}/cercano restart-after-upgrade
+      Manual restart from an attached client: /restart-agent
+    EOS
+  end
+
+  # Runs with no credentials, no model downloads and no network, so every
+  # command here must work offline. Each binary prints its own name, verified
+  # against real builds.
+  #
+  # Deliberately does NOT invoke `restart-after-upgrade` without --help: that
+  # command acts on a running agent, and `brew test` must not restart the
+  # user's agent as a side effect.
+  test do
+    assert_match "cercano v#{version}", shell_output("#{bin}/cercano --version")
+    assert_match "cercano-cli v#{version}", shell_output("#{bin}/cercano-cli --version")
+    assert_match "Usage:", shell_output("#{bin}/cercano restart-after-upgrade --help")
+  end
+end
+1.5G	/opt/cercano-migration-20261115/brew
+Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s5    95Gi    12Gi    62Gi    17%    239k  654M    0%   /System/Volumes/Data
+
+STDERR:
+
+
+## Record 83 status=7
+GUEST 08196962-608d-4fde-8284-49a5f020fea6
+#!/bin/bash
+set -euo pipefail
+R=/opt/cercano-migration-unpriv-20261115
+O=/opt/cercano-migration-20261115
+U=_cercanorehearsal
+# Fixture creation only; refuse collisions instead of altering existing identities.
+test ! -e "$R"
+! dscl . -read /Users/$U >/dev/null 2>&1
+! dscl . -read /Groups/$U >/dev/null 2>&1
+! dscl . -list /Users UniqueID | awk '{print $NF}' | grep -qx 5501
+! dscl . -list /Groups PrimaryGroupID | awk '{print $NF}' | grep -qx 5501
+dscl . -create /Groups/$U
+dscl . -create /Groups/$U PrimaryGroupID 5501
+dscl . -create /Users/$U
+dscl . -create /Users/$U UniqueID 5501
+dscl . -create /Users/$U PrimaryGroupID 5501
+dscl . -create /Users/$U UserShell /usr/bin/false
+dscl . -create /Users/$U NFSHomeDirectory "$R/home"
+dscl . -create /Users/$U IsHidden 1
+# No password, authentication authority, keychain or login session is provisioned.
+mkdir -m 755 "$R"
+mkdir -p "$R"/{home/.config/cercano,home/.cercano,tmp,cache,logs,artifacts,inspect,tap/Formula}
+cp -R "$O/brew" "$R/brew"
+cp "$O/artifacts/"*.tar.gz "$R/artifacts/"
+cp "$O/safety.sb" "$R/safety.sb"
+# Strengthen only: retain every original rule, additionally protect old fixture.
+printf '\n(deny file-read-data file-write* (subpath "%s"))\n' "$O" >> "$R/safety.sb"
+# Remove only copied fixture-specific taps; no existing source is modified.
+rm -rf "$R/brew/Library/Taps/native/homebrew-migration" "$R/brew/Library/Taps/migration/homebrew-cercano"
+mkdir -p "$R/brew/Library/Taps/migration/homebrew-cercano/Formula"
+sed "s|$O/artifacts|$R/artifacts|" "$O/tap/Formula/cercano.rb" > "$R/tap/Formula/cercano.rb"
+cp "$R/tap/Formula/cercano.rb" "$R/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb"
+printf 'port: "49382"\n' > "$R/home/.config/cercano/config.yaml"
+printf 'synthetic-conversation\n' > "$R/home/.cercano/conversation-marker"
+printf 'INERT-NOT-A-CREDENTIAL\n' > "$R/home/.cercano/credential-marker"
+printf '%s\n' HOMEBREW_NO_CLEANUP_FORMULAE=cercano,cercano-agent HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_INSTALL_FROM_API=1 > "$R/brew/etc/homebrew/brew.env"
+chown -R 5501:5501 "$R"
+chmod -R go-w "$R"
+# Profile is immutable to fixture identity (no write permission on its parent).
+chown root:wheel "$R" "$R/safety.sb"
+chmod 755 "$R"; chmod 444 "$R/safety.sb"
+id "$U"
+dscl . -read /Users/$U
+for g in admin staff root wheel; do dsmemberutil checkmembership -U "$U" -G "$g"; done
+stat -f '%u:%g %Sp %N' "$R" "$R/home" "$R/brew" "$R/tmp" "$R/artifacts"
+shasum -a 256 "$R/artifacts/"*.tar.gz "$R/safety.sb" "$O/safety.sb" "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*
+# Verify copied Homebrew guard sources are byte-identical.
+cmp "$O/brew/Library/Homebrew/sandbox.rb" "$R/brew/Library/Homebrew/sandbox.rb"
+cmp "$O/brew/Library/Homebrew/extend/os/mac/sandbox.rb" "$R/brew/Library/Homebrew/extend/os/mac/sandbox.rb"
+for v in 0.25.2 0.27.0; do
+ mkdir "$R/inspect/$v"
+ tar -xzf "$R/artifacts/cercano-$v-darwin-arm64.tar.gz" -C "$R/inspect/$v"
+ find "$R/inspect/$v" -type f -perm +111 -exec codesign --verify --strict --verbose=2 {} \;
+ find "$R/inspect/$v" -type f -perm +111 -exec codesign -dv --verbose=2 {} \;
+done
+chown -R 5501:5501 "$R/inspect"
+
+STDOUT:
+uid=5501(_cercanorehearsal) gid=5501(_cercanorehearsal) groups=5501(_cercanorehearsal),12(everyone),61(localaccounts),100(_lpoperator),701(com.apple.sharepoint.group.1)
+dsAttrTypeNative:accountPolicyData:
+ <?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>creationTime</key>
+	<real>1794731140.3723059</real>
+</dict>
+</plist>
+
+dsAttrTypeNative:IsHidden: 1
+dsAttrTypeNative:record_daemon_version: 9670000
+AppleMetaNodeLocation: /Local/Default
+GeneratedUID: 8C012DB3-E9A0-4245-9029-B977D72327ED
+NFSHomeDirectory: /opt/cercano-migration-unpriv-20261115/home
+PrimaryGroupID: 5501
+RecordName: _cercanorehearsal
+RecordType: dsRecTypeStandard:Users
+UniqueID: 5501
+UserShell: /usr/bin/false
+user is not a member of the group
+user is not a member of the group
+Group not found
+
+STDERR:
+The group root cannot be found
+There was an unknown error.
+
+
+## Record 84 status=0
+GUEST 08196962-608d-4fde-8284-49a5f020fea6
+dscl . -read /Groups/_lpoperator; dscl . -read /Groups/com.apple.sharepoint.group.1; dscl . -read /Groups/localaccounts; sudo -u _cercanorehearsal id; dscl . -read /Groups/wheel; dscl . -read /Groups/_cercanorehearsal; ls -ld /opt/cercano-migration-unpriv-20261115;
+STDOUT:
+AppleMetaNodeLocation: /Local/Default
+GeneratedUID: ABCDEFAB-CDEF-ABCD-EFAB-CDEF00000064
+NestedGroups: ABCDEFAB-CDEF-ABCD-EFAB-CDEF0000003D ABCDEFAB-CDEF-ABCD-EFAB-CDEF00000062
+Password: *
+PrimaryGroupID: 100
+RealName:
+ Print Operator
+RecordName: _lpoperator
+RecordType: dsRecTypeStandard:Groups
+dsAttrTypeNative:IsHidden: 1
+dsAttrTypeNative:record_daemon_version: 9670000
+AppleMetaNodeLocation: /Local/Default
+GeneratedUID: D0D63E5E-2F81-47BD-94CC-95D85137143B
+NestedGroups: ABCDEFAB-CDEF-ABCD-EFAB-CDEF0000000C
+PrimaryGroupID: 701
+RealName:
+ test’s Public Folder
+RecordName: com.apple.sharepoint.group.1
+RecordType: dsRecTypeStandard:Groups
+AppleMetaNodeLocation: /Local/Default
+Comment:
+ Group membership calculated by system
+ Accounts from the local directory database or /etc files
+GeneratedUID: ABCDEFAB-CDEF-ABCD-EFAB-CDEF0000003D
+Password: *
+PrimaryGroupID: 61
+RealName:
+ Local Accounts
+RecordName: localaccounts
+RecordType: dsRecTypeStandard:Groups
+uid=5501(_cercanorehearsal) gid=5501(_cercanorehearsal) groups=5501(_cercanorehearsal),12(everyone),61(localaccounts),100(_lpoperator),701(com.apple.sharepoint.group.1)
+AppleMetaNodeLocation: /Local/Default
+GeneratedUID: ABCDEFAB-CDEF-ABCD-EFAB-CDEF00000000
+GroupMembers: FFFFEEEE-DDDD-CCCC-BBBB-AAAA00000000
+GroupMembership: root
+Password: *
+PrimaryGroupID: 0
+RealName:
+ System Group
+RecordName: wheel
+RecordType: dsRecTypeStandard:Groups
+dsAttrTypeNative:record_daemon_version: 9670000
+AppleMetaNodeLocation: /Local/Default
+GeneratedUID: DD96A436-0B0E-471E-A65C-747E5D3C23E0
+PrimaryGroupID: 5501
+RecordName: _cercanorehearsal
+RecordType: dsRecTypeStandard:Groups
+drwxr-xr-x  11 root  wheel  352 Nov 15 00:25 /opt/cercano-migration-unpriv-20261115
+
+STDERR:
+
+
+## Record 85 status=0
+GUEST 08196962-608d-4fde-8284-49a5f020fea6
+set -e; R=/opt/cercano-migration-unpriv-20261115; O=/opt/cercano-migration-20261115; for g in admin staff wheel; do dsmemberutil checkmembership -U _cercanorehearsal -G "$g" || true; done; stat -f '%u:%g %Sp %N' "$R" "$R/home" "$R/brew" "$R/tmp" "$R/artifacts"; shasum -a 256 "$R/artifacts/"*.tar.gz "$R/safety.sb" "$O/safety.sb" "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*; cmp "$O/brew/Library/Homebrew/sandbox.rb" "$R/brew/Library/Homebrew/sandbox.rb"; cmp "$O/brew/Library/Homebrew/extend/os/mac/sandbox.rb" "$R/brew/Library/Homebrew/extend/os/mac/sandbox.rb"; for v in 0.25.2 0.27.0; do mkdir "$R/inspect/$v"; tar -xzf "$R/artifacts/cercano-$v-darwin-arm64.tar.gz" -C "$R/inspect/$v"; find "$R/inspect/$v" -type f -perm +111 -exec codesign --verify --strict --verbose=2 {} \;; find "$R/inspect/$v" -type f -perm +111 -exec codesign -dv --verbose=2 {} \;; done; chown -R 5501:5501 "$R/inspect"; find "$R/brew/Library/Homebrew/vendor/portable-ruby" -path '*/bin/ruby'; ls -l /opt/homebrew/README.md /Library/Keychains/System.keychain; find "$R/brew/Cellar" -maxdepth 2 -iname '*cercano*';
+STDOUT:
+user is not a member of the group
+user is not a member of the group
+user is not a member of the group
+0:0 drwxr-xr-x /opt/cercano-migration-unpriv-20261115
+5501:5501 drwxr-xr-x /opt/cercano-migration-unpriv-20261115/home
+5501:5501 drwxr-xr-x /opt/cercano-migration-unpriv-20261115/brew
+5501:5501 drwxr-xr-x /opt/cercano-migration-unpriv-20261115/tmp
+5501:5501 drwxr-xr-x /opt/cercano-migration-unpriv-20261115/artifacts
+e57b4ff87d23241588df64e6f106b087775bb6c8939611fc9c540e907efef664  /opt/cercano-migration-unpriv-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz
+18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0  /opt/cercano-migration-unpriv-20261115/artifacts/cercano-0.27.0-darwin-arm64.tar.gz
+5c7f8de194d70965d1299eaf6c2c9e900fe2e5c9c461bbc4056b843f7f916dd6  /opt/cercano-migration-unpriv-20261115/safety.sb
+5b4ab1be2e69df68181065aefb54397a402382cf24ae2e58ceb931723d12c966  /opt/cercano-migration-20261115/safety.sb
+41605ae5178735b19b7f16419bc6edb4ed89a1e495988a1040828c04709f9029  /opt/cercano-migration-unpriv-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-migration-unpriv-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-migration-unpriv-20261115/home/.cercano/credential-marker
+/opt/cercano-migration-unpriv-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/bin/ruby
+-rw-r--r--  1 root  wheel  48924 Nov 15 00:00 /Library/Keychains/System.keychain
+-rw-rw-rw-  1 test  admin   7881 Nov  3 22:21 /opt/homebrew/README.md
+
+STDERR:
+/opt/cercano-migration-unpriv-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano: valid on disk
+/opt/cercano-migration-unpriv-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano: satisfies its Designated Requirement
+/opt/cercano-migration-unpriv-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli: valid on disk
+/opt/cercano-migration-unpriv-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli: satisfies its Designated Requirement
+Executable=/opt/cercano-migration-unpriv-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano
+Identifier=cercano
+Format=Mach-O thin (arm64)
+CodeDirectory v=20500 size=494707 flags=0x10000(runtime) hashes=15454+2 location=embedded
+Signature size=8980
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=Oct 22, 2026 at 1:52:11 PM
+Info.plist=not bound
+TeamIdentifier=4HPM47RCM4
+Runtime Version=14.5.0
+Sealed Resources=none
+Internal requirements count=1 size=168
+Executable=/opt/cercano-migration-unpriv-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli
+Identifier=cercano-cli
+Format=Mach-O thin (arm64)
+CodeDirectory v=20500 size=255799 flags=0x10000(runtime) hashes=7988+2 location=embedded
+Signature size=8981
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=Oct 22, 2026 at 1:52:11 PM
+Info.plist=not bound
+TeamIdentifier=4HPM47RCM4
+Runtime Version=12.0.0
+Sealed Resources=none
+Internal requirements count=1 size=172
+/opt/cercano-migration-unpriv-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano: valid on disk
+/opt/cercano-migration-unpriv-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano: satisfies its Designated Requirement
+/opt/cercano-migration-unpriv-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli: valid on disk
+/opt/cercano-migration-unpriv-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli: satisfies its Designated Requirement
+Executable=/opt/cercano-migration-unpriv-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano
+Identifier=cercano
+Format=Mach-O thin (arm64)
+CodeDirectory v=20500 size=517587 flags=0x10000(runtime) hashes=16169+2 location=embedded
+Signature size=8980
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=Nov 14, 2026 at 4:40:09 PM
+Info.plist=not bound
+TeamIdentifier=4HPM47RCM4
+Runtime Version=15.5.0
+Sealed Resources=none
+Internal requirements count=1 size=168
+Executable=/opt/cercano-migration-unpriv-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli
+Identifier=cercano-cli
+Format=Mach-O thin (arm64)
+CodeDirectory v=20500 size=267575 flags=0x10000(runtime) hashes=8356+2 location=embedded
+Signature size=8981
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=Nov 14, 2026 at 4:40:09 PM
+Info.plist=not bound
+TeamIdentifier=4HPM47RCM4
+Runtime Version=15.5.0
+Sealed Resources=none
+Internal requirements count=1 size=172
+
+
+## Record 86 status=1
+GUEST 08196962-608d-4fde-8284-49a5f020fea6
+set -e
+R=/opt/cercano-migration-unpriv-20261115
+cat > "$R/probes.rb" <<'RUBY'
+# Inert open-only probes: no real-state bytes read, no real-state writes, no credentials queried.
+require 'socket'
+r='/opt/cercano-migration-unpriv-20261115'
+puts "uid=#{Process.uid} gid=#{Process.gid} groups=#{Process.groups.inspect}"
+raise 'privileged process group' unless (Process.groups & [0,20,80]).empty?
+File.write("#{r}/tmp/allowed-probe", 'INERT')
+raise 'positive read/write failed' unless File.read("#{r}/tmp/allowed-probe") == 'INERT'
+puts 'PASS owned-prefix read/write'
+s=UNIXServer.new("#{r}/tmp/allowed-probe.sock"); s.close
+puts 'PASS UNIX-domain bind'
+failures=[]
+probes={
+ 'real-home read'=> ->{File.open('/Users/test/.zprofile', 'r').close},
+ 'real-home write-open'=> ->{File.open('/Users/test/.zprofile', 'r+').close},
+ 'system-keychain read'=> ->{File.open('/Library/Keychains/System.keychain','r').close},
+ 'user-keychain read'=> ->{File.open('/Users/test/Library/Keychains/login.keychain-db','r').close},
+ 'real-brew read'=> ->{File.open('/opt/homebrew/README.md','r').close},
+ 'real-brew write-open'=> ->{File.open('/opt/homebrew/README.md','r+').close},
+ 'old-fixture read'=> ->{File.open('/opt/cercano-migration-20261115/safety.sb','r').close},
+ 'TCP loopback synthetic endpoint'=> ->{Socket.tcp('127.0.0.1',49382,connect_timeout:1).close},
+ 'signal permission inert self-zero'=> ->{Process.kill(0,Process.pid)}
+}
+probes.each do |name,fn|
+ begin
+  fn.call; puts "FAIL unexpectedly allowed #{name}"; failures << name
+ rescue Errno::EPERM,Errno::EACCES => e
+  puts "PASS denied #{name}: #{e.class}"
+ rescue => e
+  puts "FAIL inconclusive #{name}: #{e.class}"; failures << name
+ end
+end
+exit(failures.empty? ? 0 : 1)
+RUBY
+chmod 444 "$R/probes.rb"
+sudo -u _cercanorehearsal env -i HOME="$R/home" PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/sandbox-exec -f "$R/safety.sb" "$R/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/bin/ruby" "$R/probes.rb"
+
+STDOUT:
+uid=5501 gid=5501 groups=[5501, 12, 61, 100, 701]
+PASS owned-prefix read/write
+PASS UNIX-domain bind
+PASS denied real-home read: Errno::EACCES
+PASS denied real-home write-open: Errno::EACCES
+PASS denied system-keychain read: Errno::EPERM
+PASS denied user-keychain read: Errno::EACCES
+PASS denied real-brew read: Errno::EPERM
+PASS denied real-brew write-open: Errno::EPERM
+PASS denied old-fixture read: Errno::EPERM
+PASS denied TCP loopback synthetic endpoint: Errno::EPERM
+FAIL unexpectedly allowed signal permission inert self-zero
+
+STDERR:
+
+
+## Record 87 status=0
+GUEST 08196962-608d-4fde-8284-49a5f020fea6
+set -e; R=/opt/cercano-migration-unpriv-20261115; O=/opt/cercano-migration-20261115; echo FINAL_IDENTITY; sudo -u _cercanorehearsal id; echo STATE_HASHES; shasum -a 256 "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"* "$O/home/.config/cercano/config.yaml" "$O/home/.cercano/"* "$O/safety.sb" "$O/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb"; echo FORMULA_ONLY_URL_CHANGED; diff -u "$O/tap/Formula/cercano.rb" "$R/tap/Formula/cercano.rb" || test $? = 1; echo NO_CERCANO_KEGS_OR_LINKS; find "$R/brew/Cellar" -maxdepth 2 -iname '*cercano*'; ls -l "$R/brew/bin/cercano" "$R/brew/bin/cercano-cli" 2>/dev/null || true; echo PROCESS_CHECK; ps -axo uid=,pid=,comm= | grep -E '(^|/)(cercano|cercano-cli|cercano-model-host)$' || true; echo INVENTORY; du -sh "$R"; find "$R/home" -maxdepth 3 -type f; dscl . -read /Users/_cercanorehearsal AuthenticationAuthority Password 2>&1 || true; stat -f '%u:%g %Sp %N' "$R" "$R/safety.sb";
+STDOUT:
+FINAL_IDENTITY
+uid=5501(_cercanorehearsal) gid=5501(_cercanorehearsal) groups=5501(_cercanorehearsal),12(everyone),61(localaccounts),100(_lpoperator),701(com.apple.sharepoint.group.1)
+STATE_HASHES
+41605ae5178735b19b7f16419bc6edb4ed89a1e495988a1040828c04709f9029  /opt/cercano-migration-unpriv-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-migration-unpriv-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-migration-unpriv-20261115/home/.cercano/credential-marker
+3152a352aa84d73093251920dc8f170997d4bf2811c86b8cdde167f110e7c70b  /opt/cercano-migration-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-migration-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-migration-20261115/home/.cercano/credential-marker
+5b4ab1be2e69df68181065aefb54397a402382cf24ae2e58ceb931723d12c966  /opt/cercano-migration-20261115/safety.sb
+4e55bcc37db70a6a8983963c3551a118d23a197b0a3ffd18afc2449462b1037f  /opt/cercano-migration-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb
+FORMULA_ONLY_URL_CHANGED
+--- /opt/cercano-migration-20261115/tap/Formula/cercano.rb	2026-11-15 00:12:44
++++ /opt/cercano-migration-unpriv-20261115/tap/Formula/cercano.rb	2026-11-15 00:25:44
+@@ -3,7 +3,7 @@
+ class Cercano < Formula
+   desc "AI-powered development tool with local/cloud model routing"
+   homepage "https://github.com/cercano-ai/Cercano"
+-  url "file:///opt/cercano-migration-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz"
++  url "file:///opt/cercano-migration-unpriv-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz"
+   version "0.25.2"
+   sha256 "e57b4ff87d23241588df64e6f106b087775bb6c8939611fc9c540e907efef664"
+   license "MIT"
+NO_CERCANO_KEGS_OR_LINKS
+PROCESS_CHECK
+INVENTORY
+1.7G	/opt/cercano-migration-unpriv-20261115
+/opt/cercano-migration-unpriv-20261115/home/.config/cercano/config.yaml
+/opt/cercano-migration-unpriv-20261115/home/.cercano/credential-marker
+/opt/cercano-migration-unpriv-20261115/home/.cercano/conversation-marker
+No such key: Password
+No such key: AuthenticationAuthority
+0:0 drwxr-xr-x /opt/cercano-migration-unpriv-20261115
+0:0 -r--r--r-- /opt/cercano-migration-unpriv-20261115/safety.sb
+
+STDERR:
+
+
+## Record 88 status=0
+prlctl snapshot-list 08196962-608d-4fde-8284-49a5f020fea6
+STDOUT:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                       *{2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+
+STDERR:
+
