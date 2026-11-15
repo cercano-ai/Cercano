@@ -152,6 +152,7 @@ it separately. Intel Macs are not supported by this release.
 For an existing split-package installation, upgrade all three formulas:
 
 ```bash
+brew update
 brew upgrade cercano-ai/cercano/cercano cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli
 ```
 
@@ -200,8 +201,9 @@ For individual components and dependency-aware upgrades (`choco upgrade cercano 
 see the [Windows installation guide](docs/installation-windows.md). Windows
 remains experimental and unsigned; submission does not change that status.
 
-Until packages are available, use the ZIP: in PowerShell, download, verify,
-extract, and launch the published release:
+The ZIP is an alternative to Chocolatey, including when moderation or missing
+dependencies block installation. In a normal (non-elevated) PowerShell, download,
+verify, extract, and launch the published release:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -219,9 +221,13 @@ Expand-Archive -Path $archive -DestinationPath .
 Windows may show an unknown-publisher warning. See the
 [Windows artifact guide](docs/windows-artifact.md) for limitations and testing.
 
-These examples use release **0.24.0** and leave both binaries together in the
-extracted `bin` directory; no administrator access or PATH changes are needed.
-Linux and Windows remain **experimental, not supported releases**. The apt package remains planned; Chocolatey availability is subject to moderation.
+The Linux tarball and Windows ZIP examples are pinned to release **0.24.0**;
+they do not identify the latest release or the Chocolatey package version. Both
+leave the binaries together in the extracted `bin` directory; no administrator
+access or PATH changes are needed. Linux and Windows remain **experimental,
+not supported releases**. Linux has no documented package-manager installation
+path; no apt package or repository availability is verified. Chocolatey
+submission does not establish approval or default-source availability.
 Checksums verify download integrity, not publisher identity.
 
 ### First run
