@@ -1046,3 +1046,630 @@ PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
 
 STDERR:
 
+
+## Record 75 status=0
+R=/opt/cercano-migration-20261115; echo 'SOURCE REVISION'; git -C "$R/brew" rev-parse HEAD; echo 'SANDBOX SWITCH REFERENCES'; /usr/bin/grep -R -n -E 'no-sandbox|HOMEBREW_.*SANDBOX|sandbox\?' "$R/brew/Library/Homebrew/cmd/install.rb" "$R/brew/Library/Homebrew/cmd/reinstall.rb" "$R/brew/Library/Homebrew/formula_installer.rb" "$R/brew/Library/Homebrew/sandbox.rb" "$R/brew/Library/Homebrew/extend" "$R/brew/Library/Homebrew/env_config.rb" "$R/brew/Library/Homebrew/manpages" 2>/dev/null; echo 'WRAPPER'; cat "$R/brew-fixture.sh"; echo 'PROFILE'; cat "$R/safety.sb"
+STDOUT:
+SOURCE REVISION
+SANDBOX SWITCH REFERENCES
+/opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb:99:  def self.nested_sandbox? = false
+/opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb:102:  # `$HOMEBREW_AVOID_NESTED_SANDBOXING` and already running inside another
+/opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb:109:    return false unless nested_sandbox?
+/opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb:112:      odie "Refusing to skip the sandbox: `$HOMEBREW_AVOID_NESTED_SANDBOXING` is set " \
+/opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb:124:      odie "Refusing to skip the sandbox: `$HOMEBREW_AVOID_NESTED_SANDBOXING` is set " \
+/opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb:134:    return false if inherited_sandbox?
+/opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb:174:  def self.inherited_sandbox?
+/opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb:404:    modifier = "no-sandbox" if no_sandbox
+/opt/cercano-migration-20261115/brew/Library/Homebrew/extend/os/mac/sandbox.rb:66:            (with no-sandbox)
+/opt/cercano-migration-20261115/brew/Library/Homebrew/extend/os/mac/sandbox.rb:101:        # `$HOMEBREW_AVOID_NESTED_SANDBOXING` opt-in is set.
+/opt/cercano-migration-20261115/brew/Library/Homebrew/extend/os/mac/sandbox.rb:103:        def nested_sandbox?
+/opt/cercano-migration-20261115/brew/Library/Homebrew/env_config.rb:129:      HOMEBREW_AVOID_NESTED_SANDBOXING:          {
+/opt/cercano-migration-20261115/brew/Library/Homebrew/env_config.rb:641:      HOMEBREW_NO_SANDBOX_CASK:                  {
+/opt/cercano-migration-20261115/brew/Library/Homebrew/env_config.rb:647:      HOMEBREW_NO_SANDBOX_LINUX:                 {
+/opt/cercano-migration-20261115/brew/Library/Homebrew/env_config.rb:698:      HOMEBREW_SANDBOX_LINUX:                    {
+/opt/cercano-migration-20261115/brew/Library/Homebrew/env_config.rb:700:                     "on Linux unless `$HOMEBREW_NO_SANDBOX_LINUX` is set.",
+/opt/cercano-migration-20261115/brew/Library/Homebrew/env_config.rb:702:        disabled_by: :HOMEBREW_NO_SANDBOX_LINUX,
+WRAPPER
+#!/bin/bash
+set -euo pipefail
+R=/opt/cercano-migration-20261115
+# Refuse before any package operation if any real Cercano agent/worker exists.
+if /bin/ps -axo comm= | /usr/bin/grep -E '(^|/)(cercano|cercano-cli|cercano-model-host)$'; then
+ echo 'REFUSED: unexpected Cercano process'; exit 70
+fi
+/usr/bin/sudo -u test /usr/bin/env -i HOME="$R/home" USER=test LOGNAME=test PATH="$R/brew/bin:/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$R/tmp" HOMEBREW_CACHE="$R/cache" HOMEBREW_LOGS="$R/logs" HOMEBREW_TEMP="$R/tmp" HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_INSTALL_FROM_API=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_CLEANUP_FORMULAE=cercano,cercano-agent /usr/bin/sandbox-exec -f "$R/safety.sb" "$R/brew/bin/brew" "$@"
+PROFILE
+(version 1)
+(allow default)
+(deny network*)
+(deny signal)
+(deny file-read-data file-write* (subpath "/Users/test") (subpath "/Library/Keychains") (subpath "/opt/homebrew"))
+
+(allow network* (local unix-socket) (remote unix-socket))
+
+STDERR:
+fatal: not a git repository (or any of the parent directories): .git
+
+
+## Record 76 status=0
+R=/opt/cercano-migration-20261115; sed -n '85,190p' "$R/brew/Library/Homebrew/sandbox.rb"; sed -n '85,150p' "$R/brew/Library/Homebrew/extend/os/mac/sandbox.rb"; sed -n '120,145p' "$R/brew/Library/Homebrew/env_config.rb"; /usr/bin/grep -R -n -E 'avoid_nested_sandboxing|AVOID_NESTED_SANDBOXING|no-sandbox' "$R/brew/Library/Homebrew/cmd" "$R/brew/manpages" "$R/brew/Library/Homebrew/formula_installer.rb" 2>/dev/null; cat "$R/tap/Formula/cercano.rb"
+STDOUT:
+  private_constant :SandboxProfile
+
+  sig { returns(T::Boolean) }
+  def self.available?
+    false
+  end
+
+  sig { returns(T::Boolean) }
+  def self.full_write_isolation? = true
+
+  # Whether Homebrew is itself running inside another sandbox, which would make
+  # its own nested sandbox hang (macOS) or fail to start (Linux). Overridden
+  # per-OS.
+  sig { returns(T::Boolean) }
+  def self.nested_sandbox? = false
+
+  # Skip Homebrew's own sandbox when it is opted into via
+  # `$HOMEBREW_AVOID_NESTED_SANDBOXING` and already running inside another
+  # sandbox. The skip is only supported for an unprivileged user in a custom
+  # prefix; error out explaining why rather than silently sandboxing (and
+  # hanging) when either is not the case.
+  sig { returns(T::Boolean) }
+  def self.avoid_nested_sandboxing?
+    return false unless Homebrew::EnvConfig.avoid_nested_sandboxing?
+    return false unless nested_sandbox?
+
+    if Homebrew.default_prefix?
+      odie "Refusing to skip the sandbox: `$HOMEBREW_AVOID_NESTED_SANDBOXING` is set " \
+           "inside another sandbox but Homebrew is using its default prefix " \
+           "(#{HOMEBREW_PREFIX}); this is only supported in a custom prefix."
+    end
+
+    privileged_group = PRIVILEGED_GROUPS.find do |name|
+      group = Etc.getgrnam(name)
+      group && Process.groups.include?(group.gid)
+    rescue ArgumentError
+      false
+    end
+    if privileged_group
+      odie "Refusing to skip the sandbox: `$HOMEBREW_AVOID_NESTED_SANDBOXING` is set " \
+           "inside another sandbox but you are in the privileged `#{privileged_group}` " \
+           "group; this is only supported for an unprivileged user."
+    end
+
+    true
+  end
+
+  sig { params(step: String, warn_without_sandbox: T::Boolean).returns(T::Boolean) }
+  def self.use_for?(step, warn_without_sandbox: true)
+    return false if inherited_sandbox?
+
+    unless available?
+      opoo_once "Sandbox unavailable: #{step} without sandboxing!" if warn_without_sandbox
+      return false
+    end
+
+    if avoid_nested_sandboxing?
+      opoo_once "#{step.capitalize} without Homebrew's sandbox; relying on the outer sandbox." if warn_without_sandbox
+      return false
+    end
+
+    true
+  end
+
+  sig {
+    params(
+      args:                 T.any(String, Pathname),
+      step:                 String,
+      warn_without_sandbox: T::Boolean,
+      retain_tmp:           T::Boolean,
+      debug:                T::Boolean,
+      _block:               T.proc.params(sandbox: Sandbox).void,
+    ).void
+  }
+  def self.run_or_fork(*args, step:, warn_without_sandbox: true, retain_tmp: false, debug: false, &_block)
+    if use_for?(step, warn_without_sandbox:)
+      sandbox = new
+      yield sandbox
+      sandbox.run(*args, retain_tmp:, debug:)
+    else
+      Utils.safe_fork { exec(*args) }
+    end
+  end
+
+  sig { returns(T::Boolean) }
+  def self.isolate_operation? = use_for?("processing downloaded files")
+
+  # Only the sandbox launcher passes this descriptor to its child.
+  sig { returns(T::Boolean) }
+  def self.inherited_sandbox?
+    return false unless File.identical?(IO.new(INHERITANCE_FD, autoclose: false), __FILE__)
+
+    # Ordinary file permissions cannot establish sandbox confinement.
+    # When they already deny writes, rely on the inherited descriptor instead.
+    return true unless File.stat(HOMEBREW_BREW_FILE).writable?
+
+    # Probe without creating, truncating or modifying the executable.
+    File.open(HOMEBREW_BREW_FILE, File::WRONLY) do
+      raise "Inherited sandbox permits writes to #{HOMEBREW_BREW_FILE}"
+    end
+  rescue Errno::EBADF
+    false
+  rescue Errno::EACCES, Errno::EPERM, Errno::EROFS
+    true
+  end
+
+        allow_write path: "^/private/var/folders/[^/]+/[^/]+/T/xcrun_db(-[^/]+)?$", type: :regex
+      end
+
+      module ClassMethods
+        extend T::Helpers
+
+        requires_ancestor { T.class_of(::Sandbox) }
+
+        sig { returns(T::Boolean) }
+        def available?
+          File.executable?(SANDBOX_EXEC)
+        end
+
+        # Nested `sandbox-exec` invocations hang inside an existing macOS sandbox
+        # (e.g. an agent's), so detect that via the libSystem `sandbox_check`
+        # syscall. The shared `avoid_nested_sandboxing?` only calls this once the
+        # `$HOMEBREW_AVOID_NESTED_SANDBOXING` opt-in is set.
+        sig { returns(T::Boolean) }
+        def nested_sandbox?
+          sandbox_check = Fiddle::Function.new(
+            Fiddle.dlopen(nil)["sandbox_check"],
+            [Fiddle::TYPE_INT, Fiddle::TYPE_VOIDP, Fiddle::TYPE_INT],
+            Fiddle::TYPE_INT,
+          )
+          sandbox_check.call(Process.pid, nil, 0) == 1
+        rescue Fiddle::DLError
+          false
+        end
+
+        sig { returns(Integer) }
+        def terminal_ioctl_request
+          TIOCSCTTY
+        end
+      end
+
+      private
+
+      sig { returns(T::Array[String]) }
+      def home_write_paths
+        home = Dir.home(ENV.fetch("USER"))
+        ["#{home}/Library/Developer", "#{home}/Library/Caches/org.swift.swiftpm"]
+      end
+
+      sig { params(args: T::Array[T.any(String, ::Pathname)], _tmpdir: String).returns(T::Array[T.any(String, ::Pathname)]) }
+      def sandbox_command(args, _tmpdir)
+        self.class.ruby_command("utils/disclaim.rb", SANDBOX_EXEC, "-p", seatbelt_profile, *args)
+      end
+
+      sig { void }
+      def ensure_child_tty_available
+        # We're opening and immediately closing so this is safe.
+        # rubocop:disable Style/FileOpen
+        File.open("/dev/tty", Fcntl::O_WRONLY).close # Workaround for https://developer.apple.com/forums/thread/663632
+        # rubocop:enable Style/FileOpen
+      end
+
+      sig { void }
+      def record_sandbox_log
+        start_time = start
+        raise "Cannot record the sandbox log before the sandbox has started" if start_time.nil?
+
+        sleep 0.1 # wait for a bit to let syslog catch up the latest events.
+        since = start_time.to_i.to_s
+        syslog_args = [
+          "-F", "$((Time)(local)) $(Sender)[$(PID)]: $(Message)",
+          "-k", "Time", "ge", since,
+          if ENV["HOMEBREW_NO_INSTALL_FROM_API"].present? || ENV["HOMEBREW_AUTO_UPDATE_TAP"].present?
+            300
+          elsif ENV["HOMEBREW_DEV_CMD_RUN"].present?
+            3600
+          else
+            86400
+          end
+        },
+      },
+      HOMEBREW_AVOID_NESTED_SANDBOXING:          {
+        description: "If set, skip Homebrew's sandbox when it is itself running inside another " \
+                     "sandbox, for an unprivileged user outside the default prefix. This trades " \
+                     "Homebrew's build-time network and filesystem denial for trust in the outer " \
+                     "sandbox. Homebrew errors out if the prefix or group makes skipping " \
+                     "unsupported.",
+        boolean:     :set,
+      },
+      HOMEBREW_BAT:                              {
+        description: "If set, use `bat` for the `brew cat` command. " \
+                     "Set `$BAT_CONFIG_PATH` to use a custom configuration file and `$BAT_THEME` to select a theme.",
+        boolean:     true,
+      },
+      HOMEBREW_BAT_CONFIG_PATH:                  {
+        description: "Use this as the `bat` configuration file.",
+        odeprecated: true,
+        replacement: "$BAT_CONFIG_PATH",
+# Release template, not a publishable formula until all placeholders are filled.
+# Use a signed/notarized two-binary archive that includes restart-after-upgrade.
+class Cercano < Formula
+  desc "AI-powered development tool with local/cloud model routing"
+  homepage "https://github.com/cercano-ai/Cercano"
+  url "file:///opt/cercano-migration-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz"
+  version "0.25.2"
+  sha256 "e57b4ff87d23241588df64e6f106b087775bb6c8939611fc9c540e907efef664"
+  license "MIT"
+
+  # Monterey is macOS 12, the deployment target the binaries are built against.
+  # Homebrew refuses installation on older systems and on Intel rather than
+  # letting a user install binaries that cannot run.
+  depends_on macos: :monterey
+  depends_on arch: :arm64
+
+  def install
+    bin.install "bin/cercano", "bin/cercano-cli"
+  end
+
+  # Homebrew invokes this after installing/linking the new keg. Never restart
+  # from install itself: a download/unpack/install failure must leave the old
+  # agent alone. The coordinator is a no-op when no owned agent is running.
+  def post_install
+    system bin/"cercano", "restart-after-upgrade"
+  end
+
+  def caveats
+    <<~EOS
+      Start the terminal client with cercano-cli.
+      A successful upgrade restarts an existing agent after draining work.
+      An absent agent is not started by installation or upgrade.
+      If post-install restart fails, inspect the reported error and agent logs.
+      Retry with: #{bin}/cercano restart-after-upgrade
+      Manual restart from an attached client: /restart-agent
+    EOS
+  end
+
+  # Runs with no credentials, no model downloads and no network, so every
+  # command here must work offline. Each binary prints its own name, verified
+  # against real builds.
+  #
+  # Deliberately does NOT invoke `restart-after-upgrade` without --help: that
+  # command acts on a running agent, and `brew test` must not restart the
+  # user's agent as a side effect.
+  test do
+    assert_match "cercano v#{version}", shell_output("#{bin}/cercano --version")
+    assert_match "cercano-cli v#{version}", shell_output("#{bin}/cercano-cli --version")
+    assert_match "Usage:", shell_output("#{bin}/cercano restart-after-upgrade --help")
+  end
+end
+
+STDERR:
+
+
+## Record 77 status=126
+R=/opt/cercano-migration-20261115; echo 'IDENTITY'; /usr/bin/sudo -u test /usr/bin/id; echo 'PRIVILEGED GROUPS'; grep -n PRIVILEGED_GROUPS "$R/brew/Library/Homebrew/sandbox.rb"; echo 'BREW METADATA'; ls -la "$R/brew/.git" "$R/brew/.git/HEAD" "$R/brew/.git/packed-refs" 2>/dev/null; echo 'DOC REFERENCES'; grep -R -n 'HOMEBREW_AVOID_NESTED_SANDBOXING' "$R/brew/docs" "$R/brew/manpages" 2>/dev/null; echo 'SOURCE HASH'; shasum -a 256 "$R/brew/Library/Homebrew/sandbox.rb" "$R/brew/Library/Homebrew/extend/os/mac/sandbox.rb" "$R/brew/Library/Homebrew/env_config.rb"; echo 'HELP'; "$R/brew-fixture.sh" help install
+STDOUT:
+IDENTITY
+uid=501(test) gid=20(staff) groups=20(staff),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae),701(com.apple.sharepoint.group.1)
+PRIVILEGED GROUPS
+20:  PRIVILEGED_GROUPS = %w[admin staff root wheel].freeze
+117:    privileged_group = PRIVILEGED_GROUPS.find do |name|
+BREW METADATA
+DOC REFERENCES
+SOURCE HASH
+21d5247f79c83f239ef0489ed1add2ab3d1304cb9c8f82c54ee752bf17f2e428  /opt/cercano-migration-20261115/brew/Library/Homebrew/sandbox.rb
+c9d913326afb75de4473c5e6129c8d5cb6a308dc78ce586f5bc8b6eafff0d43f  /opt/cercano-migration-20261115/brew/Library/Homebrew/extend/os/mac/sandbox.rb
+daea8cd973fcbfe6b9b135a63c3940bd275a4b7ed3e197d3825e82f1fe181c5b  /opt/cercano-migration-20261115/brew/Library/Homebrew/env_config.rb
+HELP
+
+STDERR:
+/bin/bash: line 1: /opt/cercano-migration-20261115/brew-fixture.sh: Permission denied
+
+
+## Record 78 status=0
+R=/opt/cercano-migration-20261115; echo 'SIMPLE NESTED SANDBOX REPRO'; /usr/bin/sudo -u test /usr/bin/env -i HOME="$R/home" PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/sandbox-exec -f "$R/safety.sb" /usr/bin/sandbox-exec -p '(version 1)(allow default)' /usr/bin/true; echo "nested_status=$?"; echo 'INSTALL HELP'; /bin/bash "$R/brew-fixture.sh" help install; echo "help_status=$?"; echo 'DOCUMENTED SETTING UNDER UNCHANGED OUTER PROFILE'; /usr/bin/sudo -u test /usr/bin/env -i HOME="$R/home" USER=test LOGNAME=test PATH="$R/brew/bin:/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$R/tmp" HOMEBREW_CACHE="$R/cache" HOMEBREW_LOGS="$R/logs" HOMEBREW_TEMP="$R/tmp" HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_INSTALL_FROM_API=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_CLEANUP_FORMULAE=cercano,cercano-agent HOMEBREW_AVOID_NESTED_SANDBOXING=1 /usr/bin/sandbox-exec -f "$R/safety.sb" "$R/brew/bin/brew" install migration/cercano/cercano; echo "scoped_install_status=$?"
+STDOUT:
+SIMPLE NESTED SANDBOX REPRO
+nested_status=71
+INSTALL HELP
+Usage: brew install [options] formula|cask [...]
+
+Install a formula or cask. Additional options specific to a formula may be
+appended to the command.
+
+Unless $HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK is set, brew upgrade or brew
+reinstall will be run for outdated dependents and dependents with broken
+linkage, respectively.
+
+Unless $HOMEBREW_NO_INSTALL_CLEANUP is set, brew cleanup will then be run
+for the installed formulae and casks or, every 30 days, for all packages.
+
+Unless $HOMEBREW_NO_INSTALL_UPGRADE is set, brew install formula will
+upgrade formula if it is already installed but outdated.
+
+  -d, --debug                      If brewing fails, open an interactive
+                                   debugging session with access to IRB or a
+                                   shell inside the temporary build directory.
+      --display-times              Print install times for each package at the
+                                   end of the run. Enabled by default if
+                                   $HOMEBREW_DISPLAY_INSTALL_TIMES is set.
+  -f, --force                      Install formulae without checking for
+                                   previously installed keg-only or non-migrated
+                                   versions. When installing casks, overwrite
+                                   existing files (binaries and symlinks are
+                                   excluded, unless originally from the same
+                                   cask).
+  -v, --verbose                    Print the verification and post-install
+                                   steps.
+  -n, --dry-run                    Show what would be installed, but do not
+                                   actually install anything.
+  -y, --no-ask, --yes              Do not ask for confirmation before
+                                   downloading and installing. Ask mode is the
+                                   default. Enabled by default if
+                                   $HOMEBREW_NO_ASK is set.
+      --formula, --formulae        Treat all named arguments as formulae.
+      --ignore-dependencies        An unsupported Homebrew development option to
+                                   skip installing any dependencies of any kind.
+                                   If the dependencies are not already present,
+                                   the formula will have issues. If you're not
+                                   developing Homebrew, consider adjusting your
+                                   PATH rather than using this option.
+      --only-dependencies          Install the dependencies with specified
+                                   options but do not install the formula
+                                   itself.
+      --cc                         Attempt to compile using the specified
+                                   compiler, which should be the name of the
+                                   compiler's executable, e.g. gcc-9 for GCC
+                                   9. In order to use LLVM's clang, specify
+                                   llvm_clang. To use the Apple-provided
+                                   clang, specify clang. This option will only
+                                   accept compilers that are provided by
+                                   Homebrew or bundled with macOS. Please do not
+                                   file issues if you encounter errors while
+                                   using this option.
+  -s, --build-from-source          Compile formula from source even if a
+                                   bottle is provided. Dependencies will still
+                                   be installed from bottles if they are
+                                   available.
+      --force-bottle               Install from a bottle if it exists for the
+                                   current or newest version of macOS, even if
+                                   it would not normally be used for
+                                   installation.
+      --include-test               Install testing dependencies required to run
+                                   brew test formula.
+      --HEAD                       If formula defines it, install the HEAD
+                                   version, aka. main, trunk, unstable, master.
+      --fetch-HEAD                 Fetch the upstream repository to detect if
+                                   the HEAD installation of the formula is
+                                   outdated. Otherwise, the repository's HEAD
+                                   will only be checked for updates when a new
+                                   stable or development version has been
+                                   released.
+      --keep-tmp                   Retain the temporary files created during
+                                   installation.
+      --debug-symbols              Generate debug symbols on build. Source will
+                                   be retained in a cache directory.
+      --build-bottle               Prepare the formula for eventual bottling
+                                   during installation, skipping any
+                                   post-install steps.
+      --skip-post-install          Install but skip any post-install steps.
+      --skip-link                  Install but skip linking the keg into the
+                                   prefix.
+      --as-dependency              Install but mark as installed as a dependency
+                                   and not installed on request.
+      --bottle-arch                Optimise bottles for the specified
+                                   architecture rather than the oldest
+                                   architecture supported by the version of
+                                   macOS the bottles are built on.
+  -i, --interactive                Download and patch formula, then open a
+                                   shell. This allows the user to run
+                                   ./configure --help and otherwise determine
+                                   how to turn the software package into a
+                                   Homebrew package. If formula has a fetch
+                                   block, first open a shell with network access
+                                   after it runs.
+  -g, --git                        Create a Git repository, useful for creating
+                                   patches to the software.
+      --overwrite                  Delete files that already exist in the prefix
+                                   while linking.
+      --cask, --casks              Treat all named arguments as casks.
+      --[no-]binaries              Disable/enable linking of helper executables
+                                   (default: enabled).
+      --require-sha                Require all casks to have a checksum.
+      --adopt                      Adopt existing artifacts in the destination
+                                   that are identical to those being installed.
+                                   Cannot be combined with --force.
+      --skip-cask-deps             Skip installing cask dependencies.
+      --zap                        For use with brew reinstall --cask. Remove
+                                   all files associated with a cask. May remove
+                                   files which are shared between applications.
+      --appdir                     Target location for Applications (default:
+                                   /Applications).
+      --appimagedir                Target location for AppImages (default:
+                                   ~/Applications).
+      --keyboard-layoutdir         Target location for Keyboard Layouts
+                                   (default: /Library/Keyboard Layouts).
+      --colorpickerdir             Target location for Color Pickers (default:
+                                   ~/Library/ColorPickers).
+      --prefpanedir                Target location for Preference Panes
+                                   (default: ~/Library/PreferencePanes).
+      --qlplugindir                Target location for Quick Look Plugins
+                                   (default: ~/Library/QuickLook).
+      --mdimporterdir              Target location for Spotlight Plugins
+                                   (default: ~/Library/Spotlight).
+      --dictionarydir              Target location for Dictionaries (default:
+                                   ~/Library/Dictionaries).
+      --fontdir                    Target location for Fonts (default:
+                                   ~/Library/Fonts).
+      --servicedir                 Target location for Services (default:
+                                   ~/Library/Services).
+      --input-methoddir            Target location for Input Methods (default:
+                                   ~/Library/Input Methods).
+      --internet-plugindir         Target location for Internet Plugins
+                                   (default: ~/Library/Internet Plug-Ins).
+      --audio-unit-plugindir       Target location for Audio Unit Plugins
+                                   (default:
+                                   ~/Library/Audio/Plug-Ins/Components).
+      --vst-plugindir              Target location for VST Plugins (default:
+                                   ~/Library/Audio/Plug-Ins/VST).
+      --vst3-plugindir             Target location for VST3 Plugins (default:
+                                   ~/Library/Audio/Plug-Ins/VST3).
+      --screen-saverdir            Target location for Screen Savers (default:
+                                   ~/Library/Screen Savers).
+      --language                   Comma-separated list of language codes to
+                                   prefer for cask installation. The first
+                                   matching language is used, otherwise it
+                                   reverts to the cask's default language. The
+                                   default value is the language of your system.
+  -q, --quiet                      Make some output more quiet.
+  -h, --help                       Show this message.
+help_status=0
+DOCUMENTED SETTING UNDER UNCHANGED OUTER PROFILE
+==> Installing cercano from migration/cercano
+scoped_install_status=1
+
+STDERR:
+sandbox-exec: sandbox_apply: Operation not permitted
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+Warning: The following taps are not trusted:
+  native/migration
+
+Homebrew is currently ignoring formulae, casks and commands
+from these taps because tap trust is required.
+Untap them with:
+  brew untap native/migration
+Trust specific formulae, casks and commands with:
+  brew trust --formula <user>/<tap>/<formula>
+  brew trust --cask <user>/<tap>/<cask>
+  brew trust --command <user>/<tap>/<command>
+Whole-tap trust is broader and includes all current and future formulae,
+casks and commands from the listed taps. Trust whole taps with:
+  brew trust native/migration
+For more information, see:
+  https://docs.brew.sh/Tap-Trust
+==> Fetching downloads for: cercano
+✔︎ Formula cercano (0.25.2)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Error: Refusing to skip the sandbox: `$HOMEBREW_AVOID_NESTED_SANDBOXING` is set inside another sandbox but you are in the privileged `admin` group; this is only supported for an unprivileged user.
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+
+Read the above document before opening any issues or PRs.
+
+
+## Record 79 status=0
+R=/opt/cercano-migration-20261115; echo 'FINAL PROFILE AND HISTORICAL FORMULA HASHES'; shasum -a 256 "$R/safety.sb" "$R/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb"; echo 'SYNTHETIC STATE'; shasum -a 256 "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*; echo 'KEGS'; find "$R/brew/Cellar" -maxdepth 2 -iname '*cercano*' -print; echo 'COMMAND LINKS'; ls -l "$R/brew/bin/cercano" "$R/brew/bin/cercano-cli" 2>/dev/null; echo 'CERCANO PROCESSES'; /bin/ps -axo comm= | /usr/bin/grep -E '(^|/)(cercano|cercano-cli|cercano-model-host)$'; echo "process_match_status=$?"; echo 'FIXTURE OWNER'; ls -ld "$R" "$R/brew" "$R/home"; echo 'SOURCE GUARD LINE NUMBERS'; /usr/bin/nl -ba "$R/brew/Library/Homebrew/sandbox.rb" | sed -n '15,23p;100,150p'; /usr/bin/nl -ba "$R/brew/Library/Homebrew/env_config.rb" | sed -n '129,137p'
+STDOUT:
+FINAL PROFILE AND HISTORICAL FORMULA HASHES
+5b4ab1be2e69df68181065aefb54397a402382cf24ae2e58ceb931723d12c966  /opt/cercano-migration-20261115/safety.sb
+4e55bcc37db70a6a8983963c3551a118d23a197b0a3ffd18afc2449462b1037f  /opt/cercano-migration-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb
+SYNTHETIC STATE
+3152a352aa84d73093251920dc8f170997d4bf2811c86b8cdde167f110e7c70b  /opt/cercano-migration-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-migration-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-migration-20261115/home/.cercano/credential-marker
+KEGS
+COMMAND LINKS
+CERCANO PROCESSES
+process_match_status=1
+FIXTURE OWNER
+drwxr-xr-x  16 test  staff  512 Nov 15 00:13 /opt/cercano-migration-20261115
+drwxrwxrwx  14 test  staff  448 Nov 15 00:12 /opt/cercano-migration-20261115/brew
+drwxr-xr-x   6 test  staff  192 Nov 15 00:12 /opt/cercano-migration-20261115/home
+SOURCE GUARD LINE NUMBERS
+    15	class Sandbox
+    16	  include Utils::Output::Mixin
+    17	  extend Utils::Output::Mixin
+    18
+    19	  # Privileged groups that are expected to be able to use a working sandbox.
+    20	  PRIVILEGED_GROUPS = %w[admin staff root wheel].freeze
+    21
+    22	  # Home-relative credential paths needed by Git downloads.
+    23	  GIT_CREDENTIAL_PATHS = %w[.ssh .gitconfig .git-credentials .config/gh .netrc].freeze
+   100
+   101	  # Skip Homebrew's own sandbox when it is opted into via
+   102	  # `$HOMEBREW_AVOID_NESTED_SANDBOXING` and already running inside another
+   103	  # sandbox. The skip is only supported for an unprivileged user in a custom
+   104	  # prefix; error out explaining why rather than silently sandboxing (and
+   105	  # hanging) when either is not the case.
+   106	  sig { returns(T::Boolean) }
+   107	  def self.avoid_nested_sandboxing?
+   108	    return false unless Homebrew::EnvConfig.avoid_nested_sandboxing?
+   109	    return false unless nested_sandbox?
+   110
+   111	    if Homebrew.default_prefix?
+   112	      odie "Refusing to skip the sandbox: `$HOMEBREW_AVOID_NESTED_SANDBOXING` is set " \
+   113	           "inside another sandbox but Homebrew is using its default prefix " \
+   114	           "(#{HOMEBREW_PREFIX}); this is only supported in a custom prefix."
+   115	    end
+   116
+   117	    privileged_group = PRIVILEGED_GROUPS.find do |name|
+   118	      group = Etc.getgrnam(name)
+   119	      group && Process.groups.include?(group.gid)
+   120	    rescue ArgumentError
+   121	      false
+   122	    end
+   123	    if privileged_group
+   124	      odie "Refusing to skip the sandbox: `$HOMEBREW_AVOID_NESTED_SANDBOXING` is set " \
+   125	           "inside another sandbox but you are in the privileged `#{privileged_group}` " \
+   126	           "group; this is only supported for an unprivileged user."
+   127	    end
+   128
+   129	    true
+   130	  end
+   131
+   132	  sig { params(step: String, warn_without_sandbox: T::Boolean).returns(T::Boolean) }
+   133	  def self.use_for?(step, warn_without_sandbox: true)
+   134	    return false if inherited_sandbox?
+   135
+   136	    unless available?
+   137	      opoo_once "Sandbox unavailable: #{step} without sandboxing!" if warn_without_sandbox
+   138	      return false
+   139	    end
+   140
+   141	    if avoid_nested_sandboxing?
+   142	      opoo_once "#{step.capitalize} without Homebrew's sandbox; relying on the outer sandbox." if warn_without_sandbox
+   143	      return false
+   144	    end
+   145
+   146	    true
+   147	  end
+   148
+   149	  sig {
+   150	    params(
+   129	      HOMEBREW_AVOID_NESTED_SANDBOXING:          {
+   130	        description: "If set, skip Homebrew's sandbox when it is itself running inside another " \
+   131	                     "sandbox, for an unprivileged user outside the default prefix. This trades " \
+   132	                     "Homebrew's build-time network and filesystem denial for trust in the outer " \
+   133	                     "sandbox. Homebrew errors out if the prefix or group makes skipping " \
+   134	                     "unsupported.",
+   135	        boolean:     :set,
+   136	      },
+   137	      HOMEBREW_BAT:                              {
+
+STDERR:
+
+
+## Record 80 status=0
+prlctl snapshot-list 08196962-608d-4fde-8284-49a5f020fea6
+STDOUT:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                       *{2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+
+STDERR:
+
