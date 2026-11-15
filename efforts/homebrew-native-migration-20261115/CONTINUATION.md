@@ -46,3 +46,7 @@ Actual installed-user applicability, active-session drain/restart continuity, fu
 Retain both snapshots, UID/GID5501 and entire new fixture including old/new kegs, state, caches/logs, helper scripts/probes. The helper processes were reaped; unique probe socket paths removed by their creating process. Preserve `/Users/test`, `/opt/homebrew` and prior fixture. No package cleanup/uninstall or other teardown performed. Checkpoint contains scripts/evidence only, never archives or guest state.
 
 Local validation: `python3 -m unittest discover -s release/homebrew -p 'test_*.py'` passed70 tests; `ruby release/homebrew/test_formula.rb` passed5 runs/40 assertions. These do not replace native acceptance gates.
+
+## Subsequent bounded failure-case continuation
+
+See [FAILURE-CASES.md](FAILURE-CASES.md) for separate-baseline results and records104–136. Missing-CLI rollback, repository-lag packaging, independent operations and synthetic-data-preserving uninstall passed. Ordinary upgrade did NOT reproduce the requested conflict; direct link conflict is separate evidence. Post-convenience snapshot rollback and real split A/B runtime compatibility remain NOT RUN. Original successful fixture and both snapshots retained. This supersedes only corresponding NOT RUN packaging entries above, not remaining shipping gates.
