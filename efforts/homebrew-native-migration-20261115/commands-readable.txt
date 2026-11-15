@@ -1,0 +1,1048 @@
+## Record 1 status=0
+curl -fL --max-time 240 https://github.com/cercano-ai/Cercano/releases/download/v0.25.2/cercano-0.25.2-darwin-arm64.tar.gz -o efforts/homebrew-native-migration-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz
+STDOUT:
+
+STDERR:
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+
+ 72 41.4M   72 30.0M    0     0  26.0M      0  0:00:01  0:00:01 --:--:-- 26.0M
+100 41.4M  100 41.4M    0     0  23.0M      0  0:00:01  0:00:01 --:--:-- 17.7M
+
+
+## Record 2 status=0
+curl -fL --max-time 240 https://github.com/cercano-ai/Cercano/releases/download/v0.27.0/cercano-0.27.0-darwin-arm64.tar.gz -o efforts/homebrew-native-migration-20261115/artifacts/cercano-0.27.0-darwin-arm64.tar.gz
+STDOUT:
+
+STDERR:
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+
+  0 43.6M    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100 43.6M  100 43.6M    0     0  49.4M      0 --:--:-- --:--:-- --:--:-- 74.8M
+
+
+## Record 3 status=1
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c set -eu; R=/private/tmp/cercano-migration-20261115; test ! -e "$R"; mkdir -p "$R"/{home,brew,artifacts,inspect}; ditto /opt/homebrew/Library "$R/brew/Library"; mkdir "$R/brew/bin"; cp /opt/homebrew/bin/brew "$R/brew/bin/brew"; cp /opt/homebrew/LICENSE.txt "$R/brew/"; du -sh "$R"; chown -R 501:20 "$R"; for V in 0.25.2 0.27.0; do curl -fL --max-time 240 "https://github.com/cercano-ai/Cercano/releases/download/v$V/cercano-$V-darwin-arm64.tar.gz" -o "$R/artifacts/cercano-$V-darwin-arm64.tar.gz"; mkdir "$R/inspect/$V"; tar -xzf "$R/artifacts/cercano-$V-darwin-arm64.tar.gz" -C "$R/inspect/$V"; done; shasum -a 256 "$R"/artifacts/*; find "$R/inspect" -type f -maxdepth 4; for F in "$R"/inspect/*/bin/*; do codesign --verify --strict --verbose=2 "$F"; codesign -dvv "$F"; done
+STDOUT:
+BASH=/bin/bash
+BASH_ARGC=([0]="0")
+BASH_ARGV=()
+BASH_EXECUTION_STRING=set
+BASH_LINENO=()
+BASH_SOURCE=()
+BASH_VERSINFO=([0]="3" [1]="2" [2]="57" [3]="1" [4]="release" [5]="arm64-apple-darwin25")
+BASH_VERSION='3.2.57(1)-release'
+DIRSTACK=()
+EUID=0
+GROUPS=()
+HISTFILE=/dev/null
+HOME=/
+HOSTNAME=cercano-disposable-migration-20261106-095610.shared
+HOSTTYPE=arm64
+IFS=$' \t\n'
+MACHTYPE=arm64-apple-darwin25
+OPTERR=1
+OPTIND=1
+OSTYPE=darwin25
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:.
+PPID=642
+PS4='+ '
+PWD=/
+SHELL=/bin/bash
+SHELLOPTS=braceexpand:hashall:interactive-comments
+SHLVL=2
+TERM=linux
+UID=0
+_=/bin/bash
+1.5G	/private/tmp/cercano-migration-20261115
+e57b4ff87d23241588df64e6f106b087775bb6c8939611fc9c540e907efef664  /private/tmp/cercano-migration-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz
+18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0  /private/tmp/cercano-migration-20261115/artifacts/cercano-0.27.0-darwin-arm64.tar.gz
+/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/LICENSE
+/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano
+/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli
+/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/README.txt
+/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/runtime-inventory.json
+/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/LICENSE
+/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano
+/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli
+/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/README.txt
+
+STDERR:
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+
+100 41.4M  100 41.4M    0     0  78.5M      0 --:--:-- --:--:-- --:--:-- 78.5M
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+
+ 30 43.6M   30 13.2M    0     0  53.4M      0 --:--:-- --:--:-- --:--:-- 53.4M
+100 43.6M  100 43.6M    0     0  90.1M      0 --:--:-- --:--:-- --:--:--  128M
+/private/tmp/cercano-migration-20261115/inspect/*/bin/*: No such file or directory
+/private/tmp/cercano-migration-20261115/inspect/*/bin/*: No such file or directory
+
+
+## Record 4 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'set -eu; R=/private/tmp/cercano-migration-20261115; for F in "$R"/inspect/*/*/bin/*; do codesign --verify --strict --verbose=2 "$F"; codesign -dvv "$F"; done; ls -ld "$R/brew/Library/Homebrew/vendor/portable-ruby"/*; ls "$R/brew/Library/Taps"; grep -n '"'"'HOMEBREW_PREFIX\|HOMEBREW_REPOSITORY'"'"' "$R/brew/bin/brew" | head -25; ps -axo pid,uid,command | grep -E '"'"'cercano|model.host'"'"''
+STDOUT:
+drwxr-xr-x  14 test  staff  448 Oct 23 00:13 /private/tmp/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9
+lrwxrwxrwx   1 test  staff    5 Nov 15 00:06 /private/tmp/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/current -> 4.0.9
+fixture
+homebrew
+native
+81:HOMEBREW_PREFIX="${HOMEBREW_BREW_FILE%/*/*}"
+84:if [[ -z "${HOMEBREW_PREFIX}" || "${HOMEBREW_PREFIX}" = "${HOMEBREW_BREW_FILE}" ]]
+86:  HOMEBREW_PREFIX="/"
+89:HOMEBREW_REPOSITORY="${HOMEBREW_PREFIX}"
+95:  HOMEBREW_REPOSITORY="${BREW_FILE_DIRECTORY%/*}"
+98:# Try to find a /usr/local HOMEBREW_PREFIX where possible (for macOS x86_64 bottles)
+99:if [[ -L "/usr/local/bin/brew" && ! -L "${HOMEBREW_PREFIX}/Cellar" ]]
+102:  USR_LOCAL_HOMEBREW_REPOSITORY="${USR_LOCAL_BREW_FILE_DIRECTORY%/*}"
+103:  if [[ "${HOMEBREW_REPOSITORY}" = "${USR_LOCAL_HOMEBREW_REPOSITORY}" ]]
+105:    HOMEBREW_PREFIX="/usr/local"
+107:  unset USR_LOCAL_BREW_FILE_DIRECTORY USR_LOCAL_HOMEBREW_REPOSITORY
+114:HOMEBREW_LIBRARY="${HOMEBREW_REPOSITORY}/Library"
+119:  HOMEBREW_PREFIX
+120:  HOMEBREW_REPOSITORY
+162:export_homebrew_env_file "${HOMEBREW_PREFIX}/etc/homebrew/brew.env"
+  677     0 /bin/bash -c set -eu; R=/private/tmp/cercano-migration-20261115; for F in "$R"/inspect/*/*/bin/*; do codesign --verify --strict --verbose=2 "$F"; codesign -dvv "$F"; done; ls -ld "$R/brew/Library/Homebrew/vendor/portable-ruby"/*; ls "$R/brew/Library/Taps"; grep -n 'HOMEBREW_PREFIX\|HOMEBREW_REPOSITORY' "$R/brew/bin/brew" | head -25; ps -axo pid,uid,command | grep -E 'cercano|model.host'
+  691     0 grep -E cercano|model.host
+
+STDERR:
+/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano: valid on disk
+/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano: satisfies its Designated Requirement
+Executable=/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano
+Identifier=cercano
+Format=Mach-O thin (arm64)
+CodeDirectory v=20500 size=494707 flags=0x10000(runtime) hashes=15454+2 location=embedded
+Signature size=8980
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=Oct 22, 2026 at 1:52:11 PM
+Info.plist=not bound
+TeamIdentifier=4HPM47RCM4
+Runtime Version=14.5.0
+Sealed Resources=none
+Internal requirements count=1 size=168
+/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli: valid on disk
+/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli: satisfies its Designated Requirement
+Executable=/private/tmp/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli
+Identifier=cercano-cli
+Format=Mach-O thin (arm64)
+CodeDirectory v=20500 size=255799 flags=0x10000(runtime) hashes=7988+2 location=embedded
+Signature size=8981
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=Oct 22, 2026 at 1:52:11 PM
+Info.plist=not bound
+TeamIdentifier=4HPM47RCM4
+Runtime Version=12.0.0
+Sealed Resources=none
+Internal requirements count=1 size=172
+/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano: valid on disk
+/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano: satisfies its Designated Requirement
+Executable=/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano
+Identifier=cercano
+Format=Mach-O thin (arm64)
+CodeDirectory v=20500 size=517587 flags=0x10000(runtime) hashes=16169+2 location=embedded
+Signature size=8980
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=Nov 14, 2026 at 4:40:09 PM
+Info.plist=not bound
+TeamIdentifier=4HPM47RCM4
+Runtime Version=15.5.0
+Sealed Resources=none
+Internal requirements count=1 size=168
+/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli: valid on disk
+/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli: satisfies its Designated Requirement
+Executable=/private/tmp/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli
+Identifier=cercano-cli
+Format=Mach-O thin (arm64)
+CodeDirectory v=20500 size=267575 flags=0x10000(runtime) hashes=8356+2 location=embedded
+Signature size=8981
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=Nov 14, 2026 at 4:40:09 PM
+Info.plist=not bound
+TeamIdentifier=4HPM47RCM4
+Runtime Version=15.5.0
+Sealed Resources=none
+Internal requirements count=1 size=172
+
+
+## Record 5 status=1
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'R=/private/tmp/cercano-migration-20261115; find "$R/brew/Library/Taps" -maxdepth 3 -type l -ls; /usr/bin/sudo -u test /usr/bin/env -i HOME="$R/home" PATH=/usr/bin:/bin:/usr/sbin:/sbin HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_INSTALL_FROM_API=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_CLEANUP_FORMULAE=cercano,cercano-agent "$R/brew/bin/brew" config'
+STDOUT:
+
+STDERR:
+Error: Your HOMEBREW_PREFIX is in the Homebrew temporary directory, which Homebrew
+uses to store downloads and builds. You can resolve this by installing Homebrew
+to either the standard prefix for your platform or to a non-standard prefix that
+is not in the Homebrew temporary directory.
+
+
+## Record 6 status=255
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'set -eu; test ! -e /opt/cercano-migration-20261115; mv /private/tmp/cercano-migration-20261115 /opt/cercano-migration-20261115; R=/opt/cercano-migration-20261115; mkdir -p "$R/brew/etc/homebrew" "$R/home/.cercano" "$R/tmp"; printf '"'"'HOMEBREW_NO_CLEANUP_FORMULAE=cercano,cercano-agent\nHOMEBREW_NO_INSTALL_CLEANUP=1\nHOMEBREW_NO_AUTO_UPDATE=1\nHOMEBREW_NO_ANALYTICS=1\nHOMEBREW_NO_INSTALL_FROM_API=1\n'"'"' > "$R/brew/etc/homebrew/brew.env"; printf '"'"'synthetic-config-marker\n'"'"' > "$R/home/.cercano/config-marker"; printf '"'"'synthetic-conversation\n'"'"' > "$R/home/.cercano/conversation-marker"; printf '"'"'INERT-NOT-A-CREDENTIAL\n'"'"' > "$R/home/.cercano/credential-marker"; chown -R 501:20 "$R"; sudo -u test env -i HOME="$R/home" PATH=/usr/bin:/bin:/usr/sbin:/sbin HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_INSTALL_FROM_API=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_CLEANUP_FORMULAE=cercano,cercano-agent "$R/brew/bin/brew" config'
+STDOUT:
+
+STDERR:
+PrlJob_GetResult: Invalid argument. An invalid argument was passed.
+
+
+## Record 7 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'test ! -e /opt/cercano-migration-20261115 && mv /private/tmp/cercano-migration-20261115 /opt/cercano-migration-20261115; ls -ld /opt/cercano-migration-20261115'
+STDOUT:
+drwxrwxrwx  6 test  staff  192 Nov 15 00:06 /opt/cercano-migration-20261115
+
+STDERR:
+
+
+## Record 8 status=1
+python3 release/homebrew/render_formula.py --version 0.27.0 --archive efforts/homebrew-native-migration-20261115/artifacts/cercano-0.27.0-darwin-arm64.tar.gz --sha256 18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0 --output efforts/homebrew-native-migration-20261115/formulas/cercano.rb
+STDOUT:
+
+STDERR:
+error: could not write formula set: [Errno 2] No such file or directory: 'efforts/homebrew-native-migration-20261115/formulas/cercano.rb'
+
+
+## Record 9 status=0
+python3 release/homebrew/render_formula.py --version 0.27.0 --archive efforts/homebrew-native-migration-20261115/artifacts/cercano-0.27.0-darwin-arm64.tar.gz --sha256 18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0 --output efforts/homebrew-native-migration-20261115/formulas/cercano.rb
+STDOUT:
+Rendered efforts/homebrew-native-migration-20261115/formulas/cercano.rb and component siblings (non-publishing fixtures)
+Signature, notarization, architecture and reported version are NOT checked here.
+
+STDERR:
+
+
+## Record 10 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'test ! -e '"'"'/opt/cercano-migration-20261115/setup.sh'"'"'; : > '"'"'/opt/cercano-migration-20261115/setup.sh.b64'"'"''
+STDOUT:
+
+STDERR:
+
+
+## Record 11 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'printf %s '"'"'IyEvYmluL2Jhc2gKc2V0IC1ldW8gcGlwZWZhaWwKUj0vb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1Cm1rZGlyIC1wICIkUiIve2hvbWUvLmNvbmZpZy9jZXJjYW5vLGhvbWUvLmNlcmNhbm8sdG1wLGNhY2hlLGxvZ3MsYnJldy9ldGMvaG9tZWJyZXcsdGFwL0Zvcm11bGF9CmNobW9kIDc1NSAiJFIiICIkUi9ob21lIgpwcmludGYgJ3BvcnQ6ICI0OTM4MSJcbicgPiAiJFIvaG9tZS8uY29uZmlnL2NlcmNhbm8vY29uZmlnLnlhbWwiCnByaW50ZiAnc3ludGhldGljLWNvbnZlcnNhdGlvblxuJyA+ICIkUi9ob21lLy5jZXJjYW5vL2NvbnZlcnNhdGlvbi1tYXJrZXIiCnByaW50ZiAnSU5FUlQtTk9ULUEtQ1JFREVOVElBTFxuJyA+ICIkUi9ob21lLy5jZXJjYW5vL2NyZWRlbnRpYWwtbWFya2VyIgpwcmludGYgJyVzXG4nIEhPTUVCUkVXX05PX0NMRUFOVVBfRk9STVVMQUU9Y2VyY2Fubyxj'"'"' >> '"'"'/opt/cercano-migration-20261115/setup.sh.b64'"'"''
+STDOUT:
+
+STDERR:
+
+
+## Record 12 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'printf %s '"'"'ZXJjYW5vLWFnZW50IEhPTUVCUkVXX05PX0lOU1RBTExfQ0xFQU5VUD0xIEhPTUVCUkVXX05PX0FVVE9fVVBEQVRFPTEgSE9NRUJSRVdfTk9fQU5BTFlUSUNTPTEgSE9NRUJSRVdfTk9fSU5TVEFMTF9GUk9NX0FQST0xID4gIiRSL2JyZXcvZXRjL2hvbWVicmV3L2JyZXcuZW52IgojIE5vIGhpc3RvcmljYWwgaG9vayBtYXkgcmVhY2ggYW55IG5ldHdvcmsgZW5kcG9pbnQ7IHRoZSBuby1hZ2VudCBjYXNlIG5lZWRzIG5vIG5ldHdvcmsuCmNhdCA+ICIkUi9zYWZldHkuc2IiIDw8J0VPRicKKHZlcnNpb24gMSkKKGFsbG93IGRlZmF1bHQpCihkZW55IG5ldHdvcmsqKQooZGVueSBzaWduYWwpCihkZW55IGZpbGUtcmVhZCogZmlsZS13cml0ZSogKHN1YnBhdGggIi9Vc2Vycy90ZXN0IikgKHN1YnBhdGggIi9MaWJyYXJ5L0tleWNoYWlucyIpIChzdWJwYXRoICIvb3B0L2hvbWVicmV3IikpCkVPRgpj'"'"' >> '"'"'/opt/cercano-migration-20261115/setup.sh.b64'"'"''
+STDOUT:
+
+STDERR:
+
+
+## Record 13 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'printf %s '"'"'aG93biAtUiA1MDE6MjAgIiRSIgpzdWRvIC11IHRlc3QgZW52IC1pIEhPTUU9IiRSL2hvbWUiIFBBVEg9L3Vzci9iaW46L2JpbjovdXNyL3NiaW46L3NiaW4gSE9NRUJSRVdfQ0FDSEU9IiRSL2NhY2hlIiBIT01FQlJFV19MT0dTPSIkUi9sb2dzIiBIT01FQlJFV19URU1QPSIkUi90bXAiICIkUi9icmV3L2Jpbi9icmV3IiBjb25maWcKc2hhc3VtIC1hIDI1NiAiJFIvaG9tZS8uY29uZmlnL2NlcmNhbm8vY29uZmlnLnlhbWwiICIkUi9ob21lLy5jZXJjYW5vLyIqCg=='"'"' >> '"'"'/opt/cercano-migration-20261115/setup.sh.b64'"'"''
+STDOUT:
+
+STDERR:
+
+
+## Record 14 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c '/usr/bin/base64 -D < '"'"'/opt/cercano-migration-20261115/setup.sh.b64'"'"' > '"'"'/opt/cercano-migration-20261115/setup.sh'"'"''
+STDOUT:
+
+STDERR:
+
+
+## Record 15 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c '/bin/bash /opt/cercano-migration-20261115/setup.sh'
+STDOUT:
+HOMEBREW_VERSION: >=4.3.0 (shallow or no git repository)
+ORIGIN: (none)
+HEAD: (none)
+Last commit: never
+Branch: (none)
+Core tap HEAD: 55711ea862c695b69a38a8b44ee72ef817ec364a
+Core tap last commit: 11 days ago
+Core cask tap: N/A
+HOMEBREW_PREFIX: /opt/cercano-migration-20261115/brew
+HOMEBREW_REPOSITORY: /opt/cercano-migration-20261115/brew
+HOMEBREW_CELLAR: /opt/cercano-migration-20261115/brew/Cellar
+HOMEBREW_CACHE: /opt/cercano-migration-20261115/cache
+HOMEBREW_LOGS: /opt/cercano-migration-20261115/logs
+HOMEBREW_NO_ANALYTICS: set
+HOMEBREW_NO_AUTO_UPDATE: set
+HOMEBREW_NO_CLEANUP_FORMULAE: cercano,cercano-agent
+HOMEBREW_NO_INSTALL_CLEANUP: set
+HOMEBREW_NO_INSTALL_FROM_API: set
+HOMEBREW_TEMP: /opt/cercano-migration-20261115/tmp
+Homebrew Ruby: 4.0.9 => /opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/bin/ruby
+CPU: quad-core 64-bit dunno
+Clang: 21.0.0 build 2100
+Git: 2.50.1 => /Library/Developer/CommandLineTools/usr/bin/git
+Curl: 8.7.1 => /usr/bin/curl
+macOS: 26.5.2-arm64
+CLT: 26.6.0.0.1781586589
+Xcode: N/A
+Rosetta 2: false
+3152a352aa84d73093251920dc8f170997d4bf2811c86b8cdde167f110e7c70b  /opt/cercano-migration-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-migration-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-migration-20261115/home/.cercano/credential-marker
+
+STDERR:
+
+
+## Record 16 status=255
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'test ! -e '"'"'/opt/cercano-migration-20261115/brew-fixture.sh'"'"'; : > '"'"'/opt/cercano-migration-20261115/brew-fixture.sh.b64'"'"''
+STDOUT:
+
+STDERR:
+PrlJob_GetResult: Invalid argument. An invalid argument was passed.
+
+
+## Record 17 status=255
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'test ! -e '"'"'/opt/cercano-migration-20261115/brew-fixture.sh'"'"'; : > '"'"'/opt/cercano-migration-20261115/brew-fixture.sh.b64'"'"''
+STDOUT:
+
+STDERR:
+PrlJob_GetResult: Invalid argument. An invalid argument was passed.
+
+
+## Record 18 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo dGVzdCAhIC1lICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L2JyZXctZml4dHVyZS5zaCc7IDogPiAnL29wdC9jZXJjYW5vLW1pZ3JhdGlvbi0yMDI2MTExNS9icmV3LWZpeHR1cmUuc2guYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 19 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdJeUV2WW1sdUwySmhjMmdLYzJWMElDMWxkVzhnY0dsd1pXWmhhV3dLVWowdmIzQjBMMk5sY21OaGJtOHRiV2xuY21GMGFXOXVMVEl3TWpZeE1URTFDaU1nVW1WbWRYTmxJR0psWm05eVpTQmhibmtnY0dGamEyRm5aU0J2Y0dWeVlYUnBiMjRnYVdZZ1lXNTVJSEpsWVd3Z1EyVnlZMkZ1YnlCaFoyVnVkQzkzYjNKclpYSWdaWGhwYzNSekxncHBaaUF2WW1sdUwzQnpJQzFoZUc4Z1kyOXRiVDBnZkNBdmRYTnlMMkpwYmk5bmNtVndJQzFGSUNjb1hud3ZLU2hqWlhKallXNXZmR05sY21OaGJtOHRZMnhwZkdObGNtTmhibTh0Ylc5a1pXd3RhRzl6ZENra0p6c2dkR2hsYmdvZ1pXTm9ieUFuVWtWR1ZWTkZSRG9nZFc1bGVIQmxZM1JsWkNCRFpYSmpZVzV2SUhCeWIyTmxjM01uT3lCbGVHbDBJRGN3Q21acENpOTFjM0l2WW1sdUwzTjFaRzhnTFhVZ2RHVnpkQ0F2ZFhOeUwySnBiaTlsYm5ZZ0xXa2dTRTlOUlQwaUpGSXZhRzl0WlNJZ1ZWTkZVajEwWlhOMElFeFBSMDVCVFVVOWRHVnpkQ0JRUVZSSVBTSWtVaTlpY21WM0wySnBiam92ZFhOeUwySnBiam92WW1sdU9pOTFjM0l2YzJKcGJqb3ZjMkpwYmlJZ1ZFMVFSRWxTUFNJa1VpOTBiWEFpSUVoUFRVVkNVa1ZYWDBOQlEwaEYnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L2JyZXctZml4dHVyZS5zaC5iNjQn | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 20 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdQU0lrVWk5allXTm9aU0lnU0U5TlJVSlNSVmRmVEU5SFV6MGlKRkl2Ykc5bmN5SWdTRTlOUlVKU1JWZGZWRVZOVUQwaUpGSXZkRzF3SWlCSVQwMUZRbEpGVjE5T1QxOUJWVlJQWDFWUVJFRlVSVDB4SUVoUFRVVkNVa1ZYWDA1UFgwRk9RVXhaVkVsRFV6MHhJRWhQVFVWQ1VrVlhYMDVQWDBsT1UxUkJURXhmUmxKUFRWOUJVRWs5TVNCSVQwMUZRbEpGVjE5T1QxOUpUbE5VUVV4TVgwTk1SVUZPVlZBOU1TQklUMDFGUWxKRlYxOU9UMTlEVEVWQlRsVlFYMFpQVWsxVlRFRkZQV05sY21OaGJtOHNZMlZ5WTJGdWJ5MWhaMlZ1ZENBdmRYTnlMMkpwYmk5ellXNWtZbTk0TFdWNFpXTWdMV1lnSWlSU0wzTmhabVYwZVM1ellpSWdJaVJTTDJKeVpYY3ZZbWx1TDJKeVpYY2lJQ0lrUUNJSycgPj4gJy9vcHQvY2VyY2Fuby1taWdyYXRpb24tMjAyNjExMTUvYnJldy1maXh0dXJlLnNoLmI2NCc= | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 21 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo L3Vzci9iaW4vYmFzZTY0IC1EIDwgJy9vcHQvY2VyY2Fuby1taWdyYXRpb24tMjAyNjExMTUvYnJldy1maXh0dXJlLnNoLmI2NCcgPiAnL29wdC9jZXJjYW5vLW1pZ3JhdGlvbi0yMDI2MTExNS9icmV3LWZpeHR1cmUuc2gn | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 22 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo dGVzdCAhIC1lICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmInOyA6ID4gJy9vcHQvY2VyY2Fuby1taWdyYXRpb24tMjAyNjExMTUvdGFwL0Zvcm11bGEvY2VyY2Fuby5yYi5iNjQn | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 23 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdJeUJTWld4bFlYTmxJSFJsYlhCc1lYUmxMQ0J1YjNRZ1lTQndkV0pzYVhOb1lXSnNaU0JtYjNKdGRXeGhJSFZ1ZEdsc0lHRnNiQ0J3YkdGalpXaHZiR1JsY25NZ1lYSmxJR1pwYkd4bFpDNEtJeUJWYzJVZ1lTQnphV2R1WldRdmJtOTBZWEpwZW1Wa0lIUjNieTFpYVc1aGNua2dZWEpqYUdsMlpTQjBhR0YwSUdsdVkyeDFaR1Z6SUhKbGMzUmhjblF0WVdaMFpYSXRkWEJuY21Ga1pTNEtZMnhoYzNNZ1EyVnlZMkZ1YnlBOElFWnZjbTExYkdFS0lDQmtaWE5qSUNKQlNTMXdiM2RsY21Wa0lHUmxkbVZzYjNCdFpXNTBJSFJ2YjJ3Z2QybDBhQ0JzYjJOaGJDOWpiRzkxWkNCdGIyUmxiQ0J5YjNWMGFXNW5JZ29nSUdodmJXVndZV2RsSUNKb2RIUndjem92TDJkcGRHaDFZaTVqYjIwdlkyVnlZMkZ1YnkxaGFTOURaWEpqWVc1dklnb2dJSFZ5YkNBaVptbHNaVG92THk5dmNIUXZZMlZ5WTJGdWJ5MXRhV2R5WVhScGIyNHRNakF5TmpFeE1UVXZZWEowYVdaaFkzUnpMMk5sY21OaGJtOHRNQzR5TlM0eUxXUmhjbmRwYmkxaGNtMDJOQzUwWVhJdVozb2lDaUFnZG1WeWMybHZiaUFpTUM0eU5TNHlJZ29nSUhOb1lUSTFOaUFpWlRVM1lqUm1aamczWkRJek1qUXhOVGc0WkdZMk5HVTInID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmIuYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 24 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdaakV3Tm1Jd09EYzNOelZpWWpaak9Ea3pPVFl4TVdaak9XTTFOREJsT1RBM1pXWmxaalkyTkNJS0lDQnNhV05sYm5ObElDSk5TVlFpQ2dvZ0lDTWdUVzl1ZEdWeVpYa2dhWE1nYldGalQxTWdNVElzSUhSb1pTQmtaWEJzYjNsdFpXNTBJSFJoY21kbGRDQjBhR1VnWW1sdVlYSnBaWE1nWVhKbElHSjFhV3gwSUdGbllXbHVjM1F1Q2lBZ0l5QkliMjFsWW5KbGR5QnlaV1oxYzJWeklHbHVjM1JoYkd4aGRHbHZiaUJ2YmlCdmJHUmxjaUJ6ZVhOMFpXMXpJR0Z1WkNCdmJpQkpiblJsYkNCeVlYUm9aWElnZEdoaGJnb2dJQ01nYkdWMGRHbHVaeUJoSUhWelpYSWdhVzV6ZEdGc2JDQmlhVzVoY21sbGN5QjBhR0YwSUdOaGJtNXZkQ0J5ZFc0dUNpQWdaR1Z3Wlc1a2MxOXZiaUJ0WVdOdmN6b2dPbTF2Ym5SbGNtVjVDaUFnWkdWd1pXNWtjMTl2YmlCaGNtTm9PaUE2WVhKdE5qUUtDaUFnWkdWbUlHbHVjM1JoYkd3S0lDQWdJR0pwYmk1cGJuTjBZV3hzSUNKaWFXNHZZMlZ5WTJGdWJ5SXNJQ0ppYVc0dlkyVnlZMkZ1YnkxamJHa2lDaUFnWlc1a0Nnb2dJQ01nU0c5dFpXSnlaWGNnYVc1MmIydGxjeUIwYUdseklHRm1kR1Z5SUdsdWMzUmhiR3hwYm1jdmJHbHVhMmx1WnlCMGFHVWcnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmIuYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 25 status=255
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdibVYzSUd0bFp5NGdUbVYyWlhJZ2NtVnpkR0Z5ZEFvZ0lDTWdabkp2YlNCcGJuTjBZV3hzSUdsMGMyVnNaam9nWVNCa2IzZHViRzloWkM5MWJuQmhZMnN2YVc1emRHRnNiQ0JtWVdsc2RYSmxJRzExYzNRZ2JHVmhkbVVnZEdobElHOXNaQW9nSUNNZ1lXZGxiblFnWVd4dmJtVXVJRlJvWlNCamIyOXlaR2x1WVhSdmNpQnBjeUJoSUc1dkxXOXdJSGRvWlc0Z2JtOGdiM2R1WldRZ1lXZGxiblFnYVhNZ2NuVnVibWx1Wnk0S0lDQmtaV1lnY0c5emRGOXBibk4wWVd4c0NpQWdJQ0J6ZVhOMFpXMGdZbWx1THlKalpYSmpZVzV2SWl3Z0luSmxjM1JoY25RdFlXWjBaWEl0ZFhCbmNtRmtaU0lLSUNCbGJtUUtDaUFnWkdWbUlHTmhkbVZoZEhNS0lDQWdJRHc4ZmtWUFV3b2dJQ0FnSUNCVGRHRnlkQ0IwYUdVZ2RHVnliV2x1WVd3Z1kyeHBaVzUwSUhkcGRHZ2dZMlZ5WTJGdWJ5MWpiR2t1Q2lBZ0lDQWdJRUVnYzNWalkyVnpjMloxYkNCMWNHZHlZV1JsSUhKbGMzUmhjblJ6SUdGdUlHVjRhWE4wYVc1bklHRm5aVzUwSUdGbWRHVnlJR1J5WVdsdWFXNW5JSGR2Y21zdUNpQWdJQ0FnSUVGdUlHRmljMlZ1ZENCaFoyVnVkQ0JwY3lCdWIzUWdjM1JoY25SbFpDQmllU0JwYm5OMFlXeHMnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmIuYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+PrlJob_GetResult: Invalid argument. An invalid argument was passed.
+
+
+## Record 26 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo dGVzdCAhIC1lICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmInOyA6ID4gJy9vcHQvY2VyY2Fuby1taWdyYXRpb24tMjAyNjExMTUvdGFwL0Zvcm11bGEvY2VyY2Fuby5yYi5iNjQn | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 27 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdJeUJTWld4bFlYTmxJSFJsYlhCc1lYUmxMQ0J1YjNRZ1lTQndkV0pzYVhOb1lXSnNaU0JtYjNKdGRXeGhJSFZ1ZEdsc0lHRnNiQ0J3YkdGalpXaHZiR1JsY25NZ1lYSmxJR1pwYkd4bFpDNEtJeUJWYzJVZ1lTQnphV2R1WldRdmJtOTBZWEpwZW1Wa0lIUjNieTFpYVc1aGNua2dZWEpqYUdsMlpTQjBhR0YwSUdsdVkyeDEnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmIuYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 28 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdaR1Z6SUhKbGMzUmhjblF0WVdaMFpYSXRkWEJuY21Ga1pTNEtZMnhoYzNNZ1EyVnlZMkZ1YnlBOElFWnZjbTExYkdFS0lDQmtaWE5qSUNKQlNTMXdiM2RsY21Wa0lHUmxkbVZzYjNCdFpXNTBJSFJ2YjJ3Z2QybDBhQ0JzYjJOaGJDOWpiRzkxWkNCdGIyUmxiQ0J5YjNWMGFXNW5JZ29nSUdodmJXVndZV2RsSUNKb2RIUncnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmIuYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 29 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdjem92TDJkcGRHaDFZaTVqYjIwdlkyVnlZMkZ1YnkxaGFTOURaWEpqWVc1dklnb2dJSFZ5YkNBaVptbHNaVG92THk5dmNIUXZZMlZ5WTJGdWJ5MXRhV2R5WVhScGIyNHRNakF5TmpFeE1UVXZZWEowYVdaaFkzUnpMMk5sY21OaGJtOHRNQzR5TlM0eUxXUmhjbmRwYmkxaGNtMDJOQzUwWVhJdVozb2lDaUFnZG1WeWMybHYnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmIuYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 30 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdiaUFpTUM0eU5TNHlJZ29nSUhOb1lUSTFOaUFpWlRVM1lqUm1aamczWkRJek1qUXhOVGc0WkdZMk5HVTJaakV3Tm1Jd09EYzNOelZpWWpaak9Ea3pPVFl4TVdaak9XTTFOREJsT1RBM1pXWmxaalkyTkNJS0lDQnNhV05sYm5ObElDSk5TVlFpQ2dvZ0lDTWdUVzl1ZEdWeVpYa2dhWE1nYldGalQxTWdNVElzSUhSb1pTQmsnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmIuYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 31 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdaWEJzYjNsdFpXNTBJSFJoY21kbGRDQjBhR1VnWW1sdVlYSnBaWE1nWVhKbElHSjFhV3gwSUdGbllXbHVjM1F1Q2lBZ0l5QkliMjFsWW5KbGR5QnlaV1oxYzJWeklHbHVjM1JoYkd4aGRHbHZiaUJ2YmlCdmJHUmxjaUJ6ZVhOMFpXMXpJR0Z1WkNCdmJpQkpiblJsYkNCeVlYUm9aWElnZEdoaGJnb2dJQ01nYkdWMGRHbHUnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmIuYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+
+
+## Record 32 status=255
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c 'echo cHJpbnRmICVzICdaeUJoSUhWelpYSWdhVzV6ZEdGc2JDQmlhVzVoY21sbGN5QjBhR0YwSUdOaGJtNXZkQ0J5ZFc0dUNpQWdaR1Z3Wlc1a2MxOXZiaUJ0WVdOdmN6b2dPbTF2Ym5SbGNtVjVDaUFnWkdWd1pXNWtjMTl2YmlCaGNtTm9PaUE2WVhKdE5qUUtDaUFnWkdWbUlHbHVjM1JoYkd3S0lDQWdJR0pwYmk1cGJuTjBZV3hzSUNKaWFXNHYnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L3RhcC9Gb3JtdWxhL2NlcmNhbm8ucmIuYjY0Jw== | /usr/bin/base64 -D | /bin/bash'
+STDOUT:
+
+STDERR:
+PrlJob_GetResult: Invalid argument. An invalid argument was passed.
+
+
+## Record 33 status=0
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c "echo dGVzdCAhIC1lICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L2JyZXctZml4dHVyZS5zaCc7IDogPiAnL29wdC9jZXJjYW5vLW1pZ3JhdGlvbi0yMDI2MTExNS9icmV3LWZpeHR1cmUuc2guYjY0Jw== | /usr/bin/base64 -D | /bin/bash"
+STDOUT:
+
+STDERR:
+
+
+## Record 34 status=255
+prlctl exec 08196962-608d-4fde-8284-49a5f020fea6 /bin/bash -c "echo cHJpbnRmICVzICdJeUV2WW1sdUwySmhjMmdLYzJWMElDMWxkVzhnY0dsd1pXWmhhV3dLVWowdmIzQjBMMk5sY21OaGJtOHRiV2xuY21GMGFXOXVMVEl3TWpZeE1URTFDaU1nVW1WbWRYTmxJR0psWm05eVpTQmhibmtnY0dGamEyRm5aU0J2Y0dWeVlYUnBiMjRnYVdZZ1lXNTVJSEpsWVd3Z1EyVnlZMkZ1YnlCaFoyVnVkQzkzYjNKclpYSWcnID4+ICcvb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1L2JyZXctZml4dHVyZS5zaC5iNjQn | /usr/bin/base64 -D | /bin/bash"
+STDOUT:
+
+STDERR:
+PrlJob_GetResult: Invalid argument. An invalid argument was passed.
+
+
+## Record 35 status=255
+test ! -e '/opt/cercano-migration-20261115/brew-fixture.sh'; : > '/opt/cercano-migration-20261115/brew-fixture.sh.b64'
+STDOUT:
+
+STDERR:
+PrlJob_GetResult: Invalid argument. An invalid argument was passed.
+
+
+## Record 36 status=0
+echo foo
+STDOUT:
+foo
+
+STDERR:
+
+
+## Record 37 status=0
+echo foo > /opt/cercano-migration-20261115/transport-probe
+STDOUT:
+
+STDERR:
+
+
+## Record 38 status=0
+test ! -e '/opt/cercano-migration-20261115/brew-fixture.sh'; : > '/opt/cercano-migration-20261115/brew-fixture.sh.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 39 status=0
+test ! -e '/opt/cercano-migration-20261115/brew-fixture.sh'; : > '/opt/cercano-migration-20261115/brew-fixture.sh.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 40 status=0
+printf %s 'IyEvYmluL2Jhc2gKc2V0IC1ldW8gcGlwZWZhaWwKUj0vb3B0L2NlcmNhbm8tbWlncmF0aW9uLTIwMjYxMTE1CiMgUmVmdXNlIGJlZm9yZSBhbnkgcGFja2FnZSBvcGVyYXRpb24gaWYgYW55IHJlYWwgQ2VyY2FubyBhZ2VudC93b3JrZXIg' >> '/opt/cercano-migration-20261115/brew-fixture.sh.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 41 status=0
+printf %s 'ZXhpc3RzLgppZiAvYmluL3BzIC1heG8gY29tbT0gfCAvdXNyL2Jpbi9ncmVwIC1FICcoXnwvKShjZXJjYW5vfGNlcmNhbm8tY2xpfGNlcmNhbm8tbW9kZWwtaG9zdCkkJzsgdGhlbgogZWNobyAnUkVGVVNFRDogdW5leHBlY3RlZCBDZXJj' >> '/opt/cercano-migration-20261115/brew-fixture.sh.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 42 status=0
+printf %s 'YW5vIHByb2Nlc3MnOyBleGl0IDcwCmZpCi91c3IvYmluL3N1ZG8gLXUgdGVzdCAvdXNyL2Jpbi9lbnYgLWkgSE9NRT0iJFIvaG9tZSIgVVNFUj10ZXN0IExPR05BTUU9dGVzdCBQQVRIPSIkUi9icmV3L2JpbjovdXNyL2JpbjovYmluOi91' >> '/opt/cercano-migration-20261115/brew-fixture.sh.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 43 status=0
+printf %s 'c3Ivc2Jpbjovc2JpbiIgVE1QRElSPSIkUi90bXAiIEhPTUVCUkVXX0NBQ0hFPSIkUi9jYWNoZSIgSE9NRUJSRVdfTE9HUz0iJFIvbG9ncyIgSE9NRUJSRVdfVEVNUD0iJFIvdG1wIiBIT01FQlJFV19OT19BVVRPX1VQREFURT0xIEhPTUVC' >> '/opt/cercano-migration-20261115/brew-fixture.sh.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 44 status=0
+printf %s 'UkVXX05PX0FOQUxZVElDUz0xIEhPTUVCUkVXX05PX0lOU1RBTExfRlJPTV9BUEk9MSBIT01FQlJFV19OT19JTlNUQUxMX0NMRUFOVVA9MSBIT01FQlJFV19OT19DTEVBTlVQX0ZPUk1VTEFFPWNlcmNhbm8sY2VyY2Fuby1hZ2VudCAvdXNy' >> '/opt/cercano-migration-20261115/brew-fixture.sh.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 45 status=0
+printf %s 'L2Jpbi9zYW5kYm94LWV4ZWMgLWYgIiRSL3NhZmV0eS5zYiIgIiRSL2JyZXcvYmluL2JyZXciICIkQCIK' >> '/opt/cercano-migration-20261115/brew-fixture.sh.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 46 status=0
+/usr/bin/base64 -D < '/opt/cercano-migration-20261115/brew-fixture.sh.b64' > '/opt/cercano-migration-20261115/brew-fixture.sh'
+STDOUT:
+
+STDERR:
+
+
+## Record 47 status=0
+test ! -e '/opt/cercano-migration-20261115/tap/Formula/cercano.rb'; : > '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 48 status=0
+printf %s 'IyBSZWxlYXNlIHRlbXBsYXRlLCBub3QgYSBwdWJsaXNoYWJsZSBmb3JtdWxhIHVudGlsIGFsbCBwbGFjZWhvbGRlcnMgYXJlIGZpbGxlZC4KIyBVc2UgYSBzaWduZWQvbm90YXJpemVkIHR3by1iaW5hcnkgYXJjaGl2ZSB0aGF0IGluY2x1' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 49 status=0
+printf %s 'ZGVzIHJlc3RhcnQtYWZ0ZXItdXBncmFkZS4KY2xhc3MgQ2VyY2FubyA8IEZvcm11bGEKICBkZXNjICJBSS1wb3dlcmVkIGRldmVsb3BtZW50IHRvb2wgd2l0aCBsb2NhbC9jbG91ZCBtb2RlbCByb3V0aW5nIgogIGhvbWVwYWdlICJodHRw' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 50 status=0
+printf %s 'czovL2dpdGh1Yi5jb20vY2VyY2Fuby1haS9DZXJjYW5vIgogIHVybCAiZmlsZTovLy9vcHQvY2VyY2Fuby1taWdyYXRpb24tMjAyNjExMTUvYXJ0aWZhY3RzL2NlcmNhbm8tMC4yNS4yLWRhcndpbi1hcm02NC50YXIuZ3oiCiAgdmVyc2lv' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 51 status=0
+printf %s 'biAiMC4yNS4yIgogIHNoYTI1NiAiZTU3YjRmZjg3ZDIzMjQxNTg4ZGY2NGU2ZjEwNmIwODc3NzViYjZjODkzOTYxMWZjOWM1NDBlOTA3ZWZlZjY2NCIKICBsaWNlbnNlICJNSVQiCgogICMgTW9udGVyZXkgaXMgbWFjT1MgMTIsIHRoZSBk' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 52 status=0
+printf %s 'ZXBsb3ltZW50IHRhcmdldCB0aGUgYmluYXJpZXMgYXJlIGJ1aWx0IGFnYWluc3QuCiAgIyBIb21lYnJldyByZWZ1c2VzIGluc3RhbGxhdGlvbiBvbiBvbGRlciBzeXN0ZW1zIGFuZCBvbiBJbnRlbCByYXRoZXIgdGhhbgogICMgbGV0dGlu' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 53 status=0
+printf %s 'ZyBhIHVzZXIgaW5zdGFsbCBiaW5hcmllcyB0aGF0IGNhbm5vdCBydW4uCiAgZGVwZW5kc19vbiBtYWNvczogOm1vbnRlcmV5CiAgZGVwZW5kc19vbiBhcmNoOiA6YXJtNjQKCiAgZGVmIGluc3RhbGwKICAgIGJpbi5pbnN0YWxsICJiaW4v' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 54 status=0
+printf %s 'Y2VyY2FubyIsICJiaW4vY2VyY2Fuby1jbGkiCiAgZW5kCgogICMgSG9tZWJyZXcgaW52b2tlcyB0aGlzIGFmdGVyIGluc3RhbGxpbmcvbGlua2luZyB0aGUgbmV3IGtlZy4gTmV2ZXIgcmVzdGFydAogICMgZnJvbSBpbnN0YWxsIGl0c2Vs' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 55 status=0
+printf %s 'ZjogYSBkb3dubG9hZC91bnBhY2svaW5zdGFsbCBmYWlsdXJlIG11c3QgbGVhdmUgdGhlIG9sZAogICMgYWdlbnQgYWxvbmUuIFRoZSBjb29yZGluYXRvciBpcyBhIG5vLW9wIHdoZW4gbm8gb3duZWQgYWdlbnQgaXMgcnVubmluZy4KICBk' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 56 status=0
+printf %s 'ZWYgcG9zdF9pbnN0YWxsCiAgICBzeXN0ZW0gYmluLyJjZXJjYW5vIiwgInJlc3RhcnQtYWZ0ZXItdXBncmFkZSIKICBlbmQKCiAgZGVmIGNhdmVhdHMKICAgIDw8fkVPUwogICAgICBTdGFydCB0aGUgdGVybWluYWwgY2xpZW50IHdpdGgg' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 57 status=0
+printf %s 'Y2VyY2Fuby1jbGkuCiAgICAgIEEgc3VjY2Vzc2Z1bCB1cGdyYWRlIHJlc3RhcnRzIGFuIGV4aXN0aW5nIGFnZW50IGFmdGVyIGRyYWluaW5nIHdvcmsuCiAgICAgIEFuIGFic2VudCBhZ2VudCBpcyBub3Qgc3RhcnRlZCBieSBpbnN0YWxs' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 58 status=0
+printf %s 'YXRpb24gb3IgdXBncmFkZS4KICAgICAgSWYgcG9zdC1pbnN0YWxsIHJlc3RhcnQgZmFpbHMsIGluc3BlY3QgdGhlIHJlcG9ydGVkIGVycm9yIGFuZCBhZ2VudCBsb2dzLgogICAgICBSZXRyeSB3aXRoOiAje2Jpbn0vY2VyY2FubyByZXN0' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 59 status=0
+printf %s 'YXJ0LWFmdGVyLXVwZ3JhZGUKICAgICAgTWFudWFsIHJlc3RhcnQgZnJvbSBhbiBhdHRhY2hlZCBjbGllbnQ6IC9yZXN0YXJ0LWFnZW50CiAgICBFT1MKICBlbmQKCiAgIyBSdW5zIHdpdGggbm8gY3JlZGVudGlhbHMsIG5vIG1vZGVsIGRv' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 60 status=0
+printf %s 'd25sb2FkcyBhbmQgbm8gbmV0d29yaywgc28gZXZlcnkKICAjIGNvbW1hbmQgaGVyZSBtdXN0IHdvcmsgb2ZmbGluZS4gRWFjaCBiaW5hcnkgcHJpbnRzIGl0cyBvd24gbmFtZSwgdmVyaWZpZWQKICAjIGFnYWluc3QgcmVhbCBidWlsZHMu' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 61 status=0
+printf %s 'CiAgIwogICMgRGVsaWJlcmF0ZWx5IGRvZXMgTk9UIGludm9rZSBgcmVzdGFydC1hZnRlci11cGdyYWRlYCB3aXRob3V0IC0taGVscDogdGhhdAogICMgY29tbWFuZCBhY3RzIG9uIGEgcnVubmluZyBhZ2VudCwgYW5kIGBicmV3IHRlc3Rg' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 62 status=0
+printf %s 'IG11c3Qgbm90IHJlc3RhcnQgdGhlCiAgIyB1c2VyJ3MgYWdlbnQgYXMgYSBzaWRlIGVmZmVjdC4KICB0ZXN0IGRvCiAgICBhc3NlcnRfbWF0Y2ggImNlcmNhbm8gdiN7dmVyc2lvbn0iLCBzaGVsbF9vdXRwdXQoIiN7YmlufS9jZXJjYW5v' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 63 status=0
+printf %s 'IC0tdmVyc2lvbiIpCiAgICBhc3NlcnRfbWF0Y2ggImNlcmNhbm8tY2xpIHYje3ZlcnNpb259Iiwgc2hlbGxfb3V0cHV0KCIje2Jpbn0vY2VyY2Fuby1jbGkgLS12ZXJzaW9uIikKICAgIGFzc2VydF9tYXRjaCAiVXNhZ2U6Iiwgc2hlbGxf' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 64 status=0
+printf %s 'b3V0cHV0KCIje2Jpbn0vY2VyY2FubyByZXN0YXJ0LWFmdGVyLXVwZ3JhZGUgLS1oZWxwIikKICBlbmQKZW5kCg==' >> '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64'
+STDOUT:
+
+STDERR:
+
+
+## Record 65 status=0
+/usr/bin/base64 -D < '/opt/cercano-migration-20261115/tap/Formula/cercano.rb.b64' > '/opt/cercano-migration-20261115/tap/Formula/cercano.rb'
+STDOUT:
+
+STDERR:
+
+
+## Record 66 status=0
+R=/opt/cercano-migration-20261115; chown -R 501:20 "$R/tap"; sudo -u test git -C "$R/tap" init; /bin/bash "$R/brew-fixture.sh" tap migration/cercano "$R/tap"
+STDOUT:
+Initialized empty Git repository in /opt/cercano-migration-20261115/tap/.git/
+
+STDERR:
+==> Tapping migration/cercano
+Cloning into '/opt/cercano-migration-20261115/brew/Library/Taps/migration/homebrew-cercano'...
+warning: You appear to have cloned an empty repository.
+done.
+Tapped (2 files, 1.1KB).
+
+
+## Record 67 status=255
+/bin/bash /opt/cercano-migration-20261115/brew-fixture.sh install --formula migration/cercano/cercano
+STDOUT:
+
+STDERR:
+PrlJob_GetRetCode: Invalid argument. An invalid argument was passed.
+
+
+## Record 68 status=1
+R=/opt/cercano-migration-20261115; cp "$R/tap/Formula/cercano.rb" "$R/brew/Library/Taps/migration/homebrew-cercano/Formula-cercano.rb"; mkdir -p "$R/brew/Library/Taps/migration/homebrew-cercano/Formula"; mv "$R/brew/Library/Taps/migration/homebrew-cercano/Formula-cercano.rb" "$R/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb"; chown -R 501:20 "$R/brew/Library/Taps/migration"; /bin/bash "$R/brew-fixture.sh" install migration/cercano/cercano
+STDOUT:
+==> Installing cercano from migration/cercano
+
+STDERR:
+==> Trusted formula migration/cercano/cercano
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+Warning: The following taps are not trusted:
+  native/migration
+
+Homebrew is currently ignoring formulae, casks and commands
+from these taps because tap trust is required.
+Untap them with:
+  brew untap native/migration
+Trust specific formulae, casks and commands with:
+  brew trust --formula <user>/<tap>/<formula>
+  brew trust --cask <user>/<tap>/<cask>
+  brew trust --command <user>/<tap>/<command>
+Whole-tap trust is broader and includes all current and future formulae,
+casks and commands from the listed taps. Trust whole taps with:
+  brew trust native/migration
+For more information, see:
+  https://docs.brew.sh/Tap-Trust
+==> Fetching downloads for: cercano
+✔︎ Formula cercano (0.25.2)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Error: migration/cercano/cercano: Operation not permitted @ rb_check_realpath_internal - /Users/test
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+  
+Read the above document before opening any issues or PRs.
+
+
+## Record 69 status=1
+R=/opt/cercano-migration-20261115; /usr/bin/sed -i '' 's/file-read\* file-write\*/file-read-data file-write*/' "$R/safety.sb"; /bin/bash "$R/brew-fixture.sh" install migration/cercano/cercano
+STDOUT:
+==> Installing cercano from migration/cercano
+
+STDERR:
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+Warning: The following taps are not trusted:
+  native/migration
+
+Homebrew is currently ignoring formulae, casks and commands
+from these taps because tap trust is required.
+Untap them with:
+  brew untap native/migration
+Trust specific formulae, casks and commands with:
+  brew trust --formula <user>/<tap>/<formula>
+  brew trust --cask <user>/<tap>/<cask>
+  brew trust --command <user>/<tap>/<command>
+Whole-tap trust is broader and includes all current and future formulae,
+casks and commands from the listed taps. Trust whole taps with:
+  brew trust native/migration
+For more information, see:
+  https://docs.brew.sh/Tap-Trust
+==> Fetching downloads for: cercano
+✔︎ Formula cercano (0.25.2)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Error: migration/cercano/cercano: Operation not permitted - bind(2) for /opt/cercano-migration-20261115/tmp/s-UnCquXEa/socket
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+  
+Read the above document before opening any issues or PRs.
+
+
+## Record 70 status=1
+R=/opt/cercano-migration-20261115; printf '\n(allow network* (local unix-socket) (remote unix-socket))\n' >> "$R/safety.sb"; /bin/bash "$R/brew-fixture.sh" install migration/cercano/cercano
+STDOUT:
+==> Installing cercano from migration/cercano
+sandbox-exec: sandbox_apply: Operation not permitted
+
+STDERR:
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+Warning: The following taps are not trusted:
+  native/migration
+
+Homebrew is currently ignoring formulae, casks and commands
+from these taps because tap trust is required.
+Untap them with:
+  brew untap native/migration
+Trust specific formulae, casks and commands with:
+  brew trust --formula <user>/<tap>/<formula>
+  brew trust --cask <user>/<tap>/<cask>
+  brew trust --command <user>/<tap>/<command>
+Whole-tap trust is broader and includes all current and future formulae,
+casks and commands from the listed taps. Trust whole taps with:
+  brew trust native/migration
+For more information, see:
+  https://docs.brew.sh/Tap-Trust
+==> Fetching downloads for: cercano
+✔︎ Formula cercano (0.25.2)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Error: migration/cercano/cercano: Failure while executing; `/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/bin/ruby -W1 --disable=gems,rubyopt -I /opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/bundler-4.0.20/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/reline-0.6.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/rdoc-7.0.4/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/rake-13.3.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/msgpack-1.8.5/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/irb-1.16.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/fiddle-1.1.8/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/debug-1.11.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/bootsnap-1.26.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/extensions/arm64-darwin-20/4.0.0-static/msgpack-1.8.5:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/extensions/arm64-darwin-20/4.0.0-static/fiddle-1.1.8:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/extensions/arm64-darwin-20/4.0.0-static/debug-1.11.1:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/extensions/arm64-darwin-20/4.0.0-static/bootsnap-1.26.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/yard-sorbet-0.9.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/yard-0.9.45/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/vernier-1.11.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/vernier-1.11.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/test-prof-1.6.4/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/tapioca-0.20.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/stackprof-0.2.28/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/stackprof-0.2.28:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/simplecov-cobertura-4.0.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/simplecov-1.3.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubydex-0.4.2-arm64-darwin/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ruby-prof-2.0.5/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/ruby-prof-2.0.5:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ruby-macho-7.0.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ruby-lsp-0.26.11/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-sorbet-0.17.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/spoom-1.8.12/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/thor-1.5.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/sorbet-static-and-runtime-0.6.13591/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/sorbet-0.6.13591/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/sorbet-static-0.6.13591-universal-darwin/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-rspec-3.10.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-performance-1.27.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-md-2.0.4/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-1.92.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/unicode-display_width-3.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/unicode-emoji-4.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ruby-progressbar-1.13.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-ast-1.50.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec_junit_formatter-0.8.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-sorbet-1.9.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/sorbet-runtime-0.6.13591/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-retry-0.6.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-github-3.0.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-3.13.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-mocks-3.13.8/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-expectations-3.13.5/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-core-3.13.6/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-support-3.13.7/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/require-hooks-0.5.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rbi-0.5.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rbs-4.2.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/rbs-4.2.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/tsort-0.2.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rainbow-3.1.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/plist-3.7.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/patchelf-1.7.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/parser-3.3.13.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/racc-1.8.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/racc-1.8.1:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/parallel_tests-5.8.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/parallel-2.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ostruct-0.6.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/netrc-0.11.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/minitest-6.0.6/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/prism-1.9.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/prism-1.9.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/logger-1.7.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/lint_roller-1.1.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/language_server-protocol-3.17.0.6/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/kramdown-2.5.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rexml-3.4.4/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/json_schemer-2.5.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/simpleidn-0.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/regexp_parser-2.13.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/json-3.1.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/json-3.1.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/hana-1.3.7/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/erubi-1.13.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/elftools-2.2.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/drb-2.2.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/diff-lcs-1.6.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/csv-3.3.6/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/concurrent-ruby-1.3.8/lib/concurrent-ruby:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/bindata-3.0.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/bigdecimal-4.1.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/bigdecimal-4.1.3:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/benchmark-0.5.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/base64-0.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ast-2.4.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/vendor_ruby/4.0.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/vendor_ruby/4.0.0/arm64-darwin20:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/vendor_ruby:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/4.0.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/4.0.0/arm64-darwin20 -- /opt/cercano-migration-20261115/brew/Library/Homebrew/utils/disclaim.rb /usr/bin/sandbox-exec -p \(version\ 1\)'
+'\(debug\ deny\)\ \;\ log\ all\ denied\ operations\ to\ /var/log/system.log'
+'\(deny\ network-outbound\ \(to\ unix-socket\)\)'
+''
+'\(allow\ network-outbound\ \(to\ unix-socket\ \(path-literal\ \"/private/var/run/mDNSResponder\"\)\)\)'
+''
+'\(allow\ file-read\*\ \(literal\ \"/opt/cercano-migration-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb\"\)\)'
+'\(allow\ file-read\*\ \(literal\ \"/opt/cercano-migration-20261115/home/.homebrew/trust.json\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/opt/cercano-migration-20261115/logs/cercano\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/opt/cercano-migration-20261115/logs/cercano\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/opt/cercano-migration-20261115/logs/cercano\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/Users/test/.cvspass\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/Users/test/.cvspass\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/Users/test/.cvspass\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/Users/test/.fossil\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/Users/test/.fossil\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/Users/test/.fossil\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/Users/test/.fossil-journal\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/Users/test/.fossil-journal\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/Users/test/.fossil-journal\"\)\)'
+'\(deny\ file-read\*\ \(subpath\ \"/Users/test\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/Users/test/Library/Developer\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/Users/test/Library/Developer\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/Users/test/Library/Developer\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/Users/test/Library/Caches/org.swift.swiftpm\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/Users/test/Library/Caches/org.swift.swiftpm\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/Users/test/Library/Caches/org.swift.swiftpm\"\)\)'
+'\(allow\ file-write\*\ \(regex\ \#\"\^/private/var/folders/\[\^/\]+/\[\^/\]+/T/xcrun_db\(-\[\^/\]+\)\?\$\"\)\)'
+'\(allow\ file-write-setugid\ \(regex\ \#\"\^/private/var/folders/\[\^/\]+/\[\^/\]+/T/xcrun_db\(-\[\^/\]+\)\?\$\"\)\)'
+'\(allow\ file-write-mode\ \(regex\ \#\"\^/private/var/folders/\[\^/\]+/\[\^/\]+/T/xcrun_db\(-\[\^/\]+\)\?\$\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/opt/cercano-migration-20261115/brew/Cellar/cercano\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/opt/cercano-migration-20261115/brew/Cellar/cercano\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/opt/cercano-migration-20261115/brew/Cellar/cercano\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/opt/cercano-migration-20261115/brew/etc\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/opt/cercano-migration-20261115/brew/etc\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/opt/cercano-migration-20261115/brew/etc\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/opt/cercano-migration-20261115/brew/var\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/opt/cercano-migration-20261115/brew/var\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/opt/cercano-migration-20261115/brew/var\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/private/tmp\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/private/tmp\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/private/tmp\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/private/var/tmp\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/private/var/tmp\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/private/var/tmp\"\)\)'
+'\(allow\ file-write\*\ \(regex\ \#\"\^/private/var/folders/\[\^/\]+/\[\^/\]+/\[C,T\]/\"\)\)'
+'\(allow\ file-write-setugid\ \(regex\ \#\"\^/private/var/folders/\[\^/\]+/\[\^/\]+/\[C,T\]/\"\)\)'
+'\(allow\ file-write-mode\ \(regex\ \#\"\^/private/var/folders/\[\^/\]+/\[\^/\]+/\[C,T\]/\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/opt/cercano-migration-20261115/tmp\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/opt/cercano-migration-20261115/tmp\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/opt/cercano-migration-20261115/tmp\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/opt/cercano-migration-20261115/cache\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/opt/cercano-migration-20261115/cache\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/opt/cercano-migration-20261115/cache\"\)\)'
+'\(deny\ file-write\*\ \(subpath\ \"/opt/cercano-migration-20261115/brew/var/homebrew/tmp/.cellar\"\)\)'
+'\(deny\ file-write\*\ \(subpath\ \"/opt/cercano-migration-20261115/brew/var/homebrew/locks\"\)\)'
+'\(deny\ file-read\*\ \(subpath\ \"/opt/cercano-migration-20261115/brew/var/homebrew/locks\"\)\)'
+'\(allow\ file-read\*\ \(subpath\ \"/opt/cercano-migration-20261115/tmp/s-60E0a10s\"\)\)'
+'\(allow\ file-write\*\ \(subpath\ \"/opt/cercano-migration-20261115/tmp/s-60E0a10s\"\)\)'
+'\(allow\ file-write-setugid\ \(subpath\ \"/opt/cercano-migration-20261115/tmp/s-60E0a10s\"\)\)'
+'\(allow\ file-write-mode\ \(subpath\ \"/opt/cercano-migration-20261115/tmp/s-60E0a10s\"\)\)'
+'\(allow\ network\*\ network-outbound\ \(subpath\ \"/opt/cercano-migration-20261115/tmp/s-60E0a10s\"\)\)'
+'\(allow\ file-write\*'
+'\ \ \ \ \(literal\ \"/dev/ptmx\"\)'
+'\ \ \ \ \(literal\ \"/dev/dtracehelper\"\)'
+'\ \ \ \ \(literal\ \"/dev/null\"\)'
+'\ \ \ \ \(literal\ \"/dev/random\"\)'
+'\ \ \ \ \(literal\ \"/dev/zero\"\)'
+'\ \ \ \ \(regex\ \#\"\^/dev/fd/\[0-9\]+\$\"\)'
+'\ \ \ \ \(regex\ \#\"\^/dev/tty\[a-z0-9\]\*\$\"\)'
+'\ \ \ \ \)'
+'\(deny\ file-write\*\)\ \;\ deny\ non-allowlist\ file\ write\ operations'
+'\(deny\ file-write-setugid\)\ \;\ deny\ non-allowlist\ file\ write\ SUID/SGID\ operations'
+'\(deny\ file-write-mode\)\ \;\ deny\ non-allowlist\ file\ write\ mode\ operations'
+'\(deny\ mach-lookup\)'
+'\(allow\ mach-lookup'
+'\ \ \ \ \(xpc-service-name\ \"com.apple.MTLCompilerService\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.mobileassetd.v2\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.sysmond\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.lsd.mapdb\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.bsd.dirhelper\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.system.opendirectoryd.libinfo\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.system.opendirectoryd.membership\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.PowerManagement.control\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.SecurityServer\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.networkd\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.ocspd\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.trustd.agent\"\)'
+''
+'\ \ \ \ \(global-name\ \"com.apple.trustd\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.TrustEvaluationAgent\"\)'
+''
+'\ \ \ \ \(global-name\ \"com.apple.SystemConfiguration.DNSConfiguration\"\)'
+'\ \ \ \ \(global-name\ \"com.apple.SystemConfiguration.configd\"\)'
+'\ \ \ \ \)'
+'\(deny\ lsopen\)'
+'\(deny\ appleevent-send\)'
+'\(allow\ process-exec'
+'\ \ \ \ \(literal\ \"/bin/ps\"\)'
+'\ \ \ \ \(with\ no-sandbox\)'
+'\ \ \ \ \)\ \;\ allow\ certain\ processes\ running\ without\ sandbox'
+'\(allow\ default\)\ \;\ allow\ everything\ else'
+' nice /opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/bin/ruby -W1 --disable=gems,rubyopt -I /opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/bundler-4.0.20/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/reline-0.6.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/rdoc-7.0.4/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/rake-13.3.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/msgpack-1.8.5/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/irb-1.16.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/fiddle-1.1.8/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/debug-1.11.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/gems/bootsnap-1.26.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/extensions/arm64-darwin-20/4.0.0-static/msgpack-1.8.5:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/extensions/arm64-darwin-20/4.0.0-static/fiddle-1.1.8:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/extensions/arm64-darwin-20/4.0.0-static/debug-1.11.1:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/gems/4.0.0/extensions/arm64-darwin-20/4.0.0-static/bootsnap-1.26.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/yard-sorbet-0.9.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/yard-0.9.45/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/vernier-1.11.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/vernier-1.11.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/test-prof-1.6.4/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/tapioca-0.20.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/stackprof-0.2.28/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/stackprof-0.2.28:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/simplecov-cobertura-4.0.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/simplecov-1.3.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubydex-0.4.2-arm64-darwin/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ruby-prof-2.0.5/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/ruby-prof-2.0.5:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ruby-macho-7.0.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ruby-lsp-0.26.11/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-sorbet-0.17.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/spoom-1.8.12/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/thor-1.5.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/sorbet-static-and-runtime-0.6.13591/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/sorbet-0.6.13591/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/sorbet-static-0.6.13591-universal-darwin/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-rspec-3.10.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-performance-1.27.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-md-2.0.4/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-1.92.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/unicode-display_width-3.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/unicode-emoji-4.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ruby-progressbar-1.13.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rubocop-ast-1.50.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec_junit_formatter-0.8.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-sorbet-1.9.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/sorbet-runtime-0.6.13591/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-retry-0.6.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-github-3.0.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-3.13.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-mocks-3.13.8/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-expectations-3.13.5/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-core-3.13.6/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rspec-support-3.13.7/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/require-hooks-0.5.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rbi-0.5.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rbs-4.2.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/rbs-4.2.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/tsort-0.2.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rainbow-3.1.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/plist-3.7.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/patchelf-1.7.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/parser-3.3.13.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/racc-1.8.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/racc-1.8.1:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/parallel_tests-5.8.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/parallel-2.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ostruct-0.6.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/netrc-0.11.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/minitest-6.0.6/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/prism-1.9.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/prism-1.9.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/logger-1.7.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/lint_roller-1.1.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/language_server-protocol-3.17.0.6/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/kramdown-2.5.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/rexml-3.4.4/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/json_schemer-2.5.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/simpleidn-0.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/regexp_parser-2.13.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/json-3.1.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/json-3.1.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/hana-1.3.7/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/erubi-1.13.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/elftools-2.2.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/drb-2.2.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/diff-lcs-1.6.2/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/csv-3.3.6/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/concurrent-ruby-1.3.8/lib/concurrent-ruby:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/bindata-3.0.1/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/bigdecimal-4.1.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/extensions/arm64-darwin-20/4.0.0-static/bigdecimal-4.1.3:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/benchmark-0.5.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/base64-0.3.0/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/bundle/ruby/4.0.0/gems/ast-2.4.3/lib:/opt/cercano-migration-20261115/brew/Library/Homebrew:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/vendor_ruby/4.0.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/vendor_ruby/4.0.0/arm64-darwin20:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/vendor_ruby:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/4.0.0:/opt/cercano-migration-20261115/brew/Library/Homebrew/vendor/portable-ruby/4.0.9/lib/ruby/4.0.0/arm64-darwin20 -- /opt/cercano-migration-20261115/brew/Library/Homebrew/build.rb /opt/cercano-migration-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb` exited with 71.
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+  
+Read the above document before opening any issues or PRs.
+
+
+## Record 71 status=1
+R=/opt/cercano-migration-20261115; cat "$R/safety.sb"; grep -n 'sandbox' "$R/brew/Library/Homebrew/cmd/install.rb"; grep -n 'sandbox' "$R/brew/Library/Homebrew/formula_installer.rb" | head -20; ls -l "$R/brew/Cellar/cercano"
+STDOUT:
+(version 1)
+(allow default)
+(deny network*)
+(deny signal)
+(deny file-read-data file-write* (subpath "/Users/test") (subpath "/Library/Keychains") (subpath "/opt/homebrew"))
+
+(allow network* (local unix-socket) (remote unix-socket))
+17:require "sandbox"
+1219:      Sandbox.run_or_fork(*build_args(formula_path), step: "building", retain_tmp:, debug: debug?) do |sandbox|
+1220:        add_build_sandbox_rules(sandbox, formula_path, log_name: "build")
+1222:          sandbox.allow_write_path(Dir.home)
+1224:          sandbox.deny_read_home
+1226:        sandbox.allow_write_xcode
+1227:        sandbox.allow_write_cellar(formula)
+1235:          sandbox.allow_write_system_temp
+1236:          sandbox.allow_write_path(staging_path)
+1237:          Homebrew::PackageManagerCache.paths.each { |path| sandbox.allow_write_path(path) }
+1238:          sandbox.deny_all_network
+1240:          sandbox.allow_write_temp_and_cache
+1241:          sandbox.deny_all_network unless formula.network_access_allowed?(:build)
+1243:        sandbox.protect_homebrew_state
+1278:      Sandbox.run_or_fork(*build_args(formula_path), step: "fetching", retain_tmp:, debug: debug?) do |sandbox|
+1279:        add_build_sandbox_rules(sandbox, formula_path, log_name: "fetch")
+1280:        sandbox.deny_read_home
+1281:        sandbox.allow_write_temp_and_cache
+1282:        sandbox.allow_write_path(staging_path) if staging_path
+1283:        sandbox.protect_homebrew_state
+
+STDERR:
+ls: /opt/cercano-migration-20261115/brew/Cellar/cercano: No such file or directory
+
+
+## Record 72 status=0
+set -e; R=/opt/cercano-migration-20261115; id test; stat -f '%u:%g %N' "$R" "$R/home" "$R/brew"; shasum -a 256 "$R"/artifacts/*; find "$R/inspect" -type f -perm +111 -maxdepth 4 -print; for f in "$R"/inspect/*/cercano "$R"/inspect/*/cercano-cli; do test ! -f "$f" || { codesign --verify --strict --verbose=2 "$f"; codesign -dv --verbose=2 "$f" 2>&1 | grep -E 'Authority|TeamIdentifier|Identifier'; }; done; find "$R/home" -type f -exec shasum -a 256 {} \;; du -sh "$R"; ls -l "$R/brew/bin/cercano" "$R/brew/bin/cercano-cli" 2>/dev/null || true; ps -axo comm= | grep -E '(^|/)(cercano|cercano-cli|cercano-model-host)$' || true
+STDOUT:
+uid=501(test) gid=20(staff) groups=20(staff),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae),701(com.apple.sharepoint.group.1)
+501:20 /opt/cercano-migration-20261115
+501:20 /opt/cercano-migration-20261115/home
+501:20 /opt/cercano-migration-20261115/brew
+e57b4ff87d23241588df64e6f106b087775bb6c8939611fc9c540e907efef664  /opt/cercano-migration-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz
+18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0  /opt/cercano-migration-20261115/artifacts/cercano-0.27.0-darwin-arm64.tar.gz
+/opt/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano
+/opt/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli
+/opt/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano
+/opt/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli
+3152a352aa84d73093251920dc8f170997d4bf2811c86b8cdde167f110e7c70b  /opt/cercano-migration-20261115/home/.config/cercano/config.yaml
+faa3a9c5bf2a75bbd66589dfa7b184cacba1d0ed240cb7bde85310f6cd132601  /opt/cercano-migration-20261115/home/Library/Caches/Homebrew/tool-selection/curl
+c02a6200a2b7c9ac1a0539b7486efc58ec5de61251d22be003d6d9bd514d8ba3  /opt/cercano-migration-20261115/home/Library/Caches/Homebrew/tool-selection/git
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-migration-20261115/home/.cercano/credential-marker
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-migration-20261115/home/.cercano/conversation-marker
+736b28cb1288a5cf43c0de4df60217939e6d883e668db5e6e05f52be7da535aa  /opt/cercano-migration-20261115/home/.homebrew/trust.json
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /opt/cercano-migration-20261115/home/.homebrew/trust.json.lock
+1.8G	/opt/cercano-migration-20261115
+
+STDERR:
+
+
+## Record 73 status=0
+set -e; R=/opt/cercano-migration-20261115; for f in "$R"/inspect/*/*/bin/*; do echo "VERIFY $f"; codesign --verify --strict --verbose=2 "$f"; codesign -dv --verbose=2 "$f" 2>&1 | grep -E 'Authority|TeamIdentifier|Identifier'; done; cat "$R/safety.sb"; cat "$R/home/.config/cercano/config.yaml"
+STDOUT:
+VERIFY /opt/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano
+Identifier=cercano
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+TeamIdentifier=4HPM47RCM4
+VERIFY /opt/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli
+Identifier=cercano-cli
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+TeamIdentifier=4HPM47RCM4
+VERIFY /opt/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano
+Identifier=cercano
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+TeamIdentifier=4HPM47RCM4
+VERIFY /opt/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli
+Identifier=cercano-cli
+Authority=Developer ID Application: bryan costanich (4HPM47RCM4)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+TeamIdentifier=4HPM47RCM4
+(version 1)
+(allow default)
+(deny network*)
+(deny signal)
+(deny file-read-data file-write* (subpath "/Users/test") (subpath "/Library/Keychains") (subpath "/opt/homebrew"))
+
+(allow network* (local unix-socket) (remote unix-socket))
+port: "49381"
+
+STDERR:
+/opt/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano: valid on disk
+/opt/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano: satisfies its Designated Requirement
+/opt/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli: valid on disk
+/opt/cercano-migration-20261115/inspect/0.25.2/cercano-0.25.2-darwin-arm64/bin/cercano-cli: satisfies its Designated Requirement
+/opt/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano: valid on disk
+/opt/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano: satisfies its Designated Requirement
+/opt/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli: valid on disk
+/opt/cercano-migration-20261115/inspect/0.27.0/cercano-0.27.0-darwin-arm64/bin/cercano-cli: satisfies its Designated Requirement
+
+
+## Record 74 status=0
+prlctl snapshot-list 08196962-608d-4fde-8284-49a5f020fea6
+STDOUT:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                       *{2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+
+STDERR:
+
