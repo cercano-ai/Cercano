@@ -1,0 +1,23 @@
+; Reviewed scope: synthetic UID5501 only, no credentials, no external IP networking.
+; Agent TCP49391 and synthetic Ollama TCP49392 are the ONLY IP endpoints.
+; Unix sockets restricted to this fixture, used by production worker processes.
+(version 1)
+(allow default)
+(deny network*)
+(allow network-bind network-inbound
+ (local ip "localhost:49391") (local ip "localhost:49392"))
+(allow network-outbound
+ (remote ip "localhost:49391") (remote ip "localhost:49392"))
+(allow network* (local unix-socket (subpath "/opt/cercano-native-smoke-20261115-1357")) (remote unix-socket (subpath "/opt/cercano-native-smoke-20261115-1357")))
+(deny signal)
+(allow signal (target same-sandbox))
+(deny file-read-data file-write*
+ (subpath "/Users/test") (subpath "/Library/Keychains")
+ (subpath "/opt/homebrew")
+ (subpath "/opt/cercano-migration-20261115")
+ (subpath "/opt/cercano-migration-unpriv-20261115")
+ (subpath "/opt/cercano-snapshot-recovery-20261115")
+ (regex #"^/opt/cercano-failure-"))
+; Prevent alternate local user credential/keychain files as well.
+(deny file-read-data file-write* (regex #"/Keychains(/|$)"))
+(deny mach-lookup (global-name "com.apple.securityd") (global-name "com.apple.securityd.xpc"))
