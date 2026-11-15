@@ -50,9 +50,15 @@ inner archive byte-for-byte; its public checksum must match exactly too.
 Run manually with `python3 release/homebrew/pinned_provenance.py`. Success returns
 structured JSON evidence with `publication_authorized: false`. Failure emits only
 a generic refusal, not URLs, signed query strings, tokens or response bodies.
-Requests are GET-only with finite output caps. Each transport runs in a child
-process killed on a **120-second monotonic wall deadline**, covering DNS, TLS,
-redirects, blocked reads and slow trickles. Public HTTP additionally has a
+Requests are GET-only with finite output caps. Each transport runs in a direct
+child process killed and waited on at the **120-second monotonic wall deadline**,
+covering DNS, TLS, redirects, blocked reads and slow trickles. This is direct-child
+cleanup, not process-tree cleanup. Stdout is consumed through a nonblocking pipe
+with backpressure, reads of at most 64 KiB and at most the remaining `limit+1`
+allowance, and at most `limit+1` accumulated bytes. Exceeding the cap refuses
+immediately, kills/waits the direct child and closes pipe/selector handles. EOF
+still requires a successful child exit within the original deadline. There is no
+stdout disk spool. Public HTTP additionally has a
 20-second socket inactivity timeout (not a wall deadline), at most three
 redirects, and deadline checks after opening and after every read, including EOF.
 The reviewed `eb59a174fde8` defect was reproduced: a mocked read moved monotonic
@@ -139,3 +145,23 @@ Implementation check (2026-11-15):
   `18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0`.
 - `git diff --check` passed. Publication/general-checker policy was not changed;
   no tap mutation, enablement, push, VM action or credential disclosure occurred.
+
+
+Output-boundedness correction verification (2026-11-15):
+
+- The reviewed tempfile/polling implementation could spool 8 MiB before refusing
+  a 4-byte cap. It has been replaced with bounded pipe consumption, without
+  changing the exact authenticated endpoint whitelist or public transport policy.
+- A real Python subprocess attempts to emit 8 MiB at a 4-byte cap: the parent
+  reads exactly 5 bytes before refusal, kills/waits the direct child, and closes
+  stdout. Additional real-child regressions cover empty/exact-cap EOF, multi-chunk
+  success, nonzero exit, blocked-read timeout, EOF without exit and slow trickles.
+  Tests check bounded read sizes, accumulated byte counts and direct-child cleanup.
+- Full offline Homebrew Python suite: **103 tests passed**. Ruby formula suite:
+  **5 tests, 40 assertions passed**, no skips.
+- Exact read-only `python3 release/homebrew/pinned_provenance.py`: **exit 0**
+  against live evidence, with `ci_evidence_validated: true` and
+  `publication_authorized: false`; clean-Mac qualification and independent Apple
+  ticket repetition remain false. No cache or synthetic pins supplied.
+- Publication remains disabled. No remote writes, push, VM actions or credential
+  output were performed. The correction makes no process-tree cleanup claim.

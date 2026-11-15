@@ -37,6 +37,70 @@ def job(name, job_id, attempt):
                 completed_at=p.REUSED.get(name, (0, '2026-11-15T00:34:51Z', '2026-11-15T00:41:04Z'))[2])
 
 
+class BoundedProcessTests(unittest.TestCase):
+    def run_child(self, code, limit, *, timeout=2, fails=False):
+        children = []
+        reads = []
+        popen, read = p.subprocess.Popen, os.read
+
+        def spawn(*args, **kwargs):
+            self.assertIs(kwargs['stdout'], p.subprocess.PIPE)
+            child = popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def consume(fd, size):
+            chunk = read(fd, size)
+            if children and fd == children[0].stdout.fileno():
+                reads.append((size, len(chunk)))
+            return chunk
+
+        with patch.object(p.subprocess, 'Popen', side_effect=spawn), \
+             patch.object(p.os, 'read', side_effect=consume):
+            if fails:
+                with self.assertRaisesRegex(p.Failure, '^Bounded evidence transport failed$'):
+                    p.bounded_process([sys.executable, '-c', code], limit, timeout=timeout)
+                result = None
+            else:
+                result = p.bounded_process([sys.executable, '-c', code], limit, timeout=timeout)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].returncode)  # waited/reaped direct child
+        self.assertTrue(children[0].stdout.closed)
+        self.assertLessEqual(sum(length for _, length in reads), limit + 1)
+        self.assertTrue(all(0 < size <= min(65536, limit + 1) for size, _ in reads))
+        return result, children[0], reads
+
+    def test_eight_mib_output_four_byte_cap(self):
+        # Actual subprocess: the former tempfile implementation spooled all 8 MiB.
+        _, child, reads = self.run_child(
+            "import sys; sys.stdout.buffer.write(b'x' * (8 * 1024 * 1024)); sys.stdout.flush()",
+            4, fails=True)
+        self.assertEqual(sum(length for _, length in reads), 5)
+        self.assertLess(child.returncode, 0)
+
+    def test_eof_exact_cap_empty_and_chunked_success(self):
+        for size, limit in ((0, 0), (4, 4), (200000, 200000)):
+            with self.subTest(size=size):
+                result, child, _ = self.run_child(
+                    f"import sys; sys.stdout.buffer.write(b'x' * {size})", limit)
+                self.assertEqual(result, b'x' * size)
+                self.assertEqual(child.returncode, 0)
+
+    def test_nonzero_exit_even_after_valid_output(self):
+        self.run_child("import sys; sys.stdout.write('1234'); sys.exit(7)", 4, fails=True)
+
+    def test_timeout_on_blocked_read_and_eof_without_exit(self):
+        for prefix in ('', 'import os; os.close(1); '):
+            with self.subTest(prefix=prefix):
+                _, child, _ = self.run_child(prefix + 'import time; time.sleep(60)',
+                                              4, timeout=0.2, fails=True)
+                self.assertLess(child.returncode, 0)
+
+    def test_slow_trickle_does_not_reset_overall_deadline(self):
+        self.run_child("import os, time\nwhile True:\n os.write(1, b'x'); time.sleep(0.02)",
+                       100000, timeout=0.2, fails=True)
+
+
 class EvidenceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

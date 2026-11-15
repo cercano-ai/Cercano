@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import selectors
 import subprocess
 import sys
 import tempfile
@@ -138,7 +139,7 @@ AUTH_PATHS = {f'actions/jobs/{i}/logs' for i in
                   f'actions/artifacts/{ARTIFACT}/zip'}
 
 
-def bounded_process(argv, limit):
+def bounded_process(argv, limit, *, timeout=120):
     # Do not expose gh diagnostics, redirect signatures, environment or credentials.
     # gh's host-scoped authentication transport does not authorize storage hosts;
     # Go's HTTP redirect handling also strips Authorization on unrelated domains.
@@ -146,25 +147,43 @@ def bounded_process(argv, limit):
     for key in ('GH_DEBUG', 'DEBUG', 'GH_HOST', 'GH_REPO'):
         env.pop(key, None)
     try:
-        with tempfile.TemporaryFile() as output:
-            deadline = time.monotonic() + 120
-            with subprocess.Popen(argv, stdout=output, stderr=subprocess.DEVNULL,
-                                  env=env) as child:
-                try:
-                    while child.poll() is None:
+        require(limit >= 0 and timeout > 0)
+        deadline = time.monotonic() + timeout
+        with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              env=env, bufsize=0) as child:
+            try:
+                body = bytearray()
+                # A pipe provides backpressure, not an unrestricted disk spool.
+                # Retain at most limit+1 bytes, reading at most 64 KiB at a time.
+                os.set_blocking(child.stdout.fileno(), False)
+                with selectors.DefaultSelector() as selector:
+                    selector.register(child.stdout, selectors.EVENT_READ)
+                    while True:
+                        remaining = deadline - time.monotonic()
+                        require(remaining > 0)
+                        require(selector.select(remaining))
                         require(time.monotonic() < deadline)
-                        require(output.tell() <= limit)
-                        time.sleep(0.02)
-                    require(time.monotonic() < deadline and child.returncode == 0)
-                    require(output.tell() <= limit)
-                finally:
-                    if child.poll() is None:
-                        child.kill()
-                    child.wait()
-            output.seek(0)
-            body = output.read(limit + 1)
-            require(time.monotonic() < deadline and len(body) <= limit)
-            return body
+                        try:
+                            chunk = os.read(child.stdout.fileno(),
+                                            min(65536, limit + 1 - len(body)))
+                        except BlockingIOError:
+                            continue
+                        require(time.monotonic() < deadline)
+                        if not chunk:
+                            break
+                        body.extend(chunk)
+                        require(len(body) <= limit)
+                # EOF need not mean exit: retain the same overall deadline.
+                remaining = deadline - time.monotonic()
+                require(remaining > 0)
+                require(child.wait(timeout=remaining) == 0)
+                require(time.monotonic() < deadline)
+                return bytes(body)
+            finally:
+                # Direct-child cleanup only; no process-tree cleanup claim.
+                if child.poll() is None:
+                    child.kill()
+                child.wait()
     except Exception:
         raise Failure('Bounded evidence transport failed') from None
 
