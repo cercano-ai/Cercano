@@ -3,6 +3,8 @@ import copy
 import io
 import json
 import os
+from pathlib import Path
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -18,7 +20,7 @@ def logs(upload=False):
              'Workflow: cercano-ai/Cercano/.github/workflows/release-macos.yml@refs/heads/fix/macos-release-runner at ' + p.WORKFLOW]
     if upload:
         lines += ['SHA256 digest of uploaded artifact zip is ' + p.OUTER_SHA,
-                  'Artifact ' + p.NAME + '.zip successfully finalized. Artifact ID: ' + str(p.ARTIFACT),
+                  'Artifact ' + p.NAME + '.zip successfully finalized. Artifact ID ' + str(p.ARTIFACT),
                   'Artifact ' + p.NAME + ' has been successfully uploaded! Final size is ' + str(p.OUTER_SIZE) + ' bytes. Artifact ID is ' + str(p.ARTIFACT),
                   'Artifact download URL: https://github.com/' + p.REPO + '/actions/runs/' + str(p.RUN) + '/artifacts/' + str(p.ARTIFACT)]
     return ''.join('2026-11-15T00:00:00.0000000Z ' + line + '\n' for line in lines).encode()
@@ -30,7 +32,9 @@ def job(name, job_id, attempt):
     if name == p.MAC:
         steps += [{'name': n, 'status': 'completed', 'conclusion': 'skipped'} for n in p.SKIPPED]
     return dict(name=name, id=job_id, run_id=p.RUN, run_attempt=attempt,
-                head_sha=p.WORKFLOW, status='completed', conclusion='success', steps=steps)
+                head_sha=p.WORKFLOW, status='completed', conclusion='success', steps=steps,
+                started_at=p.REUSED.get(name, (0, '2026-11-15T00:34:51Z', '2026-11-15T00:41:04Z'))[1],
+                completed_at=p.REUSED.get(name, (0, '2026-11-15T00:34:51Z', '2026-11-15T00:41:04Z'))[2])
 
 
 class EvidenceTests(unittest.TestCase):
@@ -74,7 +78,7 @@ class EvidenceTests(unittest.TestCase):
                        p.PUBLIC + p.ARCHIVE: self.inner,
                        p.PUBLIC + p.ARCHIVE + '.sha256': self.checksum,
                        p.BASE + 'actions/artifacts/' + str(p.ARTIFACT) + '/zip': self.outer}
-        for j in jobs + old_jobs[:2]:
+        for j in [j for j in jobs if j['name'] == p.MAC] + old_jobs[:2]:
             self.routes[p.BASE + 'actions/jobs/' + str(j['id']) + '/logs'] = logs(j['name'] == p.MAC)
         self.calls = []
 
@@ -171,17 +175,88 @@ class EvidenceTests(unittest.TestCase):
             opener.open.return_value = response
             with patch.object(p.urllib.request, 'build_opener', return_value=opener), \
                  self.assertRaises(p.Failure):
-                p.download(p.PUBLIC + p.ARCHIVE, 4)
+                p._download(p.PUBLIC + p.ARCHIVE, 4)
         opener.open.return_value = Response(b'1234')
         with patch.object(p.urllib.request, 'build_opener', return_value=opener), \
              patch.dict(os.environ,
                         {'GITHUB_TOKEN': 'DO-NOT-SEND', 'HTTPS_PROXY': 'https://bad.invalid'}):
-            self.assertEqual(p.download(p.PUBLIC + p.ARCHIVE, 4), b'1234')
+            self.assertEqual(p._download(p.PUBLIC + p.ARCHIVE, 4), b'1234')
         request = opener.open.call_args.args[0]
         self.assertEqual(request.get_method(), 'GET')
         self.assertNotIn('Authorization', request.headers)
         self.assertNotIn('Cookie', request.headers)
         self.assertEqual(opener.open.call_args.kwargs['timeout'], 20)
+
+    def test_late_blocking_read_including_eof_refuses(self):
+        for returned in (b'', b'x'):
+            clock = [0]
+            class SlowResponse(io.BytesIO):
+                status = 200
+                headers = {}
+                def read(self, size):
+                    clock[0] = 1000
+                    return returned
+            opener = unittest.mock.Mock()
+            opener.open.return_value = SlowResponse()
+            with patch.object(p.urllib.request, 'build_opener', return_value=opener), \
+                 patch.object(p.time, 'monotonic', side_effect=lambda: clock[0]), \
+                 self.assertRaises(p.Failure):
+                p._download(p.PUBLIC + p.ARCHIVE, 4)
+
+    def test_process_deadline_kills_blocked_transport(self):
+        # A real sleeping child is killed, not left to an inactivity timeout.
+        with patch.object(p.time, 'monotonic', side_effect=[0, 1000]), \
+             self.assertRaises(p.Failure):
+            p.bounded_process([sys.executable, '-c', 'import time; time.sleep(60)'], 4)
+        with self.assertRaises(p.Failure):
+            p.bounded_process([sys.executable, '-c', 'print("oversized")'], 4)
+
+    def test_only_fixed_actions_gets_use_gh(self):
+        with patch.object(p, 'bounded_process', return_value=b'') as run:
+            for path in p.AUTH_PATHS:
+                p.download(p.BASE + path, 10)
+                argv = run.call_args.args[0]
+                self.assertEqual(argv[:7], ['gh', 'api', '--hostname', 'github.com',
+                                           '--method', 'GET', 'repos/' + p.REPO + '/' + path])
+            for url in (p.PUBLIC + p.ARCHIVE, p.PUBLIC + p.ARCHIVE + '.sha256',
+                        p.BASE + 'actions/jobs/132634405095/logs',
+                        p.BASE + 'actions/artifacts/1/zip'):
+                p.download(url, 10)
+                self.assertEqual(run.call_args.args[0][0], sys.executable)
+                self.assertIn('--public-download', run.call_args.args[0])
+
+    def test_actual_attempt_metadata_reused_not_alias_logs(self):
+        root = Path(__file__).parent / 'fixtures/pinned-v0.27.0'
+        for attempt in (1, 2):
+            self.data[f'actions/runs/{p.RUN}/attempts/{attempt}/jobs?per_page=100'] = \
+                json.loads((root / f'attempt-{attempt}-jobs.json').read_text())
+        self.validate()
+        self.assertNotIn(p.BASE + 'actions/jobs/132634405095/logs', self.calls)
+        self.assertNotIn(p.BASE + 'actions/jobs/132634438965/logs', self.calls)
+        key = f'actions/runs/{p.RUN}/attempts/2/jobs?per_page=100'
+        original = copy.deepcopy(self.data[key])
+        for field in ('started_at', 'completed_at', 'steps'):
+            self.data[key]['jobs'][0][field] = None
+            with self.subTest(field=field), self.assertRaises(p.Failure):
+                self.validate()
+            self.data[key] = copy.deepcopy(original)
+
+    def test_matching_aliases_cannot_change_pinned_interval(self):
+        for attempt in (1, 2):
+            key = f'actions/runs/{p.RUN}/attempts/{attempt}/jobs?per_page=100'
+            next(j for j in self.data[key]['jobs'] if j['name'] == p.LINUX)['started_at'] = \
+                '2026-11-14T23:48:24Z'
+        with self.assertRaises(p.Failure):
+            self.validate()
+
+    def test_redirect_drops_authorization_and_cookies(self):
+        request = p.urllib.request.Request(p.BASE + 'actions/jobs/132631632452/logs',
+                                          headers={'Authorization': 'sentinel',
+                                                   'Cookie': 'sentinel'})
+        redirected = p.Redirects('api.github.com').redirect_request(
+            request, None, 302, '', {}, 'https://productionresultssa0.blob.core.windows.net/log')
+        self.assertEqual(dict(redirected.header_items()),
+                         {'User-agent': 'cercano-pinned-provenance'})
 
     def test_logs_are_exact_records_not_substrings(self):
         url = p.BASE + 'actions/jobs/' + str(p.JOBS[p.MAC]) + '/logs'
@@ -244,6 +319,21 @@ class EvidenceTests(unittest.TestCase):
             self.assertNotIn('Authorization', request.headers)
         with self.assertRaises(p.Failure):
             redirect.redirect_request(None, None, 302, '', {}, 'https://release-assets.githubusercontent.com/a')
+
+
+class ActualLogTests(unittest.TestCase):
+    def test_actual_log_syntax_and_changed_unsupported_records(self):
+        root = Path(__file__).parent / 'fixtures/pinned-v0.27.0'
+        for name in ('linux', 'windows', 'mac'):
+            body = (root / (name + '.log')).read_bytes()
+            p.validate_logs(body, upload=name == 'mac')
+            for bad in (body + b'unsupported continuation\n',
+                        body.replace(b'dist/cercano-', b'dist/changed-'),
+                        body.replace(p.SOURCE.encode(), b'0' * 40),
+                        body.replace(b'Release source:', b'echo Release source:'),
+                        body + body):
+                with self.subTest(name=name), self.assertRaises(p.Failure):
+                    p.validate_logs(bad, upload=name == 'mac')
 
 
 if __name__ == '__main__':

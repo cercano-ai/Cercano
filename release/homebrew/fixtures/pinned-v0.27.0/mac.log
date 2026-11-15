@@ -1,0 +1,15 @@
+2026-11-15T00:34:55.7179330Z   ref: refs/tags/v0.27.0
+2026-11-15T00:35:00.8324450Z c91699b079164138bff083206594f49c56dd5509
+2026-11-15T00:35:41.2922240Z Release source: refs/tags/v0.27.0 at c91699b079164138bff083206594f49c56dd5509
+2026-11-15T00:35:41.2924640Z Workflow: cercano-ai/Cercano/.github/workflows/release-macos.yml@refs/heads/fix/macos-release-runner at 4b3cd19b4e505239c7a875952a7bb40fd46754e0
+2026-11-15T00:40:54.0882540Z   path: dist/cercano-0.27.0-darwin-arm64.tar.gz
+dist/cercano-0.27.0-darwin-arm64.tar.gz.sha256
+dist/cercano.rb
+dist/cercano-agent.rb
+dist/cercano-cli.rb
+
+2026-11-15T00:40:54.7014520Z Artifact name is valid!
+2026-11-15T00:40:57.7265850Z SHA256 digest of uploaded artifact zip is 89a85b1902925be5c4fadb67d5088bacc29fb29eb8d248663536cb64ecdc7bf6
+2026-11-15T00:40:58.1413780Z Artifact cercano-0.27.0-darwin-arm64.zip successfully finalized. Artifact ID 14139226701
+2026-11-15T00:40:58.1415130Z Artifact cercano-0.27.0-darwin-arm64 has been successfully uploaded! Final size is 45630515 bytes. Artifact ID is 14139226701
+2026-11-15T00:40:58.1420300Z Artifact download URL: https://github.com/cercano-ai/Cercano/actions/runs/43655050601/artifacts/14139226701

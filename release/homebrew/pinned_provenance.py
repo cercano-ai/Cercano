@@ -6,8 +6,11 @@ accept a workflow/source mismatch or skipped publication steps.
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 import time
 import urllib.parse
@@ -39,6 +42,10 @@ MAC = 'Build, sign, notarize, verify and release'
 LINUX = 'Build unsigned experimental Linux x86_64 archive'
 WINDOWS = 'Build unsigned experimental Windows x64 archive'
 JOBS = {MAC: 132634405380, LINUX: 132634405095, WINDOWS: 132634438965}
+REUSED = {
+    LINUX: (132631632452, '2026-11-14T23:48:25Z', '2026-11-14T23:50:06Z'),
+    WINDOWS: (132631632597, '2026-11-14T23:48:26Z', '2026-11-14T23:52:02Z'),
+}
 COMMON = ('Validate source version', 'Run actions/checkout@v4', 'Validate inputs',
           'Run release test gate', 'Upload artifacts for review')
 EXTRA = {
@@ -91,11 +98,11 @@ class Redirects(urllib.request.HTTPRedirectHandler):
         return urllib.request.Request(newurl, headers={'User-Agent': 'cercano-pinned-provenance'})
 
 
-def download(url, limit):
+def _download(url, limit):
     """Credential/cookie/proxy-free GET; finite bytes, hops and wall time.
 
-    GitHub may require authentication for Actions logs/artifacts even in a public
-    repository. We deliberately fail closed, not invoke gh or read credentials.
+    Socket timeout is an inactivity bound only. The parent process enforces
+    the overall wall deadline, including DNS, TLS, redirects and blocking reads.
     """
     try:
         hosts = {'api.github.com', 'github.com', 'raw.githubusercontent.com'}
@@ -105,6 +112,7 @@ def download(url, limit):
         request = urllib.request.Request(url, headers={'User-Agent': 'cercano-pinned-provenance'})
         deadline = time.monotonic() + 120
         with opener.open(request, timeout=20) as response:
+            require(time.monotonic() < deadline)
             require(response.status == 200)
             require(response.headers.get('Content-Encoding', 'identity') == 'identity')
             length = response.headers.get('Content-Length')
@@ -113,6 +121,7 @@ def download(url, limit):
             while True:
                 require(time.monotonic() < deadline)
                 chunk = response.read(min(65536, limit + 1 - total))
+                require(time.monotonic() < deadline)
                 if not chunk:
                     break
                 total += len(chunk)
@@ -121,6 +130,53 @@ def download(url, limit):
             return b''.join(chunks)
     except Exception:
         raise Failure('Public evidence download failed; no credentials attempted') from None
+
+
+# Only these three executed jobs and this artifact may use gh authentication.
+AUTH_PATHS = {f'actions/jobs/{i}/logs' for i in
+              (132631632452, 132631632597, 132634405380)} | {
+                  f'actions/artifacts/{ARTIFACT}/zip'}
+
+
+def bounded_process(argv, limit):
+    # Do not expose gh diagnostics, redirect signatures, environment or credentials.
+    # gh's host-scoped authentication transport does not authorize storage hosts;
+    # Go's HTTP redirect handling also strips Authorization on unrelated domains.
+    env = os.environ.copy()
+    for key in ('GH_DEBUG', 'DEBUG', 'GH_HOST', 'GH_REPO'):
+        env.pop(key, None)
+    try:
+        with tempfile.TemporaryFile() as output:
+            deadline = time.monotonic() + 120
+            with subprocess.Popen(argv, stdout=output, stderr=subprocess.DEVNULL,
+                                  env=env) as child:
+                try:
+                    while child.poll() is None:
+                        require(time.monotonic() < deadline)
+                        require(output.tell() <= limit)
+                        time.sleep(0.02)
+                    require(time.monotonic() < deadline and child.returncode == 0)
+                    require(output.tell() <= limit)
+                finally:
+                    if child.poll() is None:
+                        child.kill()
+                    child.wait()
+            output.seek(0)
+            body = output.read(limit + 1)
+            require(time.monotonic() < deadline and len(body) <= limit)
+            return body
+    except Exception:
+        raise Failure('Bounded evidence transport failed') from None
+
+
+def download(url, limit):
+    """Public bytes stay credential-free; only fixed Actions GETs use existing gh."""
+    if url.startswith(BASE) and url[len(BASE):] in AUTH_PATHS:
+        return bounded_process(['gh', 'api', '--hostname', 'github.com', '--method',
+                                'GET', 'repos/' + REPO + '/' + url[len(BASE):]], limit)
+    safe_url(url, {'api.github.com', 'github.com', 'raw.githubusercontent.com'})
+    return bounded_process([sys.executable, str(Path(__file__).resolve()),
+                            '--public-download', url, str(limit)], limit)
 
 
 def json_body(body):
@@ -146,11 +202,27 @@ def log_lines(body):
     # Raw GitHub job logs only: require timestamps and compare complete output
     # records, not substrings in echoed shell commands or arbitrary HTML.
     records = []
+    continuations = []
+    paths = {
+        'dist/' + ARCHIVE: ['dist/' + ARCHIVE + '.sha256', 'dist/cercano.rb',
+                            'dist/cercano-agent.rb', 'dist/cercano-cli.rb', ''],
+        'dist/cercano-0.27.0-linux-x64.tar.gz':
+            ['dist/cercano-0.27.0-linux-x64.tar.gz.sha256', ''],
+        'dist/cercano-0.27.0-windows-x64.zip':
+            ['dist/cercano-0.27.0-windows-x64.zip.sha256', ''],
+    }
     for line in body.decode('utf-8-sig').splitlines():
+        if continuations:
+            require(line == continuations.pop(0))
+            continue
         match = re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+Z (.*)', line)
         require(match is not None)
-        records.append(match[1])
-    require(records)
+        record = match[1]
+        if record.startswith('  path: '):
+            require(record[8:] in paths)
+            continuations = list(paths[record[8:]])
+        records.append(record)
+    require(records and not continuations)
     return records
 
 
@@ -165,7 +237,7 @@ def validate_logs(body, upload=False):
     if upload:
         for expected in (
             'SHA256 digest of uploaded artifact zip is ' + OUTER_SHA,
-            'Artifact ' + NAME + '.zip successfully finalized. Artifact ID: ' + str(ARTIFACT),
+            'Artifact ' + NAME + '.zip successfully finalized. Artifact ID ' + str(ARTIFACT),
             'Artifact ' + NAME + ' has been successfully uploaded! Final size is ' + str(OUTER_SIZE) + ' bytes. Artifact ID is ' + str(ARTIFACT),
             'Artifact download URL: https://github.com/' + REPO + '/actions/runs/' + str(RUN) + '/artifacts/' + str(ARTIFACT)):
             require(records.count(expected) == 1)
@@ -229,13 +301,13 @@ def _validate(version, digest, fetch):
         exact_steps(job, COMMON + EXTRA[name], 'success')
         if name == MAC:
             exact_steps(job, SKIPPED, 'skipped')
-        validate_logs(fetch(BASE + 'actions/jobs/' + str(job['id']) + '/logs',
-                            16 * 1024 * 1024), upload=name == MAC)
+            validate_logs(fetch(BASE + 'actions/jobs/' + str(job['id']) + '/logs',
+                                16 * 1024 * 1024), upload=True)
     # The first-stage successful non-macOS prerequisites were retained. Validate
     # those original jobs too, not only a latest-jobs view or the macOS rerun.
     previous = get('actions/runs/' + str(RUN) + '/attempts/1/jobs?per_page=100')
     require(previous['total_count'] == 3 and len(previous['jobs']) == 3)
-    for name, job_id in ((LINUX, 132631632452), (WINDOWS, 132631632597)):
+    for name, (job_id, started, completed) in REUSED.items():
         matches = [j for j in previous['jobs'] if j['name'] == name]
         require(len(matches) == 1)
         job = matches[0]
@@ -243,6 +315,12 @@ def _validate(version, digest, fetch):
                 and job['head_sha'] == WORKFLOW and job['status'] == 'completed'
                 and job['conclusion'] == 'success')
         exact_steps(job, COMMON + EXTRA[name], 'success')
+        alias = next(j for j in jobs['jobs'] if j['name'] == name)
+        # GitHub reuses the executed job under an attempt-specific alias.
+        for field in ('started_at', 'completed_at', 'steps', 'head_sha',
+                      'run_id', 'name', 'status', 'conclusion'):
+            require(alias[field] == job[field])
+        require(job['started_at'] == started and job['completed_at'] == completed)
         validate_logs(fetch(BASE + 'actions/jobs/' + str(job_id) + '/logs', 16 * 1024 * 1024))
     artifact = get('actions/artifacts/' + str(ARTIFACT))
     require(artifact['id'] == ARTIFACT and artifact['name'] == NAME
@@ -279,6 +357,10 @@ def validate(version=VERSION, digest=INNER_SHA, *, fetch=download):
 
 if __name__ == '__main__':
     try:
-        print(json.dumps(validate(), sort_keys=True))
+        if len(sys.argv) == 4 and sys.argv[1] == '--public-download':
+            sys.stdout.buffer.write(_download(sys.argv[2], int(sys.argv[3])))
+        else:
+            require(len(sys.argv) == 1)
+            print(json.dumps(validate(), sort_keys=True))
     except Failure as error:
         raise SystemExit(str(error))

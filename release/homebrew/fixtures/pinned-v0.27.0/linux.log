@@ -1,0 +1,12 @@
+2026-11-14T23:48:28.7948732Z   ref: refs/tags/v0.27.0
+2026-11-14T23:48:34.6260180Z c91699b079164138bff083206594f49c56dd5509
+2026-11-14T23:48:40.6777317Z Release source: refs/tags/v0.27.0 at c91699b079164138bff083206594f49c56dd5509
+2026-11-14T23:48:40.6778297Z Workflow: cercano-ai/Cercano/.github/workflows/release-macos.yml@refs/heads/fix/macos-release-runner at 4b3cd19b4e505239c7a875952a7bb40fd46754e0
+2026-11-14T23:49:58.6114151Z   path: dist/cercano-0.27.0-linux-x64.tar.gz
+dist/cercano-0.27.0-linux-x64.tar.gz.sha256
+
+2026-11-14T23:49:58.7383267Z Artifact name is valid!
+2026-11-14T23:50:00.4799129Z SHA256 digest of uploaded artifact zip is 8175c8b6a6409e7dee81d14cc7a1caf1c677f4059648123cde8276409b87d5bc
+2026-11-14T23:50:00.7793332Z Artifact cercano-0.27.0-linux-x64.zip successfully finalized. Artifact ID 14138035137
+2026-11-14T23:50:00.7794019Z Artifact cercano-0.27.0-linux-x64 has been successfully uploaded! Final size is 45302934 bytes. Artifact ID is 14138035137
+2026-11-14T23:50:00.7799242Z Artifact download URL: https://github.com/cercano-ai/Cercano/actions/runs/43655050601/artifacts/14138035137

@@ -20,6 +20,15 @@ steps, plus source-checkout and source-validation output records from job logs.
 It also requires the successful Linux/Windows jobs from attempt 1 and the
 attempt-2 Linux/Windows prerequisite results. A latest-jobs view is not used.
 
+Linux executed job `132631632452` (attempt 1) is reused as `132634405095`
+(attempt 2); both report `2026-11-14T23:48:25Z`–`2026-11-14T23:50:06Z`.
+Windows executed job `132631632597` is reused as `132634438965`; both report
+`2026-11-14T23:48:26Z`–`2026-11-14T23:52:02Z`. These are not independent
+executions. The validator pins the original execution intervals, requires exact
+agreement of steps, interval, workflow SHA, run, name, status and conclusion
+between the two attempt-specific responses, and validates logs at the original
+executed IDs only. It never invents or requires independently executed alias logs.
+
 The macOS upload log must bind artifact `14139226701` to its name, run, byte
 size `45630515`, and outer ZIP SHA-256
 `89a85b1902925be5c4fadb67d5088bacc29fb29eb8d248663536cb64ecdc7bf6`.
@@ -41,19 +50,42 @@ inner archive byte-for-byte; its public checksum must match exactly too.
 Run manually with `python3 release/homebrew/pinned_provenance.py`. Success returns
 structured JSON evidence with `publication_authorized: false`. Failure emits only
 a generic refusal, not URLs, signed query strings, tokens or response bodies.
-Requests are bounded GETs, with byte caps, socket timeout, read deadline and at
-most three redirects. They do not read credentials, invoke `gh`, use proxies,
-send cookies, or reuse publisher credentials. HTTPS redirects permit only exact
-GitHub release-storage/Actions-storage hosts, never arbitrary subdomains, login
-pages, userinfo, fragments, or downgrades.
+Requests are GET-only with finite output caps. Each transport runs in a child
+process killed on a **120-second monotonic wall deadline**, covering DNS, TLS,
+redirects, blocked reads and slow trickles. Public HTTP additionally has a
+20-second socket inactivity timeout (not a wall deadline), at most three
+redirects, and deadline checks after opening and after every read, including EOF.
+The reviewed `eb59a174fde8` defect was reproduced: a mocked read moved monotonic
+time from 0 to 1000 and returned EOF, which the old before-read-only check
+accepted. The regression now rejects both late EOF and late nonempty blocks;
+a real sleeping child is killed by the parent-deadline test.
 
-**Availability is not assumed:** GitHub may require authentication for Actions
-logs or artifact downloads even in a public repository. Missing, inaccessible,
-expired, malformed or ambiguous evidence fails closed. No cached local archive,
-HTML scraping, operator assertion or substring search substitutes for evidence.
-The public archive alone cannot establish the retained-artifact chain. A full
-live provenance pass has not been demonstrated here; credential-free access to
-all retained job logs and the artifact ZIP is a known prerequisite, not waived.
+Only logs for executed jobs `132631632452`, `132631632597`, `132634405380` and
+artifact `14139226701`'s ZIP use existing authenticated `gh api --hostname
+github.com --method GET` at fixed repository/ID endpoints. No token is extracted,
+printed or written; diagnostics are suppressed. `gh` scopes authentication to
+GitHub API hosts, and its Go HTTP redirect handling strips Authorization on
+unrelated signed-storage domains. Public metadata, workflow and release downloads
+use the separate credential/cookie/proxy-free urllib transport, never `gh` or
+publisher credentials. Its HTTPS redirects permit only exact release/Actions
+storage hosts and rebuild requests without Authorization/Cookie headers; login
+pages, arbitrary subdomains, userinfo, fragments and downgrades refuse.
+
+**Exact prior refusal:** credential-free Actions job-log requests returned HTTP
+403 ("Must have admin rights to Repository."), and the artifact ZIP API returned
+HTTP 401 ("Requires authentication"). Metadata/public release assets returned
+200 and the public archive digest was correct. The old generic refusal was
+therefore an unavailable authenticated CI-evidence transport, **not** a public
+archive digest mismatch or proof of failed CI. The old implementation also
+incorrectly required logs at reused alias IDs, rejected actual upload-path
+continuation records and expected `Artifact ID:` where the actual finalized
+record says `Artifact ID` without a colon. Actual-response fixtures preserve
+these distinctions without accepting arbitrary untimestamped text.
+
+Missing, inaccessible, expired, malformed, changed or ambiguous evidence still
+fails closed. No local cache, operator assertion, HTML scraping or substring
+search replaces live evidence. The public archive alone cannot establish the
+retained-artifact chain.
 
 ## Trust and limits
 
@@ -88,7 +120,22 @@ verify that a provenance refusal precedes any tap call without leaking secrets.
 These tests establish fail-closed implementation behavior, not actual historical
 provenance acceptance or clean-host qualification.
 
-Implementation check (2026-11-15): the full Homebrew Python discovery suite passed
-91 tests. A credential-free live invocation of the validator returned the generic
-fail-closed refusal, not validated evidence. `git diff --check` passed. No remote
-publication or mutation was performed.
+Implementation check (2026-11-15):
+
+- Re-fetched exact attempt-1/2 metadata and all three original executed logs
+  through authenticated read-only `gh` GETs. The sanitized metadata projections
+  matched exactly; each log fixture matched an ordered excerpt of its live log.
+- Full Homebrew Python discovery suite: **98 tests passed**, including publisher
+  guards, actual-response fixtures, changed/reused evidence, bounded subprocesses,
+  late EOF/nonempty reads, credential-free public routing and header stripping.
+- Actual full `python3 release/homebrew/pinned_provenance.py`: **exit 0**, live
+  public metadata/workflow/release bytes plus authenticated CI logs/ZIP; no cached
+  evidence supplied. Result: `ci_evidence_validated: true`,
+  `publication_authorized: false`, `clean_mac_qualified: false`,
+  `apple_ticket_independently_repeated: false`. Run `43655050601`, attempt 2,
+  release `445713847`, artifact `14139226701`, asset `749310766`; outer SHA-256
+  `89a85b1902925be5c4fadb67d5088bacc29fb29eb8d248663536cb64ecdc7bf6`,
+  inner/public SHA-256
+  `18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0`.
+- `git diff --check` passed. Publication/general-checker policy was not changed;
+  no tap mutation, enablement, push, VM action or credential disclosure occurred.
