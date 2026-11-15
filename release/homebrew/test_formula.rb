@@ -70,10 +70,51 @@ class FormulaOwnershipTest < Minitest::Test
       assert_equal [{macos: :monterey}, {arch: :arm64}], klass.requirements
     end
   end
+  # Filesystem ownership rehearsal only, NOT a Homebrew migration acceptance test.
+  # Demonstrates why explicit unlink is needed and why it must retain old files.
+  def test_manual_monolith_link_handoff_and_pre_upgrade_recovery
+    Dir.mktmpdir("cercano-migration") do |directory|
+      root = Pathname.new(directory)
+      public_bin = root/"bin"
+      public_bin.mkpath
+      old_bin = root/"old-monolith/bin"
+      old_bin.mkpath
+      %w[cercano cercano-cli].each { |name| (old_bin/name).write("old-#{name}") }
+      state = root/"synthetic-state"
+      state.write("conversation-and-credential-markers")
+      %w[cercano cercano-cli].each do |name|
+        File.symlink(old_bin/name, public_bin/name)
+        component = root/"new-#{name}/bin"
+        component.mkpath
+        (component/name).write("new-#{name}")
+        assert_raises(Errno::EEXIST) { File.symlink(component/name, public_bin/name) }
+        assert_equal (old_bin/name).realpath, (public_bin/name).realpath
+      end
+      # Explicit operator steps only; formulas above never perform these operations.
+      %w[cercano cercano-cli].each { |name| (public_bin/name).unlink }
+      File.symlink(root/"new-cercano/bin/cercano", public_bin/"cercano")
+      # Simulate CLI installation failure: unlink only the installed component,
+      # then restore old links before upgrading the convenience formula.
+      (public_bin/"cercano").unlink
+      %w[cercano cercano-cli].each do |name|
+        File.symlink(old_bin/name, public_bin/name)
+        assert_equal "old-#{name}", (public_bin/name).read
+      end
+      assert_equal "conversation-and-credential-markers", state.read
+      # Retry the explicit handoff; no overwrite or removal of old binaries.
+      %w[cercano cercano-cli].each do |name|
+        (public_bin/name).unlink
+        File.symlink(root/"new-#{name}/bin"/name, public_bin/name)
+        assert_equal "new-#{name}", (public_bin/name).read
+        assert_equal "old-#{name}", (old_bin/name).read
+      end
+      assert_equal "conversation-and-credential-markers", state.read
+    end
+  end
   def test_no_state_or_process_hooks
     %w[cercano cercano-agent cercano-cli].each do |name|
       source = File.read(File.join(__dir__, "#{name}.rb.in"))
-      refute_match(/post_install|restart-after-upgrade|launchd|system\s|kill\s|service do|File\.(write|delete)|rm_rf/, source)
+      refute_match(/post_install|restart-after-upgrade|launchd|system\s|kill\s|service do|File\.(write|delete)|rm_rf|unlink|overwrite|conflicts_with|uninstall|remove/, source)
     end
   end
 end
