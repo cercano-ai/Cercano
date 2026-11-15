@@ -1,3 +1,5 @@
+> Recovery update: [SNAPSHOT-RECOVERY.md](SNAPSHOT-RECOVERY.md) records the authorized separate-clone post-convenience failure and cold-snapshot rollback PASS (records137–220). The preserved powered-on snapshot was restored **only in the clone** using documented `--skip-resume`; source was restarted and retained running. Historical NOT RUN statements below describe earlier attempts, not the current recovery result. Real split A/B runtime and other shipping gates remain pending. No loopback permission was needed/enabled for this offline recovery test.
+
 > Update: the authorized continuation subsequently passed historical install/hook and manual split migration on the separate UID5501 fixture. See [CONTINUATION.md](CONTINUATION.md) for superseding results, containment corrections and remaining gates. The blocked results below are preserved historical evidence.
 
 # Native migration rehearsal — BLOCKED before historical install

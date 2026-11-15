@@ -1,3 +1,5 @@
+> Recovery update: [SNAPSHOT-RECOVERY.md](SNAPSHOT-RECOVERY.md) records the authorized separate-clone post-convenience failure and cold-snapshot rollback PASS (records137–220). The preserved powered-on snapshot was restored **only in the clone** using documented `--skip-resume`; source was restarted and retained running. Historical NOT RUN statements below describe earlier attempts, not the current recovery result. Real split A/B runtime and other shipping gates remain pending. No loopback permission was needed/enabled for this offline recovery test.
+
 # Authorized continuation: historical install and manual split PASS (bounded fixture)
 
 This supersedes the execution blockers in RESULTS.md, not its historical record or pending shipping gates. Read AGENTS.md, the migration recipe and checkpoint d042c318cb9a before execution. New transport records follow record88 in commands.jsonl; commands-readable.txt decodes their scripts.

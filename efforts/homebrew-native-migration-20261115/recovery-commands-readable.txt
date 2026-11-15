@@ -1,0 +1,2256 @@
+## Record 137 — 2026-11-15T11:51:15.340591 — status 0
+['prlctl', 'list', '-a', '-i', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+INFO
+ID: {08196962-608d-4fde-8284-49a5f020fea6}
+Name: cercano-disposable-migration-20261106-095610
+Description: 
+Type: APPLE_VZ_VM
+State: running
+OS: macosx
+Template: no
+Uptime: 09:43:20 (since 2026-11-06 09:56:18)
+Home path: /Users/bryancostanich/Parallels/cercano-disposable-migration-20261106-095610.macvm/config.pvs
+Home: /Users/bryancostanich/Parallels/cercano-disposable-migration-20261106-095610.macvm/
+Restore Image: 
+GuestTools: state=installed version=27.1.0-58756
+Mouse and Keyboard:
+  Smart mouse optimized for games: auto
+  Sticky mouse: off
+  Smooth scrolling: on
+  Keyboard optimization mode: auto
+USB and Bluetooth:
+  Automatic sharing cameras: off
+  Automatic sharing bluetooth: off
+  Automatic sharing smart cards: off
+  Automatic sharing gamepads: on
+  Support USB 3.0: on
+Startup and Shutdown:
+  Autostart: off
+  Autostart delay: 0
+  Autostop: suspend
+  Startup view: same
+  On shutdown: close
+  On window close: suspend
+  Pause idle: off
+  Undo disks: off
+Optimization:
+  Faster virtual machine: on
+  Hypervisor type: apple
+  Adaptive hypervisor: off
+  Disabled Windows logo: on
+  Auto compress virtual disks: off
+  Nested virtualization: off
+  PMU virtualization: off
+  Longer battery life: off
+  Show battery status: on
+Security:
+  Encrypted: no
+  TPM enabled: no
+  TPM type: off
+  Protected: no
+  Archived: no
+  Packed: no
+Smart Guard: (-)
+Modality:
+  Opacity (percentage): 50
+  Stay on top: on
+  Show on all spaces : on
+  Capture mouse clicks: on
+Fullscreen:
+  Use all displays: off
+  Activate spaces on click: on
+  Optimize for games: off
+  Gamma control: on
+  Scale view mode: auto
+Coherence:
+  Show Windows systray in Mac menu: on
+  Auto-switch to full screen: on
+Time Synchronization: (+)
+  Smart mode: off
+  Interval (in seconds): 60
+  Timezone synchronization disabled: off
+Expiration: (-)
+Boot order: cdrom0 usb hdd0 
+BIOS type: efi-arm64
+EFI Secure boot: off
+Allow select boot device: off
+External boot device: 
+SMBIOS settings:
+  BIOS Version: 
+  System serial number: 
+  Board Manufacturer: 
+Hardware:
+  cpu cpus=4 auto=off VT-x accl=high mode=64 type=arm
+  memory size=8192Mb auto=off
+  video adapter-type=parallels size=0Mb 3d-acceleration=highest vertical-sync=on high-resolution=off high-resolution-in-guest=on native-scaling-in-guest=off automatic-video-memory=on
+  memory_quota auto=yes
+  hdd0 (+) sata:0 image='/Users/bryancostanich/Parallels/cercano-disposable-migration-20261106-095610.macvm/harddisk1.hdd' type='plain' 102400Mb online-compact=on
+  cdrom0 (+) sata:1 image='' state=disconnected
+  usb (+)
+  net0 (+) type=shared mac=001C420699FC card=virtio
+  sound0 (+) output='Default' mixer='Default'
+Host Shared Folders: (-)
+Host defined sharing: Off
+Shared Profile: (-)
+Shared Applications: (+)
+  Host-to-guest apps sharing: off
+  Guest-to-host apps sharing: off
+  Show guest apps folder in Dock: off
+  Bounce dock icon when app flashes: on
+SmartMount: (-)
+Network:
+  Conditioned: off
+  IP Addresses: 10.211.55.5
+Miscellaneous Sharing:
+  Shared clipboard mode: off
+  Shared cloud: off
+Advanced:
+  VM hostname synchronization: off
+  Public SSH keys synchronization: off
+  Show developer tools: off
+  Swipe from edges: off
+  Share host location: off
+  Rosetta Linux: off
+
+
+stderr:
+
+
+## Record 138 — 2026-11-15T11:51:18.587810 — status 0
+['prlctl', 'snapshot-list', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                        {2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+{2f6bace3-6acf-4fcf-8e39-359c1efe3af0} *{9b24ada1-0594-4f31-9418-c19197eb225a}
+
+stderr:
+
+
+## Record 139 — 2026-11-15T11:51:20.874124 — status 0
+['prlctl', 'help', 'clone']
+stdout:
+
+prlctl version 27.1.0 (58756)
+
+Usage: prlctl ACTION <ID | NAME> [OPTIONS]
+
+Supported categories of ACTION are:
+
+Miscellaneous
+problem-report, guest-debugger, debug-dump
+
+VM Management
+list, create, delete, register, unregister, clone, convert, move, installtools, enter, exec, send-key-event, status, capture, encrypt, decrypt, change-passwd, archive, unarchive, protection-set, protection-remove
+
+Power operations
+start, resume, pause, suspend, restart, reset, reset-uptime, stop
+
+VM Configuration
+set
+
+Snapshot Management
+snapshot, snapshot-delete, snapshot-list, snapshot-switch
+
+Please use --help option to get help for ACTION
+For example, prlctl list --help
+
+
+stderr:
+Unknown action: help
+
+
+## Record 140 — 2026-11-15T11:51:23.732942 — status 0
+['prlctl', 'clone', '--help']
+stdout:
+
+prlctl version 27.1.0 (58756)
+
+prlctl clone <ID | NAME> <options>
+
+Options:
+    --name                   Name to be assigned to the created clone
+    --template               Template to be used for creating clone
+    --dst                    Destination path where clone will be stored
+    --regenerate-src-uuid    Regenerates UUID
+    --linked [-i,--id]       Creates a linked clone with specified ID
+    --unlink                 Creates a clone but unlinks it from parent VM
+    --detach-external-hdd    Detaches external HDD from the clone
+    --force-deep-copy        Force deep copy creation instead of using native clone capabilities
+
+Examples:
+    prlctl clone <ID | NAME> --name <new_name> : Clones specified VM and assigns 'new_name' to the clone
+    prlctl clone <ID | NAME> --dst <path> : Clones specified VM and stores the clone at specified 'path'
+
+For more details please refer Parallels Desktop Command-Line Reference at
+https://www.parallels.com/products/desktop/resources/
+
+
+stderr:
+
+
+## Record 141 — 2026-11-15T11:51:29.408321 — status 0
+['prlctl', 'exec', '08196962-608d-4fde-8284-49a5f020fea6', '/bin/bash', '-c', '"echo 736574202d65753b206563686f20574f524b4c4f4144533b207073202d61786f207069642c707069642c757365722c6574696d652c636f6d6d3b206563686f20534e415053484f545f424153454c494e453b2073686173756d202d6120323536202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f2a3b206c73202d6c202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f627265772f62696e2f63657263616e6f2a3b2077686f | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu; echo WORKLOADS; ps -axo pid,ppid,user,etime,comm; echo SNAPSHOT_BASELINE; shasum -a 256 /opt/cercano-migration-unpriv-20261115/brew/Cellar/cercano/0.25.2/bin/*; ls -l /opt/cercano-migration-unpriv-20261115/brew/bin/cercano*; who
+stdout:
+WORKLOADS
+  PID  PPID USER              ELAPSED COMM
+    1     0 root             11:51:03 /sbin/launchd
+   92     1 root             11:51:00 /usr/libexec/logd
+   93     1 root             11:51:00 /usr/libexec/smd
+   94     1 root             11:51:00 /usr/libexec/UserEventAgent
+   96     1 root             11:51:00 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Support/fseventsd
+   97     1 root             11:51:00 /System/Library/PrivateFrameworks/MediaRemote.framework/Support/mediaremoted
+  100     1 root             11:51:00 /usr/sbin/systemstats
+  103     1 _accessoryupdater 11:51:00 /usr/libexec/uarpassetmanagerd
+  104     1 root             11:51:00 /usr/libexec/configd
+  105     1 root             11:51:00 endpointsecurityd
+  106     1 root             11:51:00 /System/Library/CoreServices/powerd.bundle/powerd
+  107     1 root             11:51:00 /usr/libexec/IOMFB_bics_daemon
+  109     1 root             11:51:00 /usr/libexec/amfid
+  111     1 root             11:51:00 /usr/libexec/remoted
+  113     1 root             11:51:00 /usr/libexec/keybagd
+  114     1 _softwareupdate  11:51:00 /System/Library/PrivateFrameworks/MobileSoftwareUpdate.framework/Support/softwareupdated
+  115     1 _corespeechd     11:51:00 /System/Library/PrivateFrameworks/CoreSpeech.framework/corespeechd_system
+  120     1 root             11:51:00 /usr/libexec/warmd
+  121     1 root             11:51:00 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mds
+  122     1 _iconservices    11:51:00 /System/Library/CoreServices/iconservicesd
+  123     1 root             11:51:00 /usr/libexec/kernelmanagerd
+  124     1 root             11:51:00 /usr/libexec/diskarbitrationd
+  127     1 root             11:51:00 /usr/libexec/coreduetd
+  128     1 root             11:51:00 /usr/sbin/syslogd
+  130     1 root             11:51:00 /usr/libexec/thermalmonitord
+  131     1 root             11:51:00 /System/Library/PrivateFrameworks/CoreDuetContext.framework/Resources/contextstored
+  132     1 root             11:51:00 /usr/libexec/xprotectd
+  133     1 root             11:51:00 /usr/libexec/opendirectoryd
+  134     1 root             11:51:00 /System/Library/PrivateFrameworks/ApplePushService.framework/apsd
+  135     1 root             11:51:00 /System/Library/CoreServices/launchservicesd
+  137     1 _usbmuxd         11:51:00 /System/Library/PrivateFrameworks/MobileDevice.framework/Versions/A/Resources/usbmuxd
+  138     1 root             11:51:00 /usr/sbin/securityd
+  140     1 _locationd       11:51:00 /usr/libexec/locationd
+  141     1 root             11:51:00 /usr/libexec/nesessionmanager
+  143     1 root             11:51:00 autofsd
+  144     1 root             11:51:00 /usr/libexec/dasd
+  145     1 root             11:51:00 /usr/libexec/corerepaird
+  147     1 _distnote        11:51:00 /usr/sbin/distnoted
+  148     1 root             11:51:00 /System/Library/PrivateFrameworks/AppleCredentialManager.framework/AppleCredentialManagerDaemon
+  150     1 root             11:51:00 /usr/libexec/dirhelper
+  151     1 root             11:51:00 /System/Library/CoreServices/logind
+  152     1 root             11:51:00 /System/Library/PrivateFrameworks/GenerationalStorage.framework/Versions/A/Support/revisiond
+  153     1 root             11:51:00 /usr/sbin/KernelEventAgent
+  155     1 root             11:51:00 /usr/libexec/usermanagerd
+  157     1 root             11:51:00 /usr/sbin/bluetoothd
+  158     1 root             11:51:00 /usr/sbin/notifyd
+  159     1 root             11:51:00 /usr/libexec/sandboxd
+  160     1 root             11:51:00 /usr/libexec/corebrightnessd
+  161     1 root             11:51:00 /usr/libexec/AirPlayXPCHelper
+  162     1 root             11:51:00 /System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/com.apple.cmio.registerassistantservice
+  163     1 root             11:51:00 aslmanager
+  164     1 root             11:51:00 /System/Library/PrivateFrameworks/TCC.framework/Support/tccd
+  165     1 root             11:51:00 /usr/sbin/cfprefsd
+  166     1 root             11:51:00 /System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow
+  167     1 root             11:51:00 /usr/libexec/powerexperienced
+  168     1 root             11:51:00 /System/Library/CoreServices/coreservicesd
+  169     1 root             11:51:00 /usr/libexec/fskitd
+  170     1 root             11:51:00 /usr/libexec/lsd
+  171     1 root             11:51:00 /usr/libexec/runningboardd
+  172     1 _windowserver    11:51:00 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+  173     1 _trustd          11:51:00 /usr/libexec/trustd
+  175     1 _analyticsd      11:51:00 /System/Library/PrivateFrameworks/CoreAnalytics.framework/Support/analyticsd
+  178     1 root             11:51:00 /System/Library/Frameworks/InputMethodKit.framework/Resources/imklaunchagent
+  179     1 root             11:51:00 /usr/libexec/UserEventAgent
+  180     1 root             11:51:00 /usr/libexec/trustdFileHelper
+  181     1 root             11:51:00 /usr/libexec/containermanagerd_system
+  182     1 root             11:51:00 /usr/sbin/universalaccessd
+  183     1 root             11:51:00 /usr/libexec/PowerUIAgent
+  184     1 _coreaudiod      11:51:00 /usr/sbin/coreaudiod
+  186     1 root             11:51:00 /usr/libexec/mobileassetd
+  188     1 _coreaudiod      11:51:00 /usr/sbin/distnoted
+  189     1 root             11:51:00 /usr/libexec/pkd
+  190     1 root             11:51:00 /System/Library/PrivateFrameworks/SystemStatusServer.framework/Support/systemstatusd
+  192     1 root             11:51:00 /usr/libexec/findmydeviced
+  193     1 root             11:51:00 /usr/libexec/eligibilityd
+  194     1 _mdnsresponder   11:51:00 /usr/sbin/mDNSResponder
+  195     1 _hidd            11:51:00 /usr/libexec/hidd
+  197     1 _windowserver    11:51:00 /usr/sbin/distnoted
+  198     1 root             11:51:00 /usr/libexec/secinitd
+  210     1 root             11:51:00 /usr/libexec/airportd
+  211     1 root             11:51:00 /usr/libexec/nehelper
+  212     1 root             11:51:00 /usr/sbin/mDNSResponderHelper
+  215     1 _networkd        11:51:00 /usr/libexec/symptomsd
+  216     1 root             11:51:00 /usr/sbin/distnoted
+  217     1 root             11:51:00 /System/Library/Frameworks/NetFS.framework/Versions/A/XPCServices/PlugInLibraryService.xpc/Contents/MacOS/PlugInLibraryService
+  218     1 root             11:51:00 /usr/libexec/colorsync.displayservices
+  219     1 root             11:51:00 /System/Library/Frameworks/ColorSync.framework/Versions/A/XPCServices/com.apple.ColorSyncXPCAgent.xpc/Contents/MacOS/com.apple.ColorSyncXPCAgent
+  220     1 root             11:51:00 /System/Library/Frameworks/Security.framework/Versions/A/XPCServices/authd.xpc/Contents/MacOS/authd
+  222     1 root             11:51:00 /usr/libexec/colorsyncd
+  232     1 root             11:51:00 /System/Library/PrivateFrameworks/MobileAssetDaemon.framework/Versions/A/XPCServices/com.apple.MobileAsset.DownloadService.Builtin.xpc/Contents/MacOS/com.apple.MobileAsset.DownloadService.Builtin
+  234     1 _nsurlsessiond   11:51:00 /usr/libexec/nsurlsessiond
+  241     1 root             11:51:00 /usr/libexec/securityd_system
+  242     1 root             11:51:00 /System/Library/Frameworks/Security.framework/Versions/A/XPCServices/com.apple.CodeSigningHelper.xpc/Contents/MacOS/com.apple.CodeSigningHelper
+  243     1 root             11:51:00 /usr/libexec/syspolicyd
+  245     1 _coreaudiod      11:51:00 Core Audio Driver (ParrotAudioPlugin.driver)
+  246     1 _coreaudiod      11:51:00 /System/Library/Frameworks/CoreAudio.framework/Versions/A/XPCServices/com.apple.audio.DriverHelper.xpc/Contents/MacOS/com.apple.audio.DriverHelper
+  247     1 _appleevents     11:51:00 /System/Library/CoreServices/appleeventsd
+  248     1 root             11:51:00 /System/Library/Frameworks/AudioToolbox.framework/AudioComponentRegistrar
+  249     1 root             11:51:00 /System/Library/PrivateFrameworks/CloudKitDaemon.framework/Support/cloudd
+  250     1 root             11:51:00 /usr/sbin/WirelessRadioManagerd
+  251     1 _coreaudiod      11:51:00 /System/Library/Frameworks/AudioToolbox.framework/XPCServices/com.apple.audio.SandboxHelper.xpc/Contents/MacOS/com.apple.audio.SandboxHelper
+  252     1 root             11:51:00 /System/Library/PrivateFrameworks/ViewBridge.framework/Versions/A/XPCServices/ViewBridgeAuxiliary.xpc/Contents/MacOS/ViewBridgeAuxiliary
+  253     1 root             11:50:59 /usr/libexec/findmybeaconingd
+  254     1 _driverkit       11:50:59 /System/Library/DriverExtensions/com.apple.DriverKit-IOUserDockChannelSerial.dext/com.apple.DriverKit-IOUserDockChannelSerial
+  255     1 _driverkit       11:50:59 /System/Library/DriverExtensions/com.apple.AppleUserHIDDrivers.dext/com.apple.AppleUserHIDDrivers
+  256     1 root             11:50:59 /usr/libexec/audioclocksyncd
+  258     1 _biome           11:50:59 /System/Library/PrivateFrameworks/BiomeStreams.framework/Support/biomed
+  259     1 _cmiodalassistants 11:50:59 /usr/sbin/distnoted
+  260     1 root             11:50:59 /usr/libexec/bootinstalld
+  261     1 _audiomxd        11:50:59 /usr/libexec/audiomxd
+  264     1 root             11:50:59 /usr/libexec/storagekitd
+  265     1 root             11:50:59 /System/Library/CoreServices/Software Update.app/Contents/Resources/suhelperd
+  267     1 root             11:50:59 /System/Library/CoreServices/TimeMachine/backupd
+  273     1 root             11:50:59 /usr/libexec/mobileactivationd
+  274     1 _softwareupdate  11:50:58 /System/Library/CoreServices/Software Update.app/Contents/Resources/softwareupdated
+  275     1 root             11:50:58 /System/Library/Frameworks/SystemExtensions.framework/Versions/A/Helpers/sysextd
+  288     1 root             11:50:58 /System/Library/CoreServices/osanalyticshelper
+  289     1 _cmiodalassistants 11:50:58 /usr/libexec/com.apple.cmio.videodriverkithostextension.systemextension/Contents/MacOS/com.apple.cmio.videodriverkithostextension
+  291     1 root             11:50:58 /usr/libexec/triald_system
+  292     1 root             11:50:58 /System/Library/CoreServices/liquiddetectiond.app/liquiddetectiond
+  294     1 root             11:50:58 /System/Library/PrivateFrameworks/BackgroundTaskManagement.framework/Resources/backgroundtaskmanagementd
+  295     1 _audiomxd        11:50:58 /usr/sbin/distnoted
+  298     1 root             11:50:58 /Library/Parallels Guest Tools/prltoolsd
+  299     1 _cmiodalassistants 11:50:58 /usr/libexec/cameracaptured
+  300     1 _cmiodalassistants 11:50:58 /System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/UVCAssistant.systemextension/Contents/MacOS/UVCAssistant
+  302     1 _securityagent   11:50:58 /System/Library/Frameworks/Security.framework/Versions/A/MachServices/SecurityAgent.bundle/Contents/MacOS/SecurityAgent
+  303     1 root             11:50:58 /System/Library/CryptoTokenKit/com.apple.ifdreader.slotd/Contents/MacOS/com.apple.ifdreader
+  304     1 root             11:50:58 /usr/libexec/rtcreportingd
+  305     1 root             11:50:58 /usr/libexec/countryd
+  306     1 _locationd       11:50:58 /System/Library/PrivateFrameworks/GeoServices.framework/Versions/A/XPCServices/com.apple.geod.xpc/Contents/MacOS/com.apple.geod
+  307     1 _softwareupdate  11:50:58 /usr/sbin/distnoted
+  308     1 root             11:50:58 /usr/libexec/apfsd
+  309     1 _locationd       11:50:58 /usr/sbin/distnoted
+  313     1 _locationd       11:50:58 /usr/libexec/secinitd
+  314     1 _locationd       11:50:58 /usr/sbin/cfprefsd
+  315     1 _locationd       11:50:58 /usr/libexec/trustd
+  316     1 root             11:50:58 /usr/libexec/ApplicationFirewall/socketfilterfw
+  320     1 root             11:50:58 /System/Library/PrivateFrameworks/ModelCatalogRuntime.framework/Versions/A/modelcatalogd
+  321     1 _locationd       11:50:58 /usr/libexec/containermanagerd
+  322     1 root             11:50:58 /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/HIServices.framework/Versions/A/XPCServices/com.apple.hiservices-xpcservice.xpc/Contents/MacOS/com.apple.hiservices-xpcservice
+  323     1 root             11:50:58 /System/Library/CoreServices/TimeMachine/backupd-helper
+  324     1 root             11:50:58 /usr/libexec/searchpartyd
+  325     1 root             11:50:58 /usr/libexec/AppleQEMUGuestAgent
+  326     1 _avphidbridge    11:50:58 /usr/libexec/AppleVirtualPlatformHIDBridge
+  327     1 root             11:50:58 /usr/libexec/cryptexd
+  328     1 root             11:50:58 /System/Library/PrivateFrameworks/MobileSoftwareUpdate.framework/Versions/A/XPCServices/com.apple.MobileSoftwareUpdate.CleanupPreparePathService.xpc/Contents/MacOS/com.apple.MobileSoftwareUpdate.CleanupPreparePathService
+  329     1 root             11:50:57 /System/Library/PrivateFrameworks/PowerLog.framework/Versions/A/XPCServices/PerfPowerTelemetryClientRegistrationService.xpc/Contents/MacOS/PerfPowerTelemetryClientRegistrationService
+  331     1 root             11:50:57 /usr/libexec/symptomsd-diag
+  333     1 root             11:50:57 /System/Library/PrivateFrameworks/CloudTelemetry.framework/Versions/A/XPCServices/CloudTelemetryService.xpc/Contents/MacOS/CloudTelemetryService
+  334     1 _mds_stores      11:50:57 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mds_stores
+  336     1 root             11:50:57 /System/Library/PrivateFrameworks/SystemAdministration.framework/XPCServices/writeconfig.xpc/Contents/MacOS/writeconfig
+  338     1 root             11:50:57 /System/Library/Frameworks/LocalAuthentication.framework/Support/coreauthd
+  339     1 root             11:50:57 /usr/libexec/tzlinkd
+  340     1 root             11:50:57 /usr/libexec/biometrickitd
+  341     1 root             11:50:57 /usr/sbin/filecoordinationd
+  342     1 _netbios         11:50:57 /usr/sbin/netbiosd
+  344     1 root             11:50:57 /System/Library/Frameworks/CryptoTokenKit.framework/ctkahp.bundle/Contents/MacOS/ctkahp
+  347     1 root             11:50:57 /System/Library/Frameworks/CryptoTokenKit.framework/ctkahp.bundle/Contents/MacOS/ctkahp
+  349     1 root             11:50:56 /System/Library/Frameworks/CryptoTokenKit.framework/ctkd
+  350     1 _ctkd            11:50:56 /System/Library/Frameworks/CryptoTokenKit.framework/ctkd
+  352     1 root             11:50:56 /usr/sbin/systemsoundserverd
+  354     1 root             11:50:55 /System/Library/PrivateFrameworks/AppleVirtualPlatform.framework/Versions/A/XPCServices/AppleVirtualPlatformIdentityService.xpc/Contents/MacOS/com.apple.Virtualization.AppleVirtualPlatformIdentity
+  357     1 root             11:50:55 /Library/Apple/System/Library/CoreServices/XProtect.app/Contents/XPCServices/XProtectPluginService.xpc/Contents/MacOS/XProtectPluginService
+  358     1 _spotlight       11:50:55 /usr/sbin/distnoted
+  364     1 root             11:50:54 /usr/libexec/gamepolicyd
+  365     1 root             11:50:54 /usr/libexec/tailspind
+  366     1 root             11:50:54 /usr/libexec/ospredictiond
+  367     1 root             11:50:53 /usr/libexec/sysmond
+  368     1 _accessoryupdater 11:50:53 /usr/sbin/distnoted
+  374   100 root             11:50:53 /usr/sbin/systemstats
+  375     1 root             11:50:49 /usr/libexec/PerfPowerServices
+  376     1 root             11:50:48 /System/Library/PrivateFrameworks/AmbientDisplay.framework/Versions/A/XPCServices/com.apple.AmbientDisplayAgent.xpc/Contents/MacOS/com.apple.AmbientDisplayAgent
+  377     1 root             11:50:48 /System/Library/Frameworks/ColorSync.framework/Versions/A/XPCServices/com.apple.ColorSyncXPCAgent.xpc/Contents/MacOS/com.apple.ColorSyncXPCAgent
+  476     1 test             11:50:16 /usr/sbin/distnoted
+  550     1 root             11:50:15 /usr/libexec/logd_helper
+  603     1 test             11:49:57 /usr/sbin/cfprefsd
+  604     1 test             11:49:57 /usr/libexec/lsd
+  605     1 test             11:49:57 /usr/libexec/secd
+  609     1 _spotlight       11:49:55 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mdworker
+  621     1 _applepay        11:45:57 /usr/libexec/nfcd
+  622     1 root             11:45:57 /usr/libexec/online-auth-agent
+  631     1 root             11:45:40 /usr/libexec/assetsubscriptiond
+  632     1 _nsurlsessiond   11:45:39 /usr/sbin/distnoted
+  635     1 root             11:45:23 /usr/libexec/ASPCarryLog
+  638     1 root             11:45:07 /System/Library/PrivateFrameworks/Noticeboard.framework/Versions/A/Resources/nbagent.app/Contents/MacOS/nbagent
+  639     1 root             11:45:07 /System/Library/CoreServices/sharedfilelistd
+  641     1 root             11:45:06 /System/Library/PrivateFrameworks/Noticeboard.framework/Versions/A/Resources/nbstated
+  648     1 root             11:44:56 /usr/libexec/dprivacyd
+  649     1 root             11:44:56 /usr/libexec/microstackshot
+  650     1 root             11:44:56 /Library/Apple/System/Library/CoreServices/XProtect.app/Contents/MacOS/XProtect
+  653     1 root             11:44:56 /System/Library/PrivateFrameworks/CacheDelete.framework/deleted_helper
+  661     1 root             11:44:55 /System/Library/PrivateFrameworks/CloudTelemetry.framework/Versions/A/XPCServices/CloudTelemetryService.xpc/Contents/MacOS/CloudTelemetryService
+  662     1 root             11:44:55 /System/Library/PrivateFrameworks/XprotectFramework.framework/Versions/A/XPCServices/XProtectBridgeService.xpc/Contents/MacOS/XProtectBridgeService
+  674     1 root             11:44:41 /System/Library/CoreServices/CrashReporterSupportHelper
+  697     1 root             11:44:32 /System/Library/PrivateFrameworks/XprotectFramework.framework/Versions/A/XPCServices/XprotectService.xpc/Contents/MacOS/XprotectService
+  698     1 root             11:44:32 /System/Library/CoreServices/ReportCrash
+  717     1 root             11:44:32 /System/Library/PrivateFrameworks/CoreSymbolication.framework/coresymbolicationd
+  761     1 root             11:44:20 /usr/sbin/spindump
+  762     1 root             11:44:20 /System/Library/CoreServices/SubmitDiagInfo
+  764     1 _modelmanagerd   11:44:19 /usr/libexec/modelmanagerd
+  770     1 root             11:44:08 /usr/libexec/tzd
+  997     1 _assetcache      11:40:56 /System/Library/PrivateFrameworks/AssetCacheServices.framework/Versions/A/XPCServices/AssetCacheLocatorService.xpc/Contents/MacOS/AssetCacheLocatorService
+  998     1 _assetcache      11:40:56 /usr/libexec/AssetCache/AssetCache
+ 1000     1 root             11:40:56 /System/Library/PrivateFrameworks/AssetCacheServicesExtensions.framework/XPCServices/AssetCacheTetheratorService.xpc/Contents/MacOS/AssetCacheTetheratorService
+ 2656     1 _neuralengine    11:09:42 /usr/libexec/aneuserd
+ 2657     1 root             11:09:42 /usr/libexec/aned
+ 2934     1 _cercanorehearsal 10:57:29 /usr/sbin/distnoted
+ 3204     1 _timed           10:57:12 /usr/libexec/timed
+ 3205     1 root             10:57:01 /System/Library/Frameworks/Metal.framework/Versions/A/XPCServices/MTLCompilerService.xpc/Contents/MacOS/MTLCompilerService
+10167   298 root                00:00 /bin/bash
+10170 10167 root                00:00 /bin/bash
+10171 10170 root                00:00 ps
+SNAPSHOT_BASELINE
+effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e  /opt/cercano-migration-unpriv-20261115/brew/Cellar/cercano/0.25.2/bin/cercano
+c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2  /opt/cercano-migration-unpriv-20261115/brew/Cellar/cercano/0.25.2/bin/cercano-cli
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  42 Nov 15 00:54 /opt/cercano-migration-unpriv-20261115/brew/bin/cercano -> ../Cellar/cercano-agent/0.27.0/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  44 Nov 15 00:54 /opt/cercano-migration-unpriv-20261115/brew/bin/cercano-cli -> ../Cellar/cercano-cli/0.27.0/bin/cercano-cli
+
+stderr:
+
+
+## Record 142 — 2026-11-15T11:51:32.035336 — status 0
+['prlctl', 'snapshot-list', '--help']
+stdout:
+
+prlctl version 27.1.0 (58756)
+
+prlctl snapshot-list <ID | NAME> <options>
+
+Options:
+    -t,--tree         Display snapshot tree using ASCII graphics
+    -i,--id           Display Specified snapshot information
+    -j,--json         Produce output in JSON format
+    -H,--no-header    Do not print header line in output
+
+Examples:
+    prlctl snapshot-list <ID | NAME> --tree : Displays snapshot tree for the specified VM
+    prlctl snapshot-list <ID | NAME> --id snapID : Displays information for snapshot snapID of the specified VM
+
+For more details please refer Parallels Desktop Command-Line Reference at
+https://www.parallels.com/products/desktop/resources/
+
+
+stderr:
+
+
+## Record 143 — 2026-11-15T11:51:35.305351 — status 0
+['prlctl', 'snapshot-list', '08196962-608d-4fde-8284-49a5f020fea6', '--id', '9b24ada1-0594-4f31-9418-c19197eb225a']
+stdout:
+ID: {9b24ada1-0594-4f31-9418-c19197eb225a}
+Name: cercano-historical-installed-20261115
+Date: 2026-11-15 00:54:25
+Current: yes
+State: poweron
+Description: Isolated UID5501 v0.25.2 real historical formula installed; no active agent; before manual split
+
+
+stderr:
+
+
+## Record 144 — 2026-11-15T11:51:41.112102 — status 0
+['prlctl', 'exec', '08196962-608d-4fde-8284-49a5f020fea6', '/bin/bash', '-c', '"echo 6563686f204e4f4e53595354454d3b207073202d61786f207069642c757365722c636f6d6d207c2067726570202d45202763657263616e6f7c627265777c2f6f70742f7c5465726d696e616c7c5361666172697c436f64657c636c616e677c6d616b657c707974686f6e7c7275627927207c7c20747275653b206563686f2053455353494f4e533b2077686f3b206563686f204c494e4b533b206c73202d6c202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f627265772f62696e2f63657263616e6f2a3b206563686f204d41524b4552533b2073686173756d202d6120323536202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f686f6d652f2e63657263616e6f2f2a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+echo NONSYSTEM; ps -axo pid,user,comm | grep -E 'cercano|brew|/opt/|Terminal|Safari|Code|clang|make|python|ruby' || true; echo SESSIONS; who; echo LINKS; ls -l /opt/cercano-migration-unpriv-20261115/brew/bin/cercano*; echo MARKERS; shasum -a 256 /opt/cercano-migration-unpriv-20261115/home/.config/cercano/config.yaml /opt/cercano-migration-unpriv-20261115/home/.cercano/*
+stdout:
+NONSYSTEM
+  242 root             /System/Library/Frameworks/Security.framework/Versions/A/XPCServices/com.apple.CodeSigningHelper.xpc/Contents/MacOS/com.apple.CodeSigningHelper
+ 2934 _cercanorehearsal /usr/sbin/distnoted
+SESSIONS
+LINKS
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  42 Nov 15 00:54 /opt/cercano-migration-unpriv-20261115/brew/bin/cercano -> ../Cellar/cercano-agent/0.27.0/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  44 Nov 15 00:54 /opt/cercano-migration-unpriv-20261115/brew/bin/cercano-cli -> ../Cellar/cercano-cli/0.27.0/bin/cercano-cli
+MARKERS
+41605ae5178735b19b7f16419bc6edb4ed89a1e495988a1040828c04709f9029  /opt/cercano-migration-unpriv-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-migration-unpriv-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-migration-unpriv-20261115/home/.cercano/credential-marker
+
+stderr:
+
+
+## Record 145 — 2026-11-15T11:51:44.319998 — status 255
+['prlctl', 'stop', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+Stopping the VM...
+
+stderr:
+Failed to stop the VM: Operation canceled. The operation has been canceled.
+
+
+## Record 146 — 2026-11-15T11:51:48.041706 — status 0
+['prlctl', 'status', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+VM {08196962-608d-4fde-8284-49a5f020fea6} exist running
+
+stderr:
+
+
+## Record 147 — 2026-11-15T11:51:51.264651 — status 255
+['prlctl', 'exec', '08196962-608d-4fde-8284-49a5f020fea6', '/bin/bash', '-c', '"echo 2f7362696e2f73687574646f776e202d68202b312027417574686f72697a656420646973706f7361626c6520564d20616363657074616e636520636c6f6e65207072657061726174696f6e3b20677261636566756c2073687574646f776e27 | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+/sbin/shutdown -h +1 'Authorized disposable VM acceptance clone preparation; graceful shutdown'
+stdout:
+
+stderr:
+PrlVm_TerminalConnect: PrlJob_Wait: PRL_ERR_IO_STOPPED
+
+
+## Record 148 — 2026-11-15T11:51:54.951070 — status 0
+['prlctl', 'status', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+VM {08196962-608d-4fde-8284-49a5f020fea6} exist stopped
+
+stderr:
+
+
+## Record 149 — 2026-11-15T11:51:59.286074 — status 255
+['prlctl', 'clone', '08196962-608d-4fde-8284-49a5f020fea6', '--name', 'cercano-acceptance-rollback-20261115-1129', '--linked', '--id', '9b24ada1-0594-4f31-9418-c19197eb225a']
+stdout:
+Clone the cercano-disposable-migration-20261106-095610 VM to VM cercano-acceptance-rollback-20261115-1129...
+
+stderr:
+
+Failed to clone the VM: Unable to use snapshot "cercano-historical-installed-20261115" to create a linked clone of the virtual machine. You can use only those snapshots that were created when the virtual machine was shut down. Snapshot "cercano-historical-installed-20261115" was created when the virtual machine was running, suspended, or paused.
+
+
+## Record 150 — 2026-11-15T11:53:19.258589 — status 0
+['prlctl', 'clone', '08196962-608d-4fde-8284-49a5f020fea6', '--name', 'cercano-acceptance-rollback-20261115-1129', '--force-deep-copy']
+stdout:
+Clone the cercano-disposable-migration-20261106-095610 VM to VM cercano-acceptance-rollback-20261115-1129...
+
+Copying files ... 1%
+Copying files ... 2%
+Copying files ... 3%
+Copying files ... 4%
+Copying files ... 5%
+Copying files ... 6%
+Copying files ... 7%
+Copying files ... 8%
+Copying files ... 9%
+Copying files ...10%
+Copying files ...11%
+Copying files ...12%
+Copying files ...13%
+Copying files ...15%
+Copying files ...16%
+Copying files ...18%
+Copying files ...19%
+Copying files ...21%
+Copying files ...23%
+Copying files ...24%
+Copying files ...25%
+Copying files ...27%
+Copying files ...28%
+Copying files ...30%
+Copying files ...32%
+Copying files ...34%
+Copying files ...36%
+Copying files ...37%
+Copying files ...38%
+Copying files ...40%
+Copying files ...41%
+Copying files ...42%
+Copying files ...43%
+Copying files ...44%
+Copying files ...45%
+Copying files ...46%
+Copying files ...47%
+Copying files ...49%
+Copying files ...51%
+Copying files ...52%
+Copying files ...54%
+Copying files ...55%
+Copying files ...57%
+Copying files ...59%
+Copying files ...61%
+Copying files ...62%
+Copying files ...64%
+Copying files ...66%
+Copying files ...67%
+Copying files ...69%
+Copying files ...70%
+Copying files ...71%
+Copying files ...72%
+Copying files ...73%
+Copying files ...74%
+Copying files ...75%
+Copying files ...76%
+Copying files ...77%
+Copying files ...78%
+Copying files ...79%
+Copying files ...81%
+Copying files ...82%
+Copying files ...84%
+Copying files ...85%
+Copying files ...87%
+Copying files ...89%
+Copying files ...90%
+Copying files ...92%
+Copying files ...94%
+Copying files ...95%
+Copying files ...97%
+Copying files ...98%
+The VM has been successfully cloned.
+
+stderr:
+
+
+## Record 151 — 2026-11-15T11:53:23.399450 — status 0
+['prlctl', 'start', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+Starting the VM...
+The VM has been successfully started.
+
+stderr:
+
+
+## Record 152 — 2026-11-15T11:53:27.257624 — status 0
+['prlctl', 'snapshot-list', 'cercano-acceptance-rollback-20261115-1129']
+stdout:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                        {2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+{2f6bace3-6acf-4fcf-8e39-359c1efe3af0} *{9b24ada1-0594-4f31-9418-c19197eb225a}
+
+stderr:
+
+
+## Record 153 — 2026-11-15T11:53:29.766346 — status 0
+['prlctl', 'list', '-a', '-j']
+stdout:
+[
+	{
+		"uuid": "5cd689b0-153c-47d4-943e-935aa7545684",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "Windows 11"
+	},
+	{
+		"uuid": "5df50e96-bb17-4248-aa6e-50ae559cd765",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "cercano-acceptance-rollback-20261115-1129"
+	},
+	{
+		"uuid": "08196962-608d-4fde-8284-49a5f020fea6",
+		"status": "running",
+		"ip_configured": "-",
+		"name": "cercano-disposable-migration-20261106-095610"
+	},
+	{
+		"uuid": "d5633dbc-c8a1-49fc-a420-df6d5d60d952",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-native-acceptance-20261103-203221"
+	},
+	{
+		"uuid": "8f18b5fd-37bf-476e-8b2b-a14ff7784a0b",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-windows-packaging-20261106-1117-full"
+	}
+]
+
+stderr:
+
+
+## Record 154 — 2026-11-15T11:53:41.552201 — status 255
+['prlctl', 'snapshot-switch', '5df50e96-bb17-4248-aa6e-50ae559cd765', '--id', '9b24ada1-0594-4f31-9418-c19197eb225a']
+stdout:
+Switch to the snapshot...
+
+stderr:
+Failed to switch to snapshot: Unable to revert to this snapshot. An error occurred while restoring the virtual machine state.
+
+
+## Record 155 — 2026-11-15T11:53:44.861292 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 156 — 2026-11-15T11:53:48.523238 — status 0
+['prlctl', 'start', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+Starting the VM...
+The VM has been successfully started.
+
+stderr:
+
+
+## Record 157 — 2026-11-15T11:54:01.504926 — status 1
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 736574202d65753b20523d2f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131353b206c73202d6c202224522f627265772f62696e2f2263657263616e6f2a3b202224522f627265772d666978747572652e736822206c697374202d2d76657273696f6e733b2073686173756d202d6120323536202224522f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f222a202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a3b20636174202224522f7361666574792e7362223b206c7320222452220a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu; R=/opt/cercano-migration-unpriv-20261115; ls -l "$R/brew/bin/"cercano*; "$R/brew-fixture.sh" list --versions; shasum -a 256 "$R/brew/Cellar/cercano/0.25.2/bin/"* "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*; cat "$R/safety.sb"; ls "$R"
+
+stdout:
+
+stderr:
+ls: /opt/cercano-migration-unpriv-20261115/brew/bin/cercano*: No such file or directory
+
+
+## Record 158 — 2026-11-15T11:54:06.355648 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 6c73202d6c61202f6f70743b206c73202d6c61202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131353b206c73202d6c61202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f627265772f43656c6c61723b206d6f756e743b20646174650a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+ls -la /opt; ls -la /opt/cercano-migration-unpriv-20261115; ls -la /opt/cercano-migration-unpriv-20261115/brew/Cellar; mount; date
+
+stdout:
+total 0
+drwxr-xr-x   5 root  wheel   160 Nov 15 00:25 .
+drwxr-xr-x  22 root  wheel   704 Jun 24 19:29 ..
+drwxr-xr-x  16 test  staff   512 Nov 15 00:13 cercano-migration-20261115
+drwxr-xr-x  14 root  wheel   448 Nov 15 00:53 cercano-migration-unpriv-20261115
+drwxrwxr-x  41 test  admin  1312 Nov  3 22:21 homebrew
+total 32
+drwxr-xr-x  14 root               wheel               448 Nov 15 00:53 .
+drwxr-xr-x   5 root               wheel               160 Nov 15 00:25 ..
+drwxr-xr-x   4 _cercanorehearsal  _cercanorehearsal   128 Nov 15 00:25 artifacts
+drwxr-xr-x  14 _cercanorehearsal  _cercanorehearsal   448 Nov 15 00:25 brew
+-r-xr-xr-x   1 root               wheel               737 Nov 15 00:53 brew-fixture.sh
+drwxr-xr-x   2 _cercanorehearsal  _cercanorehearsal    64 Nov 15 00:25 cache
+drwxr-xr-x   4 _cercanorehearsal  _cercanorehearsal   128 Nov 15 00:25 home
+drwxr-xr-x   4 _cercanorehearsal  _cercanorehearsal   128 Nov 15 00:26 inspect
+drwxr-xr-x   2 _cercanorehearsal  _cercanorehearsal    64 Nov 15 00:25 logs
+-r--r--r--   1 root               wheel              1988 Nov 15 00:53 probes-v2.rb
+-r--r--r--   1 root               wheel              1640 Nov 15 00:27 probes.rb
+-r--r--r--   1 root               wheel               311 Nov 15 00:25 safety.sb
+drwxr-xr-x   3 _cercanorehearsal  _cercanorehearsal    96 Nov 15 00:25 tap
+drwxr-xr-x   4 _cercanorehearsal  _cercanorehearsal   128 Nov 15 00:53 tmp
+total 0
+drwxr-xr-x   2 _cercanorehearsal  _cercanorehearsal   64 Nov 15 00:25 .
+drwxr-xr-x  14 _cercanorehearsal  _cercanorehearsal  448 Nov 15 00:25 ..
+/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)
+devfs on /dev (devfs, local, nobrowse)
+/dev/disk3s6 on /System/Volumes/VM (apfs, local, noexec, journaled, noatime, nobrowse)
+/dev/disk3s2 on /System/Volumes/Preboot (apfs, local, journaled, nobrowse)
+/dev/disk3s4 on /System/Volumes/Update (apfs, local, journaled, nobrowse)
+/dev/disk1s2 on /System/Volumes/xarts (apfs, local, noexec, journaled, noatime, nobrowse)
+/dev/disk1s1 on /System/Volumes/iSCPreboot (apfs, local, journaled, nobrowse)
+/dev/disk1s3 on /System/Volumes/Hardware (apfs, local, journaled, nobrowse)
+/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse, root data)
+/dev/disk5s1 on /System/Library/AssetsV2/com_apple_MobileAsset_UAF_Siri_Understanding/purpose_auto/c10eb90af2d4996616c3cd0f6bac0833eb4925fa.asset/.AssetData (apfs, sealed, local, read-only, journaled, nobrowse)
+/dev/disk7s1 on /System/Library/AssetsV2/com_apple_MobileAsset_PKITrustStore/purpose_auto/6dd55b0d06633a00de6f57ccb910a66a5ba2409a.asset/.AssetData (apfs, sealed, local, read-only, journaled, nobrowse)
+map auto_home on /System/Volumes/Data/home (autofs, automounted, nobrowse)
+Sun Nov 15 11:54:06 PST 2026
+
+stderr:
+
+
+## Record 159 — 2026-11-15T11:54:41.167563 — status 1
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 23212f62696e2f626173680a232052756e206578636c75736976656c79207468726f75676820736e617073686f742d7265636f766572792e707920696e204e455720636c6f6e652e0a736574202d65756f20706970656661696c0a523d2f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131350a474f4f443d2f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131350a4f4c443d2f6f70742f63657263616e6f2d6d6967726174696f6e2d32303236313131350a746573742021202d6520222452220a74657374202d7a202224286c732022244f4c442f627265772f43656c6c61722229220a6d6b646972202d6d2037353520222452220a6370202d522022244f4c442f6272657722202224522f62726577220a6d6b646972202d7020222452222f7b686f6d652f2e636f6e6669672f63657263616e6f2c686f6d652f2e63657263616e6f2c746d702c63616368652c6c6f67732c6172746966616374737d0a6370202224474f4f44222f6172746966616374732f2a2e7461722e677a202224522f6172746966616374732f220a726d202d7266202224522f627265772f4c6962726172792f546170732f6e61746976652f686f6d65627265772d6d6967726174696f6e22202224522f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f220a6d6b646972202d70202224522f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c61220a7365642022737c24474f4f447c24527c6722202224474f4f442f7461702f466f726d756c612f63657263616e6f2e726222203e202224522f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2e7262220a7072696e74662027706f72743a20223439333834225c6e27203e202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c220a7072696e7466202773796e7468657469632d636f6e766572736174696f6e5c6e27203e202224522f686f6d652f2e63657263616e6f2f636f6e766572736174696f6e2d6d61726b6572220a7072696e74662027494e4552542d4e4f542d412d43524544454e5449414c5c6e27203e202224522f686f6d652f2e63657263616e6f2f63726564656e7469616c2d6d61726b6572220a6370202224474f4f442f627265772f6574632f686f6d65627265772f627265772e656e7622202224522f627265772f6574632f686f6d65627265772f627265772e656e76220a6370202224474f4f442f7361666574792e736222202224522f7361666574792e7362220a7072696e746620275c6e2864656e792066696c652d726561642d646174612066696c652d77726974652a202873756270617468202225732229295c6e27202224474f4f4422203e3e202224522f7361666574792e7362220a7365642022737c24474f4f447c24527c6722202224474f4f442f627265772d666978747572652e736822203e202224522f627265772d666978747572652e7368220a63686f776e202d5220353530313a3535303120222452223b2063686d6f64202d5220676f2d7720222452220a63686f776e20726f6f743a776865656c2022245222202224522f7361666574792e736222202224522f627265772d666978747572652e7368220a63686d6f642037353520222452223b2063686d6f6420343434202224522f7361666574792e7362223b2063686d6f6420353535202224522f627265772d666978747572652e7368220a636d70202224474f4f442f627265772f4c6962726172792f486f6d65627265772f73616e64626f782e726222202224522f627265772f4c6962726172792f486f6d65627265772f73616e64626f782e7262220a636d70202224474f4f442f627265772f4c6962726172792f486f6d65627265772f657874656e642f6f732f6d61632f73616e64626f782e726222202224522f627265772f4c6962726172792f486f6d65627265772f657874656e642f6f732f6d61632f73616e64626f782e7262220a6964205f63657263616e6f72656865617273616c0a2224522f627265772d666978747572652e73682220746170202d2d637573746f6d2d72656d6f7465206d6967726174696f6e2f63657263616e6f202224522f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f220a2224522f627265772d666978747572652e73682220696e7374616c6c202d2d666f726d756c61206d6967726174696f6e2f63657263616e6f2f63657263616e6f0a73686173756d202d612032353620222452222f6172746966616374732f2a2e7461722e677a202224522f7361666574792e736222202224522f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f222a202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a0a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a0a73796e630a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+#!/bin/bash
+# Run exclusively through snapshot-recovery.py in NEW clone.
+set -euo pipefail
+R=/opt/cercano-snapshot-recovery-20261115
+GOOD=/opt/cercano-migration-unpriv-20261115
+OLD=/opt/cercano-migration-20261115
+test ! -e "$R"
+test -z "$(ls "$OLD/brew/Cellar")"
+mkdir -m 755 "$R"
+cp -R "$OLD/brew" "$R/brew"
+mkdir -p "$R"/{home/.config/cercano,home/.cercano,tmp,cache,logs,artifacts}
+cp "$GOOD"/artifacts/*.tar.gz "$R/artifacts/"
+rm -rf "$R/brew/Library/Taps/native/homebrew-migration" "$R/brew/Library/Taps/migration/homebrew-cercano"
+mkdir -p "$R/brew/Library/Taps/migration/homebrew-cercano/Formula"
+sed "s|$GOOD|$R|g" "$GOOD/tap/Formula/cercano.rb" > "$R/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb"
+printf 'port: "49384"\n' > "$R/home/.config/cercano/config.yaml"
+printf 'synthetic-conversation\n' > "$R/home/.cercano/conversation-marker"
+printf 'INERT-NOT-A-CREDENTIAL\n' > "$R/home/.cercano/credential-marker"
+cp "$GOOD/brew/etc/homebrew/brew.env" "$R/brew/etc/homebrew/brew.env"
+cp "$GOOD/safety.sb" "$R/safety.sb"
+printf '\n(deny file-read-data file-write* (subpath "%s"))\n' "$GOOD" >> "$R/safety.sb"
+sed "s|$GOOD|$R|g" "$GOOD/brew-fixture.sh" > "$R/brew-fixture.sh"
+chown -R 5501:5501 "$R"; chmod -R go-w "$R"
+chown root:wheel "$R" "$R/safety.sb" "$R/brew-fixture.sh"
+chmod 755 "$R"; chmod 444 "$R/safety.sb"; chmod 555 "$R/brew-fixture.sh"
+cmp "$GOOD/brew/Library/Homebrew/sandbox.rb" "$R/brew/Library/Homebrew/sandbox.rb"
+cmp "$GOOD/brew/Library/Homebrew/extend/os/mac/sandbox.rb" "$R/brew/Library/Homebrew/extend/os/mac/sandbox.rb"
+id _cercanorehearsal
+"$R/brew-fixture.sh" tap --custom-remote migration/cercano "$R/brew/Library/Taps/migration/homebrew-cercano"
+"$R/brew-fixture.sh" install --formula migration/cercano/cercano
+shasum -a 256 "$R"/artifacts/*.tar.gz "$R/safety.sb" "$R/brew/Cellar/cercano/0.25.2/bin/"* "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*
+ls -l "$R/brew/bin/"cercano*
+sync
+
+stdout:
+uid=5501(_cercanorehearsal) gid=5501(_cercanorehearsal) groups=5501(_cercanorehearsal),12(everyone),61(localaccounts),100(_lpoperator),701(com.apple.sharepoint.group.1)
+
+stderr:
+fatal: not a git repository (or any of the parent directories): .git
+Error: Failure while executing; `git remote set-url origin --end-of-options /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano` exited with 128.
+
+
+## Record 160 — 2026-11-15T11:54:57.637122 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 736574202d65750a523d2f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131350a2224522f627265772d666978747572652e736822207472757374206d6967726174696f6e2f63657263616e6f0a2224522f627265772d666978747572652e73682220696e7374616c6c202d2d666f726d756c61206d6967726174696f6e2f63657263616e6f2f63657263616e6f0a73686173756d202d612032353620222452222f6172746966616374732f2a2e7461722e677a202224522f7361666574792e736222202224522f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f222a202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a0a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a0a73796e630a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu
+R=/opt/cercano-snapshot-recovery-20261115
+"$R/brew-fixture.sh" trust migration/cercano
+"$R/brew-fixture.sh" install --formula migration/cercano/cercano
+shasum -a 256 "$R"/artifacts/*.tar.gz "$R/safety.sb" "$R/brew/Cellar/cercano/0.25.2/bin/"* "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*
+ls -l "$R/brew/bin/"cercano*
+sync
+
+stdout:
+Trusted tap: migration/cercano
+==> Installing cercano from migration/cercano
+==> /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2/bin/cercano restart-after-upgrade
+🍺  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2: 7 files, 96.8MB, built in 1 second
+==> Caveats
+==> cercano
+Start the terminal client with cercano-cli.
+A successful upgrade restarts an existing agent after draining work.
+An absent agent is not started by installation or upgrade.
+If post-install restart fails, inspect the reported error and agent logs.
+Retry with: /opt/cercano-snapshot-recovery-20261115/brew/opt/cercano/bin/cercano restart-after-upgrade
+Manual restart from an attached client: /restart-agent
+e57b4ff87d23241588df64e6f106b087775bb6c8939611fc9c540e907efef664  /opt/cercano-snapshot-recovery-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz
+18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0  /opt/cercano-snapshot-recovery-20261115/artifacts/cercano-0.27.0-darwin-arm64.tar.gz
+06ba86297f7adf399e6aa634fce0773bdb67df8682e58ae4ae064f0c6154cdae  /opt/cercano-snapshot-recovery-20261115/safety.sb
+effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2/bin/cercano
+c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2/bin/cercano-cli
+ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157  /opt/cercano-snapshot-recovery-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-snapshot-recovery-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-snapshot-recovery-20261115/home/.cercano/credential-marker
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  36 Nov 15 11:54 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano -> ../Cellar/cercano/0.25.2/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  40 Nov 15 11:54 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano-cli -> ../Cellar/cercano/0.25.2/bin/cercano-cli
+
+stderr:
+==> Trusted formula migration/cercano/cercano
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+==> Fetching downloads for: cercano
+✔︎ Formula cercano (0.25.2)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Warning: Building without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Running post-install without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Calling `post_install` is deprecated! Use `post_install_steps` instead.
+brew: exec failed (EPERM): ps
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+  
+Read the above document before opening any issues or PRs.
+
+
+## Record 161 — 2026-11-15T11:55:02.014749 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 73796e630a2f7362696e2f73687574646f776e202d68206e6f770a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+sync
+/sbin/shutdown -h now
+
+stdout:
+Shutdown NOW!
+
+System shutdown time has arrived
+
+stderr:
+
+
+## Record 162 — 2026-11-15T11:55:04.638892 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist running
+
+stderr:
+
+
+## Record 163 — 2026-11-15T11:55:18.537045 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 164 — 2026-11-15T11:55:22.944049 — status 0
+['prlctl', 'snapshot', '5df50e96-bb17-4248-aa6e-50ae559cd765', '--name', 'acceptance-historical-flushed-20261115', '--description', 'Clone-only cold baseline; genuine 0.25.2 historical install with exact hashes; synthetic markers; before split']
+stdout:
+Creating the snapshot...
+
+The snapshot with id {f0b49e47-7145-43c3-b5ba-3b18bb564a0d} has been successfully created.
+
+stderr:
+
+
+## Record 165 — 2026-11-15T11:57:13.879139 — status 0
+['prlctl', 'start', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+Starting the VM...
+The VM has been successfully started.
+
+stderr:
+
+
+## Record 166 — 2026-11-15T11:57:35.868428 — status 1
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 736574202d65750a6563686f20274979424f623234746348566962476c7a61476c755a79427759574e725957646c4c57526c5a6d6c7561585270623234675a6d6c34644856795a547367636e567564476c745a53397461576479595852706232346759574e6a5a5842305957356a5a5342775a57356b6157356e4c67706a6247467a637942445a584a6a595735765157646c626e51675043424762334a7464577868436941675a47567a597941695132567959324675627942685a3256756443416f6157356a62323177624756305a534279645735306157316c49475a7065485231636d557049676f6749476876625756775957646c49434a6f64485277637a6f764c326470644768315969356a62323076593256795932467562793168615339445a584a6a5957357649676f6749485679624341695a6d6c735a546f764c7939766348517659325679593246756279317a626d467763326876644331795a574e76646d5679655330794d4449324d5445784e533968636e52705a6d466a64484d765932567959324675627930774c6a49334c6a41745a47467964326c754c574679625459304c6e52686369356e6569494b494342325a584a7a61573975494349774c6a49334c6a416943694167633268684d6a5532494349784f474d324f474e6a597a59354e6a59795a4745325a444534596a67774d5464684d3256695954646c59575669597a59335a5441314e7a41324e5749354d474a694e6a5a6b5a574a684d6a677a4f4751795957457749676f67494778705932567563325567496b314a5643494b436941675a4756775a57356b633139766269427459574e76637a6f674f6d3176626e526c636d5635436941675a4756775a57356b6331397662694268636d4e6f4f69413659584a744e6a514b436941675a47566d49476c75633352686247774b4943416749474a7062693570626e4e305957787349434a696157347659325679593246756279494b4943426c626d514b436941675a47566d49474e68646d566864484d4b4943416749447738666b565055776f67494341674943425159574e725957646c4c57526c5a6d6c7561585270623234675a6d6c34644856795a534276626d78354f79427562335167636d56735a57467a5a5331795a57466b6553344b4943416749434167546d3867596e56755a47786c5a43427362474674595339746232526c62434279645735306157316c4f79426d6457787349484a31626e52706257556759574e6a5a5842305957356a5a5342795a5731686157357a49474a7362324e725a575175436941674943416749456c75633352686247786864476c766269426b6232567a494735766443427a6447467964437767633352766343776762334967636d567a6447467964434268626942685a3256756443344b49434167494341675432786b4c573176626d39736158526f494731705a334a6864476c76626942795a58463161584a6c63794270633239735958526c5a43427559585270646d556759574e6a5a5842305957356a5a5342695a575a76636d55676348566962476c6a5958527062323475436941674943424654314d4b4943426c626d514b436941676447567a6443426b62776f674943416759584e7a5a584a305832316864474e6f49434a6a5a584a6a595735764948596a65335a6c636e4e7062323539496977676332686c6247786662335630634856304b43496a65324a70626e30765932567959324675627941744c585a6c636e4e70623234694b516f67494756755a41706c626d514b27207c20626173653634202d44203e202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d6167656e742e72620a63686f776e20353530313a35353031202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d6167656e742e72620a6563686f20274979424f623234746348566962476c7a61476c755a79427759574e725957646c4c57526c5a6d6c7561585270623234675a6d6c34644856795a547367636e567564476c745a53397461576479595852706232346759574e6a5a5842305957356a5a5342775a57356b6157356e4c67706a6247467a637942445a584a6a595735765132787049447767526d39796258567359516f674947526c63324d67496b4e6c636d4e68626d3867636d56746233526c4c574e68634746696247556759323974625746755a4331736157356c49474e73615756756443494b4943426f6232316c6347466e5a5341696148523063484d364c79396e6158526f64574975593239744c324e6c636d4e68626d387459576b7651325679593246756279494b49434231636d7767496d5a70624755364c793876623342304c324e6c636d4e68626d38746332356863484e6f62335174636d566a62335a6c636e6b744d6a41794e6a45784d54557659584a3061575a685933527a4c324e6c636d4e68626d38744d4334794e7934774c575268636e647062693168636d30324e433530595849755a336f6943694167646d567963326c76626941694d4334794e79347749676f6749484e6f595449314e6941694d54686a4e6a686a59324d324f5459324d6d52684e6d51784f4749344d44453359544e6c596d45335a57466c596d4d324e3255774e5463774e6a56694f544269596a59325a475669595449344d7a686b4d6d46684d43494b4943427361574e6c626e4e6c49434a4e5356516943676f674947526c634756755a484e66623234676257466a62334d3649447074623235305a584a6c65516f674947526c634756755a484e666232346759584a6a61446f674f6d46796254593043676f674947526c5a694270626e4e30595778734369416749434269615734756157357a6447467362434169596d6c754c324e6c636d4e68626d38745932787049676f67494756755a416f4b4943426b5a575967593246325a57463063776f67494341675044782b52553954436941674943416749464268593274685a3255745a47566d6157357064476c766269426d6158683064584a6c4947397562486b3749473576644342795a57786c59584e6c4c584a6c595752354c676f67494341674943424f627942696457356b6247566b49477873595731684c3231765a47567349484a31626e52706257553749475a3162477767636e567564476c745a53426859324e6c63485268626d4e6c49484a6c62574670626e4d67596d78765932746c5a43344b49434167494341675357357a644746736247463061573975494752765a584d67626d393049484e3059584a304c43427a644739774c434276636942795a584e3059584a30494746754947466e5a5735304c676f6749434167494342506247517462573975623278706447676762576c6e636d46306157397549484a6c63585670636d567a49476c7a623278686447566b4947356864476c325a53426859324e6c63485268626d4e6c49474a6c5a6d39795a53427764574a7361574e6864476c766269344b494341674945565055776f67494756755a416f4b494342305a584e3049475276436941674943426863334e6c636e52666257463059326767496d4e6c636d4e68626d3874593278704948596a65335a6c636e4e7062323539496977676332686c6247786662335630634856304b43496a65324a70626e307659325679593246756279316a62476b674c5331325a584a7a6157397549696b4b4943426c626d514b5a57356b43673d3d27207c20626173653634202d44203e202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d636c692e72620a63686f776e20353530313a35353031202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d636c692e72620a6563686f20274979424f623234746348566962476c7a61476c755a79427759574e725957646c4c57526c5a6d6c7561585270623234675a6d6c34644856795a547367636e567564476c745a53397461576479595852706232346759574e6a5a5842305957356a5a5342775a57356b6157356e4c67706a6247467a637942445a584a6a5957357649447767526d39796258567359516f674947526c63324d67496b4e6c636d4e68626d38675130784a494746755a4342685a3256756443426a623235325a5735705a57356a5a53426b5a58426c626d526c626d4e705a584d6943694167614739745a5842685a325567496d68306448427a4f6938765a326c30614856694c6d4e766253396a5a584a6a595735764c5746704c304e6c636d4e68626d38694369416764584a7349434a6d6157786c4f6938764c3239776443396a5a584a6a595735764c584e755958427a614739304c584a6c593239325a584a354c5449774d6a59784d5445314c32467964476c6d59574e306379396a5a584a6a595735764c5441754d6a63754d43316b59584a336157347459584a744e6a5175644746794c6d643649676f6749485a6c636e4e7062323467496a41754d6a63754d43494b4943427a614745794e545967496a4534597a593459324e6a4e6a6b324e6a4a6b59545a6b4d5468694f4441784e32457a5a574a684e3256685a574a6a4e6a646c4d4455334d445931596a6b77596d49324e6d526c596d45794f444d345a444a68595441694369416762476c6a5a57357a5a53416954556c5549676f4b4943426b5a58426c626d527a58323975494731685932397a4f69413662573975644756795a586b4b4943426b5a58426c626d527a58323975494746795932673649447068636d30324e416f4b4943416a49454e7662334a6b615735686447566b49484a6c6247566863325567633256304c43427562335167595734675958527662576c6a494856775a334a685a47556762334967595734675a58686859335174646d567963326c766269427362324e724c676f674947526c634756755a484e6662323467496d4e6c636d4e68626d38745957646c626e5169436941675a4756775a57356b633139766269416959325679593246756279316a62476b6943676f674947526c5a694270626e4e3059577873436941674943416a4945746c5a5841676447686c4947746c5a7942756232356c62584230655342336158526f6233563049473933626d6c755a79426a623231745957356b6379427663694279645735306157316c49484a6c63323931636d4e6c6379344b49434167494842725a334e6f59584a6c4c6d6c756333526862477767496c4a465155524e5253353065485169436941675a57356b43676f674947526c5a69426a59585a6c5958527a43694167494341385048354654314d4b49434167494341675547466a6132466e5a53316b5a575a70626d6c306157397549475a7065485231636d55676232357365547367626d393049484a6c6247566863325574636d56685a486b7543694167494341674945466e5a57353049473933626e4d675932567959324675627a7367593278705a57353049473933626e4d6759325679593246756279316a62476b754945357649474a31626d52735a5751676247786862574567636e567564476c745a53344b49434167494341675432786b4c573176626d39736158526f494731705a334a6864476c7662694268626d51676347467964476c6862434231634764795957526c637942795a58463161584a6c4947356864476c325a53426859324e6c63485268626d4e6c4c676f67494341674943424a626e4e305957787359585270623234675a47396c637942756233516763335268636e517349484e30623341734947397949484a6c63335268636e5167595734675957646c626e5175436941674943424654314d4b4943426c626d514b436941676447567a6443426b62776f674943416759584e7a5a584a30583342795a575270593246305a53424762334a746457786857794a6a5a584a6a595735764c57466e5a573530496c30756233423058324a70626938695932567959324675627949734944706c6547566a64585268596d786c50776f674943416759584e7a5a584a30583342795a575270593246305a53424762334a746457786857794a6a5a584a6a595735764c574e7361534a644c6d39776446396961573476496d4e6c636d4e68626d387459327870496977674f6d56345a574e31644746696247552f436941675a57356b436d56755a416f3d27207c20626173653634202d44203e202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2e72620a63686f776e20353530313a35353031202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2e72620a523d2f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131350a2224522f627265772d666978747572652e73682220756e6c696e6b206d6967726174696f6e2f63657263616e6f2f63657263616e6f0a2224522f627265772d666978747572652e73682220696e7374616c6c202d2d666f726d756c61206d6967726174696f6e2f63657263616e6f2f63657263616e6f2d6167656e74206d6967726174696f6e2f63657263616e6f2f63657263616e6f2d636c690a2224522f627265772d666978747572652e7368222075706772616465202d2d666f726d756c61206d6967726174696f6e2f63657263616e6f2f63657263616e6f0a2224522f627265772d666978747572652e736822206c697374202d2d76657273696f6e730a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a0a746573742021202d64202224522f627265772f43656c6c61722f63657263616e6f2f302e32372e302f62696e220a232044656c696265726174656c792072656d6f7665206f6e6c79207468652073796e74686574696320636f6d706f6e656e742065786563757461626c6520616674657220636f6e76656e69656e63650a23207265706c6163656d656e742e204e6f20627265772072656c696e6b206f7220636c65616e75703a20726573746f72652074686520656e7469726520636f6c6420736e617073686f742e0a6d76202224522f627265772f43656c6c61722f63657263616e6f2d636c692f302e32372e302f62696e2f63657263616e6f2d636c6922202224522f627265772f43656c6c61722f63657263616e6f2d636c692f302e32372e302f62696e2f63657263616e6f2d636c692e494e4a45435445442d4641494c555245220a746573742021202d65202224522f627265772f62696e2f63657263616e6f2d636c69220a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a202224522f627265772f43656c6c61722f63657263616e6f2d636c692f302e32372e302f62696e2f220a73686173756d202d6120323536202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a0a6563686f2027494e4a454354454420504f53542d434f4e56454e49454e434520434c4920554e415641494c41424c453b206e6f2072657061697220706572666f726d6564270a73796e630a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu
+echo 'IyBOb24tcHVibGlzaGluZyBwYWNrYWdlLWRlZmluaXRpb24gZml4dHVyZTsgcnVudGltZS9taWdyYXRpb24gYWNjZXB0YW5jZSBwZW5kaW5nLgpjbGFzcyBDZXJjYW5vQWdlbnQgPCBGb3JtdWxhCiAgZGVzYyAiQ2VyY2FubyBhZ2VudCAoaW5jb21wbGV0ZSBydW50aW1lIGZpeHR1cmUpIgogIGhvbWVwYWdlICJodHRwczovL2dpdGh1Yi5jb20vY2VyY2Fuby1haS9DZXJjYW5vIgogIHVybCAiZmlsZTovLy9vcHQvY2VyY2Fuby1zbmFwc2hvdC1yZWNvdmVyeS0yMDI2MTExNS9hcnRpZmFjdHMvY2VyY2Fuby0wLjI3LjAtZGFyd2luLWFybTY0LnRhci5neiIKICB2ZXJzaW9uICIwLjI3LjAiCiAgc2hhMjU2ICIxOGM2OGNjYzY5NjYyZGE2ZDE4YjgwMTdhM2ViYTdlYWViYzY3ZTA1NzA2NWI5MGJiNjZkZWJhMjgzOGQyYWEwIgogIGxpY2Vuc2UgIk1JVCIKCiAgZGVwZW5kc19vbiBtYWNvczogOm1vbnRlcmV5CiAgZGVwZW5kc19vbiBhcmNoOiA6YXJtNjQKCiAgZGVmIGluc3RhbGwKICAgIGJpbi5pbnN0YWxsICJiaW4vY2VyY2FubyIKICBlbmQKCiAgZGVmIGNhdmVhdHMKICAgIDw8fkVPUwogICAgICBQYWNrYWdlLWRlZmluaXRpb24gZml4dHVyZSBvbmx5OyBub3QgcmVsZWFzZS1yZWFkeS4KICAgICAgTm8gYnVuZGxlZCBsbGFtYS9tb2RlbCBydW50aW1lOyBmdWxsIHJ1bnRpbWUgYWNjZXB0YW5jZSByZW1haW5zIGJsb2NrZWQuCiAgICAgIEluc3RhbGxhdGlvbiBkb2VzIG5vdCBzdGFydCwgc3RvcCwgb3IgcmVzdGFydCBhbiBhZ2VudC4KICAgICAgT2xkLW1vbm9saXRoIG1pZ3JhdGlvbiByZXF1aXJlcyBpc29sYXRlZCBuYXRpdmUgYWNjZXB0YW5jZSBiZWZvcmUgcHVibGljYXRpb24uCiAgICBFT1MKICBlbmQKCiAgdGVzdCBkbwogICAgYXNzZXJ0X21hdGNoICJjZXJjYW5vIHYje3ZlcnNpb259Iiwgc2hlbGxfb3V0cHV0KCIje2Jpbn0vY2VyY2FubyAtLXZlcnNpb24iKQogIGVuZAplbmQK' | base64 -D > /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano-agent.rb
+chown 5501:5501 /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano-agent.rb
+echo 'IyBOb24tcHVibGlzaGluZyBwYWNrYWdlLWRlZmluaXRpb24gZml4dHVyZTsgcnVudGltZS9taWdyYXRpb24gYWNjZXB0YW5jZSBwZW5kaW5nLgpjbGFzcyBDZXJjYW5vQ2xpIDwgRm9ybXVsYQogIGRlc2MgIkNlcmNhbm8gcmVtb3RlLWNhcGFibGUgY29tbWFuZC1saW5lIGNsaWVudCIKICBob21lcGFnZSAiaHR0cHM6Ly9naXRodWIuY29tL2NlcmNhbm8tYWkvQ2VyY2FubyIKICB1cmwgImZpbGU6Ly8vb3B0L2NlcmNhbm8tc25hcHNob3QtcmVjb3ZlcnktMjAyNjExMTUvYXJ0aWZhY3RzL2NlcmNhbm8tMC4yNy4wLWRhcndpbi1hcm02NC50YXIuZ3oiCiAgdmVyc2lvbiAiMC4yNy4wIgogIHNoYTI1NiAiMThjNjhjY2M2OTY2MmRhNmQxOGI4MDE3YTNlYmE3ZWFlYmM2N2UwNTcwNjViOTBiYjY2ZGViYTI4MzhkMmFhMCIKICBsaWNlbnNlICJNSVQiCgogIGRlcGVuZHNfb24gbWFjb3M6IDptb250ZXJleQogIGRlcGVuZHNfb24gYXJjaDogOmFybTY0CgogIGRlZiBpbnN0YWxsCiAgICBiaW4uaW5zdGFsbCAiYmluL2NlcmNhbm8tY2xpIgogIGVuZAoKICBkZWYgY2F2ZWF0cwogICAgPDx+RU9TCiAgICAgIFBhY2thZ2UtZGVmaW5pdGlvbiBmaXh0dXJlIG9ubHk7IG5vdCByZWxlYXNlLXJlYWR5LgogICAgICBObyBidW5kbGVkIGxsYW1hL21vZGVsIHJ1bnRpbWU7IGZ1bGwgcnVudGltZSBhY2NlcHRhbmNlIHJlbWFpbnMgYmxvY2tlZC4KICAgICAgSW5zdGFsbGF0aW9uIGRvZXMgbm90IHN0YXJ0LCBzdG9wLCBvciByZXN0YXJ0IGFuIGFnZW50LgogICAgICBPbGQtbW9ub2xpdGggbWlncmF0aW9uIHJlcXVpcmVzIGlzb2xhdGVkIG5hdGl2ZSBhY2NlcHRhbmNlIGJlZm9yZSBwdWJsaWNhdGlvbi4KICAgIEVPUwogIGVuZAoKICB0ZXN0IGRvCiAgICBhc3NlcnRfbWF0Y2ggImNlcmNhbm8tY2xpIHYje3ZlcnNpb259Iiwgc2hlbGxfb3V0cHV0KCIje2Jpbn0vY2VyY2Fuby1jbGkgLS12ZXJzaW9uIikKICBlbmQKZW5kCg==' | base64 -D > /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano-cli.rb
+chown 5501:5501 /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano-cli.rb
+echo 'IyBOb24tcHVibGlzaGluZyBwYWNrYWdlLWRlZmluaXRpb24gZml4dHVyZTsgcnVudGltZS9taWdyYXRpb24gYWNjZXB0YW5jZSBwZW5kaW5nLgpjbGFzcyBDZXJjYW5vIDwgRm9ybXVsYQogIGRlc2MgIkNlcmNhbm8gQ0xJIGFuZCBhZ2VudCBjb252ZW5pZW5jZSBkZXBlbmRlbmNpZXMiCiAgaG9tZXBhZ2UgImh0dHBzOi8vZ2l0aHViLmNvbS9jZXJjYW5vLWFpL0NlcmNhbm8iCiAgdXJsICJmaWxlOi8vL29wdC9jZXJjYW5vLXNuYXBzaG90LXJlY292ZXJ5LTIwMjYxMTE1L2FydGlmYWN0cy9jZXJjYW5vLTAuMjcuMC1kYXJ3aW4tYXJtNjQudGFyLmd6IgogIHZlcnNpb24gIjAuMjcuMCIKICBzaGEyNTYgIjE4YzY4Y2NjNjk2NjJkYTZkMThiODAxN2EzZWJhN2VhZWJjNjdlMDU3MDY1YjkwYmI2NmRlYmEyODM4ZDJhYTAiCiAgbGljZW5zZSAiTUlUIgoKICBkZXBlbmRzX29uIG1hY29zOiA6bW9udGVyZXkKICBkZXBlbmRzX29uIGFyY2g6IDphcm02NAoKICAjIENvb3JkaW5hdGVkIHJlbGVhc2Ugc2V0LCBub3QgYW4gYXRvbWljIHVwZ3JhZGUgb3IgYW4gZXhhY3QtdmVyc2lvbiBsb2NrLgogIGRlcGVuZHNfb24gImNlcmNhbm8tYWdlbnQiCiAgZGVwZW5kc19vbiAiY2VyY2Fuby1jbGkiCgogIGRlZiBpbnN0YWxsCiAgICAjIEtlZXAgdGhlIGtlZyBub25lbXB0eSB3aXRob3V0IG93bmluZyBjb21tYW5kcyBvciBydW50aW1lIHJlc291cmNlcy4KICAgIHBrZ3NoYXJlLmluc3RhbGwgIlJFQURNRS50eHQiCiAgZW5kCgogIGRlZiBjYXZlYXRzCiAgICA8PH5FT1MKICAgICAgUGFja2FnZS1kZWZpbml0aW9uIGZpeHR1cmUgb25seTsgbm90IHJlbGVhc2UtcmVhZHkuCiAgICAgIEFnZW50IG93bnMgY2VyY2FubzsgY2xpZW50IG93bnMgY2VyY2Fuby1jbGkuIE5vIGJ1bmRsZWQgbGxhbWEgcnVudGltZS4KICAgICAgT2xkLW1vbm9saXRoIG1pZ3JhdGlvbiBhbmQgcGFydGlhbCB1cGdyYWRlcyByZXF1aXJlIG5hdGl2ZSBhY2NlcHRhbmNlLgogICAgICBJbnN0YWxsYXRpb24gZG9lcyBub3Qgc3RhcnQsIHN0b3AsIG9yIHJlc3RhcnQgYW4gYWdlbnQuCiAgICBFT1MKICBlbmQKCiAgdGVzdCBkbwogICAgYXNzZXJ0X3ByZWRpY2F0ZSBGb3JtdWxhWyJjZXJjYW5vLWFnZW50Il0ub3B0X2Jpbi8iY2VyY2FubyIsIDpleGVjdXRhYmxlPwogICAgYXNzZXJ0X3ByZWRpY2F0ZSBGb3JtdWxhWyJjZXJjYW5vLWNsaSJdLm9wdF9iaW4vImNlcmNhbm8tY2xpIiwgOmV4ZWN1dGFibGU/CiAgZW5kCmVuZAo=' | base64 -D > /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb
+chown 5501:5501 /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb
+R=/opt/cercano-snapshot-recovery-20261115
+"$R/brew-fixture.sh" unlink migration/cercano/cercano
+"$R/brew-fixture.sh" install --formula migration/cercano/cercano-agent migration/cercano/cercano-cli
+"$R/brew-fixture.sh" upgrade --formula migration/cercano/cercano
+"$R/brew-fixture.sh" list --versions
+ls -l "$R/brew/bin/"cercano*
+test ! -d "$R/brew/Cellar/cercano/0.27.0/bin"
+# Deliberately remove only the synthetic component executable after convenience
+# replacement. No brew relink or cleanup: restore the entire cold snapshot.
+mv "$R/brew/Cellar/cercano-cli/0.27.0/bin/cercano-cli" "$R/brew/Cellar/cercano-cli/0.27.0/bin/cercano-cli.INJECTED-FAILURE"
+test ! -e "$R/brew/bin/cercano-cli"
+ls -l "$R/brew/bin/"cercano* "$R/brew/Cellar/cercano-cli/0.27.0/bin/"
+shasum -a 256 "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*
+echo 'INJECTED POST-CONVENIENCE CLI UNAVAILABLE; no repair performed'
+sync
+
+stdout:
+Unlinking /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2... 2 symlinks removed.
+==> Installing cercano-agent from migration/cercano
+🍺  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano-agent/0.27.0: 6 files, 66.8MB, built in 1 second
+==> Installing cercano-cli from migration/cercano
+🍺  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano-cli/0.27.0: 6 files, 34.5MB, built in 0 seconds
+==> Caveats
+==> cercano-agent
+Package-definition fixture only; not release-ready.
+No bundled llama/model runtime; full runtime acceptance remains blocked.
+Installation does not start, stop, or restart an agent.
+Old-monolith migration requires isolated native acceptance before publication.
+==> cercano-cli
+Package-definition fixture only; not release-ready.
+No bundled llama/model runtime; full runtime acceptance remains blocked.
+Installation does not start, stop, or restart an agent.
+Old-monolith migration requires isolated native acceptance before publication.
+==> Upgrading migration/cercano/cercano
+  0.25.2 -> 0.27.0 
+🍺  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.27.0: 5 files, 17.3KB, built in 0 seconds
+==> Caveats
+==> cercano
+Package-definition fixture only; not release-ready.
+Agent owns cercano; client owns cercano-cli. No bundled llama runtime.
+Old-monolith migration and partial upgrades require native acceptance.
+Installation does not start, stop, or restart an agent.
+cercano 0.25.2 0.27.0
+cercano-agent 0.27.0
+cercano-cli 0.27.0
+
+stderr:
+==> Trusted formula migration/cercano/cercano-agent
+==> Trusted formula migration/cercano/cercano-cli
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+==> Fetching downloads for: cercano-agent and cercano-cli
+✔︎ Formula cercano-agent (0.27.0)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Warning: Building without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+brew: exec failed (EPERM): ps
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+brew: exec failed (EPERM): ps
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+  
+Read the above document before opening any issues or PRs.
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+==> Fetching downloads for: migration/cercano/cercano
+✔︎ Formula cercano (0.27.0)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Warning: Building without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+brew: exec failed (EPERM): ps
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+  
+Read the above document before opening any issues or PRs.
+Error: No such file or directory @ dir_initialize - /opt/cercano-snapshot-recovery-20261115/brew/Caskroom
+
+
+## Record 167 — 2026-11-15T11:57:45.820983 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 736574202d65750a523d2f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131350a2224522f627265772d666978747572652e736822206c697374202d2d666f726d756c61202d2d76657273696f6e730a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a0a746573742021202d64202224522f627265772f43656c6c61722f63657263616e6f2f302e32372e302f62696e220a232044656c696265726174656c792072656d6f7665206f6e6c79207468652073796e74686574696320636f6d706f6e656e742065786563757461626c6520616674657220636f6e76656e69656e63650a23207265706c6163656d656e742e204e6f20627265772072656c696e6b206f7220636c65616e75703a20726573746f72652074686520656e7469726520636f6c6420736e617073686f742e0a6d76202224522f627265772f43656c6c61722f63657263616e6f2d636c692f302e32372e302f62696e2f63657263616e6f2d636c6922202224522f627265772f43656c6c61722f63657263616e6f2d636c692f302e32372e302f62696e2f63657263616e6f2d636c692e494e4a45435445442d4641494c555245220a746573742021202d65202224522f627265772f62696e2f63657263616e6f2d636c69220a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a202224522f627265772f43656c6c61722f63657263616e6f2d636c692f302e32372e302f62696e2f220a73686173756d202d6120323536202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a0a6563686f2027494e4a454354454420504f53542d434f4e56454e49454e434520434c4920554e415641494c41424c453b206e6f2072657061697220706572666f726d6564270a73796e630a0a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu
+R=/opt/cercano-snapshot-recovery-20261115
+"$R/brew-fixture.sh" list --formula --versions
+ls -l "$R/brew/bin/"cercano*
+test ! -d "$R/brew/Cellar/cercano/0.27.0/bin"
+# Deliberately remove only the synthetic component executable after convenience
+# replacement. No brew relink or cleanup: restore the entire cold snapshot.
+mv "$R/brew/Cellar/cercano-cli/0.27.0/bin/cercano-cli" "$R/brew/Cellar/cercano-cli/0.27.0/bin/cercano-cli.INJECTED-FAILURE"
+test ! -e "$R/brew/bin/cercano-cli"
+ls -l "$R/brew/bin/"cercano* "$R/brew/Cellar/cercano-cli/0.27.0/bin/"
+shasum -a 256 "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*
+echo 'INJECTED POST-CONVENIENCE CLI UNAVAILABLE; no repair performed'
+sync
+
+
+stdout:
+cercano 0.25.2 0.27.0
+cercano-agent 0.27.0
+cercano-cli 0.27.0
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  42 Nov 15 11:57 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano -> ../Cellar/cercano-agent/0.27.0/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  44 Nov 15 11:57 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano-cli -> ../Cellar/cercano-cli/0.27.0/bin/cercano-cli
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  42 Nov 15 11:57 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano -> ../Cellar/cercano-agent/0.27.0/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  44 Nov 15 11:57 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano-cli -> ../Cellar/cercano-cli/0.27.0/bin/cercano-cli
+
+/opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano-cli/0.27.0/bin/:
+total 67408
+-r-xr-xr-x  1 _cercanorehearsal  _cercanorehearsal  34511184 Nov 14 16:40 cercano-cli.INJECTED-FAILURE
+ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157  /opt/cercano-snapshot-recovery-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-snapshot-recovery-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-snapshot-recovery-20261115/home/.cercano/credential-marker
+INJECTED POST-CONVENIENCE CLI UNAVAILABLE; no repair performed
+
+stderr:
+
+
+## Record 168 — 2026-11-15T11:57:50.186885 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 73796e630a2f7362696e2f73687574646f776e202d68206e6f770a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+sync
+/sbin/shutdown -h now
+
+stdout:
+Shutdown NOW!
+
+System shutdown time has arrived
+
+stderr:
+
+
+## Record 169 — 2026-11-15T11:58:05.366343 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 170 — 2026-11-15T11:58:08.771872 — status 0
+['prlctl', 'snapshot-switch', '5df50e96-bb17-4248-aa6e-50ae559cd765', '--id', 'f0b49e47-7145-43c3-b5ba-3b18bb564a0d']
+stdout:
+Switch to the snapshot...
+The VM has been successfully switched.
+
+stderr:
+
+
+## Record 171 — 2026-11-15T11:58:13.150028 — status 0
+['prlctl', 'start', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+Starting the VM...
+The VM has been successfully started.
+
+stderr:
+
+
+## Record 172 — 2026-11-15T11:58:45.019441 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 23212f62696e2f626173680a736574202d65756f20706970656661696c0a523d2f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131350a6578706f727420520a2f7573722f62696e2f707974686f6e33202d203c3c275059270a696d706f7274206f732c686173686c69622c706174686c69620a723d706174686c69622e50617468286f732e656e7669726f6e5b2752275d293b20623d722f2762726577270a636865636b733d7b27627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f63657263616e6f273a2765666663306362336330656334373835623066323234346238373264373566303632313234393234376361303637333633633364343962393830633562323465272c27627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f63657263616e6f2d636c69273a2763393435333465393432393637323037646163666137313561643533346133616264646637356562343533643363613735633530316437316665656534326432272c27686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c273a2765653463643938303730616466336562323934323739373933633766613934313565336631653737343339333966643839346465396232333236303333313537272c27686f6d652f2e63657263616e6f2f636f6e766572736174696f6e2d6d61726b6572273a2739613965633965643138353463633935313438666265623132646231306130313135303332353566376237343038616163396537373832366462623730336233272c27686f6d652f2e63657263616e6f2f63726564656e7469616c2d6d61726b6572273a2765353833633131343539313538626532303830623532383837326561326135353935616664383836633165313530396436646436316432643562663365393032277d0a666f7220702c77616e7420696e20636865636b732e6974656d7328293a0a2061637475616c3d686173686c69622e7368613235362828722f70292e726561645f62797465732829292e68657864696765737428293b206173736572742061637475616c3d3d77616e742c28702c61637475616c293b207072696e742861637475616c2c702c274f4b27290a666f72206e616d6520696e20282763657263616e6f272c2763657263616e6f2d636c6927293a0a20703d622f2762696e272f6e616d653b2061737365727420702e7265736f6c766528293d3d622f2743656c6c61722f63657263616e6f2f302e32352e322f62696e272f6e616d650a2061737365727420702e6c7374617428292e73745f7569643d3d353530313b2061737365727420702e7265736f6c766528292e7374617428292e73745f7569643d3d353530310a207072696e74286e616d652c6f732e726561646c696e6b2870292c276f776e65722055494435353031204f4b27290a61737365727420736f7274656428702e6e616d6520666f72207020696e2028622f2743656c6c617227292e697465726469722829293d3d5b2763657263616e6f275d0a61737365727420736f7274656428702e6e616d6520666f72207020696e2028622f2743656c6c61722f63657263616e6f27292e697465726469722829293d3d5b27302e32352e32275d0a6173736572742027302e32352e322720696e2028622f274c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2e726227292e726561645f7465787428290a617373657274206e6f742028622f274c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d636c692e726227292e65786973747328290a7072696e742827526573746f72656420686973746f726963616c2074617020616e64206578636c7573697665206d6f6e6f6c6974682043656c6c6172204f4b27290a50590a2224522f627265772d666978747572652e736822206c697374202d2d666f726d756c61202d2d76657273696f6e730a666f7220636d6420696e2063657263616e6f2063657263616e6f2d636c693b20646f0a202f7573722f62696e2f7375646f202d75205f63657263616e6f72656865617273616c202f7573722f62696e2f656e76202d6920484f4d453d2224522f686f6d652220555345523d5f63657263616e6f72656865617273616c20504154483d2f7573722f62696e3a2f62696e20544d504449523d2224522f746d7022202f7573722f62696e2f73616e64626f782d65786563202d66202224522f7361666574792e736222202224522f627265772f62696e2f24636d6422202d2d68656c700a20646f6e650a6c73202d6c642022245222202224522f7361666574792e736222202224522f627265772d666978747572652e7368220a7073202d61786f20636f6d6d3d207c2067726570202d452027285e7c2f292863657263616e6f7c63657263616e6f2d636c697c63657263616e6f2d6d6f64656c2d686f73742924272026262065786974203730207c7c20747275650a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+#!/bin/bash
+set -euo pipefail
+R=/opt/cercano-snapshot-recovery-20261115
+export R
+/usr/bin/python3 - <<'PY'
+import os,hashlib,pathlib
+r=pathlib.Path(os.environ['R']); b=r/'brew'
+checks={'brew/Cellar/cercano/0.25.2/bin/cercano':'effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e','brew/Cellar/cercano/0.25.2/bin/cercano-cli':'c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2','home/.config/cercano/config.yaml':'ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157','home/.cercano/conversation-marker':'9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3','home/.cercano/credential-marker':'e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902'}
+for p,want in checks.items():
+ actual=hashlib.sha256((r/p).read_bytes()).hexdigest(); assert actual==want,(p,actual); print(actual,p,'OK')
+for name in ('cercano','cercano-cli'):
+ p=b/'bin'/name; assert p.resolve()==b/'Cellar/cercano/0.25.2/bin'/name
+ assert p.lstat().st_uid==5501; assert p.resolve().stat().st_uid==5501
+ print(name,os.readlink(p),'owner UID5501 OK')
+assert sorted(p.name for p in (b/'Cellar').iterdir())==['cercano']
+assert sorted(p.name for p in (b/'Cellar/cercano').iterdir())==['0.25.2']
+assert '0.25.2' in (b/'Library/Taps/migration/homebrew-cercano/Formula/cercano.rb').read_text()
+assert not (b/'Library/Taps/migration/homebrew-cercano/Formula/cercano-cli.rb').exists()
+print('Restored historical tap and exclusive monolith Cellar OK')
+PY
+"$R/brew-fixture.sh" list --formula --versions
+for cmd in cercano cercano-cli; do
+ /usr/bin/sudo -u _cercanorehearsal /usr/bin/env -i HOME="$R/home" USER=_cercanorehearsal PATH=/usr/bin:/bin TMPDIR="$R/tmp" /usr/bin/sandbox-exec -f "$R/safety.sb" "$R/brew/bin/$cmd" --help
+ done
+ls -ld "$R" "$R/safety.sb" "$R/brew-fixture.sh"
+ps -axo comm= | grep -E '(^|/)(cercano|cercano-cli|cercano-model-host)$' && exit 70 || true
+
+stdout:
+effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e brew/Cellar/cercano/0.25.2/bin/cercano OK
+c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2 brew/Cellar/cercano/0.25.2/bin/cercano-cli OK
+ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157 home/.config/cercano/config.yaml OK
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3 home/.cercano/conversation-marker OK
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902 home/.cercano/credential-marker OK
+cercano ../Cellar/cercano/0.25.2/bin/cercano owner UID5501 OK
+cercano-cli ../Cellar/cercano/0.25.2/bin/cercano-cli owner UID5501 OK
+Restored historical tap and exclusive monolith Cellar OK
+cercano 0.25.2
+drwxr-xr-x  10 root  wheel  320 Nov 15 11:54 /opt/cercano-snapshot-recovery-20261115
+-r-xr-xr-x   1 root  wheel  738 Nov 15 11:54 /opt/cercano-snapshot-recovery-20261115/brew-fixture.sh
+-r--r--r--   1 root  wheel  397 Nov 15 11:54 /opt/cercano-snapshot-recovery-20261115/safety.sb
+
+stderr:
+Usage of /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano:
+  -grpc-addr string
+    	Address of an external gRPC server (MCP-only, no embedded server)
+  -mcp
+    	Run in MCP mode (embedded gRPC server + MCP on stdio)
+  -server cercano agent
+    	Force server mode (equivalent to cercano agent)
+  -stats
+    	Print usage statistics and exit
+  -version
+    	Print version and exit
+Usage of /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano-cli:
+  -mdtest
+    	Launch the TUI with a markdown doc pre-loaded for render testing (optional file path as a positional arg; built-in sample if omitted)
+  -r	Open the conversation history picker on launch (alias for --resume)
+  -resume
+    	Open the conversation history picker on launch
+  -s	Open the setup wizard on launch (alias for --setup)
+  -setup
+    	Open the setup wizard on launch
+  -version
+    	Print version and exit
+
+
+## Record 173 — 2026-11-15T11:58:53.534010 — status 0
+['prlctl', 'list', '-a', '-j']
+stdout:
+[
+	{
+		"uuid": "5cd689b0-153c-47d4-943e-935aa7545684",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "Windows 11"
+	},
+	{
+		"uuid": "5df50e96-bb17-4248-aa6e-50ae559cd765",
+		"status": "running",
+		"ip_configured": "-",
+		"name": "cercano-acceptance-rollback-20261115-1129"
+	},
+	{
+		"uuid": "08196962-608d-4fde-8284-49a5f020fea6",
+		"status": "running",
+		"ip_configured": "-",
+		"name": "cercano-disposable-migration-20261106-095610"
+	},
+	{
+		"uuid": "d5633dbc-c8a1-49fc-a420-df6d5d60d952",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-native-acceptance-20261103-203221"
+	},
+	{
+		"uuid": "8f18b5fd-37bf-476e-8b2b-a14ff7784a0b",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-windows-packaging-20261106-1117-full"
+	}
+]
+
+stderr:
+
+
+## Record 174 — 2026-11-15T11:58:53.766786 — status 0
+['prlctl', 'snapshot-list', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                        {2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+{2f6bace3-6acf-4fcf-8e39-359c1efe3af0} *{9b24ada1-0594-4f31-9418-c19197eb225a}
+
+stderr:
+
+
+## Record 175 — 2026-11-15T11:58:53.947403 — status 0
+['prlctl', 'snapshot-list', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                        {2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+{2f6bace3-6acf-4fcf-8e39-359c1efe3af0}  {9b24ada1-0594-4f31-9418-c19197eb225a}
+{9b24ada1-0594-4f31-9418-c19197eb225a} *{f0b49e47-7145-43c3-b5ba-3b18bb564a0d}
+
+stderr:
+
+
+## Record 176 — 2026-11-15T12:00:39.026739 — status 0
+['prlctl', 'exec', '08196962-608d-4fde-8284-49a5f020fea6', '/bin/bash', '-c', '"echo 736574202d65753b20523d2f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131353b206c73202d6c202224522f627265772f62696e2f2263657263616e6f2a3b2073686173756d202d6120323536202224522f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f222a202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a3b206c73202d64202f6f70742f63657263616e6f2a3b207073202d61786f20636f6d6d3d207c2067726570202d452027285e7c2f292863657263616e6f7c63657263616e6f2d636c697c627265777c63657263616e6f2d6d6f64656c2d686f7374292427207c7c20747275653b2077686f | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu; R=/opt/cercano-migration-unpriv-20261115; ls -l "$R/brew/bin/"cercano*; shasum -a 256 "$R/brew/Cellar/cercano/0.25.2/bin/"* "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*; ls -d /opt/cercano*; ps -axo comm= | grep -E '(^|/)(cercano|cercano-cli|brew|cercano-model-host)$' || true; who
+stdout:
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  42 Nov 15 00:54 /opt/cercano-migration-unpriv-20261115/brew/bin/cercano -> ../Cellar/cercano-agent/0.27.0/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  44 Nov 15 00:54 /opt/cercano-migration-unpriv-20261115/brew/bin/cercano-cli -> ../Cellar/cercano-cli/0.27.0/bin/cercano-cli
+effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e  /opt/cercano-migration-unpriv-20261115/brew/Cellar/cercano/0.25.2/bin/cercano
+c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2  /opt/cercano-migration-unpriv-20261115/brew/Cellar/cercano/0.25.2/bin/cercano-cli
+41605ae5178735b19b7f16419bc6edb4ed89a1e495988a1040828c04709f9029  /opt/cercano-migration-unpriv-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-migration-unpriv-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-migration-unpriv-20261115/home/.cercano/credential-marker
+/opt/cercano-failure-20261115-conflict
+/opt/cercano-failure-20261115-lag
+/opt/cercano-failure-20261115-recovery
+/opt/cercano-migration-20261115
+/opt/cercano-migration-unpriv-20261115
+
+stderr:
+
+
+## Record 177 — 2026-11-15T12:01:10.323105 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 6c73202d64202f6f70742f63657263616e6f2a3b2073796e633b202f7362696e2f73687574646f776e202d68206e6f770a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+ls -d /opt/cercano*; sync; /sbin/shutdown -h now
+
+stdout:
+/opt/cercano-migration-20261115
+/opt/cercano-migration-unpriv-20261115
+/opt/cercano-snapshot-recovery-20261115
+Shutdown NOW!
+
+System shutdown time has arrived
+
+stderr:
+
+
+## Record 178 — 2026-11-15T12:01:22.508219 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 179 — 2026-11-15T12:01:22.661043 — status 0
+['prlctl', 'status', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+VM {08196962-608d-4fde-8284-49a5f020fea6} exist running
+
+stderr:
+
+
+## Record 180 — 2026-11-15T12:03:59.112362 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 181 — 2026-11-15T12:03:59.305623 — status 0
+['prlctl', 'snapshot-list', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                        {2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+{2f6bace3-6acf-4fcf-8e39-359c1efe3af0}  {9b24ada1-0594-4f31-9418-c19197eb225a}
+{9b24ada1-0594-4f31-9418-c19197eb225a} *{f0b49e47-7145-43c3-b5ba-3b18bb564a0d}
+
+stderr:
+
+
+## Record 182 — 2026-11-15T12:03:59.457698 — status 0
+['prlctl', 'status', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+VM {08196962-608d-4fde-8284-49a5f020fea6} exist running
+
+stderr:
+
+
+## Record 183 — 2026-11-15T12:03:59.624181 — status 0
+['prlctl', 'snapshot-list', '08196962-608d-4fde-8284-49a5f020fea6', '--id', '9b24ada1-0594-4f31-9418-c19197eb225a']
+stdout:
+ID: {9b24ada1-0594-4f31-9418-c19197eb225a}
+Name: cercano-historical-installed-20261115
+Date: 2026-11-15 00:54:25
+Current: yes
+State: poweron
+Description: Isolated UID5501 v0.25.2 real historical formula installed; no active agent; before manual split
+
+
+stderr:
+
+
+## Record 184 — 2026-11-15T12:04:00.517063 — status 0
+['prlctl', 'start', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+Starting the VM...
+The VM has been successfully started.
+
+stderr:
+
+
+## Record 185 — 2026-11-15T12:04:19.998062 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 23212f62696e2f626173680a736574202d65756f20706970656661696c0a523d2f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131350a6578706f727420520a2f7573722f62696e2f707974686f6e33202d203c3c275059270a696d706f7274206f732c686173686c69622c706174686c69620a723d706174686c69622e50617468286f732e656e7669726f6e5b2752275d293b20623d722f2762726577270a636865636b733d7b27627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f63657263616e6f273a2765666663306362336330656334373835623066323234346238373264373566303632313234393234376361303637333633633364343962393830633562323465272c27627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f63657263616e6f2d636c69273a2763393435333465393432393637323037646163666137313561643533346133616264646637356562343533643363613735633530316437316665656534326432272c27686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c273a2765653463643938303730616466336562323934323739373933633766613934313565336631653737343339333966643839346465396232333236303333313537272c27686f6d652f2e63657263616e6f2f636f6e766572736174696f6e2d6d61726b6572273a2739613965633965643138353463633935313438666265623132646231306130313135303332353566376237343038616163396537373832366462623730336233272c27686f6d652f2e63657263616e6f2f63726564656e7469616c2d6d61726b6572273a2765353833633131343539313538626532303830623532383837326561326135353935616664383836633165313530396436646436316432643562663365393032277d0a666f7220702c77616e7420696e20636865636b732e6974656d7328293a0a2061637475616c3d686173686c69622e7368613235362828722f70292e726561645f62797465732829292e68657864696765737428293b206173736572742061637475616c3d3d77616e742c28702c61637475616c293b207072696e742861637475616c2c702c274f4b27290a666f72206e616d6520696e20282763657263616e6f272c2763657263616e6f2d636c6927293a0a20703d622f2762696e272f6e616d653b2061737365727420702e7265736f6c766528293d3d622f2743656c6c61722f63657263616e6f2f302e32352e322f62696e272f6e616d650a2061737365727420702e6c7374617428292e73745f7569643d3d353530313b2061737365727420702e7265736f6c766528292e7374617428292e73745f7569643d3d353530310a207072696e74286e616d652c6f732e726561646c696e6b2870292c276f776e65722055494435353031204f4b27290a61737365727420736f7274656428702e6e616d6520666f72207020696e2028622f2743656c6c617227292e697465726469722829293d3d5b2763657263616e6f275d0a61737365727420736f7274656428702e6e616d6520666f72207020696e2028622f2743656c6c61722f63657263616e6f27292e697465726469722829293d3d5b27302e32352e32275d0a6173736572742027302e32352e322720696e2028622f274c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2e726227292e726561645f7465787428290a617373657274206e6f742028622f274c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d636c692e726227292e65786973747328290a7072696e742827526573746f72656420686973746f726963616c2074617020616e64206578636c7573697665206d6f6e6f6c6974682043656c6c6172204f4b27290a50590a2224522f627265772d666978747572652e736822206c697374202d2d666f726d756c61202d2d76657273696f6e730a666f7220636d6420696e2063657263616e6f2063657263616e6f2d636c693b20646f0a202f7573722f62696e2f7375646f202d75205f63657263616e6f72656865617273616c202f7573722f62696e2f656e76202d6920484f4d453d2224522f686f6d652220555345523d5f63657263616e6f72656865617273616c20504154483d2f7573722f62696e3a2f62696e20544d504449523d2224522f746d7022202f7573722f62696e2f73616e64626f782d65786563202d66202224522f7361666574792e736222202224522f627265772f62696e2f24636d6422202d2d68656c700a20646f6e650a6c73202d6c642022245222202224522f7361666574792e736222202224522f627265772d666978747572652e7368220a7073202d61786f20636f6d6d3d207c2067726570202d452027285e7c2f292863657263616e6f7c63657263616e6f2d636c697c63657263616e6f2d6d6f64656c2d686f73742924272026262065786974203730207c7c20747275650a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+#!/bin/bash
+set -euo pipefail
+R=/opt/cercano-snapshot-recovery-20261115
+export R
+/usr/bin/python3 - <<'PY'
+import os,hashlib,pathlib
+r=pathlib.Path(os.environ['R']); b=r/'brew'
+checks={'brew/Cellar/cercano/0.25.2/bin/cercano':'effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e','brew/Cellar/cercano/0.25.2/bin/cercano-cli':'c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2','home/.config/cercano/config.yaml':'ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157','home/.cercano/conversation-marker':'9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3','home/.cercano/credential-marker':'e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902'}
+for p,want in checks.items():
+ actual=hashlib.sha256((r/p).read_bytes()).hexdigest(); assert actual==want,(p,actual); print(actual,p,'OK')
+for name in ('cercano','cercano-cli'):
+ p=b/'bin'/name; assert p.resolve()==b/'Cellar/cercano/0.25.2/bin'/name
+ assert p.lstat().st_uid==5501; assert p.resolve().stat().st_uid==5501
+ print(name,os.readlink(p),'owner UID5501 OK')
+assert sorted(p.name for p in (b/'Cellar').iterdir())==['cercano']
+assert sorted(p.name for p in (b/'Cellar/cercano').iterdir())==['0.25.2']
+assert '0.25.2' in (b/'Library/Taps/migration/homebrew-cercano/Formula/cercano.rb').read_text()
+assert not (b/'Library/Taps/migration/homebrew-cercano/Formula/cercano-cli.rb').exists()
+print('Restored historical tap and exclusive monolith Cellar OK')
+PY
+"$R/brew-fixture.sh" list --formula --versions
+for cmd in cercano cercano-cli; do
+ /usr/bin/sudo -u _cercanorehearsal /usr/bin/env -i HOME="$R/home" USER=_cercanorehearsal PATH=/usr/bin:/bin TMPDIR="$R/tmp" /usr/bin/sandbox-exec -f "$R/safety.sb" "$R/brew/bin/$cmd" --help
+ done
+ls -ld "$R" "$R/safety.sb" "$R/brew-fixture.sh"
+ps -axo comm= | grep -E '(^|/)(cercano|cercano-cli|cercano-model-host)$' && exit 70 || true
+
+stdout:
+effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e brew/Cellar/cercano/0.25.2/bin/cercano OK
+c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2 brew/Cellar/cercano/0.25.2/bin/cercano-cli OK
+ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157 home/.config/cercano/config.yaml OK
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3 home/.cercano/conversation-marker OK
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902 home/.cercano/credential-marker OK
+cercano ../Cellar/cercano/0.25.2/bin/cercano owner UID5501 OK
+cercano-cli ../Cellar/cercano/0.25.2/bin/cercano-cli owner UID5501 OK
+Restored historical tap and exclusive monolith Cellar OK
+cercano 0.25.2
+drwxr-xr-x  10 root  wheel  320 Nov 15 11:54 /opt/cercano-snapshot-recovery-20261115
+-r-xr-xr-x   1 root  wheel  738 Nov 15 11:54 /opt/cercano-snapshot-recovery-20261115/brew-fixture.sh
+-r--r--r--   1 root  wheel  397 Nov 15 11:54 /opt/cercano-snapshot-recovery-20261115/safety.sb
+
+stderr:
+Usage of /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano:
+  -grpc-addr string
+    	Address of an external gRPC server (MCP-only, no embedded server)
+  -mcp
+    	Run in MCP mode (embedded gRPC server + MCP on stdio)
+  -server cercano agent
+    	Force server mode (equivalent to cercano agent)
+  -stats
+    	Print usage statistics and exit
+  -version
+    	Print version and exit
+Usage of /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano-cli:
+  -mdtest
+    	Launch the TUI with a markdown doc pre-loaded for render testing (optional file path as a positional arg; built-in sample if omitted)
+  -r	Open the conversation history picker on launch (alias for --resume)
+  -resume
+    	Open the conversation history picker on launch
+  -s	Open the setup wizard on launch (alias for --setup)
+  -setup
+    	Open the setup wizard on launch
+  -version
+    	Print version and exit
+
+
+## Record 186 — 2026-11-15T12:04:24.711810 — status 255
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 73796e633b202f7362696e2f73687574646f776e202d68206e6f770a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+sync; /sbin/shutdown -h now
+
+stdout:
+
+stderr:
+PrlJob_GetRetCode: Invalid argument. An invalid argument was passed.
+
+
+## Record 187 — 2026-11-15T12:04:36.905037 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist running
+
+stderr:
+
+
+## Record 188 — 2026-11-15T12:04:41.399053 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 6c73202d64202f6f70742f63657263616e6f2a3b2073796e633b202f7362696e2f73687574646f776e202d68206e6f770a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+ls -d /opt/cercano*; sync; /sbin/shutdown -h now
+
+stdout:
+/opt/cercano-migration-20261115
+/opt/cercano-migration-unpriv-20261115
+/opt/cercano-snapshot-recovery-20261115
+Shutdown NOW!
+
+System shutdown time has arrived
+
+stderr:
+
+
+## Record 189 — 2026-11-15T12:04:56.597697 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 190 — 2026-11-15T12:09:22.931864 — status 0
+['prlctl', 'snapshot-switch', '--help']
+stdout:
+
+prlctl version 27.1.0 (58756)
+
+prlctl snapshot-switch <ID | NAME> <options>
+
+Options:
+    -i,--id          ID of the snapshot to revert to
+    --skip-resume    VM will not be started if it was running when snapshot was taken
+
+Examples:
+    prlctl snapshot-switch <ID | NAME> --id snapID : Reverts to VM snapshot with id 'snapID'
+
+For more details please refer Parallels Desktop Command-Line Reference at
+https://www.parallels.com/products/desktop/resources/
+
+
+stderr:
+
+
+## Record 191 — 2026-11-15T12:11:35.675309 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 192 — 2026-11-15T12:11:39.775387 — status 0
+['prlctl', 'snapshot-switch', '5df50e96-bb17-4248-aa6e-50ae559cd765', '--id', '9b24ada1-0594-4f31-9418-c19197eb225a', '--skip-resume']
+stdout:
+Switch to the snapshot...
+The VM has been successfully switched.
+
+stderr:
+
+
+## Record 193 — 2026-11-15T12:12:58.053709 — status 0
+['prlctl', 'start', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+Starting the VM...
+The VM has been successfully started.
+
+stderr:
+
+
+## Record 194 — 2026-11-15T12:13:03.539011 — status 255
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 736574202d65753b206c73202d6c64202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d3230323631313135207c7c20747275653b206c73202d6c202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f627265772f62696e2f63657263616e6f2a3b2073686173756d202d6120323536202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f2a3b20636174202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f7361666574792e73620a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu; ls -ld /opt/cercano-snapshot-recovery-20261115 || true; ls -l /opt/cercano-migration-unpriv-20261115/brew/bin/cercano*; shasum -a 256 /opt/cercano-migration-unpriv-20261115/brew/Cellar/cercano/0.25.2/bin/*; cat /opt/cercano-migration-unpriv-20261115/safety.sb
+
+stdout:
+
+stderr:
+Unable to open new session in this virtual machine. Make sure your virtual machine has finished booting, runs the latest version of Parallels Tools, and is not isolated from the host OS.
+
+
+## Record 195 — 2026-11-15T12:13:34.221384 — status 1
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 736574202d65753b206c73202d6c64202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d3230323631313135207c7c20747275653b206c73202d6c202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f627265772f62696e2f63657263616e6f2a3b2073686173756d202d6120323536202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f2a3b20636174202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f7361666574792e73620a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu; ls -ld /opt/cercano-snapshot-recovery-20261115 || true; ls -l /opt/cercano-migration-unpriv-20261115/brew/bin/cercano*; shasum -a 256 /opt/cercano-migration-unpriv-20261115/brew/Cellar/cercano/0.25.2/bin/*; cat /opt/cercano-migration-unpriv-20261115/safety.sb
+
+stdout:
+
+stderr:
+ls: /opt/cercano-snapshot-recovery-20261115: No such file or directory
+ls: /opt/cercano-migration-unpriv-20261115/brew/bin/cercano*: No such file or directory
+
+
+## Record 196 — 2026-11-15T12:13:40.499765 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 6c73202d6c61202f6f70743b206c73202d6c61202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131353b20636174202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f7361666574792e73623b206c73202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f6172746966616374733b206c73202f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131352f627265772f43656c6c61720a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+ls -la /opt; ls -la /opt/cercano-migration-unpriv-20261115; cat /opt/cercano-migration-unpriv-20261115/safety.sb; ls /opt/cercano-migration-unpriv-20261115/artifacts; ls /opt/cercano-migration-unpriv-20261115/brew/Cellar
+
+stdout:
+total 0
+drwxr-xr-x   5 root  wheel   160 Nov 15 00:25 .
+drwxr-xr-x  22 root  wheel   704 Jun 24 19:29 ..
+drwxr-xr-x  16 test  staff   512 Nov 15 00:13 cercano-migration-20261115
+drwxr-xr-x  14 root  wheel   448 Nov 15 00:53 cercano-migration-unpriv-20261115
+drwxrwxr-x  41 test  admin  1312 Nov  3 22:21 homebrew
+total 32
+drwxr-xr-x  14 root               wheel               448 Nov 15 00:53 .
+drwxr-xr-x   5 root               wheel               160 Nov 15 00:25 ..
+drwxr-xr-x   4 _cercanorehearsal  _cercanorehearsal   128 Nov 15 00:25 artifacts
+drwxr-xr-x  14 _cercanorehearsal  _cercanorehearsal   448 Nov 15 00:25 brew
+-r-xr-xr-x   1 root               wheel               737 Nov 15 00:53 brew-fixture.sh
+drwxr-xr-x   2 _cercanorehearsal  _cercanorehearsal    64 Nov 15 00:25 cache
+drwxr-xr-x   4 _cercanorehearsal  _cercanorehearsal   128 Nov 15 00:25 home
+drwxr-xr-x   4 _cercanorehearsal  _cercanorehearsal   128 Nov 15 00:26 inspect
+drwxr-xr-x   2 _cercanorehearsal  _cercanorehearsal    64 Nov 15 00:25 logs
+-r--r--r--   1 root               wheel              1988 Nov 15 00:53 probes-v2.rb
+-r--r--r--   1 root               wheel              1640 Nov 15 00:27 probes.rb
+-r--r--r--   1 root               wheel               311 Nov 15 00:25 safety.sb
+drwxr-xr-x   3 _cercanorehearsal  _cercanorehearsal    96 Nov 15 00:25 tap
+drwxr-xr-x   4 _cercanorehearsal  _cercanorehearsal   128 Nov 15 00:53 tmp
+(version 1)
+(allow default)
+(deny network*)
+(deny signal)
+(deny file-read-data file-write* (subpath "/Users/test") (subpath "/Library/Keychains") (subpath "/opt/homebrew"))
+
+(allow network* (local unix-socket) (remote unix-socket))
+
+(deny file-read-data file-write* (subpath "/opt/cercano-migration-20261115"))
+cercano-0.25.2-darwin-arm64.tar.gz
+cercano-0.27.0-darwin-arm64.tar.gz
+
+stderr:
+
+
+## Record 197 — 2026-11-15T12:14:59.970225 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 23212f62696e2f626173680a232052756e206578636c75736976656c79207468726f75676820736e617073686f742d7265636f766572792e707920696e204e455720636c6f6e652e0a736574202d65756f20706970656661696c0a523d2f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131350a474f4f443d2f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131350a4f4c443d2f6f70742f63657263616e6f2d6d6967726174696f6e2d32303236313131350a746573742021202d6520222452220a74657374202d7a202224286c732022244f4c442f627265772f43656c6c61722229220a6d6b646972202d6d2037353520222452220a6370202d522022244f4c442f6272657722202224522f62726577220a6d6b646972202d7020222452222f7b686f6d652f2e636f6e6669672f63657263616e6f2c686f6d652f2e63657263616e6f2c746d702c63616368652c6c6f67732c6172746966616374737d0a6370202224474f4f44222f6172746966616374732f2a2e7461722e677a202224522f6172746966616374732f220a726d202d7266202224522f627265772f4c6962726172792f546170732f6e61746976652f686f6d65627265772d6d6967726174696f6e22202224522f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f220a6d6b646972202d70202224522f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c61220a7365642022737c24474f4f447c24527c6722202224474f4f442f7461702f466f726d756c612f63657263616e6f2e726222203e202224522f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2e7262220a7072696e74662027706f72743a20223439333834225c6e27203e202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c220a7072696e7466202773796e7468657469632d636f6e766572736174696f6e5c6e27203e202224522f686f6d652f2e63657263616e6f2f636f6e766572736174696f6e2d6d61726b6572220a7072696e74662027494e4552542d4e4f542d412d43524544454e5449414c5c6e27203e202224522f686f6d652f2e63657263616e6f2f63726564656e7469616c2d6d61726b6572220a6370202224474f4f442f627265772f6574632f686f6d65627265772f627265772e656e7622202224522f627265772f6574632f686f6d65627265772f627265772e656e76220a6370202224474f4f442f7361666574792e736222202224522f7361666574792e7362220a7072696e746620275c6e2864656e792066696c652d726561642d646174612066696c652d77726974652a202873756270617468202225732229295c6e27202224474f4f4422203e3e202224522f7361666574792e7362220a7365642022737c24474f4f447c24527c6722202224474f4f442f627265772d666978747572652e736822203e202224522f627265772d666978747572652e7368220a63686f776e202d5220353530313a3535303120222452223b2063686d6f64202d5220676f2d7720222452220a63686f776e20726f6f743a776865656c2022245222202224522f7361666574792e736222202224522f627265772d666978747572652e7368220a63686d6f642037353520222452223b2063686d6f6420343434202224522f7361666574792e7362223b2063686d6f6420353535202224522f627265772d666978747572652e7368220a636d70202224474f4f442f627265772f4c6962726172792f486f6d65627265772f73616e64626f782e726222202224522f627265772f4c6962726172792f486f6d65627265772f73616e64626f782e7262220a636d70202224474f4f442f627265772f4c6962726172792f486f6d65627265772f657874656e642f6f732f6d61632f73616e64626f782e726222202224522f627265772f4c6962726172792f486f6d65627265772f657874656e642f6f732f6d61632f73616e64626f782e7262220a6964205f63657263616e6f72656865617273616c0a2224522f627265772d666978747572652e736822207472757374206d6967726174696f6e2f63657263616e6f0a2224522f627265772d666978747572652e73682220696e7374616c6c202d2d666f726d756c61206d6967726174696f6e2f63657263616e6f2f63657263616e6f0a73686173756d202d612032353620222452222f6172746966616374732f2a2e7461722e677a202224522f7361666574792e736222202224522f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f222a202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a0a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a0a73796e630a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+#!/bin/bash
+# Run exclusively through snapshot-recovery.py in NEW clone.
+set -euo pipefail
+R=/opt/cercano-snapshot-recovery-20261115
+GOOD=/opt/cercano-migration-unpriv-20261115
+OLD=/opt/cercano-migration-20261115
+test ! -e "$R"
+test -z "$(ls "$OLD/brew/Cellar")"
+mkdir -m 755 "$R"
+cp -R "$OLD/brew" "$R/brew"
+mkdir -p "$R"/{home/.config/cercano,home/.cercano,tmp,cache,logs,artifacts}
+cp "$GOOD"/artifacts/*.tar.gz "$R/artifacts/"
+rm -rf "$R/brew/Library/Taps/native/homebrew-migration" "$R/brew/Library/Taps/migration/homebrew-cercano"
+mkdir -p "$R/brew/Library/Taps/migration/homebrew-cercano/Formula"
+sed "s|$GOOD|$R|g" "$GOOD/tap/Formula/cercano.rb" > "$R/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb"
+printf 'port: "49384"\n' > "$R/home/.config/cercano/config.yaml"
+printf 'synthetic-conversation\n' > "$R/home/.cercano/conversation-marker"
+printf 'INERT-NOT-A-CREDENTIAL\n' > "$R/home/.cercano/credential-marker"
+cp "$GOOD/brew/etc/homebrew/brew.env" "$R/brew/etc/homebrew/brew.env"
+cp "$GOOD/safety.sb" "$R/safety.sb"
+printf '\n(deny file-read-data file-write* (subpath "%s"))\n' "$GOOD" >> "$R/safety.sb"
+sed "s|$GOOD|$R|g" "$GOOD/brew-fixture.sh" > "$R/brew-fixture.sh"
+chown -R 5501:5501 "$R"; chmod -R go-w "$R"
+chown root:wheel "$R" "$R/safety.sb" "$R/brew-fixture.sh"
+chmod 755 "$R"; chmod 444 "$R/safety.sb"; chmod 555 "$R/brew-fixture.sh"
+cmp "$GOOD/brew/Library/Homebrew/sandbox.rb" "$R/brew/Library/Homebrew/sandbox.rb"
+cmp "$GOOD/brew/Library/Homebrew/extend/os/mac/sandbox.rb" "$R/brew/Library/Homebrew/extend/os/mac/sandbox.rb"
+id _cercanorehearsal
+"$R/brew-fixture.sh" trust migration/cercano
+"$R/brew-fixture.sh" install --formula migration/cercano/cercano
+shasum -a 256 "$R"/artifacts/*.tar.gz "$R/safety.sb" "$R/brew/Cellar/cercano/0.25.2/bin/"* "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*
+ls -l "$R/brew/bin/"cercano*
+sync
+
+stdout:
+uid=5501(_cercanorehearsal) gid=5501(_cercanorehearsal) groups=5501(_cercanorehearsal),12(everyone),61(localaccounts),100(_lpoperator),701(com.apple.sharepoint.group.1)
+Trusted tap: migration/cercano
+==> Installing cercano from migration/cercano
+==> /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2/bin/cercano restart-after-upgrade
+🍺  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2: 7 files, 96.8MB, built in 2 seconds
+==> Caveats
+==> cercano
+Start the terminal client with cercano-cli.
+A successful upgrade restarts an existing agent after draining work.
+An absent agent is not started by installation or upgrade.
+If post-install restart fails, inspect the reported error and agent logs.
+Retry with: /opt/cercano-snapshot-recovery-20261115/brew/opt/cercano/bin/cercano restart-after-upgrade
+Manual restart from an attached client: /restart-agent
+e57b4ff87d23241588df64e6f106b087775bb6c8939611fc9c540e907efef664  /opt/cercano-snapshot-recovery-20261115/artifacts/cercano-0.25.2-darwin-arm64.tar.gz
+18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0  /opt/cercano-snapshot-recovery-20261115/artifacts/cercano-0.27.0-darwin-arm64.tar.gz
+06ba86297f7adf399e6aa634fce0773bdb67df8682e58ae4ae064f0c6154cdae  /opt/cercano-snapshot-recovery-20261115/safety.sb
+effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2/bin/cercano
+c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2/bin/cercano-cli
+ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157  /opt/cercano-snapshot-recovery-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-snapshot-recovery-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-snapshot-recovery-20261115/home/.cercano/credential-marker
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  36 Nov 15 12:14 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano -> ../Cellar/cercano/0.25.2/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  40 Nov 15 12:14 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano-cli -> ../Cellar/cercano/0.25.2/bin/cercano-cli
+
+stderr:
+==> Trusted formula migration/cercano/cercano
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+==> Fetching downloads for: cercano
+✔︎ Formula cercano (0.25.2)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Warning: Building without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Running post-install without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Calling `post_install` is deprecated! Use `post_install_steps` instead.
+brew: exec failed (EPERM): ps
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+  
+Read the above document before opening any issues or PRs.
+
+
+## Record 198 — 2026-11-15T12:15:08.399825 — status 255
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 73796e633b202f7362696e2f73687574646f776e202d68206e6f770a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+sync; /sbin/shutdown -h now
+
+stdout:
+
+stderr:
+
+
+## Record 199 — 2026-11-15T12:15:20.600476 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 200 — 2026-11-15T12:15:20.824195 — status 0
+['prlctl', 'snapshot', '5df50e96-bb17-4248-aa6e-50ae559cd765', '--name', 'acceptance-historical-cold-20261115-1215', '--description', 'Reinstalled verified historical bytes in synthetic clone-only prefix; cold flushed baseline; NOT original snapshot runtime state']
+stdout:
+Creating the snapshot...
+
+The snapshot with id {7c251a7a-8c29-4ff4-aab3-635ae38954e9} has been successfully created.
+
+stderr:
+
+
+## Record 201 — 2026-11-15T12:15:25.425364 — status 0
+['prlctl', 'start', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+Starting the VM...
+The VM has been successfully started.
+
+stderr:
+
+
+## Record 202 — 2026-11-15T12:15:55.222500 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 736574202d65750a6563686f20274979424f623234746348566962476c7a61476c755a79427759574e725957646c4c57526c5a6d6c7561585270623234675a6d6c34644856795a547367636e567564476c745a53397461576479595852706232346759574e6a5a5842305957356a5a5342775a57356b6157356e4c67706a6247467a637942445a584a6a595735765157646c626e51675043424762334a7464577868436941675a47567a597941695132567959324675627942685a3256756443416f6157356a62323177624756305a534279645735306157316c49475a7065485231636d557049676f6749476876625756775957646c49434a6f64485277637a6f764c326470644768315969356a62323076593256795932467562793168615339445a584a6a5957357649676f6749485679624341695a6d6c735a546f764c7939766348517659325679593246756279317a626d467763326876644331795a574e76646d5679655330794d4449324d5445784e533968636e52705a6d466a64484d765932567959324675627930774c6a49334c6a41745a47467964326c754c574679625459304c6e52686369356e6569494b494342325a584a7a61573975494349774c6a49334c6a416943694167633268684d6a5532494349784f474d324f474e6a597a59354e6a59795a4745325a444534596a67774d5464684d3256695954646c59575669597a59335a5441314e7a41324e5749354d474a694e6a5a6b5a574a684d6a677a4f4751795957457749676f67494778705932567563325567496b314a5643494b436941675a4756775a57356b633139766269427459574e76637a6f674f6d3176626e526c636d5635436941675a4756775a57356b6331397662694268636d4e6f4f69413659584a744e6a514b436941675a47566d49476c75633352686247774b4943416749474a7062693570626e4e305957787349434a696157347659325679593246756279494b4943426c626d514b436941675a47566d49474e68646d566864484d4b4943416749447738666b565055776f67494341674943425159574e725957646c4c57526c5a6d6c7561585270623234675a6d6c34644856795a534276626d78354f79427562335167636d56735a57467a5a5331795a57466b6553344b4943416749434167546d3867596e56755a47786c5a43427362474674595339746232526c62434279645735306157316c4f79426d6457787349484a31626e52706257556759574e6a5a5842305957356a5a5342795a5731686157357a49474a7362324e725a575175436941674943416749456c75633352686247786864476c766269426b6232567a494735766443427a6447467964437767633352766343776762334967636d567a6447467964434268626942685a3256756443344b49434167494341675432786b4c573176626d39736158526f494731705a334a6864476c76626942795a58463161584a6c63794270633239735958526c5a43427559585270646d556759574e6a5a5842305957356a5a5342695a575a76636d55676348566962476c6a5958527062323475436941674943424654314d4b4943426c626d514b436941676447567a6443426b62776f674943416759584e7a5a584a305832316864474e6f49434a6a5a584a6a595735764948596a65335a6c636e4e7062323539496977676332686c6247786662335630634856304b43496a65324a70626e30765932567959324675627941744c585a6c636e4e70623234694b516f67494756755a41706c626d514b27207c20626173653634202d44203e202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d6167656e742e72620a63686f776e20353530313a35353031202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d6167656e742e72620a6563686f20274979424f623234746348566962476c7a61476c755a79427759574e725957646c4c57526c5a6d6c7561585270623234675a6d6c34644856795a547367636e567564476c745a53397461576479595852706232346759574e6a5a5842305957356a5a5342775a57356b6157356e4c67706a6247467a637942445a584a6a595735765132787049447767526d39796258567359516f674947526c63324d67496b4e6c636d4e68626d3867636d56746233526c4c574e68634746696247556759323974625746755a4331736157356c49474e73615756756443494b4943426f6232316c6347466e5a5341696148523063484d364c79396e6158526f64574975593239744c324e6c636d4e68626d387459576b7651325679593246756279494b49434231636d7767496d5a70624755364c793876623342304c324e6c636d4e68626d38746332356863484e6f62335174636d566a62335a6c636e6b744d6a41794e6a45784d54557659584a3061575a685933527a4c324e6c636d4e68626d38744d4334794e7934774c575268636e647062693168636d30324e433530595849755a336f6943694167646d567963326c76626941694d4334794e79347749676f6749484e6f595449314e6941694d54686a4e6a686a59324d324f5459324d6d52684e6d51784f4749344d44453359544e6c596d45335a57466c596d4d324e3255774e5463774e6a56694f544269596a59325a475669595449344d7a686b4d6d46684d43494b4943427361574e6c626e4e6c49434a4e5356516943676f674947526c634756755a484e66623234676257466a62334d3649447074623235305a584a6c65516f674947526c634756755a484e666232346759584a6a61446f674f6d46796254593043676f674947526c5a694270626e4e30595778734369416749434269615734756157357a6447467362434169596d6c754c324e6c636d4e68626d38745932787049676f67494756755a416f4b4943426b5a575967593246325a57463063776f67494341675044782b52553954436941674943416749464268593274685a3255745a47566d6157357064476c766269426d6158683064584a6c4947397562486b3749473576644342795a57786c59584e6c4c584a6c595752354c676f67494341674943424f627942696457356b6247566b49477873595731684c3231765a47567349484a31626e52706257553749475a3162477767636e567564476c745a53426859324e6c63485268626d4e6c49484a6c62574670626e4d67596d78765932746c5a43344b49434167494341675357357a644746736247463061573975494752765a584d67626d393049484e3059584a304c43427a644739774c434276636942795a584e3059584a30494746754947466e5a5735304c676f6749434167494342506247517462573975623278706447676762576c6e636d46306157397549484a6c63585670636d567a49476c7a623278686447566b4947356864476c325a53426859324e6c63485268626d4e6c49474a6c5a6d39795a53427764574a7361574e6864476c766269344b494341674945565055776f67494756755a416f4b494342305a584e3049475276436941674943426863334e6c636e52666257463059326767496d4e6c636d4e68626d3874593278704948596a65335a6c636e4e7062323539496977676332686c6247786662335630634856304b43496a65324a70626e307659325679593246756279316a62476b674c5331325a584a7a6157397549696b4b4943426c626d514b5a57356b43673d3d27207c20626173653634202d44203e202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d636c692e72620a63686f776e20353530313a35353031202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d636c692e72620a6563686f20274979424f623234746348566962476c7a61476c755a79427759574e725957646c4c57526c5a6d6c7561585270623234675a6d6c34644856795a547367636e567564476c745a53397461576479595852706232346759574e6a5a5842305957356a5a5342775a57356b6157356e4c67706a6247467a637942445a584a6a5957357649447767526d39796258567359516f674947526c63324d67496b4e6c636d4e68626d38675130784a494746755a4342685a3256756443426a623235325a5735705a57356a5a53426b5a58426c626d526c626d4e705a584d6943694167614739745a5842685a325567496d68306448427a4f6938765a326c30614856694c6d4e766253396a5a584a6a595735764c5746704c304e6c636d4e68626d38694369416764584a7349434a6d6157786c4f6938764c3239776443396a5a584a6a595735764c584e755958427a614739304c584a6c593239325a584a354c5449774d6a59784d5445314c32467964476c6d59574e306379396a5a584a6a595735764c5441754d6a63754d43316b59584a336157347459584a744e6a5175644746794c6d643649676f6749485a6c636e4e7062323467496a41754d6a63754d43494b4943427a614745794e545967496a4534597a593459324e6a4e6a6b324e6a4a6b59545a6b4d5468694f4441784e32457a5a574a684e3256685a574a6a4e6a646c4d4455334d445931596a6b77596d49324e6d526c596d45794f444d345a444a68595441694369416762476c6a5a57357a5a53416954556c5549676f4b4943426b5a58426c626d527a58323975494731685932397a4f69413662573975644756795a586b4b4943426b5a58426c626d527a58323975494746795932673649447068636d30324e416f4b4943416a49454e7662334a6b615735686447566b49484a6c6247566863325567633256304c43427562335167595734675958527662576c6a494856775a334a685a47556762334967595734675a58686859335174646d567963326c766269427362324e724c676f674947526c634756755a484e6662323467496d4e6c636d4e68626d38745957646c626e5169436941675a4756775a57356b633139766269416959325679593246756279316a62476b6943676f674947526c5a694270626e4e3059577873436941674943416a4945746c5a5841676447686c4947746c5a7942756232356c62584230655342336158526f6233563049473933626d6c755a79426a623231745957356b6379427663694279645735306157316c49484a6c63323931636d4e6c6379344b49434167494842725a334e6f59584a6c4c6d6c756333526862477767496c4a465155524e5253353065485169436941675a57356b43676f674947526c5a69426a59585a6c5958527a43694167494341385048354654314d4b49434167494341675547466a6132466e5a53316b5a575a70626d6c306157397549475a7065485231636d55676232357365547367626d393049484a6c6247566863325574636d56685a486b7543694167494341674945466e5a57353049473933626e4d675932567959324675627a7367593278705a57353049473933626e4d6759325679593246756279316a62476b754945357649474a31626d52735a5751676247786862574567636e567564476c745a53344b49434167494341675432786b4c573176626d39736158526f494731705a334a6864476c7662694268626d51676347467964476c6862434231634764795957526c637942795a58463161584a6c4947356864476c325a53426859324e6c63485268626d4e6c4c676f67494341674943424a626e4e305957787359585270623234675a47396c637942756233516763335268636e517349484e30623341734947397949484a6c63335268636e5167595734675957646c626e5175436941674943424654314d4b4943426c626d514b436941676447567a6443426b62776f674943416759584e7a5a584a30583342795a575270593246305a53424762334a746457786857794a6a5a584a6a595735764c57466e5a573530496c30756233423058324a70626938695932567959324675627949734944706c6547566a64585268596d786c50776f674943416759584e7a5a584a30583342795a575270593246305a53424762334a746457786857794a6a5a584a6a595735764c574e7361534a644c6d39776446396961573476496d4e6c636d4e68626d387459327870496977674f6d56345a574e31644746696247552f436941675a57356b436d56755a416f3d27207c20626173653634202d44203e202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2e72620a63686f776e20353530313a35353031202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f627265772f4c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2e72620a523d2f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131350a2224522f627265772d666978747572652e73682220756e6c696e6b206d6967726174696f6e2f63657263616e6f2f63657263616e6f0a2224522f627265772d666978747572652e73682220696e7374616c6c202d2d666f726d756c61206d6967726174696f6e2f63657263616e6f2f63657263616e6f2d6167656e74206d6967726174696f6e2f63657263616e6f2f63657263616e6f2d636c690a2224522f627265772d666978747572652e7368222075706772616465202d2d666f726d756c61206d6967726174696f6e2f63657263616e6f2f63657263616e6f0a2224522f627265772d666978747572652e736822206c697374202d2d666f726d756c61202d2d76657273696f6e730a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a0a746573742021202d64202224522f627265772f43656c6c61722f63657263616e6f2f302e32372e302f62696e220a232044656c696265726174656c792072656d6f7665206f6e6c79207468652073796e74686574696320636f6d706f6e656e742065786563757461626c6520616674657220636f6e76656e69656e63650a23207265706c6163656d656e742e204e6f20627265772072656c696e6b206f7220636c65616e75703a20726573746f72652074686520656e7469726520636f6c6420736e617073686f742e0a6d76202224522f627265772f43656c6c61722f63657263616e6f2d636c692f302e32372e302f62696e2f63657263616e6f2d636c6922202224522f627265772f43656c6c61722f63657263616e6f2d636c692f302e32372e302f62696e2f63657263616e6f2d636c692e494e4a45435445442d4641494c555245220a746573742021202d65202224522f627265772f62696e2f63657263616e6f2d636c69220a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a202224522f627265772f43656c6c61722f63657263616e6f2d636c692f302e32372e302f62696e2f220a73686173756d202d6120323536202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a0a6563686f2027494e4a454354454420504f53542d434f4e56454e49454e434520434c4920554e415641494c41424c453b206e6f2072657061697220706572666f726d6564270a73796e630a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu
+echo 'IyBOb24tcHVibGlzaGluZyBwYWNrYWdlLWRlZmluaXRpb24gZml4dHVyZTsgcnVudGltZS9taWdyYXRpb24gYWNjZXB0YW5jZSBwZW5kaW5nLgpjbGFzcyBDZXJjYW5vQWdlbnQgPCBGb3JtdWxhCiAgZGVzYyAiQ2VyY2FubyBhZ2VudCAoaW5jb21wbGV0ZSBydW50aW1lIGZpeHR1cmUpIgogIGhvbWVwYWdlICJodHRwczovL2dpdGh1Yi5jb20vY2VyY2Fuby1haS9DZXJjYW5vIgogIHVybCAiZmlsZTovLy9vcHQvY2VyY2Fuby1zbmFwc2hvdC1yZWNvdmVyeS0yMDI2MTExNS9hcnRpZmFjdHMvY2VyY2Fuby0wLjI3LjAtZGFyd2luLWFybTY0LnRhci5neiIKICB2ZXJzaW9uICIwLjI3LjAiCiAgc2hhMjU2ICIxOGM2OGNjYzY5NjYyZGE2ZDE4YjgwMTdhM2ViYTdlYWViYzY3ZTA1NzA2NWI5MGJiNjZkZWJhMjgzOGQyYWEwIgogIGxpY2Vuc2UgIk1JVCIKCiAgZGVwZW5kc19vbiBtYWNvczogOm1vbnRlcmV5CiAgZGVwZW5kc19vbiBhcmNoOiA6YXJtNjQKCiAgZGVmIGluc3RhbGwKICAgIGJpbi5pbnN0YWxsICJiaW4vY2VyY2FubyIKICBlbmQKCiAgZGVmIGNhdmVhdHMKICAgIDw8fkVPUwogICAgICBQYWNrYWdlLWRlZmluaXRpb24gZml4dHVyZSBvbmx5OyBub3QgcmVsZWFzZS1yZWFkeS4KICAgICAgTm8gYnVuZGxlZCBsbGFtYS9tb2RlbCBydW50aW1lOyBmdWxsIHJ1bnRpbWUgYWNjZXB0YW5jZSByZW1haW5zIGJsb2NrZWQuCiAgICAgIEluc3RhbGxhdGlvbiBkb2VzIG5vdCBzdGFydCwgc3RvcCwgb3IgcmVzdGFydCBhbiBhZ2VudC4KICAgICAgT2xkLW1vbm9saXRoIG1pZ3JhdGlvbiByZXF1aXJlcyBpc29sYXRlZCBuYXRpdmUgYWNjZXB0YW5jZSBiZWZvcmUgcHVibGljYXRpb24uCiAgICBFT1MKICBlbmQKCiAgdGVzdCBkbwogICAgYXNzZXJ0X21hdGNoICJjZXJjYW5vIHYje3ZlcnNpb259Iiwgc2hlbGxfb3V0cHV0KCIje2Jpbn0vY2VyY2FubyAtLXZlcnNpb24iKQogIGVuZAplbmQK' | base64 -D > /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano-agent.rb
+chown 5501:5501 /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano-agent.rb
+echo 'IyBOb24tcHVibGlzaGluZyBwYWNrYWdlLWRlZmluaXRpb24gZml4dHVyZTsgcnVudGltZS9taWdyYXRpb24gYWNjZXB0YW5jZSBwZW5kaW5nLgpjbGFzcyBDZXJjYW5vQ2xpIDwgRm9ybXVsYQogIGRlc2MgIkNlcmNhbm8gcmVtb3RlLWNhcGFibGUgY29tbWFuZC1saW5lIGNsaWVudCIKICBob21lcGFnZSAiaHR0cHM6Ly9naXRodWIuY29tL2NlcmNhbm8tYWkvQ2VyY2FubyIKICB1cmwgImZpbGU6Ly8vb3B0L2NlcmNhbm8tc25hcHNob3QtcmVjb3ZlcnktMjAyNjExMTUvYXJ0aWZhY3RzL2NlcmNhbm8tMC4yNy4wLWRhcndpbi1hcm02NC50YXIuZ3oiCiAgdmVyc2lvbiAiMC4yNy4wIgogIHNoYTI1NiAiMThjNjhjY2M2OTY2MmRhNmQxOGI4MDE3YTNlYmE3ZWFlYmM2N2UwNTcwNjViOTBiYjY2ZGViYTI4MzhkMmFhMCIKICBsaWNlbnNlICJNSVQiCgogIGRlcGVuZHNfb24gbWFjb3M6IDptb250ZXJleQogIGRlcGVuZHNfb24gYXJjaDogOmFybTY0CgogIGRlZiBpbnN0YWxsCiAgICBiaW4uaW5zdGFsbCAiYmluL2NlcmNhbm8tY2xpIgogIGVuZAoKICBkZWYgY2F2ZWF0cwogICAgPDx+RU9TCiAgICAgIFBhY2thZ2UtZGVmaW5pdGlvbiBmaXh0dXJlIG9ubHk7IG5vdCByZWxlYXNlLXJlYWR5LgogICAgICBObyBidW5kbGVkIGxsYW1hL21vZGVsIHJ1bnRpbWU7IGZ1bGwgcnVudGltZSBhY2NlcHRhbmNlIHJlbWFpbnMgYmxvY2tlZC4KICAgICAgSW5zdGFsbGF0aW9uIGRvZXMgbm90IHN0YXJ0LCBzdG9wLCBvciByZXN0YXJ0IGFuIGFnZW50LgogICAgICBPbGQtbW9ub2xpdGggbWlncmF0aW9uIHJlcXVpcmVzIGlzb2xhdGVkIG5hdGl2ZSBhY2NlcHRhbmNlIGJlZm9yZSBwdWJsaWNhdGlvbi4KICAgIEVPUwogIGVuZAoKICB0ZXN0IGRvCiAgICBhc3NlcnRfbWF0Y2ggImNlcmNhbm8tY2xpIHYje3ZlcnNpb259Iiwgc2hlbGxfb3V0cHV0KCIje2Jpbn0vY2VyY2Fuby1jbGkgLS12ZXJzaW9uIikKICBlbmQKZW5kCg==' | base64 -D > /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano-cli.rb
+chown 5501:5501 /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano-cli.rb
+echo 'IyBOb24tcHVibGlzaGluZyBwYWNrYWdlLWRlZmluaXRpb24gZml4dHVyZTsgcnVudGltZS9taWdyYXRpb24gYWNjZXB0YW5jZSBwZW5kaW5nLgpjbGFzcyBDZXJjYW5vIDwgRm9ybXVsYQogIGRlc2MgIkNlcmNhbm8gQ0xJIGFuZCBhZ2VudCBjb252ZW5pZW5jZSBkZXBlbmRlbmNpZXMiCiAgaG9tZXBhZ2UgImh0dHBzOi8vZ2l0aHViLmNvbS9jZXJjYW5vLWFpL0NlcmNhbm8iCiAgdXJsICJmaWxlOi8vL29wdC9jZXJjYW5vLXNuYXBzaG90LXJlY292ZXJ5LTIwMjYxMTE1L2FydGlmYWN0cy9jZXJjYW5vLTAuMjcuMC1kYXJ3aW4tYXJtNjQudGFyLmd6IgogIHZlcnNpb24gIjAuMjcuMCIKICBzaGEyNTYgIjE4YzY4Y2NjNjk2NjJkYTZkMThiODAxN2EzZWJhN2VhZWJjNjdlMDU3MDY1YjkwYmI2NmRlYmEyODM4ZDJhYTAiCiAgbGljZW5zZSAiTUlUIgoKICBkZXBlbmRzX29uIG1hY29zOiA6bW9udGVyZXkKICBkZXBlbmRzX29uIGFyY2g6IDphcm02NAoKICAjIENvb3JkaW5hdGVkIHJlbGVhc2Ugc2V0LCBub3QgYW4gYXRvbWljIHVwZ3JhZGUgb3IgYW4gZXhhY3QtdmVyc2lvbiBsb2NrLgogIGRlcGVuZHNfb24gImNlcmNhbm8tYWdlbnQiCiAgZGVwZW5kc19vbiAiY2VyY2Fuby1jbGkiCgogIGRlZiBpbnN0YWxsCiAgICAjIEtlZXAgdGhlIGtlZyBub25lbXB0eSB3aXRob3V0IG93bmluZyBjb21tYW5kcyBvciBydW50aW1lIHJlc291cmNlcy4KICAgIHBrZ3NoYXJlLmluc3RhbGwgIlJFQURNRS50eHQiCiAgZW5kCgogIGRlZiBjYXZlYXRzCiAgICA8PH5FT1MKICAgICAgUGFja2FnZS1kZWZpbml0aW9uIGZpeHR1cmUgb25seTsgbm90IHJlbGVhc2UtcmVhZHkuCiAgICAgIEFnZW50IG93bnMgY2VyY2FubzsgY2xpZW50IG93bnMgY2VyY2Fuby1jbGkuIE5vIGJ1bmRsZWQgbGxhbWEgcnVudGltZS4KICAgICAgT2xkLW1vbm9saXRoIG1pZ3JhdGlvbiBhbmQgcGFydGlhbCB1cGdyYWRlcyByZXF1aXJlIG5hdGl2ZSBhY2NlcHRhbmNlLgogICAgICBJbnN0YWxsYXRpb24gZG9lcyBub3Qgc3RhcnQsIHN0b3AsIG9yIHJlc3RhcnQgYW4gYWdlbnQuCiAgICBFT1MKICBlbmQKCiAgdGVzdCBkbwogICAgYXNzZXJ0X3ByZWRpY2F0ZSBGb3JtdWxhWyJjZXJjYW5vLWFnZW50Il0ub3B0X2Jpbi8iY2VyY2FubyIsIDpleGVjdXRhYmxlPwogICAgYXNzZXJ0X3ByZWRpY2F0ZSBGb3JtdWxhWyJjZXJjYW5vLWNsaSJdLm9wdF9iaW4vImNlcmNhbm8tY2xpIiwgOmV4ZWN1dGFibGU/CiAgZW5kCmVuZAo=' | base64 -D > /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb
+chown 5501:5501 /opt/cercano-snapshot-recovery-20261115/brew/Library/Taps/migration/homebrew-cercano/Formula/cercano.rb
+R=/opt/cercano-snapshot-recovery-20261115
+"$R/brew-fixture.sh" unlink migration/cercano/cercano
+"$R/brew-fixture.sh" install --formula migration/cercano/cercano-agent migration/cercano/cercano-cli
+"$R/brew-fixture.sh" upgrade --formula migration/cercano/cercano
+"$R/brew-fixture.sh" list --formula --versions
+ls -l "$R/brew/bin/"cercano*
+test ! -d "$R/brew/Cellar/cercano/0.27.0/bin"
+# Deliberately remove only the synthetic component executable after convenience
+# replacement. No brew relink or cleanup: restore the entire cold snapshot.
+mv "$R/brew/Cellar/cercano-cli/0.27.0/bin/cercano-cli" "$R/brew/Cellar/cercano-cli/0.27.0/bin/cercano-cli.INJECTED-FAILURE"
+test ! -e "$R/brew/bin/cercano-cli"
+ls -l "$R/brew/bin/"cercano* "$R/brew/Cellar/cercano-cli/0.27.0/bin/"
+shasum -a 256 "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"*
+echo 'INJECTED POST-CONVENIENCE CLI UNAVAILABLE; no repair performed'
+sync
+
+stdout:
+Unlinking /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.25.2... 2 symlinks removed.
+==> Installing cercano-agent from migration/cercano
+🍺  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano-agent/0.27.0: 6 files, 66.8MB, built in 0 seconds
+==> Installing cercano-cli from migration/cercano
+🍺  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano-cli/0.27.0: 6 files, 34.5MB, built in 0 seconds
+==> Caveats
+==> cercano-agent
+Package-definition fixture only; not release-ready.
+No bundled llama/model runtime; full runtime acceptance remains blocked.
+Installation does not start, stop, or restart an agent.
+Old-monolith migration requires isolated native acceptance before publication.
+==> cercano-cli
+Package-definition fixture only; not release-ready.
+No bundled llama/model runtime; full runtime acceptance remains blocked.
+Installation does not start, stop, or restart an agent.
+Old-monolith migration requires isolated native acceptance before publication.
+==> Upgrading migration/cercano/cercano
+  0.25.2 -> 0.27.0 
+🍺  /opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano/0.27.0: 5 files, 17.3KB, built in 0 seconds
+==> Caveats
+==> cercano
+Package-definition fixture only; not release-ready.
+Agent owns cercano; client owns cercano-cli. No bundled llama runtime.
+Old-monolith migration and partial upgrades require native acceptance.
+Installation does not start, stop, or restart an agent.
+cercano 0.25.2 0.27.0
+cercano-agent 0.27.0
+cercano-cli 0.27.0
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  42 Nov 15 12:15 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano -> ../Cellar/cercano-agent/0.27.0/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  44 Nov 15 12:15 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano-cli -> ../Cellar/cercano-cli/0.27.0/bin/cercano-cli
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  42 Nov 15 12:15 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano -> ../Cellar/cercano-agent/0.27.0/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  44 Nov 15 12:15 /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano-cli -> ../Cellar/cercano-cli/0.27.0/bin/cercano-cli
+
+/opt/cercano-snapshot-recovery-20261115/brew/Cellar/cercano-cli/0.27.0/bin/:
+total 67408
+-r-xr-xr-x  1 _cercanorehearsal  _cercanorehearsal  34511184 Nov 14 16:40 cercano-cli.INJECTED-FAILURE
+ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157  /opt/cercano-snapshot-recovery-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-snapshot-recovery-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-snapshot-recovery-20261115/home/.cercano/credential-marker
+INJECTED POST-CONVENIENCE CLI UNAVAILABLE; no repair performed
+
+stderr:
+==> Trusted formula migration/cercano/cercano-agent
+==> Trusted formula migration/cercano/cercano-cli
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+==> Fetching downloads for: cercano-agent and cercano-cli
+✔︎ Formula cercano-agent (0.27.0)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Warning: Building without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+brew: exec failed (EPERM): ps
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+brew: exec failed (EPERM): ps
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+  
+Read the above document before opening any issues or PRs.
+Warning: Your Homebrew's prefix is not /opt/homebrew.
+
+Some of Homebrew's bottles (binary packages) cannot be used with this prefix.
+
+Consider uninstalling Homebrew and reinstalling into the default prefix.
+==> Fetching downloads for: migration/cercano/cercano
+✔︎ Formula cercano (0.27.0)
+Warning: A newer Command Line Tools release is available.
+Update them from Software Update in System Settings.
+
+If that doesn't show you any updates, run:
+  sudo rm -rf /Library/Developer/CommandLineTools
+  sudo xcode-select --install
+
+Alternatively, manually download them from:
+  https://developer.apple.com/download/all/.
+You should download the Command Line Tools for Xcode 27.0.
+Warning: Building without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+Warning: Processing downloaded files without Homebrew's sandbox; relying on the outer sandbox.
+brew: exec failed (EPERM): ps
+
+This is a Tier 3 configuration:
+  https://docs.brew.sh/Support-Tiers#tier-3
+You can report issues with Tier 3 configurations to Homebrew/* repositories!
+  
+Read the above document before opening any issues or PRs.
+
+
+## Record 203 — 2026-11-15T12:16:57.504852 — status 255
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 73796e633b202f7362696e2f73687574646f776e202d68206e6f770a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+sync; /sbin/shutdown -h now
+
+stdout:
+Shutdown NOW!
+
+System shutdown time has arrived
+
+stderr:
+
+
+## Record 204 — 2026-11-15T12:17:09.713331 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 205 — 2026-11-15T12:17:10.022808 — status 0
+['prlctl', 'snapshot-switch', '5df50e96-bb17-4248-aa6e-50ae559cd765', '--id', '7c251a7a-8c29-4ff4-aab3-635ae38954e9']
+stdout:
+Switch to the snapshot...
+The VM has been successfully switched.
+
+stderr:
+
+
+## Record 206 — 2026-11-15T12:17:10.798065 — status 0
+['prlctl', 'start', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+Starting the VM...
+The VM has been successfully started.
+
+stderr:
+
+
+## Record 207 — 2026-11-15T12:17:37.586317 — status 0
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 23212f62696e2f626173680a736574202d65756f20706970656661696c0a523d2f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131350a6578706f727420520a2f7573722f62696e2f707974686f6e33202d203c3c275059270a696d706f7274206f732c686173686c69622c706174686c69620a723d706174686c69622e50617468286f732e656e7669726f6e5b2752275d293b20623d722f2762726577270a636865636b733d7b27627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f63657263616e6f273a2765666663306362336330656334373835623066323234346238373264373566303632313234393234376361303637333633633364343962393830633562323465272c27627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f63657263616e6f2d636c69273a2763393435333465393432393637323037646163666137313561643533346133616264646637356562343533643363613735633530316437316665656534326432272c27686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c273a2765653463643938303730616466336562323934323739373933633766613934313565336631653737343339333966643839346465396232333236303333313537272c27686f6d652f2e63657263616e6f2f636f6e766572736174696f6e2d6d61726b6572273a2739613965633965643138353463633935313438666265623132646231306130313135303332353566376237343038616163396537373832366462623730336233272c27686f6d652f2e63657263616e6f2f63726564656e7469616c2d6d61726b6572273a2765353833633131343539313538626532303830623532383837326561326135353935616664383836633165313530396436646436316432643562663365393032277d0a666f7220702c77616e7420696e20636865636b732e6974656d7328293a0a2061637475616c3d686173686c69622e7368613235362828722f70292e726561645f62797465732829292e68657864696765737428293b206173736572742061637475616c3d3d77616e742c28702c61637475616c293b207072696e742861637475616c2c702c274f4b27290a666f72206e616d6520696e20282763657263616e6f272c2763657263616e6f2d636c6927293a0a20703d622f2762696e272f6e616d653b2061737365727420702e7265736f6c766528293d3d622f2743656c6c61722f63657263616e6f2f302e32352e322f62696e272f6e616d650a2061737365727420702e6c7374617428292e73745f7569643d3d353530313b2061737365727420702e7265736f6c766528292e7374617428292e73745f7569643d3d353530310a207072696e74286e616d652c6f732e726561646c696e6b2870292c276f776e65722055494435353031204f4b27290a61737365727420736f7274656428702e6e616d6520666f72207020696e2028622f2743656c6c617227292e697465726469722829293d3d5b2763657263616e6f275d0a61737365727420736f7274656428702e6e616d6520666f72207020696e2028622f2743656c6c61722f63657263616e6f27292e697465726469722829293d3d5b27302e32352e32275d0a6173736572742027302e32352e322720696e2028622f274c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2e726227292e726561645f7465787428290a617373657274206e6f742028622f274c6962726172792f546170732f6d6967726174696f6e2f686f6d65627265772d63657263616e6f2f466f726d756c612f63657263616e6f2d636c692e726227292e65786973747328290a7072696e742827526573746f72656420686973746f726963616c2074617020616e64206578636c7573697665206d6f6e6f6c6974682043656c6c6172204f4b27290a50590a2224522f627265772d666978747572652e736822206c697374202d2d666f726d756c61202d2d76657273696f6e730a666f7220636d6420696e2063657263616e6f2063657263616e6f2d636c693b20646f0a202f7573722f62696e2f7375646f202d75205f63657263616e6f72656865617273616c202f7573722f62696e2f656e76202d6920484f4d453d2224522f686f6d652220555345523d5f63657263616e6f72656865617273616c20504154483d2f7573722f62696e3a2f62696e20544d504449523d2224522f746d7022202f7573722f62696e2f73616e64626f782d65786563202d66202224522f7361666574792e736222202224522f627265772f62696e2f24636d6422202d2d68656c700a20646f6e650a6c73202d6c642022245222202224522f7361666574792e736222202224522f627265772d666978747572652e7368220a7073202d61786f20636f6d6d3d207c2067726570202d452027285e7c2f292863657263616e6f7c63657263616e6f2d636c697c63657263616e6f2d6d6f64656c2d686f73742924272026262065786974203730207c7c20747275650a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+#!/bin/bash
+set -euo pipefail
+R=/opt/cercano-snapshot-recovery-20261115
+export R
+/usr/bin/python3 - <<'PY'
+import os,hashlib,pathlib
+r=pathlib.Path(os.environ['R']); b=r/'brew'
+checks={'brew/Cellar/cercano/0.25.2/bin/cercano':'effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e','brew/Cellar/cercano/0.25.2/bin/cercano-cli':'c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2','home/.config/cercano/config.yaml':'ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157','home/.cercano/conversation-marker':'9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3','home/.cercano/credential-marker':'e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902'}
+for p,want in checks.items():
+ actual=hashlib.sha256((r/p).read_bytes()).hexdigest(); assert actual==want,(p,actual); print(actual,p,'OK')
+for name in ('cercano','cercano-cli'):
+ p=b/'bin'/name; assert p.resolve()==b/'Cellar/cercano/0.25.2/bin'/name
+ assert p.lstat().st_uid==5501; assert p.resolve().stat().st_uid==5501
+ print(name,os.readlink(p),'owner UID5501 OK')
+assert sorted(p.name for p in (b/'Cellar').iterdir())==['cercano']
+assert sorted(p.name for p in (b/'Cellar/cercano').iterdir())==['0.25.2']
+assert '0.25.2' in (b/'Library/Taps/migration/homebrew-cercano/Formula/cercano.rb').read_text()
+assert not (b/'Library/Taps/migration/homebrew-cercano/Formula/cercano-cli.rb').exists()
+print('Restored historical tap and exclusive monolith Cellar OK')
+PY
+"$R/brew-fixture.sh" list --formula --versions
+for cmd in cercano cercano-cli; do
+ /usr/bin/sudo -u _cercanorehearsal /usr/bin/env -i HOME="$R/home" USER=_cercanorehearsal PATH=/usr/bin:/bin TMPDIR="$R/tmp" /usr/bin/sandbox-exec -f "$R/safety.sb" "$R/brew/bin/$cmd" --help
+ done
+ls -ld "$R" "$R/safety.sb" "$R/brew-fixture.sh"
+ps -axo comm= | grep -E '(^|/)(cercano|cercano-cli|cercano-model-host)$' && exit 70 || true
+
+stdout:
+effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e brew/Cellar/cercano/0.25.2/bin/cercano OK
+c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2 brew/Cellar/cercano/0.25.2/bin/cercano-cli OK
+ee4cd98070adf3eb294279793c7fa9415e3f1e7743939fd894de9b2326033157 home/.config/cercano/config.yaml OK
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3 home/.cercano/conversation-marker OK
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902 home/.cercano/credential-marker OK
+cercano ../Cellar/cercano/0.25.2/bin/cercano owner UID5501 OK
+cercano-cli ../Cellar/cercano/0.25.2/bin/cercano-cli owner UID5501 OK
+Restored historical tap and exclusive monolith Cellar OK
+cercano 0.25.2
+drwxr-xr-x  10 root  wheel  320 Nov 15 12:14 /opt/cercano-snapshot-recovery-20261115
+-r-xr-xr-x   1 root  wheel  738 Nov 15 12:14 /opt/cercano-snapshot-recovery-20261115/brew-fixture.sh
+-r--r--r--   1 root  wheel  397 Nov 15 12:14 /opt/cercano-snapshot-recovery-20261115/safety.sb
+
+stderr:
+Usage of /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano:
+  -grpc-addr string
+    	Address of an external gRPC server (MCP-only, no embedded server)
+  -mcp
+    	Run in MCP mode (embedded gRPC server + MCP on stdio)
+  -server cercano agent
+    	Force server mode (equivalent to cercano agent)
+  -stats
+    	Print usage statistics and exit
+  -version
+    	Print version and exit
+Usage of /opt/cercano-snapshot-recovery-20261115/brew/bin/cercano-cli:
+  -mdtest
+    	Launch the TUI with a markdown doc pre-loaded for render testing (optional file path as a positional arg; built-in sample if omitted)
+  -r	Open the conversation history picker on launch (alias for --resume)
+  -resume
+    	Open the conversation history picker on launch
+  -s	Open the setup wizard on launch (alias for --setup)
+  -setup
+    	Open the setup wizard on launch
+  -version
+    	Print version and exit
+
+
+## Record 208 — 2026-11-15T12:18:03.427540 — status 255
+['prlctl', 'exec', '08196962-608d-4fde-8284-49a5f020fea6', '/bin/bash', '-c', '"echo 736574202d65750a523d2f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131350a6c73202d6c64202f6f70742f63657263616e6f2a0a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a0a73686173756d202d6120323536202224522f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f222a202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a202224522f7361666574792e7362220a7073202d61786f207069642c757365722c636f6d6d207c2067726570202d4520272f63657263616e6f282d636c69293f2427207c7c20747275650a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu
+R=/opt/cercano-migration-unpriv-20261115
+ls -ld /opt/cercano*
+ls -l "$R/brew/bin/"cercano*
+shasum -a 256 "$R/brew/Cellar/cercano/0.25.2/bin/"* "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"* "$R/safety.sb"
+ps -axo pid,user,comm | grep -E '/cercano(-cli)?$' || true
+
+stdout:
+
+stderr:
+PrlJob_GetRetCode: Invalid argument. An invalid argument was passed.
+
+
+## Record 209 — 2026-11-15T12:18:04.202829 — status 255
+['prlctl', 'exec', '5df50e96-bb17-4248-aa6e-50ae559cd765', '/bin/bash', '-c', '"echo 6c73202d6c64202f6f70742f63657263616e6f2a3b20636174202f6f70742f63657263616e6f2d736e617073686f742d7265636f766572792d32303236313131352f7361666574792e73623b2073796e633b202f7362696e2f73687574646f776e202d68206e6f770a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+ls -ld /opt/cercano*; cat /opt/cercano-snapshot-recovery-20261115/safety.sb; sync; /sbin/shutdown -h now
+
+stdout:
+drwxr-xr-x  16 test  staff  512 Nov 15 00:13 /opt/cercano-migration-20261115
+drwxr-xr-x  14 root  wheel  448 Nov 15 00:53 /opt/cercano-migration-unpriv-20261115
+drwxr-xr-x  10 root  wheel  320 Nov 15 12:14 /opt/cercano-snapshot-recovery-20261115
+(version 1)
+(allow default)
+(deny network*)
+(deny signal)
+(deny file-read-data file-write* (subpath "/Users/test") (subpath "/Library/Keychains") (subpath "/opt/homebrew"))
+
+(allow network* (local unix-socket) (remote unix-socket))
+
+(deny file-read-data file-write* (subpath "/opt/cercano-migration-20261115"))
+
+(deny file-read-data file-write* (subpath "/opt/cercano-migration-unpriv-20261115"))
+Shutdown NOW!
+
+System shutdown time has arrived
+
+stderr:
+
+
+## Record 210 — 2026-11-15T12:18:16.409524 — status 0
+['prlctl', 'status', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+VM {5df50e96-bb17-4248-aa6e-50ae559cd765} exist stopped
+
+stderr:
+
+
+## Record 211 — 2026-11-15T12:18:16.602022 — status 0
+['prlctl', 'snapshot-list', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                        {2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+{2f6bace3-6acf-4fcf-8e39-359c1efe3af0}  {9b24ada1-0594-4f31-9418-c19197eb225a}
+{9b24ada1-0594-4f31-9418-c19197eb225a}  {f0b49e47-7145-43c3-b5ba-3b18bb564a0d}
+{9b24ada1-0594-4f31-9418-c19197eb225a} *{7c251a7a-8c29-4ff4-aab3-635ae38954e9}
+
+stderr:
+
+
+## Record 212 — 2026-11-15T12:19:02.646559 — status 0
+['prlctl', 'status', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+VM {08196962-608d-4fde-8284-49a5f020fea6} exist running
+
+stderr:
+
+
+## Record 213 — 2026-11-15T12:19:02.813213 — status 0
+['prlctl', 'snapshot-list', '08196962-608d-4fde-8284-49a5f020fea6']
+stdout:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                        {2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+{2f6bace3-6acf-4fcf-8e39-359c1efe3af0} *{9b24ada1-0594-4f31-9418-c19197eb225a}
+
+stderr:
+
+
+## Record 214 — 2026-11-15T12:19:02.976890 — status 0
+['prlctl', 'snapshot-list', '08196962-608d-4fde-8284-49a5f020fea6', '--id', '9b24ada1-0594-4f31-9418-c19197eb225a']
+stdout:
+ID: {9b24ada1-0594-4f31-9418-c19197eb225a}
+Name: cercano-historical-installed-20261115
+Date: 2026-11-15 00:54:25
+Current: yes
+State: poweron
+Description: Isolated UID5501 v0.25.2 real historical formula installed; no active agent; before manual split
+
+
+stderr:
+
+
+## Record 215 — 2026-11-15T12:19:03.927633 — status 0
+['prlctl', 'exec', '08196962-608d-4fde-8284-49a5f020fea6', '/bin/bash', '-c', '"echo 736574202d65750a523d2f6f70742f63657263616e6f2d6d6967726174696f6e2d756e707269762d32303236313131350a6c73202d6c64202f6f70742f63657263616e6f2a0a6c73202d6c202224522f627265772f62696e2f2263657263616e6f2a0a73686173756d202d6120323536202224522f627265772f43656c6c61722f63657263616e6f2f302e32352e322f62696e2f222a202224522f686f6d652f2e636f6e6669672f63657263616e6f2f636f6e6669672e79616d6c22202224522f686f6d652f2e63657263616e6f2f222a202224522f7361666574792e7362220a7073202d61786f207069642c757365722c636f6d6d207c2067726570202d4520272f63657263616e6f282d636c69293f2427207c7c20747275650a | /usr/bin/xxd -r -p | /bin/bash"']
+Decoded guest script:
+set -eu
+R=/opt/cercano-migration-unpriv-20261115
+ls -ld /opt/cercano*
+ls -l "$R/brew/bin/"cercano*
+shasum -a 256 "$R/brew/Cellar/cercano/0.25.2/bin/"* "$R/home/.config/cercano/config.yaml" "$R/home/.cercano/"* "$R/safety.sb"
+ps -axo pid,user,comm | grep -E '/cercano(-cli)?$' || true
+
+stdout:
+drwxr-xr-x  11 root  wheel  352 Nov 15 01:02 /opt/cercano-failure-20261115-conflict
+drwxr-xr-x  12 root  wheel  384 Nov 15 01:04 /opt/cercano-failure-20261115-lag
+drwxr-xr-x  13 root  wheel  416 Nov 15 01:04 /opt/cercano-failure-20261115-recovery
+drwxr-xr-x  16 test  staff  512 Nov 15 00:13 /opt/cercano-migration-20261115
+drwxr-xr-x  14 root  wheel  448 Nov 15 00:53 /opt/cercano-migration-unpriv-20261115
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  42 Nov 15 00:54 /opt/cercano-migration-unpriv-20261115/brew/bin/cercano -> ../Cellar/cercano-agent/0.27.0/bin/cercano
+lrwxr-xr-x  1 _cercanorehearsal  _cercanorehearsal  44 Nov 15 00:54 /opt/cercano-migration-unpriv-20261115/brew/bin/cercano-cli -> ../Cellar/cercano-cli/0.27.0/bin/cercano-cli
+effc0cb3c0ec4785b0f2244b872d75f0621249247ca067363c3d49b980c5b24e  /opt/cercano-migration-unpriv-20261115/brew/Cellar/cercano/0.25.2/bin/cercano
+c94534e942967207dacfa715ad534a3abddf75eb453d3ca75c501d71feee42d2  /opt/cercano-migration-unpriv-20261115/brew/Cellar/cercano/0.25.2/bin/cercano-cli
+41605ae5178735b19b7f16419bc6edb4ed89a1e495988a1040828c04709f9029  /opt/cercano-migration-unpriv-20261115/home/.config/cercano/config.yaml
+9a9ec9ed1854cc95148fbeb12db10a011503255f7b7408aac9e77826dbb703b3  /opt/cercano-migration-unpriv-20261115/home/.cercano/conversation-marker
+e583c11459158be2080b528872ea2a5595afd886c1e1509d6dd61d2d5bf3e902  /opt/cercano-migration-unpriv-20261115/home/.cercano/credential-marker
+5c7f8de194d70965d1299eaf6c2c9e900fe2e5c9c461bbc4056b843f7f916dd6  /opt/cercano-migration-unpriv-20261115/safety.sb
+
+stderr:
+
+
+## Record 216 — 2026-11-15T12:20:49.112325 — status 0
+['prlctl', 'list', '-a', '-j']
+stdout:
+[
+	{
+		"uuid": "5cd689b0-153c-47d4-943e-935aa7545684",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "Windows 11"
+	},
+	{
+		"uuid": "5df50e96-bb17-4248-aa6e-50ae559cd765",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "cercano-acceptance-rollback-20261115-1129"
+	},
+	{
+		"uuid": "08196962-608d-4fde-8284-49a5f020fea6",
+		"status": "running",
+		"ip_configured": "-",
+		"name": "cercano-disposable-migration-20261106-095610"
+	},
+	{
+		"uuid": "d5633dbc-c8a1-49fc-a420-df6d5d60d952",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-native-acceptance-20261103-203221"
+	},
+	{
+		"uuid": "8f18b5fd-37bf-476e-8b2b-a14ff7784a0b",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-windows-packaging-20261106-1117-full"
+	}
+]
+
+stderr:
+
+
+## Record 217 — 2026-11-15T12:20:49.311039 — status 0
+['prlctl', 'snapshot-list', '5df50e96-bb17-4248-aa6e-50ae559cd765']
+stdout:
+PARENT_SNAPSHOT_ID                      SNAPSHOT_ID
+                                        {2f6bace3-6acf-4fcf-8e39-359c1efe3af0}
+{2f6bace3-6acf-4fcf-8e39-359c1efe3af0}  {9b24ada1-0594-4f31-9418-c19197eb225a}
+{9b24ada1-0594-4f31-9418-c19197eb225a}  {f0b49e47-7145-43c3-b5ba-3b18bb564a0d}
+{9b24ada1-0594-4f31-9418-c19197eb225a} *{7c251a7a-8c29-4ff4-aab3-635ae38954e9}
+
+stderr:
+
+
+## Record 218 — 2026-11-15T12:20:49.497964 — status 0
+['prlctl', 'snapshot-list', '08196962-608d-4fde-8284-49a5f020fea6', '--id', '9b24ada1-0594-4f31-9418-c19197eb225a']
+stdout:
+ID: {9b24ada1-0594-4f31-9418-c19197eb225a}
+Name: cercano-historical-installed-20261115
+Date: 2026-11-15 00:54:25
+Current: yes
+State: poweron
+Description: Isolated UID5501 v0.25.2 real historical formula installed; no active agent; before manual split
+
+
+stderr:
+
+
+## Record 219 — 2026-11-15T12:23:44.042921 — status 0
+['prlctl', 'list', '-a', '-j']
+stdout:
+[
+	{
+		"uuid": "5cd689b0-153c-47d4-943e-935aa7545684",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "Windows 11"
+	},
+	{
+		"uuid": "5df50e96-bb17-4248-aa6e-50ae559cd765",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "cercano-acceptance-rollback-20261115-1129"
+	},
+	{
+		"uuid": "08196962-608d-4fde-8284-49a5f020fea6",
+		"status": "running",
+		"ip_configured": "-",
+		"name": "cercano-disposable-migration-20261106-095610"
+	},
+	{
+		"uuid": "d5633dbc-c8a1-49fc-a420-df6d5d60d952",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-native-acceptance-20261103-203221"
+	},
+	{
+		"uuid": "8f18b5fd-37bf-476e-8b2b-a14ff7784a0b",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-windows-packaging-20261106-1117-full"
+	}
+]
+
+stderr:
+
+
+## Record 220 — 2026-11-15T12:27:30.698405 — status 0
+['prlctl', 'list', '-a', '-j']
+stdout:
+[
+	{
+		"uuid": "5cd689b0-153c-47d4-943e-935aa7545684",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "Windows 11"
+	},
+	{
+		"uuid": "5df50e96-bb17-4248-aa6e-50ae559cd765",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "cercano-acceptance-rollback-20261115-1129"
+	},
+	{
+		"uuid": "08196962-608d-4fde-8284-49a5f020fea6",
+		"status": "running",
+		"ip_configured": "-",
+		"name": "cercano-disposable-migration-20261106-095610"
+	},
+	{
+		"uuid": "d5633dbc-c8a1-49fc-a420-df6d5d60d952",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-native-acceptance-20261103-203221"
+	},
+	{
+		"uuid": "8f18b5fd-37bf-476e-8b2b-a14ff7784a0b",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-windows-packaging-20261106-1117-full"
+	}
+]
+
+stderr:
+
+
+Record221 — final pre-checkpoint inventory
+argv: ['prlctl', 'list', '-a', '-j']
+status: 0
+stdout:
+[
+	{
+		"uuid": "5cd689b0-153c-47d4-943e-935aa7545684",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "Windows 11"
+	},
+	{
+		"uuid": "5df50e96-bb17-4248-aa6e-50ae559cd765",
+		"status": "stopped",
+		"ip_configured": "-",
+		"name": "cercano-acceptance-rollback-20261115-1129"
+	},
+	{
+		"uuid": "08196962-608d-4fde-8284-49a5f020fea6",
+		"status": "running",
+		"ip_configured": "-",
+		"name": "cercano-disposable-migration-20261106-095610"
+	},
+	{
+		"uuid": "d5633dbc-c8a1-49fc-a420-df6d5d60d952",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-native-acceptance-20261103-203221"
+	},
+	{
+		"uuid": "8f18b5fd-37bf-476e-8b2b-a14ff7784a0b",
+		"status": "suspended",
+		"ip_configured": "-",
+		"name": "cercano-windows-packaging-20261106-1117-full"
+	}
+]
+
+stderr:
+
