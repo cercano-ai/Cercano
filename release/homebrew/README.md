@@ -96,18 +96,26 @@ Keep the pinned read-only API tree/blob evidence alongside it. The before hashes
 and base SHA are review evidence, not authorization to apply a stale plan.
 Unrelated tap files are never changed. Ruby DSL tests remain a separate check.
 
-This deliberately stops **before tap mutation**. A future separately authorized
-publisher must stage the whole set in one commit and compare-and-swap the reviewed
-tap base, revalidating all inputs and dependencies. It must not revive sequential
-single-file Contents API writes or force updates. Even all-no-op plans do not
-prove published assets, native behavior or distribution trust. The isolated `coordinated_publish.py` core is disabled unconditionally in
-production, has no CLI/workflow integration, and does not authorize publication.
-Its self-contained fake-API tests exercise `expectedHeadOid`, stale advance/rewind
-and races, counterfeit legacy refusal and sanitized diagnostics. A real preparer
-plan over an inert monolith-shaped snapshot is refused even with the test-local
-gate enabled: preparation is not migration eligibility. The publisher accepts
-only absent or exact canonical split before sets; historical monolith migration,
-public asset/provenance integration and native acceptance remain unsupported.
+Preparation stops **before tap mutation**. The isolated `coordinated_publish.py`
+now has a bounded `--plan` CLI, but `PUBLICATION_ACCEPTED = False` still blocks it
+before opening the plan, reading credentials or making API reads. There is no CLI
+acceptance override or workflow integration; this does not authorize publication.
+Its fake-API tests exercise one coordinated three-file commit with
+`expectedHeadOid`, stale advance/rewind and races, counterfeit legacy refusal
+and sanitized diagnostics; sequential Contents API writes and force updates are
+not used.
+
+In addition to absent or exact canonical split before sets, the disabled publisher
+recognizes only the exact reviewed historical transition: base
+`caffd060597d6ca9706c9fa4db0c7c042722d7ef`, monolith formula SHA-256
+`50f68b11106b7ca865bd931a0e945fc454c4275283d9e93ade230c2f548be5be`
+(2239 bytes), both component formulas absent, destination `0.27.0`, archive SHA-256
+`18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0`.
+An arbitrary monolith-shaped preparation plan remains ineligible, even with the
+test-local gate enabled. Plans cannot broaden this exact transition. Public
+asset/provenance integration and release acceptance remain gates, not outcomes
+of these offline tests. Even all-no-op plans prove neither published assets,
+native behavior nor distribution trust.
 Historical candidate repro attribution is recorded in the
 [verification notes](promotion-preparation-verification.md#historical-candidate-evidence-attribution),
 not an external-checkout-dependent current test.
@@ -123,7 +131,13 @@ dispatch release workflows: the macOS workflow has other release actions outside
 this bounded guard. No publication, network release action, credentials, signing
 or release-tag change is authorized here.
 
-The one-time manual migration policy is approved; native evidence for it is not.
+The one-time manual migration policy is approved. Recorded native packaging
+evidence now covers the historical 0.25.2 to split 0.27.0 fixture transition,
+including a successful ordinary dependency-first upgrade (not an observed
+ordinary-upgrade conflict). See the [bounded case outcomes](../../efforts/homebrew-native-migration-20261115/FAILURE-CASES.md)
+for exact records, independent component operations, partial-set/repository-lag
+recovery, uninstall preservation and limitations. These are packaging/topology
+and sampled preservation evidence, not live continuity or runtime acceptance.
 Keep installed-user applicability, migration/failure recovery, human acceptance and
 final signing/notarization gates pending. See the [closeout handoff](../../efforts/macos-native-validation-closeout/human-acceptance.md).
 Its same-source synthetic native rehearsal is real bounded evidence, **not**
@@ -133,11 +147,13 @@ resources and models unchanged for all dependent sessions, including idle time
 and later launches/restarts. No broader external-runtime cleanup guarantee is
 claimed, and this preparation does not drop existing supported platforms.
 
-## Native fixture recipe — instructions only, not executed
+## Native fixture recipe — fresh-fixture instructions
 
 Use a **fresh disposable macOS arm64 machine with an isolated Homebrew prefix and
-HOME**, never the developer's host brew/agent/state. No VM activity is part of
-this slice. Prepare a local tap and local artifact; do not fetch production assets.
+HOME**, never the developer's host brew/agent/state. The recorded bounded
+rehearsals above are not permission to rerun their stateful fixtures. No VM
+activity is part of this documentation correction. Prepare a local tap and local
+artifact; do not fetch production assets.
 
 1. Render as above into a fresh directory. For install smoke testing, use binaries
    built locally for that disposable system. Keep the original archive/hash and
@@ -167,9 +183,10 @@ this slice. Prepare a local tap and local artifact; do not fetch production asse
    versions; dependency resolution is not activation evidence. Verify uninstall
    preserves fixture configuration/conversations/credentials.
 
-## Explicit one-time old-monolith migration — rehearsal instructions only
+## Explicit one-time old-monolith migration — manual rehearsal policy
 
-**Approved policy, not executed here and not yet a supported migration claim.**
+**Approved policy with bounded recorded packaging evidence, not yet a supported
+migration or live continuity claim.**
 No formula hook performs migration. Never automatically unlink, overwrite,
 remove a keg, kill a process, or mutate configuration/credentials. Do not use
 `brew link --overwrite`, `brew uninstall --force` or destructive cleanup.
@@ -219,17 +236,19 @@ with isolated Homebrew prefix/HOME/state, not commands to run on the host.
    `cercano-agent` exclusion in **every** supported upgrade/cleanup context;
    this is not uninstall protection or external-runtime retention.
 
-### Failure/recovery acceptance matrix — all pending native execution
+### Failure/recovery acceptance matrix — bounded evidence and remaining gates
 
 | Scenario | Required observation and operator recovery |
 | --- | --- |
-| Ordinary dependency-first upgrade without manual migration (separate snapshot) | Capture actual link-conflict/failure behavior. Never overwrite links to make this pass. Restore fixture snapshot before the approved path. |
+| Ordinary dependency-first upgrade without manual migration (separate snapshot) | Recorded ordinary upgrade succeeds and selects component links (records124/125); the former expected-conflict assertion was obsolete. Direct `brew link` against the still-linked monolith separately fails without overwrite (134). Capture actual behavior in any fresh authorized fixture; never overwrite links to force a result. |
 | Missing CLI artifact/dependency or failed install after unlink/agent install | Stop before convenience upgrade. Record partial kegs/links and unchanged markers. On this pre-convenience path only, explicitly `brew unlink fixture/cercano/cercano-agent` and/or `brew unlink fixture/cercano/cercano-cli` for components actually installed; then `brew link fixture/cercano/cercano` with no overwrite. Verify canonical old paths/hashes and old command smoke. If link fails, stop; restore the disposable snapshot, not arbitrary files. |
 | Failure during/after convenience upgrade | Capture state without cleanup. Restore the saved **disposable machine snapshot** (including tap, Cellar, links and isolated state); do not assume `brew link cercano` can select a saved old keg after the convenience replacement. Verify old ownership/hashes and synthetic state after restore. |
 | Successful migration then independent component/convenience A/B upgrades | Verify partial upgrade/repository-lag behavior, no double command owner, no automatic agent launch, and preserved state. Installed and session-serving versions are distinct evidence. |
 | Cleanup/idle/new-worker/reconnect and incompatible activation | Follow the closeout checklist with prepared/admitted state and unchanged external runtime paths. Retention diagnostics plus canonical hashes and fresh worker identities are required; exit code or one surviving process alone is insufficient. |
 
-Record each scenario as pending/pass/fail/blocked with versions, revisions,
+The linked case outcomes record bounded packaging passes; snapshot rollback and
+real A/B runtime/activation cases remain unrun. Record each further scenario as
+pending/pass/fail/blocked with versions, revisions,
 archive hashes, Homebrew/macOS versions, sanitized logs, before/after ownership,
 state markers and recovery outcome. Documentation and inert offline tests cannot
 mark this matrix passed. Final signed-package and real local inference tests
@@ -237,15 +256,16 @@ remain separately authorized release gates.
 
 ## Remaining acceptance gates
 
-* Installed-user applicability of the established historical monoliths and the
-  manual migration/failure-recovery matrix above; approval of policy is not
-  execution evidence.
-* Native package install/upgrade/uninstall, partial sets and repository lag for
-  the three-formula topology. Existing same-source synthetic rehearsal covers
-  only its recorded narrow journey, not these additional scenarios.
+* Installed-user applicability of the established historical monoliths, safe
+  post-convenience snapshot rollback and remaining migration/failure-recovery
+  acceptance. Bounded packaging passes do not close the whole matrix.
+* Broader native package/platform qualification beyond the recorded isolated
+  install/upgrade/uninstall, partial-set and repository-lag cases. The mixed
+  historical-byte agent fixture is not a genuine A/B split-release runtime test.
 * Real inference after idle/later work/restart under the accepted unchanged
   external-runtime boundary, human acceptance, and actual changed-source A/B
   compatibility. No bundled llama closure or external cleanup safety is supplied.
 * Final signed/notarized-package clean-Mac smoke and supported platform/trust
-  qualification. Then separately authorized coherent publication implementation
-  and review; the live/local promotion guards remain unconditional until then.
+  qualification. Then separately authorized public asset/provenance integration
+  and publication review; the live/local promotion guards remain unconditional
+  until acceptance.
