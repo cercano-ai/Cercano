@@ -1,0 +1,250 @@
+"""Offline fake-network tests. Always build inert archives, never skip for local bytes."""
+import copy
+import io
+import json
+import os
+import tempfile
+import unittest
+import zipfile
+from unittest.mock import patch
+
+import pinned_provenance as p
+import test_render_formula as fixtures
+
+
+def logs(upload=False):
+    lines = [p.SOURCE, '  ref: refs/tags/v0.27.0',
+             'Release source: refs/tags/v0.27.0 at ' + p.SOURCE,
+             'Workflow: cercano-ai/Cercano/.github/workflows/release-macos.yml@refs/heads/fix/macos-release-runner at ' + p.WORKFLOW]
+    if upload:
+        lines += ['SHA256 digest of uploaded artifact zip is ' + p.OUTER_SHA,
+                  'Artifact ' + p.NAME + '.zip successfully finalized. Artifact ID: ' + str(p.ARTIFACT),
+                  'Artifact ' + p.NAME + ' has been successfully uploaded! Final size is ' + str(p.OUTER_SIZE) + ' bytes. Artifact ID is ' + str(p.ARTIFACT),
+                  'Artifact download URL: https://github.com/' + p.REPO + '/actions/runs/' + str(p.RUN) + '/artifacts/' + str(p.ARTIFACT)]
+    return ''.join('2026-11-15T00:00:00.0000000Z ' + line + '\n' for line in lines).encode()
+
+
+def job(name, job_id, attempt):
+    steps = [{'name': n, 'status': 'completed', 'conclusion': 'success'}
+             for n in p.COMMON + p.EXTRA[name]]
+    if name == p.MAC:
+        steps += [{'name': n, 'status': 'completed', 'conclusion': 'skipped'} for n in p.SKIPPED]
+    return dict(name=name, id=job_id, run_id=p.RUN, run_attempt=attempt,
+                head_sha=p.WORKFLOW, status='completed', conclusion='success', steps=steps)
+
+
+class EvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        # Synthetic content changes only byte pins in this test, not repository,
+        # source, run, attempt, release, artifact or asset identity pins.
+        with patch.object(fixtures, 'VERSION', p.VERSION), patch.object(fixtures, 'TOP', p.NAME):
+            path, digest = fixtures.write_archive(self.tmp.name, name=p.ARCHIVE)
+        self.inner = path.read_bytes()
+        self.checksum = (digest + '  ' + p.ARCHIVE + '\n').encode()
+        self.entries = {p.ARCHIVE: self.inner, p.ARCHIVE + '.sha256': self.checksum,
+                        'cercano.rb': b'inert', 'cercano-agent.rb': b'inert', 'cercano-cli.rb': b'inert'}
+        self.outer = self.zip_bytes()
+        for key, value in dict(INNER_SHA=digest, INNER_SIZE=len(self.inner),
+                               OUTER_SHA=p.sha(self.outer), OUTER_SIZE=len(self.outer),
+                               WORKFLOW_DIGEST=p.sha(b'pinned workflow fixture')).items():
+            patcher = patch.object(p, key, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        release = dict(id=p.RELEASE, tag_name='v0.27.0', draft=False, prerelease=False,
+                       assets=[dict(id=p.ASSET, name=p.ARCHIVE, state='uploaded', size=p.INNER_SIZE,
+                                    digest='sha256:' + p.INNER_SHA, browser_download_url=p.PUBLIC + p.ARCHIVE)])
+        run = dict(id=p.RUN, run_attempt=2, head_sha=p.WORKFLOW, event='workflow_dispatch',
+                   path='.github/workflows/release-macos.yml', status='completed', conclusion='success',
+                   repository={'full_name': p.REPO}, head_repository={'full_name': p.REPO})
+        jobs = [job(n, i, 2) for n, i in p.JOBS.items()]
+        old_jobs = [job(p.LINUX, 132631632452, 1), job(p.WINDOWS, 132631632597, 1),
+                    dict(name=p.MAC)]
+        self.data = {
+            'releases/tags/v0.27.0': release, 'commits/v0.27.0': {'sha': p.SOURCE},
+            'actions/runs/' + str(p.RUN) + '/attempts/2': run,
+            'actions/runs/' + str(p.RUN) + '/attempts/2/jobs?per_page=100': {'total_count': 3, 'jobs': jobs},
+            'actions/runs/' + str(p.RUN) + '/attempts/1/jobs?per_page=100': {'total_count': 3, 'jobs': old_jobs},
+            'actions/artifacts/' + str(p.ARTIFACT): dict(id=p.ARTIFACT, name=p.NAME, expired=False,
+                size_in_bytes=p.OUTER_SIZE, digest='sha256:' + p.OUTER_SHA,
+                workflow_run={'id': p.RUN, 'head_sha': p.WORKFLOW}),
+        }
+        self.routes = {p.RAW: b'pinned workflow fixture',
+                       p.PUBLIC + p.ARCHIVE: self.inner,
+                       p.PUBLIC + p.ARCHIVE + '.sha256': self.checksum,
+                       p.BASE + 'actions/artifacts/' + str(p.ARTIFACT) + '/zip': self.outer}
+        for j in jobs + old_jobs[:2]:
+            self.routes[p.BASE + 'actions/jobs/' + str(j['id']) + '/logs'] = logs(j['name'] == p.MAC)
+        self.calls = []
+
+    def zip_bytes(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w') as archive:
+            for name, content in self.entries.items():
+                archive.writestr(name, content)
+        return buffer.getvalue()
+
+    def fetch(self, url, limit):
+        self.calls.append(url)
+        body = (json.dumps(self.data[url[len(p.BASE):]]).encode()
+                if url.startswith(p.BASE) and url[len(p.BASE):] in self.data else self.routes[url])
+        self.assertLessEqual(len(body), limit)
+        return body
+
+    def validate(self):
+        return p.validate(p.VERSION, p.INNER_SHA, fetch=self.fetch)
+
+    def test_complete_evidence_not_authority(self):
+        result = self.validate()
+        self.assertTrue(result['ci_evidence_validated'])
+        for field in ('publication_authorized', 'clean_mac_qualified', 'apple_ticket_independently_repeated'):
+            self.assertIs(result[field], False)
+        self.assertEqual(result['run_attempt'], 2)
+
+    def test_wrong_identity_status_and_attempt(self):
+        for path, fields in list(self.data.items()):
+            if not isinstance(fields, dict):
+                continue
+            for field in fields:
+                if field in ('assets', 'jobs', 'workflow_run'):
+                    continue
+                with self.subTest(path=path, field=field):
+                    original = copy.deepcopy(self.data)
+                    self.data[path][field] = None
+                    with self.assertRaises(p.Failure):
+                        self.validate()
+                    self.data = original
+        with self.assertRaises(p.Failure):
+            p.validate('0.27.1', p.INNER_SHA, fetch=self.fetch)
+        with self.assertRaises(p.Failure):
+            p.validate(p.VERSION, '0' * 64, fetch=self.fetch)
+
+    def test_wrong_jobs_missing_duplicate_failed_steps(self):
+        key = 'actions/runs/' + str(p.RUN) + '/attempts/2/jobs?per_page=100'
+        original = copy.deepcopy(self.data[key])
+        for field, value in [('id', 1), ('run_id', 1), ('run_attempt', 1),
+                             ('head_sha', p.SOURCE), ('status', 'queued'), ('conclusion', 'failure')]:
+            self.data[key]['jobs'][0][field] = value
+            with self.assertRaises(p.Failure):
+                self.validate()
+            self.data[key] = copy.deepcopy(original)
+        for name in p.COMMON + p.EXTRA[p.MAC] + p.SKIPPED:
+            for mode in ('missing', 'duplicate', 'wrong'):
+                self.data[key] = copy.deepcopy(original)
+                mac = next(j for j in self.data[key]['jobs'] if j['name'] == p.MAC)
+                step = next(s for s in mac['steps'] if s['name'] == name)
+                if mode == 'missing':
+                    mac['steps'].remove(step)
+                elif mode == 'duplicate':
+                    mac['steps'].append(copy.deepcopy(step))
+                else:
+                    step['conclusion'] = 'failure'
+                with self.subTest(step=name, mode=mode), self.assertRaises(p.Failure):
+                    self.validate()
+
+    def test_wrong_asset_and_reused_prerequisite_evidence(self):
+        release = self.data['releases/tags/v0.27.0']
+        original = copy.deepcopy(release['assets'])
+        for field in original[0]:
+            release['assets'][0][field] = None
+            with self.subTest(asset_field=field), self.assertRaises(p.Failure):
+                self.validate()
+            release['assets'] = copy.deepcopy(original)
+        key = 'actions/runs/' + str(p.RUN) + '/attempts/1/jobs?per_page=100'
+        previous = copy.deepcopy(self.data[key])
+        for field in ('id', 'run_id', 'run_attempt', 'head_sha', 'status', 'conclusion'):
+            self.data[key]['jobs'][0][field] = None
+            with self.subTest(previous_field=field), self.assertRaises(p.Failure):
+                self.validate()
+            self.data[key] = copy.deepcopy(previous)
+
+    def test_transport_is_bounded_and_credential_free(self):
+        class Response(io.BytesIO):
+            status = 200
+            headers = {}
+        opener = unittest.mock.Mock()
+        for headers, body in (({'Content-Length': '20'}, b'a'),
+                              ({'Content-Encoding': 'gzip'}, b'a'), ({}, b'12345')):
+            response = Response(body)
+            response.headers = headers
+            opener.open.return_value = response
+            with patch.object(p.urllib.request, 'build_opener', return_value=opener), \
+                 self.assertRaises(p.Failure):
+                p.download(p.PUBLIC + p.ARCHIVE, 4)
+        opener.open.return_value = Response(b'1234')
+        with patch.object(p.urllib.request, 'build_opener', return_value=opener), \
+             patch.dict(os.environ,
+                        {'GITHUB_TOKEN': 'DO-NOT-SEND', 'HTTPS_PROXY': 'https://bad.invalid'}):
+            self.assertEqual(p.download(p.PUBLIC + p.ARCHIVE, 4), b'1234')
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.get_method(), 'GET')
+        self.assertNotIn('Authorization', request.headers)
+        self.assertNotIn('Cookie', request.headers)
+        self.assertEqual(opener.open.call_args.kwargs['timeout'], 20)
+
+    def test_logs_are_exact_records_not_substrings(self):
+        url = p.BASE + 'actions/jobs/' + str(p.JOBS[p.MAC]) + '/logs'
+        original = self.routes[url]
+        for bad in (b'<html>sign in</html>', original.replace(p.SOURCE.encode(), b'bad'),
+                    original.replace(str(p.ARTIFACT).encode(), b'123'),
+                    original.replace(p.OUTER_SHA.encode(), b'0' * 64),
+                    original.replace(b'Release source:', b'echo Release source:'),
+                    original + original):
+            self.routes[url] = bad
+            with self.assertRaises(p.Failure):
+                self.validate()
+
+    def test_digest_workflow_public_and_expired_fail_closed(self):
+        for url in list(self.routes):
+            if '/logs' in url:
+                continue
+            original = self.routes[url]
+            self.routes[url] = original[:-1] + bytes([original[-1] ^ 1])
+            with self.subTest(url=url), self.assertRaises(p.Failure):
+                self.validate()
+            self.routes[url] = original
+        self.data['actions/artifacts/' + str(p.ARTIFACT)]['expired'] = True
+        with self.assertRaises(p.Failure):
+            self.validate()
+
+    def test_strict_zip_checksum_and_inventory(self):
+        for checksum in (b'', self.checksum + b'\n', self.checksum.replace(b'  ', b' '),
+                         self.checksum.replace(p.ARCHIVE.encode(), b'../archive'), b'0' * 64 + self.checksum[64:]):
+            self.entries[p.ARCHIVE + '.sha256'] = checksum
+            outer = self.zip_bytes()
+            with patch.object(p, 'OUTER_SHA', p.sha(outer)), patch.object(p, 'OUTER_SIZE', len(outer)):
+                with self.assertRaises(p.Failure):
+                    p.validate_bytes(outer, self.inner, self.checksum)
+        self.entries[p.ARCHIVE + '.sha256'] = self.checksum
+        self.entries['../escape'] = b'bad'
+        outer = self.zip_bytes()
+        with patch.object(p, 'OUTER_SHA', p.sha(outer)), patch.object(p, 'OUTER_SIZE', len(outer)):
+            with self.assertRaises(p.Failure):
+                p.validate_bytes(outer, self.inner, self.checksum)
+
+    def test_missing_private_or_expired_download_is_not_bypassed(self):
+        for missing in list(self.routes):
+            original = self.routes.pop(missing)
+            with self.assertRaises(p.Failure):
+                self.validate()
+            self.routes[missing] = original
+
+    def test_redirect_policy(self):
+        for url in ('http://release-assets.githubusercontent.com/a', 'https://evil.invalid/a',
+                    'https://github.com/login', 'https://user:pass@release-assets.githubusercontent.com/a',
+                    'https://release-assets.githubusercontent.com:444/a',
+                    'https://release-assets.githubusercontent.com/a#fragment'):
+            with self.subTest(url=url), self.assertRaises(p.Failure):
+                p.Redirects('github.com').redirect_request(None, None, 302, '', {}, url)
+        redirect = p.Redirects('github.com')
+        for unused in range(3):
+            request = redirect.redirect_request(None, None, 302, '', {},
+                                                'https://release-assets.githubusercontent.com/a?sig=redacted')
+            self.assertNotIn('Authorization', request.headers)
+        with self.assertRaises(p.Failure):
+            redirect.redirect_request(None, None, 302, '', {}, 'https://release-assets.githubusercontent.com/a')
+
+
+if __name__ == '__main__':
+    unittest.main()

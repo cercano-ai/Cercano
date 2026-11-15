@@ -104,6 +104,10 @@ class PublisherTests(unittest.TestCase):
         self.gate = patch.object(p, 'PUBLICATION_ACCEPTED', True)
         self.gate.start()
         self.addCleanup(self.gate.stop)
+        # Legacy state-machine tests isolate the separately tested network gate.
+        self.provenance = patch.object(p.pinned_provenance, 'validate', return_value={})
+        self.provenance_mock = self.provenance.start()
+        self.addCleanup(self.provenance.stop)
         self.fake = Fake()
         self.plan = plan_for()
 
@@ -115,6 +119,13 @@ class PublisherTests(unittest.TestCase):
         self.fake.contents = historical_before() if before is None else before
         self.plan = historical_plan(self.fake.contents, **kwargs)
         self.fake.head = self.plan['tap_base_sha']
+
+    def test_provenance_failure_precedes_any_tap_call(self):
+        self.provenance_mock.side_effect = RuntimeError(SECRET)
+        with self.assertRaisesRegex(p.Failure, '^Pinned release provenance unavailable; publication refused$'):
+            self.publish()
+        self.assertEqual(self.fake.calls, [])
+        self.provenance_mock.assert_called_once_with(self.plan['version'], self.plan['archive_sha256'])
 
     def test_exact_historical_transition_atomic_and_reconciled(self):
         before = historical_before()
@@ -439,6 +450,7 @@ class CLITests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(p, 'PUBLICATION_ACCEPTED', True), \
              patch.dict(p.os.environ, {'HOMEBREW_TAP_TOKEN': SECRET}), \
+             patch.object(p.pinned_provenance, 'validate', return_value={'publication_authorized': False}), \
              patch.object(p, 'publish', side_effect=lambda plan, token: original(plan, token, fake)):
             path = Path(tmp) / 'plan.json'
             path.write_text(json.dumps(historical_plan()))

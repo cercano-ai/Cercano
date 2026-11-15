@@ -14,6 +14,7 @@ import re
 import urllib.request
 
 import render_formula as renderer
+import pinned_provenance
 
 PUBLICATION_ACCEPTED = False
 PATHS = ('Formula/cercano.rb', 'Formula/cercano-agent.rb', 'Formula/cercano-cli.rb')
@@ -226,6 +227,12 @@ def publish(plan, token, api_fn=api):
 
 def _publish(plan, token, client):
     base, before, desired, marker = validate_plan(plan)
+    # Mandatory independent read-only evidence gate, including reconciliation.
+    # A plan and CI evidence are neither acceptance nor mutation authority.
+    try:
+        pinned_provenance.validate(plan['version'], plan['archive_sha256'])
+    except Exception:
+        raise Failure('Pinned release provenance unavailable; publication refused') from None
     require(type(token) is str and bool(token), 'Credential required')
     head, contents, parents, message = snapshot(client, token)
     if head != base:
