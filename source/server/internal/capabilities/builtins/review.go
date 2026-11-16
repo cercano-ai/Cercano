@@ -32,7 +32,7 @@ func (reviewCap) Schema() capabilities.Schema {
 		"properties": {
 			"claim":   {"type": "string", "description": "The claim to adversarially review."},
 			"context": {"type": "string", "description": "Optional background context the reviewer may need."},
-			"tools":   {"type": "array", "items": {"type": "string"}, "description": "Tool names to grant the reviewer (enables file inspection). Default: none (OneShot)."}
+			"tools":   {"type": "array", "items": {"type": "string"}, "description": "Tool names to grant the reviewer (enables file inspection), using the plain registered names (e.g. \"Read\", \"Glob\", \"Grep\", \"LS\"), with no host or MCP prefix. Unrecognized names are skipped; if none are recognized the call fails. Default: none (OneShot)."}
 		}
 	}`)
 }
