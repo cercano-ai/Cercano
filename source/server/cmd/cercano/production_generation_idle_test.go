@@ -26,16 +26,35 @@ type idleDisconnectedStream struct {
 func (s idleDisconnectedStream) Context() context.Context    { return s.ctx }
 func (idleDisconnectedStream) Send(*proto.ClientEvent) error { panic("unexpected event") }
 
-func checkStartupLastClientShutdown(t *testing.T, srv *server.Server, want bool) {
+// disconnectLastSubscriber attaches and immediately disconnects one
+// SubscribeEvents client, leaving the server with no subscribers.
+func disconnectLastSubscriber(t *testing.T, srv *server.Server) {
 	t.Helper()
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGTERM)
-	defer signal.Stop(signals)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := srv.SubscribeEvents(&proto.SubscribeEventsRequest{}, idleDisconnectedStream{ctx: ctx}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("disconnect: %v", err)
 	}
+}
+
+// checkLastClientShutdownRequested disconnects the last subscriber and waits
+// for the injected idle-shutdown hook (productionLifecycleDependencies.idleShutdown).
+func checkLastClientShutdownRequested(t *testing.T, srv *server.Server, requested <-chan struct{}) {
+	t.Helper()
+	disconnectLastSubscriber(t, srv)
+	select {
+	case <-requested:
+	case <-time.After(2500 * time.Millisecond):
+		t.Error("legacy singleton last-client shutdown was not requested")
+	}
+}
+
+func checkStartupLastClientShutdown(t *testing.T, srv *server.Server, want bool) {
+	t.Helper()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	disconnectLastSubscriber(t, srv)
 	select {
 	case <-signals:
 		if !want {

@@ -35,6 +35,9 @@ type productionLifecycleDependencies struct {
 	openStore            func(string) (conversation.Store, error)
 	listen               func(string, string) (net.Listener, error)
 	reap                 func() int
+	// idleShutdown replaces the last-client shutdown request for isolated
+	// lifecycle tests; nil requests real shutdown via srv.RequestSelfShutdown.
+	idleShutdown func()
 }
 
 func productionLifecycleDefaults() productionLifecycleDependencies {

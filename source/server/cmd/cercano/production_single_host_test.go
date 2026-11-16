@@ -195,7 +195,14 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 			if memoryOpens != 0 {
 				t.Fatal("disabled policy entered memory opener")
 			}
+			idleRequested := make(chan struct{}, 1)
 			deps := productionLifecycleDependencies{
+				idleShutdown: func() {
+					select {
+					case idleRequested <- struct{}{}:
+					default:
+					}
+				},
 				runtimeHTTPClient: &http.Client{Transport: startupTransportTrap{}},
 				afterWiring: func(srv *server.Server) {
 					wired++
@@ -299,7 +306,7 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				}
 				defer cleanup.Shutdown()
 				if scenario.idle {
-					checkStartupLastClientShutdown(t, startupServer, true)
+					checkLastClientShutdownRequested(t, startupServer, idleRequested)
 				}
 				if addr != "bufconn" {
 					t.Fatal(addr)

@@ -24,7 +24,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -2399,8 +2398,8 @@ func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfig
 // shutdown so the requesting client can receive the acknowledgement and let its
 // reconnect loop/auto-launch path bring up a fresh agent.
 //
-// The bounce is driven by a self-SIGTERM, not a bare BeginShutdown(): only the
-// SIGTERM path runs the full cleanup() cascade (DrainThenStop → mcpMgr.Stop →
+// Without a shutdown control, the bounce is driven by RequestSelfShutdown (a
+// self-SIGTERM), not a bare BeginShutdown(): only the signal path runs the full cleanup() cascade (DrainThenStop → mcpMgr.Stop →
 // srv.Shutdown → stopRuntimeInstances), which drains in-flight turns AND stops
 // every llama-server child before the process exits. Calling BeginShutdown()
 // alone would only close the event streams — kicking clients off while the
@@ -2423,18 +2422,17 @@ func (s *Server) ShutdownAgent(ctx context.Context, req *proto.ShutdownAgentRequ
 }
 
 // scheduleSelfShutdown ends the standing event streams (so attached clients see
-// the disconnect and begin reconnecting immediately) and then sends the process
-// SIGTERM after a short delay. The delay lets the accepting RPC's response flush
-// to the caller before the listener closes. SIGTERM routes through the main
-// signal handler's cleanup(), the only path that drains turns and stops runtime
+// the disconnect and begin reconnecting immediately) and then requests process
+// shutdown after a short delay. The delay lets the accepting RPC's response
+// flush to the caller before the listener closes. RequestSelfShutdown routes
+// through the shutdown control's cleanup (or, without one, a self-SIGTERM to
+// the main signal handler), the path that drains turns and stops runtime
 // children. Shared by ShutdownAgent and the restart_agent capability.
 func (s *Server) scheduleSelfShutdown() {
 	go func() {
 		time.Sleep(150 * time.Millisecond)
 		s.BeginShutdown()
-		if p, err := os.FindProcess(os.Getpid()); err == nil {
-			_ = p.Signal(syscall.SIGTERM)
-		}
+		s.RequestSelfShutdown()
 	}()
 }
 

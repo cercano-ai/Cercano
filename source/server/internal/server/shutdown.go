@@ -16,6 +16,9 @@ package server
 
 import (
 	"cercano/source/server/pkg/proto"
+	"log"
+	"os"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -125,6 +128,25 @@ func (s *Server) FenceBackgroundWork() {
 // SetShutdownControl is configured before serving; authentication remains in interceptors.
 func (s *Server) SetShutdownControl(control func(bool) *proto.ShutdownAgentResponse) {
 	s.shutdownControl = control
+}
+
+// RequestSelfShutdown asks this process to shut down. When a shutdown control
+// is configured it uses that, the same path as the ShutdownAgent RPC; it needs
+// no OS signal, so it works on Windows, where os.Process.Signal supports only
+// Kill and a self-SIGTERM fails with EWINDOWS. Without a control it falls back
+// to a self-SIGTERM, and logs if that fails.
+func (s *Server) RequestSelfShutdown() {
+	if s.shutdownControl != nil {
+		s.shutdownControl(false)
+		return
+	}
+	p, err := os.FindProcess(os.Getpid())
+	if err == nil {
+		err = p.Signal(syscall.SIGTERM)
+	}
+	if err != nil {
+		log.Printf("self-shutdown failed: %v", err)
+	}
 }
 
 // JoinBackgroundWork retains the join independently of any requesting RPC.
