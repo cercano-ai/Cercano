@@ -1,0 +1,19 @@
+Package: cercano-agent
+Version: @VERSION@
+Architecture: amd64
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Section: devel
+Priority: optional
+Homepage: https://github.com/cercano-ai/Cercano
+Description: Cercano agent, which runs models and tools for Cercano clients
+ Cercano is a free and open agent and harness: use frontier providers through
+ a subscription sign-in or API key, run open-weight models, or combine them,
+ with routing, delegation and context management built in.
+ .
+ This package installs the agent and its `cercano` command. Install
+ cercano-cli (or the cercano package for both) to use it from a terminal.
+ .
+ Experimental and unsigned. A local model runtime is not bundled. Credential
+ storage needs a Secret Service or KWallet keyring, which headless systems
+ often lack.

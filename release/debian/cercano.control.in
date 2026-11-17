@@ -1,0 +1,18 @@
+Package: cercano
+Version: @VERSION@
+Architecture: all
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Depends: cercano-agent (>= @VERSION@), cercano-cli (>= @VERSION@)
+Section: devel
+Priority: optional
+Homepage: https://github.com/cercano-ai/Cercano
+Description: agent and terminal client for Cercano, installs both
+ Cercano is a free and open agent and harness: use frontier providers through
+ a subscription sign-in or API key, run open-weight models, or combine them,
+ with routing, delegation and context management built in.
+ .
+ This convenience package installs cercano-agent and cercano-cli. It owns no
+ commands itself.
+ .
+ Experimental and unsigned.
