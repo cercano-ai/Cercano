@@ -114,7 +114,7 @@ const features = [
 
 export default function Home() {
   const [theme, setTheme] = useState<"day" | "night">("day");
-  const [copied, setCopied] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState<"homebrew" | "chocolatey" | null>(null);
 
   useEffect(() => {
     const active = document.documentElement.dataset.theme === "night" ? "night" : "day";
@@ -128,10 +128,10 @@ export default function Home() {
     setTheme(next);
   };
 
-  const copyInstallCommand = async () => {
-    await navigator.clipboard.writeText("brew install cercano-ai/cercano/cercano");
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+  const copyInstallCommand = async (command: string, installer: "homebrew" | "chocolatey") => {
+    await navigator.clipboard.writeText(command);
+    setCopiedCommand(installer);
+    window.setTimeout(() => setCopiedCommand(null), 1800);
   };
 
   return (
@@ -226,32 +226,66 @@ export default function Home() {
 
         <section className="install" id="install" aria-labelledby="install-title">
           <div className="install-copy">
-            <p className="section-label">Install Cercano</p>
-            <h2 id="install-title">Install in one line.</h2>
-            <p>Homebrew split packages are published for macOS. Chocolatey v0.27.0 packages were submitted for Windows; approval and availability are not confirmed. Linux apt packaging is still planned.</p>
+            <div>
+              <p className="section-label">Install Cercano</p>
+              <h2 id="install-title">Install in one line.</h2>
+            </div>
+            <p>Install Cercano with Homebrew on macOS or Chocolatey on Windows. Debian and Ubuntu packages are next.</p>
           </div>
 
           <div className="install-panel" aria-label="Cercano installation options">
-            <div className="installer-heading">
-              <span>Homebrew</span>
-              <span className="availability">Available now</span>
+            <div className="installer-grid">
+              <article className="installer-option">
+                <div className="installer-heading">
+                  <span>Homebrew</span>
+                  <span className="availability">Available</span>
+                </div>
+                <p className="installer-platform">macOS</p>
+                <div className="install-command">
+                  <code><span>$</span> brew install cercano-ai/cercano/cercano</code>
+                  <button
+                    type="button"
+                    onClick={() => copyInstallCommand("brew install cercano-ai/cercano/cercano", "homebrew")}
+                    aria-label="Copy Homebrew install command"
+                  >
+                    {copiedCommand === "homebrew" ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </article>
+
+              <article className="installer-option">
+                <div className="installer-heading">
+                  <span>Chocolatey</span>
+                  <span className="availability">Available</span>
+                </div>
+                <p className="installer-platform">Windows</p>
+                <div className="install-command">
+                  <code><span>&gt;</span> choco install cercano -y</code>
+                  <button
+                    type="button"
+                    onClick={() => copyInstallCommand("choco install cercano -y", "chocolatey")}
+                    aria-label="Copy Chocolatey install command"
+                  >
+                    {copiedCommand === "chocolatey" ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </article>
+
+              <article className="installer-option installer-option--pending">
+                <div className="installer-heading">
+                  <span>apt</span>
+                  <span className="availability availability--pending">Coming soon</span>
+                </div>
+                <p className="installer-platform">Debian + Ubuntu</p>
+                <div className="install-pending">Package publishing in progress</div>
+              </article>
             </div>
-            <div className="install-command">
-              <code><span>$</span> brew install cercano-ai/cercano/cercano</code>
-              <button type="button" onClick={copyInstallCommand} aria-label="Copy Homebrew install command">
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
+
             <p className="after-install">Then run <code>cercano-cli</code>. Configure providers, local models, routing, and permissions from inside the TUI.</p>
 
-            <div className="package-roadmap" aria-label="Package manager status">
-              <div><span>apt</span><small>Linux · coming soon</small></div>
-              <div><span>Chocolatey</span><small>Windows · moderation pending</small></div>
-            </div>
-
             <div className="install-links">
-              <a href={`${projectUrl}/blob/main/docs/installation-macos.md`}>macOS install and migration precautions</a>
-              <a href={`${projectUrl}/blob/main/docs/installation-windows.md`}>Windows install (experimental, unsigned)</a>
+              <a href={`${projectUrl}/blob/main/docs/installation-macos.md`}>macOS installation guide</a>
+              <a href={`${projectUrl}/blob/main/docs/installation-windows.md`}>Windows installation guide</a>
               <a href={`${projectUrl}/releases`}>Releases</a>
               <a href={`${projectUrl}/blob/main/docs/agent/self-dev.md`}>Build from source</a>
             </div>

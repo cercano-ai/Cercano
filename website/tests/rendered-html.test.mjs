@@ -33,8 +33,9 @@ test("renders the Cercano landing page", async () => {
   assert.match(html, /Install in one line/);
   assert.match(html, /brew install cercano-ai\/cercano\/cercano/);
   assert.match(html, /Homebrew/);
-  assert.match(html, /Linux · coming soon/);
-  assert.match(html, /Windows · moderation pending/);
+  assert.match(html, /Debian \+ Ubuntu/);
+  assert.match(html, /choco install cercano -y/);
+  assert.match(html, /Package publishing in progress/);
   assert.match(html, /href="https:\/\/github\.com\/cercano-ai\/Cercano"[^>]*>Cercano - 100% Free \+ Open<\/a>/);
   assert.match(html, /Switch to (daylight|night) theme/);
   assert.doesNotMatch(html, /codex-preview|Building your site|react-loading-skeleton/);
@@ -55,20 +56,22 @@ test("keeps the TUI palettes and persistent theme behavior", async () => {
   assert.match(page, /className="brand-mark"[^>]*assetUrl\("\/icon\.svg"\)/);
   assert.match(css, /feature-story--visual:nth-child\(odd\)[^{]*\{[^}]*1\.34fr[^}]*\.66fr/s);
   assert.match(page, /localStorage\.setItem\("cercano-theme"/);
-  assert.match(page, /navigator\.clipboard\.writeText\("brew install cercano-ai\/cercano\/cercano"\)/);
+  assert.match(page, /navigator\.clipboard\.writeText\(command\)/);
+  assert.match(page, /copyInstallCommand\("brew install cercano-ai\/cercano\/cercano", "homebrew"\)/);
+  assert.match(page, /copyInstallCommand\("choco install cercano -y", "chocolatey"\)/);
   assert.match(layout, /prefers-color-scheme:\s*dark/);
   assert.match(layout, /fonts\.googleapis\.com\/css2\?family=IBM\+Plex\+Mono:wght@400;500;600/);
 });
 
-test("keeps package availability qualified and links platform precautions", async () => {
+test("shows current package availability and links platform guides", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /Chocolatey v0\.27\.0 packages were submitted/);
-  assert.match(page, /approval and availability are not confirmed/);
-  assert.match(page, /Windows · moderation pending/);
+  assert.match(page, /choco install cercano -y/);
+  assert.match(page, /Chocolatey[\s\S]*Available/);
+  assert.match(page, /apt[\s\S]*Coming soon/);
+  assert.doesNotMatch(page, /moderation pending|availability are not confirmed/i);
   assert.match(page, /docs\/installation-macos\.md/);
   assert.match(page, /docs\/installation-windows\.md/);
-  assert.match(page, /Windows install \(experimental, unsigned\)/);
-  assert.doesNotMatch(page, /Windows · coming soon/);
+  assert.match(page, /Windows installation guide/);
 });
 
 test("ships all four README demonstrations and their poster frames", async () => {
