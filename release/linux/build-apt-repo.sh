@@ -30,7 +30,13 @@ key=$3
 # subkey, the isolation wrapper supplies a private passphrase file.
 gpg_args=(--batch --yes --no-tty --pinentry-mode error)
 if [ -n "${CERCANO_GPG_PASSPHRASE_FILE:-}" ]; then
-  gpg_args=(--batch --yes --no-tty --pinentry-mode loopback --passphrase-file "$CERCANO_GPG_PASSPHRASE_FILE")
+  passphrase_file=$CERCANO_GPG_PASSPHRASE_FILE
+  [ -f "$passphrase_file" ] && [ -r "$passphrase_file" ] || {
+    echo "error: passphrase file must be a readable regular file" >&2; exit 2;
+  }
+  # Anchor relative paths to the caller's directory, not the output site.
+  passphrase_file=$(cd "$(dirname "$passphrase_file")" && pwd)/$(basename "$passphrase_file")
+  gpg_args=(--batch --yes --no-tty --pinentry-mode loopback --passphrase-file "$passphrase_file")
 fi
 shopt -s nullglob
 inputs=("$debs"/*.deb)

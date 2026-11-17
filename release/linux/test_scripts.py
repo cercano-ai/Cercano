@@ -88,6 +88,60 @@ class PackagingBoundaryTests(unittest.TestCase):
 
 
 class SigningIsolationTests(unittest.TestCase):
+    def test_relative_protected_passphrase_survives_site_chdir(self):
+        # Inert fixtures only: exercise the public isolation-wrapper interface.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tools = root / 'bin'
+            tools.mkdir()
+            for name, body in {
+                'gpg': """printf '%s' "$GNUPGHOME" > "$HOME_RECORD"
+case "$*" in
+  *--list-secret-keys*) printf 'sec::::::::::::::#:\n' ;;
+esac
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --passphrase-file ]; then
+    shift
+    printf '%s\n' "$1" >> "$PATH_RECORD"
+    [ -f "$1" ] && [ -r "$1" ] || exit 43
+  fi
+  shift
+done
+""",
+                'gpgconf': 'exit 0',
+                'stat': 'echo 700',  # GNU stat interface, including on macOS.
+                'dpkg-deb': 'echo cercano-agent',
+                'apt-ftparchive': "echo 'Package: cercano-agent'",
+            }.items():
+                tool = tools / name
+                tool.write_text('#!/bin/bash\n' + body + '\n')
+                tool.chmod(0o755)
+            (root / 'debs').mkdir()
+            (root / 'debs/test.deb').write_bytes(b'inert package')
+            (root / 'protected file').write_text('NOT A SECRET: inert fixture\n')
+            (root / 'protected file').chmod(0o600)
+            env = dict(os.environ, PATH=str(tools) + ':' + os.environ['PATH'],
+                       HOME_RECORD=str(root / 'home'), PATH_RECORD=str(root / 'paths'),
+                       CERCANO_GPG_PASSPHRASE_FILE='protected file')
+            result = subprocess.run(['bash', str(HERE / 'sign-apt-repo.sh'),
+                                     'site', 'debs', 'inert-subkey', 'A' * 40],
+                                    cwd=root, env=env, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / 'paths').read_text().splitlines(),
+                             [str((root / 'protected file').resolve())] * 2)
+            self.assertFalse(Path((root / 'home').read_text()).exists())
+            for invalid in ('missing-file', 'debs'):
+                with self.subTest(invalid=invalid):
+                    env['CERCANO_GPG_PASSPHRASE_FILE'] = invalid
+                    result = subprocess.run(
+                        ['bash', str(HERE / 'sign-apt-repo.sh'),
+                         'invalid-site', 'debs', 'inert-subkey', 'A' * 40],
+                        cwd=root, env=env, capture_output=True)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn(b'readable regular file', result.stderr)
+                    self.assertFalse((root / 'invalid-site').exists())
+                    self.assertFalse(Path((root / 'home').read_text()).exists())
+
     def test_import_failure_and_primary_rejection_clean_up(self):
         for mode, expected in (("import-fail", 31), ("primary", 2)):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
@@ -117,6 +171,32 @@ esac
                 self.assertNotEqual(home, root / 'must-not-use')
                 self.assertFalse(home.exists(), "temporary signing home leaked")
                 self.assertFalse((root / 'site').exists())
+
+
+class AptTamperTests(unittest.TestCase):
+    def test_rehearsal_mutates_signed_body_and_preserves_armor(self):
+        script = (HERE / 'tests/rehearse-apt.sh').read_text()
+        mutation = script.split('# BEGIN signed-body mutation', 1)[1].split('\n', 1)[1]
+        mutation = mutation.split('# END signed-body mutation', 1)[0]
+        self.assertIn("if apt_update; then echo 'ERROR: accepted tampered signature'", script)
+        header = '-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA256\n\n'
+        armor = '-----BEGIN PGP SIGNATURE-----\n\nOrigin: Cercano\ninert fixture\n-----END PGP SIGNATURE-----\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'site/dists/stable/InRelease'
+            target.parent.mkdir(parents=True)
+            for origin, expected in (('Cercano', 0), ('Other', 1)):
+                with self.subTest(origin=origin):
+                    original = header + f'Origin: {origin}\nSuite: stable\n' + armor
+                    target.write_text(original)
+                    result = subprocess.run(['bash', '-eu', '-c', mutation],
+                                            env=dict(os.environ, tmp=tmp), capture_output=True)
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    if expected:
+                        self.assertEqual(target.read_text(), original)
+                    else:
+                        changed = target.read_text()
+                        self.assertNotEqual(changed, original)
+                        self.assertEqual(changed, header + 'Origin: Tampered\nSuite: stable\n' + armor)
 
 
 class WorkflowBoundaryTests(unittest.TestCase):

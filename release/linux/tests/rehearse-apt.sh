@@ -60,8 +60,22 @@ if (cd "$tmp/downloads" && apt_run download cercano-agent); then
   echo 'ERROR: accepted tampered package' >&2; exit 1
 fi
 rm -rf "$tmp/site"; cp -a "$tmp/good" "$tmp/site"
-# The signed metadata must fail after modification.
-printf '\ntamper\n' >> "$tmp/site/dists/stable/InRelease"
+# The signed metadata must fail after modification, not merely trailing junk.
+# BEGIN signed-body mutation (also exercised by the host structural test).
+inrelease="$tmp/site/dists/stable/InRelease"
+awk '
+  /^-----BEGIN PGP SIGNED MESSAGE-----$/ { signed_message=1 }
+  signed_message && /^$/ && !body && !signature { body=1 }
+  /^-----BEGIN PGP SIGNATURE-----$/ { body=0; signature=1 }
+  body && /^Origin: Cercano$/ { $0="Origin: Tampered"; changed++ }
+  { print }
+  END { if (changed != 1 || !signature) exit 1 }
+' "$inrelease" > "$tmp/tampered-InRelease"
+if cmp -s "$inrelease" "$tmp/tampered-InRelease"; then
+  echo 'ERROR: signed Release body was not mutated' >&2; exit 1
+fi
+mv "$tmp/tampered-InRelease" "$inrelease"
+# END signed-body mutation
 if apt_update; then echo 'ERROR: accepted tampered signature' >&2; exit 1; fi
 cp "$tmp/good/dists/stable/InRelease" "$tmp/site/dists/stable/InRelease"
 # Change every index variant; avoid cached lists and force verification.
