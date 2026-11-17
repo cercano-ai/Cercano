@@ -1,31 +1,30 @@
 #!/usr/bin/env python3
-"""Render the non-publishing three-package Debian set from a verified linux-x64 tarball.
+"""Render the non-publishing three-package Linux set (deb, rpm, apk, archlinux) from a verified linux-x64 tarball.
 
 Output (a new directory; nothing outside it is touched):
 
-  <output>/cercano-agent/DEBIAN/control
-  <output>/cercano-agent/usr/bin/cercano
-  <output>/cercano-agent/usr/share/doc/cercano-agent/{copyright, changelog.gz}
-  <output>/cercano-agent/usr/share/lintian/overrides/cercano-agent
-  <output>/cercano-cli/...   same, with usr/bin/cercano-cli
-  <output>/cercano/...       dependencies only: control, docs, overrides
+  <output>/cercano-agent.yaml   nfpm config
+  <output>/cercano-agent/       its payload: cercano, copyright, changelog.gz,
+                                lintian-overrides, LICENSE
+  <output>/cercano-cli.yaml     same, for cercano-cli
+  <output>/cercano.yaml         dependencies only, no command
+  <output>/cercano/             copyright, changelog.gz, lintian-overrides, LICENSE
 
 Each component installs only its own executable: cercano-agent owns
 `cercano`, cercano-cli owns `cercano-cli`, and `cercano` owns no command.
-Build each tree with `dpkg-deb --root-owner-group --build <tree>`.
+Build each package with `nfpm package -f <output>/<pkg>.yaml -p <format>`.
 
 Trust boundary: checks the archive's SHA-256 against an independently trusted
 value before parsing it, the exact release layout, the runtime inventory, and
 an x86-64 ELF64 header on both executables. It does NOT verify signatures
 (there are none) or the version the binaries report. It never downloads,
-installs, builds .deb files, executes archive contents or publishes.
-
-Render on a Linux filesystem: file modes are part of the package.
+installs, builds packages, executes archive contents or publishes.
 """
 
 import argparse
 import gzip
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -33,6 +32,7 @@ import struct
 import sys
 import tarfile
 import tempfile
+import textwrap
 import time
 from pathlib import Path
 
@@ -41,17 +41,47 @@ import runtime_inventory
 
 HERE = Path(__file__).resolve().parent
 PLATFORM = "linux-x64"
+ARCH = "amd64"  # nfpm's name; it maps this to x86_64 for rpm, apk and archlinux
 VERSION_PATTERN = re.compile(r"\A(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 SHA256_PATTERN = re.compile(r"\A[0-9a-fA-F]{64}\Z")
-MAINTAINER_PATTERN = re.compile(r"\A[^<>\n]+ <[^<>@\s]+@[^<>@\s]+>\Z")
+MAINTAINER_PATTERN = re.compile(r"\A[^<>\n\"\\]+ <[^<>@\s\"\\]+@[^<>@\s\"\\]+>\Z")
 PLACEHOLDER = re.compile(r"@[A-Z0-9_]+@")
+HOMEPAGE = "https://github.com/cercano-ai/Cercano"
+FORMATS = ("deb", "rpm", "apk", "archlinux")
+NON_DEB = ("rpm", "apk", "archlinux")
 
-# Package name -> the one archive executable it owns, installed to /usr/bin.
+ABOUT = ("Cercano is a free and open agent and harness: use frontier providers through "
+         "a subscription sign-in or API key, run open-weight models, or combine them, "
+         "with routing, delegation and context management built in.")
+
+# Package name -> (archive executable it owns, summary, description paragraphs).
 COMPONENTS = {
-    "cercano-agent": "cercano",
-    "cercano-cli": "cercano-cli",
+    "cercano-agent": ("cercano", "Cercano agent, which runs models and tools for Cercano clients", [
+        ABOUT,
+        "This package installs the agent and its `cercano` command. Install "
+        "cercano-cli (or the cercano package for both) to use it from a terminal.",
+        "Experimental and unsigned. A local model runtime is not bundled. Credential "
+        "storage needs a Secret Service or KWallet keyring, which headless systems "
+        "often lack.",
+    ]),
+    "cercano-cli": ("cercano-cli", "Cercano terminal client", [
+        ABOUT,
+        "This package installs the terminal client, `cercano-cli`. It needs an agent: "
+        "install cercano-agent (or the cercano package for both), or point it at a "
+        "remote agent with --address.",
+        "Experimental and unsigned.",
+    ]),
 }
 CONVENIENCE = "cercano"
+CONVENIENCE_SUMMARY = "agent and terminal client for Cercano, installs both"
+CONVENIENCE_DESCRIPTION = [
+    ABOUT,
+    "This convenience package installs cercano-agent and cercano-cli. It owns no "
+    "commands itself.",
+    "Experimental and unsigned.",
+]
+# Versioned dependency syntax per format, for the convenience package.
+DEPENDS_SYNTAX = {"deb": "{} (>= {})", "rpm": "{} >= {}", "apk": "{}>={}", "archlinux": "{}>={}"}
 # The builder's own layout, so a payload change cannot drift from this check.
 ARCHIVE_FILES = tuple(runtime_inventory.payload_modes(PLATFORM)) + (runtime_inventory.NAME,)
 
@@ -135,7 +165,7 @@ def read_archive(path, version):
         runtime_inventory.validate_archive(path, top, version, PLATFORM)
     except ValueError as error:
         raise ValidationError(str(error)) from error
-    for exe in COMPONENTS.values():
+    for exe, _, _ in COMPONENTS.values():
         require_x64_elf(exe, files[f"bin/{exe}"])
     return files
 
@@ -158,47 +188,91 @@ def write(path, data, mode):
     path.chmod(mode)
 
 
-def installed_size_kib(root):
-    """Debian's Installed-Size: payload bytes (DEBIAN/ excluded), in KiB, rounded up."""
-    total = 0
-    for path in root.rglob("*"):
-        if path.is_file() and "DEBIAN" not in path.relative_to(root).parts:
-            total += path.stat().st_size
-    return str(max(1, -(-total // 1024)))
-
-
-def write_control(root, template_name, values):
-    control = render(template_name, dict(values, INSTALLED_SIZE=installed_size_kib(root)))
-    write(root / "DEBIAN" / "control", control, 0o644)
-
-
 def changelog_gz(package, values):
     text = render("changelog.in", dict(values, PACKAGE=package)).encode("utf-8")
     # mtime=0 and no file name: the same inputs give the same bytes.
     return gzip.compress(text, compresslevel=9, mtime=0)
 
 
-def write_docs(tree, package, values, overrides):
-    doc = tree / "usr" / "share" / "doc" / package
-    write(doc / "copyright", render("copyright.in", values), 0o644)
-    write(doc / "changelog.gz", changelog_gz(package, values), 0o644)
-    if overrides:
-        # Accepted on purpose, see README.md ("lintian").
-        lines = "".join(f"{package}: {tag}\n" for tag in overrides)
-        write(tree / "usr" / "share" / "lintian" / "overrides" / package, lines, 0o644)
+def q(value):
+    """A YAML double-quoted scalar (JSON string syntax is valid YAML)."""
+    return json.dumps(value)
 
 
-def stage(root, version, maintainer, date, files):
+def description(summary, paragraphs):
+    """Summary line, then paragraphs wrapped to lintian's 80 columns, blank-line separated."""
+    return summary + "\n" + "\n\n".join(textwrap.fill(p, 79) for p in paragraphs)
+
+
+def nfpm_config(package, arch, version, maintainer, summary, paragraphs, payload, entries, depends):
+    """nfpm config text. `entries` are (staged name, destination, mode, packagers or None for all)."""
+    lines = [
+        f"name: {package}",
+        f"arch: {arch}",
+        "platform: linux",
+        f"version: {q(version)}",
+        # Exactly X.Y.Z: no semver parsing and no release suffix, so the deb
+        # stays a native version.
+        "version_schema: none",
+        f"maintainer: {q(maintainer)}",
+        f"description: {q(description(summary, paragraphs))}",
+        "vendor: Cercano",
+        f"homepage: {q(HOMEPAGE)}",
+        "license: Apache-2.0",
+        "section: devel",
+        "priority: optional",
+    ]
+    if depends:
+        lines.append("overrides:")
+        for fmt, syntax in DEPENDS_SYNTAX.items():
+            lines.append(f"  {fmt}:")
+            lines.append("    depends: [" + ", ".join(q(syntax.format(d, version)) for d in depends) + "]")
+    lines.append("contents:")
+    # Explicit directories, or rpm leaves them behind on removal.
+    dirs = [(f"/usr/share/doc/{package}", ("deb",)), (f"/usr/share/licenses/{package}", NON_DEB)]
+    for directory, packagers in dirs:
+        for packager in packagers:
+            lines += [f"  - dst: {directory}", "    type: dir", "    file_info: {mode: 0755}",
+                      f"    packager: {packager}"]
+    for name, dst, mode, packagers in entries:
+        for packager in packagers or (None,):
+            lines += [f"  - src: {q(str(payload / name))}", f"    dst: {dst}",
+                      f"    file_info: {{mode: 0{mode:o}}}"]
+            if packager:
+                lines.append(f"    packager: {packager}")
+    lines += ["deb:", "  compression: xz", "rpm:", "  compression: xz", f"  summary: {q(summary)}", ""]
+    return "\n".join(lines)
+
+
+def stage(root, final, version, maintainer, date, files):
+    """Write payloads and configs under `root`; config paths point at `final`."""
     common = {"VERSION": version, "MAINTAINER": maintainer, "DATE": date}
-    for package, exe in COMPONENTS.items():
-        tree = root / package
-        write(tree / "usr" / "bin" / exe, files[f"bin/{exe}"], 0o755)
-        write_docs(tree, package, common, [f"statically-linked-binary [usr/bin/{exe}]",
-                                           f"unstripped-binary-or-object [usr/bin/{exe}]"])
-        write_control(tree, f"{package}.control.in", common)
-    tree = root / CONVENIENCE
-    write_docs(tree, CONVENIENCE, common, ["empty-binary-package"])
-    write_control(tree, f"{CONVENIENCE}.control.in", common)
+    packages = [(p, exe, summary, paragraphs, None) for p, (exe, summary, paragraphs) in COMPONENTS.items()]
+    packages.append((CONVENIENCE, None, CONVENIENCE_SUMMARY, CONVENIENCE_DESCRIPTION, list(COMPONENTS)))
+    for package, exe, summary, paragraphs, depends in packages:
+        payload = root / package
+        entries = []
+        if exe:
+            write(payload / exe, files[f"bin/{exe}"], 0o755)
+            entries.append((exe, f"/usr/bin/{exe}", 0o755, None))
+            overrides = [f"statically-linked-binary [usr/bin/{exe}]",
+                         f"unstripped-binary-or-object [usr/bin/{exe}]"]
+        else:
+            overrides = ["empty-binary-package"]
+        write(payload / "copyright", render("copyright.in", common), 0o644)
+        write(payload / "changelog.gz", changelog_gz(package, common), 0o644)
+        # Accepted on purpose, see README.md ("lintian").
+        write(payload / "lintian-overrides", "".join(f"{package}: {tag}\n" for tag in overrides), 0o644)
+        write(payload / "LICENSE", files["LICENSE"], 0o644)
+        entries += [
+            ("copyright", f"/usr/share/doc/{package}/copyright", 0o644, ("deb",)),
+            ("changelog.gz", f"/usr/share/doc/{package}/changelog.gz", 0o644, ("deb",)),
+            ("lintian-overrides", f"/usr/share/lintian/overrides/{package}", 0o644, ("deb",)),
+            ("LICENSE", f"/usr/share/licenses/{package}/LICENSE", 0o644, NON_DEB),
+        ]
+        config = nfpm_config(package, ARCH if exe else "all", version, maintainer, summary,
+                             paragraphs, final / package, entries, depends)
+        write(root / f"{package}.yaml", config, 0o644)
     for path in [root, *root.rglob("*")]:
         if path.is_dir():
             path.chmod(0o755)
@@ -209,8 +283,8 @@ def build(argv=None):
     parser.add_argument("--version", required=True)
     parser.add_argument("--archive", required=True)
     parser.add_argument("--sha256", required=True)
-    parser.add_argument("--maintainer", required=True, help="Debian Maintainer field, 'Name <email>'")
-    parser.add_argument("--output", required=True, help="new directory for the three package trees")
+    parser.add_argument("--maintainer", required=True, help="package Maintainer field, 'Name <email>'")
+    parser.add_argument("--output", required=True, help="new directory for the configs and payloads")
     args = parser.parse_args(argv)
 
     version = parse_version(args.version)
@@ -232,7 +306,8 @@ def build(argv=None):
     files = read_archive(archive, version)
 
     # Stage beside the output, then rename: a failure leaves no partial set.
-    # SOURCE_DATE_EPOCH, when set, makes the changelog date reproducible.
+    # SOURCE_DATE_EPOCH, when set, makes the changelog date reproducible; nfpm
+    # reads it too, for the file times inside the packages.
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     try:
         moment = time.gmtime(int(epoch) if epoch else None)
@@ -240,9 +315,9 @@ def build(argv=None):
         raise ValidationError(f"SOURCE_DATE_EPOCH must be an integer: {epoch!r}") from error
     # Debian changelog trailer date: RFC 2822 with a numeric zone.
     date = time.strftime("%a, %d %b %Y %H:%M:%S +0000", moment)
-    staging = Path(tempfile.mkdtemp(prefix=".cercano-deb-", dir=output.parent))
+    staging = Path(tempfile.mkdtemp(prefix=".cercano-linux-", dir=output.parent))
     try:
-        stage(staging, version, maintainer, date, files)
+        stage(staging, output.resolve(), version, maintainer, date, files)
         os.rename(staging, output)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
@@ -256,9 +331,9 @@ def main(argv=None):
     except ValidationError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    print(f"Rendered package trees: {output}")
-    print("Non-publishing fixture: unsigned, not release-ready. "
-          "Build with `dpkg-deb --root-owner-group --build <tree>`.")
+    print(f"Rendered nfpm configs and payloads: {output}")
+    print("Non-publishing fixture: unsigned, not release-ready. Build with "
+          f"`nfpm package -f {output}/<package>.yaml -p <{'|'.join(FORMATS)}>`.")
     return 0
 
 

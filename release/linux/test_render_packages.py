@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for the Debian package renderer. Fixtures are tiny inert files with a
+"""Tests for the Linux package renderer. Fixtures are tiny inert files with a
 valid x86-64 ELF64 header; nothing is downloaded, installed, executed or
-published. `dpkg-deb --build` runs only when dpkg-deb is on PATH (it creates a
-local .deb and installs nothing)."""
+published. The nfpm test runs only when `nfpm` is on PATH (it creates local
+packages and installs nothing)."""
 
 import gzip
 import hashlib
@@ -24,6 +24,7 @@ VERSION = "1.2.3"
 TOP = f"cercano-{VERSION}-linux-x64"
 ARCHIVE_NAME = f"{TOP}.tar.gz"
 MAINTAINER = "Test Maintainer <test@example.invalid>"
+PACKAGES = ("cercano-agent", "cercano-cli", "cercano")
 
 
 def fake_elf(tag, machine=62, ei_class=2, ei_data=1, e_type=2):
@@ -82,46 +83,70 @@ class RenderPackagesTest(unittest.TestCase):
         with self.assertRaisesRegex(render_packages.ValidationError, message):
             self.run_render(archive, digest, **kwargs)
         self.assertFalse(self.output.exists())
-        self.assertEqual([p.name for p in self.dir.iterdir() if p.name.startswith(".cercano-deb-")], [])
+        self.assertEqual([p.name for p in self.dir.iterdir() if p.name.startswith(".cercano-linux-")], [])
 
-    def control(self, package):
-        return (self.output / package / "DEBIAN" / "control").read_text()
+    def config(self, package):
+        return (self.output / f"{package}.yaml").read_text()
 
-    def test_renders_three_trees_with_one_command_each(self):
+    def test_renders_a_config_and_payload_per_package(self):
         archive, digest = write_archive(self.dir)
         self.run_render(archive, digest)
         self.assertEqual(sorted(p.name for p in self.output.iterdir()),
-                         ["cercano", "cercano-agent", "cercano-cli"])
-        for package, exe in render_packages.COMPONENTS.items():
-            binary = self.output / package / "usr" / "bin" / exe
+                         sorted([*PACKAGES, *(f"{p}.yaml" for p in PACKAGES)]))
+        for package, (exe, _, _) in render_packages.COMPONENTS.items():
+            binary = self.output / package / exe
             self.assertEqual(binary.read_bytes(), default_files()[f"bin/{exe}"][0])
             self.assertEqual(binary.stat().st_mode & 0o777, 0o755)
-            self.assertEqual([p.name for p in (self.output / package / "usr" / "bin").iterdir()], [exe])
-            control = self.control(package)
-            self.assertIn(f"Package: {package}\n", control)
-            self.assertIn(f"Version: {VERSION}\n", control)
-            self.assertIn("Architecture: amd64\n", control)
-            self.assertIn(f"Maintainer: {MAINTAINER}\n", control)
-            self.assertNotIn("Depends:", control)
-        self.assertFalse((self.output / "cercano" / "usr" / "bin").exists())
-        control = self.control("cercano")
-        self.assertIn("Architecture: all\n", control)
-        self.assertIn(f"Depends: cercano-agent (>= {VERSION}), cercano-cli (>= {VERSION})\n", control)
+            config = self.config(package)
+            self.assertIn(f"name: {package}\n", config)
+            self.assertIn("arch: amd64\n", config)
+            self.assertIn(f'version: "{VERSION}"\n', config)
+            self.assertIn("version_schema: none\n", config)
+            self.assertIn(f'maintainer: "{MAINTAINER}"\n', config)
+            self.assertIn(f'  - src: "{(self.output / package / exe).resolve()}"\n    dst: /usr/bin/{exe}\n', config)
+            self.assertNotIn("depends", config)
+        convenience = self.config("cercano")
+        self.assertIn("arch: all\n", convenience)
+        self.assertNotIn("/usr/bin/", convenience)
+        self.assertIn(f'    depends: ["cercano-agent (>= {VERSION})", "cercano-cli (>= {VERSION})"]\n', convenience)
+        self.assertIn(f'    depends: ["cercano-agent >= {VERSION}", "cercano-cli >= {VERSION}"]\n', convenience)
+        self.assertEqual(convenience.count(f'    depends: ["cercano-agent>={VERSION}", "cercano-cli>={VERSION}"]\n'), 2)
 
-    def test_docs_modes_and_installed_size(self):
+    def test_config_sources_exist_and_deb_only_files_are_scoped(self):
         archive, digest = write_archive(self.dir)
         self.run_render(archive, digest)
-        doc = self.output / "cercano-agent" / "usr" / "share" / "doc" / "cercano-agent"
-        self.assertIn("License: Apache-2.0", (doc / "copyright").read_text())
-        changelog = gzip.decompress((doc / "changelog.gz").read_bytes()).decode()
+        for package in PACKAGES:
+            config = self.config(package)
+            for line in config.splitlines():
+                if line.startswith("  - src: "):
+                    self.assertTrue(Path(line[len("  - src: "):].strip('"')).is_file(), line)
+            for dst in ("copyright", "changelog.gz"):
+                self.assertIn(f"    dst: /usr/share/doc/{package}/{dst}\n    file_info: {{mode: 0644}}\n    packager: deb\n", config)
+            self.assertIn(f"    dst: /usr/share/lintian/overrides/{package}\n    file_info: {{mode: 0644}}\n    packager: deb\n", config)
+            for packager in render_packages.NON_DEB:
+                self.assertIn(f"    dst: /usr/share/licenses/{package}/LICENSE\n    file_info: {{mode: 0644}}\n    packager: {packager}\n", config)
+                self.assertIn(f"  - dst: /usr/share/licenses/{package}\n    type: dir\n    file_info: {{mode: 0755}}\n    packager: {packager}\n", config)
+
+    def test_docs_modes_and_description(self):
+        archive, digest = write_archive(self.dir)
+        self.run_render(archive, digest)
+        payload = self.output / "cercano-agent"
+        self.assertIn("License: Apache-2.0", (payload / "copyright").read_text())
+        self.assertEqual((payload / "LICENSE").read_bytes(), default_files()["LICENSE"][0])
+        changelog = gzip.decompress((payload / "changelog.gz").read_bytes()).decode()
         self.assertTrue(changelog.startswith(f"cercano-agent ({VERSION}) unstable; urgency=medium\n"))
         self.assertIn(f" -- {MAINTAINER}  Tue, 14 Nov 2023 22:13:20 +0000\n", changelog)
-        overrides = (self.output / "cercano-agent" / "usr" / "share" / "lintian" / "overrides" / "cercano-agent").read_text()
-        self.assertIn("cercano-agent: statically-linked-binary [usr/bin/cercano]\n", overrides)
+        self.assertIn("cercano-agent: statically-linked-binary [usr/bin/cercano]\n",
+                      (payload / "lintian-overrides").read_text())
+        self.assertEqual((self.output / "cercano" / "lintian-overrides").read_text(),
+                         "cercano: empty-binary-package\n")
         for path in self.output.rglob("*"):
-            expected = 0o755 if path.is_dir() or path.parent.name == "bin" else 0o644
+            expected = 0o755 if path.is_dir() or path.name in ("cercano", "cercano-cli") else 0o644
             self.assertEqual(path.stat().st_mode & 0o777, expected, path)
-        self.assertIn("Installed-Size: 1\n", self.control("cercano-agent"))
+        text = render_packages.description(*render_packages.COMPONENTS["cercano-agent"][1:])
+        self.assertTrue(text.startswith("Cercano agent, which runs models and tools for Cercano clients\n"))
+        self.assertIn("\n\n", text)
+        self.assertLessEqual(max(len(line) for line in text.splitlines()), 80)
 
     def test_render_is_reproducible(self):
         archive, digest = write_archive(self.dir)
@@ -129,7 +154,8 @@ class RenderPackagesTest(unittest.TestCase):
         second = self.dir / "second"
         self.run_render(archive, digest, output=second)
         first_files = {p.relative_to(self.output): p.read_bytes() for p in self.output.rglob("*") if p.is_file()}
-        second_files = {p.relative_to(second): p.read_bytes() for p in second.rglob("*") if p.is_file()}
+        second_files = {p.relative_to(second): p.read_bytes().replace(str(second.resolve()).encode(), str(self.output.resolve()).encode())
+                        for p in second.rglob("*") if p.is_file()}
         self.assertEqual(first_files, second_files)
 
     def test_rejects_checksum_mismatch_before_parsing(self):
@@ -143,6 +169,7 @@ class RenderPackagesTest(unittest.TestCase):
         self.assert_rejected(archive, digest, "stable X.Y.Z", version="v1.2.3")
         self.assert_rejected(archive, "xyz", "64 hexadecimal")
         self.assert_rejected(archive, digest, "Name <email>", maintainer="nobody")
+        self.assert_rejected(archive, digest, "Name <email>", maintainer='Quote " Me <a@b.c>')
         self.output.mkdir()
         with self.assertRaisesRegex(render_packages.ValidationError, "already exists"):
             self.run_render(archive, digest)
@@ -174,18 +201,23 @@ class RenderPackagesTest(unittest.TestCase):
             archive, digest = write_archive(self.dir, files=files)
             self.assert_rejected(archive, digest, message)
 
-    @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb not on PATH")
-    def test_dpkg_deb_builds_each_tree(self):
+    @unittest.skipUnless(shutil.which("nfpm"), "nfpm not on PATH")
+    def test_nfpm_builds_every_format(self):
         archive, digest = write_archive(self.dir)
         self.run_render(archive, digest)
-        debs = self.dir / "debs"
-        debs.mkdir()
-        for package in ("cercano-agent", "cercano-cli", "cercano"):
-            subprocess.run(["dpkg-deb", "--root-owner-group", "--build", str(self.output / package), str(debs)],
-                           check=True, capture_output=True)
-        self.assertEqual(sorted(p.name for p in debs.iterdir()),
-                         [f"cercano-agent_{VERSION}_amd64.deb", f"cercano-cli_{VERSION}_amd64.deb",
-                          f"cercano_{VERSION}_all.deb"])
+        dist = self.dir / "dist"
+        dist.mkdir()
+        for package in PACKAGES:
+            for fmt in render_packages.FORMATS:
+                subprocess.run(["nfpm", "package", "-f", str(self.output / f"{package}.yaml"),
+                                "-p", fmt, "-t", str(dist)], check=True, capture_output=True)
+        self.assertEqual(sorted(p.name for p in dist.iterdir()), sorted([
+            f"cercano-agent_{VERSION}_amd64.deb", f"cercano-cli_{VERSION}_amd64.deb", f"cercano_{VERSION}_all.deb",
+            f"cercano-agent-{VERSION}-1.x86_64.rpm", f"cercano-cli-{VERSION}-1.x86_64.rpm", f"cercano-{VERSION}-1.noarch.rpm",
+            f"cercano-agent_{VERSION}_x86_64.apk", f"cercano-cli_{VERSION}_x86_64.apk", f"cercano_{VERSION}_noarch.apk",
+            f"cercano-agent-{VERSION}-1-x86_64.pkg.tar.zst", f"cercano-cli-{VERSION}-1-x86_64.pkg.tar.zst",
+            f"cercano-{VERSION}-1-any.pkg.tar.zst",
+        ]))
 
 
 if __name__ == "__main__":
