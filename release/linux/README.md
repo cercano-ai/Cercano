@@ -4,7 +4,7 @@ Draft packaging for the experimental, unsigned `linux-x64` release tarball (see
 [linux-artifact.md](../../docs/linux-artifact.md), checklist item 5), built
 with [nfpm](https://github.com/goreleaser/nfpm) in four formats:
 
-| Format | Distributions (tested) |
+| Format | Distributions (PR92-reported tests) |
 | --- | --- |
 | `.deb` | Ubuntu 24.04, Debian 12 |
 | `.rpm` | Fedora 42, Rocky Linux 9, openSUSE Leap 15.6 |
@@ -21,19 +21,21 @@ This is the same split as the Homebrew formulas and the Chocolatey packages.
 Each component installs only its own executable, byte for byte from the
 verified `cercano-<version>-linux-x64.tar.gz`. Both binaries are statically
 linked, so the packages have no library dependencies. No local model runtime
-is bundled. Nothing here signs packages or publishes anything.
+is bundled. The package renderer does not sign packages or publish anything. The separate
+apt staging helpers sign repository metadata locally; publication remains
+unconfigured. See [production gates and key custody](../../docs/linux-package-production.md).
 
 ## Build
 
 On Linux (file modes are part of the packages), with nfpm on `PATH`. Tested
-with nfpm v2.48.0; pin a version in CI.
+with nfpm v2.48.0; `install-nfpm.sh` pins and checks its Linux x86_64 digest.
 
 ```bash
 python3 release/linux/render_packages.py \
   --version 0.27.0 \
   --archive cercano-0.27.0-linux-x64.tar.gz \
   --sha256 <published sha256> \
-  --maintainer "Name <email>" \
+  --maintainer "cercano maintainers <maintainers@cercloud.ai>" \
   --output render
 mkdir dist
 for p in cercano-agent cercano-cli cercano; do
@@ -57,7 +59,9 @@ their required release number (`0.27.0-1`).
 
 Tests: `cd release/linux && python3 -m unittest test_render_packages`. They
 use tiny fake ELF fixtures; the nfpm build test runs only where `nfpm` is on
-`PATH`. Like the Chocolatey tests, they are not wired into CI yet.
+`PATH`. The `linux-packaging` CI job runs these tests, failure-propagation
+regressions, all-format inert-fixture builds and a disposable-key local apt
+rehearsal without secrets. It does not prove real-binary lifecycle acceptance.
 
 ## Container tests
 
@@ -71,7 +75,8 @@ throwaway Docker containers on all seven distributions above:
   convenience package alone is refused while the components are older; all
   three upgrade together.
 
-Results for v0.27.0, and an upgrade from 0.25.2 (rendered with a test-only
+Historical results reported by PR92 (not revalidated by this integration):
+for v0.27.0, and an upgrade from 0.25.2 (rendered with a test-only
 harness, since its tarball predates the runtime inventory): all pass.
 Additionally, on Ubuntu and Debian: the agent survives reinstall or removal
 while running (Linux can replace a running executable; nothing is stopped or
@@ -94,23 +99,26 @@ private key in `GNUPGHOME`; it never creates a key, and it refuses to replace
 a published file with different bytes. Users then run:
 
 ```bash
-curl -fsSL https://<host>/cercano.gpg | sudo tee /etc/apt/keyrings/cercano.gpg >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/cercano.gpg] https://<host> stable main" \
+curl -fsSL https://cercano-ai.github.io/packages/apt/cercano.gpg | sudo tee /etc/apt/keyrings/cercano.gpg >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/cercano.gpg] https://cercano-ai.github.io/packages/apt/ stable main" \
   | sudo tee /etc/apt/sources.list.d/cercano.list
 sudo apt update && sudo apt install cercano
 ```
 
-Tested locally with a throwaway key, served over HTTP to Ubuntu 24.04 and
+PR92 reported local tests with a throwaway key, served over HTTP to Ubuntu 24.04 and
 Debian 12 containers: the user steps install `cercano` (apt pulls in both
 components), publishing a newer version reaches users through `apt upgrade`,
 and apt refuses an `InRelease` altered after signing (`BADSIG`), an altered
 package index (hash mismatch) and a repository signed by another key
 (`NO_PUBKEY`).
 
-The suggested hosting, matching the Homebrew tap: a separate repository (for
-example `cercano-ai/packages`) with GitHub Pages, updated by the protected
-release job with its own token. Signing must happen there, never in the
-unsigned `build-linux` job (see the workflow's header).
+The approved future host is `cercano-ai/packages` on GitHub Pages at
+`https://cercano-ai.github.io/packages/apt/`. This is **not configured or live
+acceptance**; the commands above apply only after independent fingerprint
+verification and production provisioning. No publication job or credentials are
+added. Signing must stay outside the unsigned `build-linux` job. The offline
+primary / CI signing-subkey custody model and remaining provisioning gates are
+in [production setup](../../docs/linux-package-production.md).
 
 ## lintian
 

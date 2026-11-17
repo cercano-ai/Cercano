@@ -16,7 +16,25 @@
 #   sudo apt update && sudo apt install cercano
 set -euo pipefail
 [ $# -eq 3 ] || { echo "usage: $0 <site dir> <deb dir> <signing key id>" >&2; exit 2; }
-site=$1 debs=$2 key=$3
+site=$1
+# Resolve inputs before changing directory; relative deb paths must keep working.
+debs=$(cd "$2" && pwd)
+key=$3
+[[ "$key" =~ ^[A-Fa-f0-9]{40}!?$ ]] || { echo "error: use a full signing fingerprint" >&2; exit 2; }
+: "${GNUPGHOME:?explicit isolated GNUPGHOME required}"
+[ -d "$GNUPGHOME" ] && [ ! -L "$GNUPGHOME" ] || exit 2
+[ "$(stat -c %a "$GNUPGHOME")" = 700 ] && [ -O "$GNUPGHOME" ] || {
+  echo "error: GNUPGHOME must be owned by caller and mode 700" >&2; exit 2;
+}
+# Fail rather than opening pinentry or reading a terminal. For a protected CI
+# subkey, the isolation wrapper supplies a private passphrase file.
+gpg_args=(--batch --yes --no-tty --pinentry-mode error)
+if [ -n "${CERCANO_GPG_PASSPHRASE_FILE:-}" ]; then
+  gpg_args=(--batch --yes --no-tty --pinentry-mode loopback --passphrase-file "$CERCANO_GPG_PASSPHRASE_FILE")
+fi
+shopt -s nullglob
+inputs=("$debs"/*.deb)
+[ ${#inputs[@]} -gt 0 ] || { echo "error: no deb packages" >&2; exit 2; }
 gpg --batch --list-secret-keys "$key" >/dev/null 2>&1 || { echo "error: no secret key $key in GNUPGHOME" >&2; exit 1; }
 mkdir -p "$site"
 cd "$site"
@@ -57,7 +75,7 @@ apt-ftparchive \
   release dists/stable > "$tmp"
 mv "$tmp" dists/stable/Release
 chmod 0644 dists/stable/Release
-gpg --batch --yes --local-user "$key" --clearsign -o dists/stable/InRelease dists/stable/Release
-gpg --batch --yes --local-user "$key" -abs -o dists/stable/Release.gpg dists/stable/Release
+gpg "${gpg_args[@]}" --local-user "$key" --clearsign -o dists/stable/InRelease dists/stable/Release
+gpg "${gpg_args[@]}" --local-user "$key" -abs -o dists/stable/Release.gpg dists/stable/Release
 gpg --batch --yes --export "$key" > cercano.gpg
 echo "added $added package(s); index lists $(grep -c '^Package:' dists/stable/main/binary-amd64/Packages) amd64/all entries"
