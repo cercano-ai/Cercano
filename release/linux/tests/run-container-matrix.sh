@@ -6,7 +6,8 @@
 #   run-container-matrix.sh <dist dir> [<old dist dir> <new version>]
 #
 # <dist dir> holds all 12 packages from `nfpm package` (see ../README.md).
-set -u
+set -euo pipefail
+[ $# -eq 1 ] || [ $# -eq 3 ] || { echo "usage: $0 <dist> [<old dist> <new version>]" >&2; exit 2; }
 here=$(cd "$(dirname "$0")" && pwd)
 dist=$(cd "$1" && pwd)
 old=${2:+$(cd "$2" && pwd)}
@@ -14,11 +15,11 @@ new=${3:-}
 matrix=(
   "ubuntu:24.04|deb|"
   "debian:12|deb|"
-  "fedora:42|rpm|dnf install -y -q procps-ng shadow-utils util-linux >/dev/null 2>&1;"
-  "rockylinux:9|rpm|dnf install -y -q procps-ng >/dev/null 2>&1;"
-  "opensuse/leap:15.6|rpm|zypper -n -q install procps shadow >/dev/null 2>&1;"
-  "alpine:3.20|apk|apk add -q procps >/dev/null 2>&1;"
-  "archlinux:latest|arch|pacman -Sy --noconfirm procps-ng >/dev/null 2>&1;"
+  "fedora:42|rpm|dnf install -y -q procps-ng shadow-utils util-linux >/dev/null 2>&1 &&"
+  "rockylinux:9|rpm|dnf install -y -q procps-ng >/dev/null 2>&1 &&"
+  "opensuse/leap:15.6|rpm|zypper -n -q install procps shadow >/dev/null 2>&1 &&"
+  "alpine:3.20|apk|apk add -q procps >/dev/null 2>&1 &&"
+  "archlinux:latest|arch|pacman -Sy --noconfirm procps-ng >/dev/null 2>&1 &&"
 )
 for row in "${matrix[@]}"; do
   IFS='|' read -r image fam prep <<< "$row"
