@@ -216,9 +216,7 @@ func TestServer_EnableIdleShutdownRunsAfterLastSubscriberDisconnects(t *testing.
 	}
 }
 
-// With a shutdown control configured, self-shutdown must go through it rather
-// than a self-SIGTERM: os.Process.Signal(SIGTERM) fails with EWINDOWS on
-// Windows, so a signal-based idle shutdown never stops the agent there.
+// Not a self-SIGTERM: Process.Signal(SIGTERM) fails with EWINDOWS on Windows.
 func TestServer_RequestSelfShutdownUsesShutdownControl(t *testing.T) {
 	s := &Server{}
 	calls := make(chan bool, 1)

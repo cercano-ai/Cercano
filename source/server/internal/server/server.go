@@ -2399,7 +2399,8 @@ func (s *Server) updateConfigLocked(ctx context.Context, req *proto.UpdateConfig
 // reconnect loop/auto-launch path bring up a fresh agent.
 //
 // Without a shutdown control, the bounce is driven by RequestSelfShutdown (a
-// self-SIGTERM), not a bare BeginShutdown(): only the signal path runs the full cleanup() cascade (DrainThenStop → mcpMgr.Stop →
+// self-SIGTERM), not a bare BeginShutdown(): only the signal path runs the
+// full cleanup() cascade (DrainThenStop → mcpMgr.Stop →
 // srv.Shutdown → stopRuntimeInstances), which drains in-flight turns AND stops
 // every llama-server child before the process exits. Calling BeginShutdown()
 // alone would only close the event streams — kicking clients off while the

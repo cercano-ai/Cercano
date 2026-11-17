@@ -26,8 +26,6 @@ type idleDisconnectedStream struct {
 func (s idleDisconnectedStream) Context() context.Context    { return s.ctx }
 func (idleDisconnectedStream) Send(*proto.ClientEvent) error { panic("unexpected event") }
 
-// disconnectLastSubscriber attaches and immediately disconnects one
-// SubscribeEvents client, leaving the server with no subscribers.
 func disconnectLastSubscriber(t *testing.T, srv *server.Server) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -37,8 +35,7 @@ func disconnectLastSubscriber(t *testing.T, srv *server.Server) {
 	}
 }
 
-// checkLastClientShutdownRequested disconnects the last subscriber and waits
-// for the injected idle-shutdown hook (productionLifecycleDependencies.idleShutdown).
+// Waits for productionLifecycleDependencies.idleShutdown.
 func checkLastClientShutdownRequested(t *testing.T, srv *server.Server, requested <-chan struct{}) {
 	t.Helper()
 	disconnectLastSubscriber(t, srv)

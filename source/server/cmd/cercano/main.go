@@ -577,8 +577,6 @@ func startGRPCServerWithLifecycle(cfg config.Config, bindAddr string, events *cr
 	// Generation retirement is governed by retained sessions and work drain,
 	// not by the lifetime of SubscribeEvents transports.
 	if admission.generation == nil && os.Getenv("CERCANO_AUTOLAUNCHED") == "1" && cfg.Agent.ShutdownOnLastClient {
-		// RequestSelfShutdown uses the shutdown control set below
-		// (SetShutdownControl), not a signal, so this also works on Windows.
 		idleShutdown := srv.RequestSelfShutdown
 		if lifecycle.idleShutdown != nil {
 			idleShutdown = lifecycle.idleShutdown
