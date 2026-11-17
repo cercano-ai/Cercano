@@ -50,12 +50,14 @@ test("keeps the TUI palettes and persistent theme behavior", async () => {
   for (const color of ["#fbf3e0", "#3b3020", "#1e7a3c", "#1763a0", "#1a1a1a", "#ea8212", "#bdf000", "#00c8e8"]) {
     assert.match(css, new RegExp(color, "i"));
   }
-  assert.match(css, /--font-mono:\s*var\(--font-plex-mono\)/);
+  assert.match(css, /--font-mono:\s*"IBM Plex Mono"/);
+  assert.match(css, /body\s*\{[^}]*font-family:\s*var\(--font-serif\)/s);
+  assert.match(page, /className="brand-mark"[^>]*assetUrl\("\/icon\.svg"\)/);
   assert.match(css, /feature-story--visual:nth-child\(odd\)[^{]*\{[^}]*1\.34fr[^}]*\.66fr/s);
   assert.match(page, /localStorage\.setItem\("cercano-theme"/);
   assert.match(page, /navigator\.clipboard\.writeText\("brew install cercano-ai\/cercano\/cercano"\)/);
   assert.match(layout, /prefers-color-scheme:\s*dark/);
-  assert.match(layout, /IBM_Plex_Mono/);
+  assert.match(layout, /fonts\.googleapis\.com\/css2\?family=IBM\+Plex\+Mono:wght@400;500;600/);
 });
 
 test("keeps package availability qualified and links platform precautions", async () => {

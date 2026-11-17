@@ -138,7 +138,7 @@ export default function Home() {
     <div className="page-shell">
       <header className="site-header">
         <a className="brand" href="#top" aria-label="Cercano home">
-          <span className="prompt" aria-hidden="true">&gt;_</span>
+          <img className="brand-mark" src={assetUrl("/icon.svg")} alt="" width="24" height="24" />
           <span>cercano</span>
         </a>
         <nav className="primary-nav" aria-label="Primary navigation">

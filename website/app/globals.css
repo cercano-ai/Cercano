@@ -13,7 +13,7 @@
   --soft-line: rgb(59 48 32 / 12%);
   --selection: rgb(23 99 160 / 18%);
   --font-serif: Georgia, "Times New Roman", serif;
-  --font-mono: var(--font-plex-mono), Menlo, Monaco, Consolas, monospace;
+  --font-mono: "IBM Plex Mono", Menlo, Monaco, Consolas, monospace;
 }
 
 html[data-theme="night"] {
@@ -58,12 +58,17 @@ a:focus-visible, button:focus-visible, video:focus-visible { outline: 2px solid 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 11px;
+  gap: 2px;
   font: 600 15px/1 var(--font-mono);
   letter-spacing: .09em;
   text-transform: uppercase;
 }
-.prompt { color: var(--primary); }
+.brand-mark {
+  display: block;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+}
 .primary-nav { display: flex; align-items: center; gap: 28px; }
 .primary-nav > a {
   color: var(--muted);
