@@ -132,3 +132,27 @@ jobs:
       - name: Full native recovery acceptance race
         working-directory: source/clients/cli
         run: CERCANO_RESUME_PROBE_BINARY="$RUNNER_TEMP/recovery-server-race.test" go test -race ./internal/ui -run '^TestFullNativeRecoveryAcceptance$' -count=2 -timeout=180s
+
+  linux-packaging:
+    name: Linux packaging and disposable apt rehearsal (no publication)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install checksum-pinned nfpm in runner temp
+        run: |
+          bash release/linux/install-nfpm.sh "$RUNNER_TEMP/linux-tools"
+          echo "$RUNNER_TEMP/linux-tools" >> "$GITHUB_PATH"
+      - name: Renderer, package formats and failure regressions
+        run: python3 -m unittest discover -s release/linux -p 'test_*.py' -v
+      - name: Prepare authenticated distro apt tooling
+        # Explicit runner-only install; apt verifies Ubuntu's signed indexes.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apt-utils gnupg
+      - name: Rehearse with inert fixture packages and disposable keys
+        run: |
+          python3 release/linux/tests/make-rehearsal-fixture.py "$RUNNER_TEMP/apt-fixture"
+          bash release/linux/tests/rehearse-apt.sh "$RUNNER_TEMP/apt-fixture/packages"

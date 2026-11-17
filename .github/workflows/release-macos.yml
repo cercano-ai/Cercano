@@ -581,6 +581,28 @@ jobs:
           set -euo pipefail
           ( cd source/server && go test -count=1 ./internal/procx/... )
 
+      # Review-only packages consume the exact archive already smoke-tested
+      # above. No keys, environment, Pages deployment or release upload added.
+      - name: Install checksum-pinned Linux packaging tool
+        run: |
+          bash release/linux/install-nfpm.sh "$RUNNER_TEMP/linux-tools"
+          echo "$RUNNER_TEMP/linux-tools" >> "$GITHUB_PATH"
+
+      - name: Package verified Linux archive for review only
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCHIVE: ${{ steps.build.outputs.archive }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+        run: bash release/linux/package-verified.sh "$VERSION" "$ARCHIVE" "$SHA256" dist/linux-packages
+
+      - name: Upload Linux packages for review (not release assets)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cercano-${{ inputs.version }}-linux-packages-review
+          path: dist/linux-packages/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload artifacts for review
         uses: actions/upload-artifact@v4
         with:
