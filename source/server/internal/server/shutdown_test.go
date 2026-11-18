@@ -216,6 +216,64 @@ func TestServer_EnableIdleShutdownRunsAfterLastSubscriberDisconnects(t *testing.
 	}
 }
 
+// Not a self-SIGTERM: Process.Signal(SIGTERM) fails with EWINDOWS on Windows.
+func TestServer_RequestSelfShutdownUsesShutdownControl(t *testing.T) {
+	s := &Server{}
+	calls := make(chan bool, 1)
+	s.SetShutdownControl(func(observe bool) *proto.ShutdownAgentResponse {
+		calls <- observe
+		return &proto.ShutdownAgentResponse{Accepted: true}
+	})
+	s.RequestSelfShutdown()
+	select {
+	case observe := <-calls:
+		if observe {
+			t.Fatal("RequestSelfShutdown called the control in observe-only mode")
+		}
+	default:
+		t.Fatal("RequestSelfShutdown did not call the shutdown control")
+	}
+}
+
+func TestServer_IdleShutdownWithRequestSelfShutdownUsesShutdownControl(t *testing.T) {
+	s := &Server{events: newEventHub()}
+	calls := make(chan bool, 1)
+	s.EnableIdleShutdown(0, s.RequestSelfShutdown)
+	s.SetShutdownControl(func(observe bool) *proto.ShutdownAgentResponse {
+		calls <- observe
+		return &proto.ShutdownAgentResponse{Accepted: true}
+	})
+
+	_, unsub := s.events.subscribe()
+	unsub()
+	select {
+	case observe := <-calls:
+		if observe {
+			t.Fatal("idle shutdown called the control in observe-only mode")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("idle shutdown did not call the shutdown control")
+	}
+}
+
+func TestServer_ScheduleSelfShutdownUsesShutdownControl(t *testing.T) {
+	s := &Server{events: newEventHub()}
+	calls := make(chan bool, 1)
+	s.SetShutdownControl(func(observe bool) *proto.ShutdownAgentResponse {
+		calls <- observe
+		return &proto.ShutdownAgentResponse{Accepted: true}
+	})
+	s.scheduleSelfShutdown()
+	select {
+	case observe := <-calls:
+		if observe {
+			t.Fatal("scheduleSelfShutdown called the control in observe-only mode")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("scheduleSelfShutdown did not call the shutdown control")
+	}
+}
+
 func TestServer_EnableIdleShutdownRechecksAfterGrace(t *testing.T) {
 	s := &Server{events: newEventHub()}
 	done := make(chan struct{}, 1)
