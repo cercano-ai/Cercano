@@ -81,12 +81,20 @@ func (l *countedStartupListener) Close() error { l.closes.Add(1); return l.Liste
 // Sequential subtests own ONE full Agent/policy authority at a time. This is a
 // startup-only, in_process check, not worker acceptance or model qualification.
 func TestProductionSingleHostStartupShutdown(t *testing.T) {
-	for _, scenario := range []struct{ fail, initial, watcher, closeFailure, idle, disposal bool }{{}, {idle: true}, {idle: true, disposal: true}, {closeFailure: true}, {fail: true}, {initial: true}, {watcher: true}, {fail: true, initial: true}, {fail: true, watcher: true}} {
+	type startupScenario struct{ fail, initial, watcher, closeFailure, idle, disposal, defaultIdle bool }
+	scenarios := []startupScenario{{}, {idle: true}, {idle: true, disposal: true}, {closeFailure: true}, {fail: true}, {initial: true}, {watcher: true}, {fail: true, initial: true}, {fail: true, watcher: true}}
+	if os.Getenv("CERCANO_TEST_DEFAULT_IDLE_CHILD") == "1" {
+		scenarios = []startupScenario{{idle: true, defaultIdle: true}}
+	}
+	for _, scenario := range scenarios {
 		failMCP := scenario.fail
 		blocked := scenario.initial || scenario.watcher
 		name := "serves"
 		if scenario.idle {
 			name = "legacy-idle-shutdown"
+		}
+		if scenario.defaultIdle {
+			name = "legacy-default-idle-shutdown"
 		}
 		if scenario.disposal {
 			name += "-pending-disposal"
@@ -282,6 +290,10 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 					stop: func(*mcphost.Manager) { mcpStops++; <-mcpDone },
 				},
 			}
+			if scenario.defaultIdle {
+				// Exercise the installed RequestSelfShutdown -> production control path.
+				deps.idleShutdown = nil
+			}
 			if scenario.initial {
 				deps.beforeInitialRebuild = func() { close(entered); <-release }
 			}
@@ -305,7 +317,7 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer cleanup.Shutdown()
-				if scenario.idle {
+				if scenario.idle && !scenario.defaultIdle {
 					checkLastClientShutdownRequested(t, startupServer, idleRequested)
 				}
 				if addr != "bufconn" {
@@ -344,30 +356,34 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				if blocked {
 					<-entered
 				}
-				var wg sync.WaitGroup
-				var shutdownResults [4]productionShutdownStatus
-				for i := range shutdownResults {
-					wg.Add(1)
-					go func() { defer wg.Done(); shutdownResults[i] = cleanup.Shutdown() }()
-				}
-				wg.Wait()
-				if scenario.disposal {
-					select {
-					case <-entered:
-					case <-time.After(5 * time.Second):
-						t.Fatal("disposal did not reach catalog stop")
+				if scenario.defaultIdle {
+					checkDefaultProductionIdleDisposal(t, startupServer, cleanup)
+				} else {
+					var wg sync.WaitGroup
+					var shutdownResults [4]productionShutdownStatus
+					for i := range shutdownResults {
+						wg.Add(1)
+						go func() { defer wg.Done(); shutdownResults[i] = cleanup.Shutdown() }()
 					}
-					for _, st := range shutdownResults {
-						if !st.Pending || st.Complete || st.Failed {
-							t.Fatal("gated disposal did not return pending", st)
+					wg.Wait()
+					if scenario.disposal {
+						select {
+						case <-entered:
+						case <-time.After(5 * time.Second):
+							t.Fatal("disposal did not reach catalog stop")
 						}
+						for _, st := range shutdownResults {
+							if !st.Pending || st.Complete || st.Failed {
+								t.Fatal("gated disposal did not return pending", st)
+							}
+						}
+						select {
+						case <-cleanup.done:
+							t.Fatal("cleanup completed while disposal gated")
+						default:
+						}
+						unblock()
 					}
-					select {
-					case <-cleanup.done:
-						t.Fatal("cleanup completed while disposal gated")
-					default:
-					}
-					unblock()
 				}
 				if _, err := client.GetConfig(ctx, &proto.GetConfigRequest{}); err == nil {
 					t.Fatal("serving after shutdown")
@@ -445,6 +461,9 @@ func TestProductionSingleHostStartupShutdown(t *testing.T) {
 				t.Fatal("telemetry database still open after shutdown")
 			}
 
+			if scenario.defaultIdle {
+				t.Log("default idle callback: production disposal verified")
+			}
 		})
 	}
 }

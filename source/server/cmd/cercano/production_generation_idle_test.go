@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Run sequentially: signal.Notify captures the actual startup-installed legacy
-// callback without replacing that hook or allowing SIGTERM to kill the tests.
+// Run sequentially. Observe the installed production shutdown control as well
+// as any legacy signal fallback, without replacing either callback.
 // A canceled stream still registers and removes a subscriber synchronously.
 type idleDisconnectedStream struct {
 	grpc.ServerStream
@@ -61,6 +61,15 @@ func checkStartupLastClientShutdown(t *testing.T, srv *server.Server, want bool)
 		if want {
 			t.Error("legacy singleton last-client shutdown did not signal")
 		}
+	}
+	// The production callback now requests disposal without emitting a signal.
+	// StatusOnly reads the actual invocation-local control even after disposal.
+	state, err := srv.ShutdownAgent(context.Background(), &proto.ShutdownAgentRequest{StatusOnly: true})
+	if err != nil {
+		t.Fatalf("shutdown status: %v", err)
+	}
+	if !want && (state.Accepted || state.Complete || state.Phase != "running") {
+		t.Fatalf("last subscribed client requested generation shutdown/disposal: %v", state)
 	}
 }
 
