@@ -142,12 +142,19 @@ still carry costs.
 [Homebrew](https://brew.sh) and launch the terminal client:
 
 ```bash
-brew install cercano-ai/cercano/cercano
+brew install cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli cercano-ai/cercano/cercano
 cercano-cli
 ```
 
 The client starts the agent (`cercano`) automatically; you do not need to start
 it separately. Intel Macs are not supported by this release.
+
+All three formulas are named because Homebrew 6.0.0 and later only load
+formulas from a third-party tap that you have trusted, and naming a fully
+qualified formula trusts only that formula. Installing just
+`cercano-ai/cercano/cercano` fails with "Refusing to load formula
+cercano-ai/cercano/cercano-agent from untrusted tap". See
+[Tap Trust](https://docs.brew.sh/Tap-Trust).
 
 For an existing split-package installation, upgrade all three formulas:
 

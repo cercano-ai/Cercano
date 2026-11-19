@@ -11,8 +11,16 @@ formula is deprecated.
 ## Install
 
 ```bash
-brew install cercano-ai/cercano/cercano
+brew install cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli cercano-ai/cercano/cercano
 ```
+
+Homebrew 6.0.0 and later only load formulas from a third-party tap that you
+have trusted ([Tap Trust](https://docs.brew.sh/Tap-Trust)). Naming a fully
+qualified formula trusts only that formula, so installing just
+`cercano-ai/cercano/cercano` stops at its dependencies with "Refusing to load
+formula cercano-ai/cercano/cercano-agent from untrusted tap". Naming all three
+avoids that. To trust the whole tap instead, including future formulas, run
+`brew trust cercano-ai/cercano` once.
 
 Since v0.27.0, `cercano` is a dependency-only convenience formula: it installs
 `cercano-agent` and `cercano-cli`, which own the two commands below. The split was
@@ -24,7 +32,7 @@ llama/model runtime is bundled.
 For component-only installs, use `brew install cercano-ai/cercano/cercano-agent`
 or `brew install cercano-ai/cercano/cercano-cli`. Neither component depends on
 the other; CLI-only use needs a remote agent (`cercano-cli --address HOST:PORT`).
-For a local interactive session, install both via the convenience formula.
+For a local interactive session, install both with the command above.
 
 Commands installed:
 
