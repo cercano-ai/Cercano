@@ -41,7 +41,7 @@ The implementation lives in `internal/research/` and runs as a six-phase pipelin
 - `depth` — `survey` (top 5-10, light) or `thorough` (20+, deep). Default `thorough`.
 - `date_range` — filter by date (e.g. `2024-2026`, `last 2 years`).
 - `sources` — override the auto-detected source list.
-- `output_path` / `output_dir` — write report to disk instead of returning inline (recommended for thorough runs to keep the MCP response small).
+- `output_dir` — directory for persisted research state, progress, and reports. Defaults to workspace `scratch/research/<topic-slug>`; omitting it does not disable filesystem writes. Agent execution requires write approval even when this argument is omitted.
 - `project_dir` — project root for context.
 
 ## Notable decisions / constraints
