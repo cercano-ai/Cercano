@@ -33,7 +33,7 @@ type RunConfig struct {
 	Depth      string // "survey", "standard", or "deep"
 	DateRange  string
 	Sources    []string // user override, empty for auto
-	OutputDir  string   // write report to this directory if set
+	OutputDir  string   // persistent output directory; defaults to scratch/research/<topic-slug>
 	ProjectDir string
 	Phase      string // "plan", "search", "analyze", "synthesize", or "" for all
 	Progress   ProgressFunc
@@ -61,6 +61,23 @@ type PhaseResult struct {
 	SuggestedNext        *SuggestedNext // structured hint for host to deepen research
 }
 
+// ResolveOutputDir derives the persistent output location without creating files.
+// Callers can approve this path before running any research phases.
+func ResolveOutputDir(cfg RunConfig) (string, error) {
+	if cfg.OutputDir != "" {
+		return cfg.OutputDir, nil
+	}
+	base := cfg.ProjectDir
+	if base == "" {
+		var err error
+		base, err = os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("research output directory: %w", err)
+		}
+	}
+	return filepath.Join(base, "scratch", "research", slugifyTopic(cfg.Topic)), nil
+}
+
 // Run executes the pipeline — either a single phase or all phases.
 func (p *Pipeline) Run(ctx context.Context, cfg RunConfig) (*PhaseResult, error) {
 	depth := cfg.Depth
@@ -69,14 +86,9 @@ func (p *Pipeline) Run(ctx context.Context, cfg RunConfig) (*PhaseResult, error)
 	}
 	rcfg := DefaultConfig(depth)
 
-	// Determine output directory
-	outputDir := cfg.OutputDir
-	if outputDir == "" {
-		base := cfg.ProjectDir
-		if base == "" {
-			base, _ = os.Getwd()
-		}
-		outputDir = filepath.Join(base, "scratch", "research", slugifyTopic(cfg.Topic))
+	outputDir, err := ResolveOutputDir(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	progress := NewProgressTracker(outputDir)

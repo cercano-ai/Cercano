@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"cercano/source/server/internal/capabilities"
@@ -19,7 +20,7 @@ type deepResearchCap struct{}
 func DeepResearch() capabilities.Capability { return deepResearchCap{} }
 
 func (deepResearchCap) Name() string            { return "deep_research" }
-func (deepResearchCap) Tier() capabilities.Tier { return capabilities.TierR }
+func (deepResearchCap) Tier() capabilities.Tier { return capabilities.TierW }
 
 // SurfaceAgent only: the MCP surface keeps its legacy hand-registered
 // cercano_deep_research handler; registering here too would collide on that name.
@@ -37,7 +38,7 @@ func (deepResearchCap) Schema() capabilities.Schema {
 			"depth":      {"type": "string", "description": "Research depth: \"survey\", \"standard\" (default), or \"deep\"."},
 			"date_range": {"type": "string", "description": "Restrict findings to a date range, e.g. \"2024-2026\"."},
 			"sources":    {"type": "array", "items": {"type": "string"}, "description": "Source categories to search; empty for automatic selection."},
-			"output_dir": {"type": "string", "description": "Write the report and findings as files into this directory."},
+			"output_dir": {"type": "string", "description": "Directory for persisted report and findings; defaults to workspace scratch/research/<topic-slug>. Write approval is always required."},
 			"phase":      {"type": "string", "description": "Run a single phase: \"plan\", \"search\", \"analyze\", or \"synthesize\"; empty runs all."},
 			"model":      {"type": "string", "description": "Advisory local model override for the analysis calls."}
 		},
@@ -67,25 +68,13 @@ func (deepResearchCap) Execute(ctx context.Context, call *capabilities.Call) (*c
 	if a.Intent == "" {
 		return nil, fmt.Errorf("deep_research: 'intent' is required")
 	}
+	outputDir, err := approveDeepResearchOutput(ctx, call, a)
+	if err != nil {
+		return nil, err
+	}
+	a.OutputDir = outputDir
 	if !venvReady() {
 		return nil, errors.New("deep_research: " + venvMissingMessage)
-	}
-
-	if a.OutputDir != "" {
-		a.OutputDir = resolvePath(call.WorkDir, a.OutputDir)
-	}
-
-	// The capability is R-tier (research is read-only), but output_dir makes
-	// it write report files — gate that specific case through the permission
-	// callback rather than promoting the whole capability to W.
-	if a.OutputDir != "" && call.RequestPermission != nil {
-		ok, err := call.RequestPermission(ctx, fmt.Sprintf("deep_research will write report files into %s", a.OutputDir))
-		if err != nil {
-			return nil, fmt.Errorf("deep_research: permission check: %w", err)
-		}
-		if !ok {
-			return nil, errors.New("deep_research: permission to write report files denied; re-run without 'output_dir' for an in-conversation report")
-		}
 	}
 
 	// Note: the MCP surface pre-checks for code-only local models via gRPC
@@ -131,6 +120,35 @@ func (deepResearchCap) Execute(ctx context.Context, call *capabilities.Call) (*c
 		}
 	}
 	return out, nil
+}
+
+// All phases persist state, even when output_dir is omitted. W-tier lets the
+// host loop gate execution; the callback also protects direct/future adapters.
+func approveDeepResearchOutput(ctx context.Context, call *capabilities.Call, a deepResearchArgs) (string, error) {
+	if a.OutputDir != "" {
+		a.OutputDir = resolvePath(call.WorkDir, a.OutputDir)
+	}
+	outputDir, err := research.ResolveOutputDir(research.RunConfig{Topic: a.Topic, ProjectDir: call.WorkDir, OutputDir: a.OutputDir})
+	if err != nil {
+		return "", fmt.Errorf("deep_research: %w", err)
+	}
+	// Native approval names an absolute destination; the shared resolver keeps
+	// legacy pipeline/MCP relative output strings unchanged.
+	outputDir, err = filepath.Abs(outputDir)
+	if err != nil {
+		return "", fmt.Errorf("deep_research: output directory: %w", err)
+	}
+	if call.RequestPermission == nil {
+		return "", errors.New("deep_research: permission to write research files unavailable")
+	}
+	ok, err := call.RequestPermission(ctx, fmt.Sprintf("deep_research will write research state, progress, and report files into %s", outputDir))
+	if err != nil {
+		return "", fmt.Errorf("deep_research: permission check: %w", err)
+	}
+	if !ok {
+		return "", errors.New("deep_research: permission to write research files denied; all research phases require persisted output")
+	}
+	return outputDir, nil
 }
 
 func formatDeepResearchProgress(state research.ProgressState) string {

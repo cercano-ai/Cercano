@@ -34,7 +34,7 @@ page servers. Model output and confidence are not independent verification.
 | depth | string | No | `"survey"` (quick scan, ~2 min), `"standard"` (balanced, ~5-8 min), or `"deep"` (exhaustive, ~15+ min). Default: `"standard"`. |
 | date_range | string | No | Filter results by date (e.g. `"2024-2026"`, `"last 2 years"`). |
 | sources | string[] | No | Override auto-detected sources. If omitted, sources are chosen based on topic domain. |
-| output_dir | string | No | Write report to this directory as multiple files. Recommended for standard/deep research and required for incremental deepening. |
+| output_dir | string | No | Persist research state, progress, and reports here. Defaults to workspace `scratch/research/<topic-slug>`; omitting it does not disable writes. Agent execution requires write approval. Reuse the directory for incremental deepening. |
 | project_dir | string | No | Project root directory. |
 | phase | string | No | Run a specific phase: `"plan"`, `"search"`, `"analyze"`, `"synthesize"`. Omit to run all phases. |
 | use_model | string | No | Override the default model for this research run. |

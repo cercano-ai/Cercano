@@ -1,0 +1,12 @@
+# Permission entry-point inventory
+
+Bounded read-only task `task_0ba6b7d58017912efac72f5a80d4fda7`, 2026-11-18; findings below are delegated inspection, not an end-to-end security certification. Paths relative to source/server/internal.
+
+- `capabilities/agentadapter/adapter.go:capTool.Permission`, `PermissionFor`: maps static tier or ArgsTiered tier to tool permission. Execute supplies an allow-all capability RequestPermission callback. Actual native authorization must therefore be established before Execute; callback presence alone proves nothing.
+- `agent/toolloop.go:RunToolLoop`: checks profile, watchdog and normal permission policy, then rechecks current profile and cancellation before Execute. A nil loop PermissionRequester fails closed when an approval gate is required. PreauthorizedTools skip normal mode prompting, not profile, watchdog or forced confirmation.
+- `hostsvc/tools/tools.go:RunAgenticDispatch`: uses granted tools as PreauthorizedTools with nil loop PermissionRequester. This is host tool-grant preauthorization, not client workspace consent.
+- `server/invoke_capability.go` forwards to `hostsvc/tools/tools.go:Service.InvokeCapability`, which calls cap.Execute with an allow-all callback and no loop tier/profile decision. It relies on external MCP host gating. Must explicitly reject unsupported client-bound invocation or establish authenticated binding and approval; do not infer these from workDir.
+- `server/server.go:InvokeTool` rejects coexistence mode, otherwise directly invokes tool.Execute without consulting PermissionFor or loop policy. Adapted capabilities then see allow-all callbacks. Same client-routing restriction applies.
+- `capabilities/capability.go` callback comment claims loop-gate wiring; current adapter is unconditional approval. A callback-only research fix would be insufficient; the approved fix makes deep_research W-tier so native policy sees its actual effects.
+
+Tests located by audit: agent/toolloop_test.go TestToolLoopPreauthorizedToolBypassesXGate; agent/profile_test.go preauthorized plan_experiment and profile cases; server/invoke_capability_test.go registration/unknown/nil registry; invoke_task_scope_test.go and mcp_conversation_scope_test.go cover separate conversation concerns. Audit did not run tests. Permission parity across external paths is not established. These paths remain part of the broader routing gate; no general external-RPC policy redesign was authorized by the bounded research fix.
