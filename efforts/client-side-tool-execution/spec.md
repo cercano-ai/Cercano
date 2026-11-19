@@ -1,6 +1,8 @@
 # Client-side workspace execution
 
-Status: approved by the user on 2026-11-18. Execution remains gated on approval of the execution plan; spec approval alone does not authorize implementation.
+Status: spec and execution plan approved by the user on 2026-11-18; autonomous implementation authorized.
+
+Approved security addition (2026-11-18): use mutual TLS over the existing gRPC interface, not a new listener or communications system. Pairing uses a short-lived single-use code and trusted host certificate fingerprint verification. The client generates its private key locally; the host issues a per-client certificate and retains an authorization/revocation record, not the client private key. Protect host keys and use OS credential storage for client keys where supported. Pairing authenticates an installation; explicit local consent authorizes workspace execution, and existing operation approvals remain separate. Direct execution is not filesystem sandboxing. Revocation rejects future access and closes active execution connections but cannot undo side effects or guarantee stopping disconnected commands. Reconnect retains installation identity while process incarnation remains distinct; no automatic replay, host fallback, or invented completion after crashes. Detailed implementation and security tests remain pending.
 
 ## Problem and motivation
 
