@@ -8,7 +8,7 @@ Output (a new directory; nothing outside it is touched):
                                 chocolateyInstall.ps1, chocolateyBeforeModify.ps1,
                                 chocolateyUninstall.ps1, cercano-guard.ps1}
   <output>/cercano-cli/...   same, with cercano-cli.exe
-  <output>/cercano/cercano.nuspec   dependencies only, no files
+  <output>/cercano/cercano.nuspec   dependencies and tools/LICENSE.txt, no executables
 
 Each component embeds only its own executable, so Chocolatey creates exactly
 one shim per component: cercano-agent owns `cercano`, cercano-cli owns
@@ -199,7 +199,8 @@ def stage(root, version, archive_name, digest, files):
             write_text(tools / script,
                        packaged_script(render(f"{script}.in", values), f"{script}.in"))
         write_text(tools / "cercano-guard.ps1", guard)
-    (root / CONVENIENCE).mkdir()
+    (root / CONVENIENCE / "tools").mkdir(parents=True)
+    (root / CONVENIENCE / "tools" / "LICENSE.txt").write_bytes(files["LICENSE"])
     write_text(root / CONVENIENCE / f"{CONVENIENCE}.nuspec",
                render(f"{CONVENIENCE}.nuspec.in", common))
 

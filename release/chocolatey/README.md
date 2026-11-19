@@ -130,9 +130,11 @@ enforced by `test_render_packages.py` where testable:
   release tag's `website/app/icon.svg` through jsDelivr, not raw GitHub,
   CPMR0076), `docsUrl`, `bugTrackerUrl`, `releaseNotes`, versioned
   dependencies.
-- Left out on purpose: `copyright` (the repo states none; CPMR0001 fails a
-  value under 4 characters), `projectSourceUrl` (would equal `projectUrl`,
-  CPMR0041).
+- All three generated packages declare `Copyright Cercloud` and bundle the
+  upstream `LICENSE` bytes unchanged as `tools/LICENSE.txt`, including the
+  binaryless convenience package. This source fix applies to the next release;
+  the submitted v0.27.0 packages are unchanged.
+- Left out on purpose: `projectSourceUrl` (would equal `projectUrl`, CPMR0041).
 - Expect moderator notes for embedded binaries (CPMR0060) and unsigned
   executables. Moderation of a new package is manual.
 

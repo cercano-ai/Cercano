@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
 
@@ -87,7 +88,7 @@ class RenderPackagesTest(unittest.TestCase):
         tools = ["LICENSE.txt", "VERIFICATION.txt", "cercano-guard.ps1",
                  "chocolateyBeforeModify.ps1", "chocolateyInstall.ps1", "chocolateyUninstall.ps1"]
         expected = sorted(
-            ["cercano/cercano.nuspec",
+            ["cercano/cercano.nuspec", "cercano/tools/LICENSE.txt",
              "cercano-agent/cercano-agent.nuspec", "cercano-agent/tools/cercano.exe",
              "cercano-cli/cercano-cli.nuspec", "cercano-cli/tools/cercano-cli.exe"]
             + [f"cercano-agent/tools/{t}" for t in tools]
@@ -109,6 +110,20 @@ class RenderPackagesTest(unittest.TestCase):
             self.assertIn(hashlib.sha256(data).hexdigest(), verification)
             self.assertIn(f"/releases/download/v{VERSION}/{ARCHIVE_NAME}", verification)
             self.assertEqual((tools / "LICENSE.txt").read_bytes(), default_files()["LICENSE"][0])
+
+    def test_exact_copyright_and_upstream_license_bytes_for_all_packages(self):
+        upstream = (Path(__file__).resolve().parents[2] / "LICENSE").read_bytes()
+        files = default_files()
+        files["LICENSE"] = (upstream, 0o644)
+        archive, digest = write_archive(self.dir, files=files)
+        self.run_render(archive, digest)
+        for package_id in (*render_packages.COMPONENTS, render_packages.CONVENIENCE):
+            with self.subTest(package_id=package_id):
+                package = self.output / package_id
+                metadata = ET.parse(package / f"{package_id}.nuspec")
+                notices = metadata.findall("{*}metadata/{*}copyright")
+                self.assertEqual([notice.text for notice in notices], ["Copyright Cercloud"])
+                self.assertEqual((package / "tools" / "LICENSE.txt").read_bytes(), upstream)
 
     def test_install_and_uninstall_refuse_and_before_modify_only_warns(self):
         archive, digest = write_archive(self.dir)
@@ -175,14 +190,16 @@ class RenderPackagesTest(unittest.TestCase):
             self.assertNotIn(",", text.split("<tags>")[1].split("</tags>")[0])  # CPMR0014
             self.assertIn("<requireLicenseAcceptance>false</requireLicenseAcceptance>", text)  # CPMR0007
 
-    def test_convenience_package_depends_on_both_and_owns_nothing(self):
+    def test_convenience_package_depends_on_both_and_bundles_only_license(self):
         archive, digest = write_archive(self.dir)
         self.run_render(archive, digest)
         nuspec = (self.output / "cercano" / "cercano.nuspec").read_text()
         self.assertIn(f'<dependency id="cercano-agent" version="{VERSION}" />', nuspec)
         self.assertIn(f'<dependency id="cercano-cli" version="{VERSION}" />', nuspec)
-        self.assertIn("<files />", nuspec)
-        self.assertEqual([p.name for p in (self.output / "cercano").iterdir()], ["cercano.nuspec"])
+        self.assertIn('<file src="tools\\LICENSE.txt" target="tools" />', nuspec)
+        self.assertEqual(sorted(p.relative_to(self.output / "cercano").as_posix()
+                                for p in (self.output / "cercano").rglob("*") if p.is_file()),
+                         ["cercano.nuspec", "tools/LICENSE.txt"])
         # Components must not depend on each other: a remote-only CLI stays possible.
         for package_id in render_packages.COMPONENTS:
             text = (self.output / package_id / f"{package_id}.nuspec").read_text()
@@ -252,7 +269,10 @@ class RenderPackagesTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("choco"), "choco not on PATH")
     def test_choco_pack_produces_expected_nupkgs(self):
-        archive, digest = write_archive(self.dir)
+        upstream = (Path(__file__).resolve().parents[2] / "LICENSE").read_bytes()
+        files = default_files()
+        files["LICENSE"] = (upstream, 0o644)
+        archive, digest = write_archive(self.dir, files=files)
         self.run_render(archive, digest)
         out = self.dir / "nupkg"
         out.mkdir()
@@ -264,8 +284,12 @@ class RenderPackagesTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             with zipfile.ZipFile(out / f"{package_id}.{VERSION}.nupkg") as nupkg:
                 names = {n for n in nupkg.namelist() if n.startswith("tools/")}
+                metadata = ET.fromstring(nupkg.read(f"{package_id}.nuspec"))
+                self.assertEqual([n.text for n in metadata.findall("{*}metadata/{*}copyright")],
+                                 ["Copyright Cercloud"])
+                self.assertEqual(nupkg.read("tools/LICENSE.txt"), upstream)
             if package_id == "cercano":
-                self.assertEqual(names, set())
+                self.assertEqual(names, {"tools/LICENSE.txt"})
             else:
                 exe = render_packages.COMPONENTS[package_id]
                 self.assertIn(f"tools/{exe}", names)

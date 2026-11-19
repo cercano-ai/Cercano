@@ -6,6 +6,7 @@
     <packageSourceUrl>https://github.com/cercano-ai/Cercano/tree/main/release/chocolatey</packageSourceUrl>
     <title>Cercano CLI</title>
     <authors>Cercano contributors</authors>
+    <copyright>Copyright Cercloud</copyright>
     <projectUrl>https://github.com/cercano-ai/Cercano</projectUrl>
     <iconUrl>https://cdn.jsdelivr.net/gh/cercano-ai/Cercano@v@VERSION@/website/app/icon.svg</iconUrl>
     <licenseUrl>https://github.com/cercano-ai/Cercano/blob/v@VERSION@/LICENSE</licenseUrl>

@@ -6,6 +6,7 @@
     <packageSourceUrl>https://github.com/cercano-ai/Cercano/tree/main/release/chocolatey</packageSourceUrl>
     <title>Cercano</title>
     <authors>Cercano contributors</authors>
+    <copyright>Copyright Cercloud</copyright>
     <projectUrl>https://github.com/cercano-ai/Cercano</projectUrl>
     <iconUrl>https://cdn.jsdelivr.net/gh/cercano-ai/Cercano@v@VERSION@/website/app/icon.svg</iconUrl>
     <licenseUrl>https://github.com/cercano-ai/Cercano/blob/v@VERSION@/LICENSE</licenseUrl>
@@ -16,7 +17,7 @@
     <summary>Cercano, a free and open agent and harness: the agent and the terminal client.</summary>
     <description>Cercano is a free and open agent and harness: use frontier providers through a subscription sign-in or API key, run open-weight models, or combine them, with routing, delegation and context management built in.
 
-This package installs `cercano-agent` and `cercano-cli`; run `cercano-cli` to start. It owns no files itself.
+This package installs `cercano-agent` and `cercano-cli`; run `cercano-cli` to start. It bundles only the upstream license, with no executables or commands.
 
 - Close Cercano before upgrading or uninstalling: the packages refuse while any of their processes run, and never stop them for you.
 - The executables are not code signed, so Windows may show a SmartScreen warning.
@@ -27,5 +28,7 @@ This package installs `cercano-agent` and `cercano-cli`; run `cercano-cli` to st
       <dependency id="cercano-cli" version="@VERSION@" />
     </dependencies>
   </metadata>
-  <files />
+  <files>
+    <file src="tools\LICENSE.txt" target="tools" />
+  </files>
 </package>
