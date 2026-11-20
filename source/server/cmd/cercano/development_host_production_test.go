@@ -27,6 +27,21 @@ import (
 
 func developmentProductionFixture(t *testing.T) (developmentHostOptions, *devhostauth.Auth) {
 	t.Helper()
+	o := developmentProductionBindingFixture(t)
+	token := filepath.Join(filepath.Dir(o.State), "token")
+	if err := devhostauth.Create(token); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := devhostauth.Load("production-test", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o, auth
+}
+
+// Binding/admission tests do not need transport authentication or token files.
+func developmentProductionBindingFixture(t *testing.T) developmentHostOptions {
+	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -55,14 +70,6 @@ func developmentProductionFixture(t *testing.T) (developmentHostOptions, *devhos
 			t.Fatal(err)
 		}
 	}
-	token := filepath.Join(root, "token")
-	if err := devhostauth.Create(token); err != nil {
-		t.Fatal(err)
-	}
-	auth, err := devhostauth.Load("production-test", token)
-	if err != nil {
-		t.Fatal(err)
-	}
 	o := developmentHostOptions{State: state, Generation: generation, Host: "production-test", RuntimeRoot: resources, Identity: &proto.LifecycleIdentity{Build: "prepared-test", Host: "production-test", Store: filepath.Join(state, "conversations.db"), Contract: conversation.DevelopmentCoexistenceDeclaration().Contract, Schema: int32(conversation.DevelopmentCoexistenceDeclaration().SchemaVersion)}}
 	o.ConfigAuthority = filepath.Join(state, "config.yaml")
 	// Lower-level constructor fixture only: this does not exercise or attest
@@ -72,7 +79,7 @@ func developmentProductionFixture(t *testing.T) (developmentHostOptions, *devhos
 		paths:               productionAuthorityPaths{config: o.ConfigAuthority, conversations: o.Identity.Store},
 		generationPreflight: true, bounded: &binding,
 	}
-	return o, auth
+	return o
 }
 
 func TestDevelopmentProductionInjectedGraph(t *testing.T) {
@@ -310,7 +317,7 @@ func TestDevelopmentProductionCleanupShutdownError(t *testing.T) {
 
 // Constructor-level admission tests, not entrypoint acceptance.
 func TestDevelopmentValidatedStartupBinding(t *testing.T) {
-	o, auth := developmentProductionFixture(t)
+	o := developmentProductionBindingFixture(t)
 	if err := o.startupAdmission.validateDevelopmentBinding(o); err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +349,7 @@ func TestDevelopmentValidatedStartupBinding(t *testing.T) {
 			case "generation":
 				bad.Generation += "-other"
 			}
-			_, _, err := newProductionDevelopmentHostWithDependencies(context.Background(), bad, auth, developmentProductionDependencies{
+			_, _, err := newProductionDevelopmentHostWithDependencies(context.Background(), bad, nil, developmentProductionDependencies{
 				openSecrets: func() (secrets.Store, error) { t.Fatal("dependency entered before admission"); return nil, nil },
 			})
 			if err == nil || !strings.Contains(err.Error(), "binding required") {
