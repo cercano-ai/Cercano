@@ -3,17 +3,23 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // UpgradeOffline adds the generation declaration and ownership tables in place.
 // ALL legacy agents must already be stopped and remain stopped. This API cannot
 // fence historical/custom writers and does not reconcile or replay tasks.
+// Declared stores use only compiled-in version transitions, saving a private,
+// non-overwriting <path>.pre-upgrade-backup SQLite snapshot before changes.
+// Legacy adoption receives the same backup protection before any mutation.
 func UpgradeOffline(ctx context.Context, path string) error {
 	return upgradeOffline(ctx, path, false)
 }
 
-// UpgradeInterruptedOffline recovers accepted/running work only after callers
-// have stopped writers and saved a backup. It never replays tasks.
+// UpgradeInterruptedOffline interrupts accepted/running tasks only during unmarked
+// legacy adoption, after writers have stopped and a backup has been saved.
+// Declared version upgrades preserve task statuses and ownership, even when this
+// entry point is used. Neither branch replays tasks.
 func UpgradeInterruptedOffline(ctx context.Context, path string) error {
 	return upgradeOffline(ctx, path, true)
 }
@@ -35,21 +41,11 @@ func upgradeOffline(ctx context.Context, path string, interrupted bool) error {
 	}
 	d := DevelopmentCoexistenceDeclaration()
 	if marked {
-		var contract string
-		var version, count, uv int
-		if err = db.QueryRowContext(ctx, "SELECT count(*) FROM coexistence_metadata").Scan(&count); err != nil {
+		if err = upgradeDeclared(ctx, db, path, d, developmentMigrations); err != nil {
 			return err
 		}
-		if err = db.QueryRowContext(ctx, "SELECT contract,schema_version FROM coexistence_metadata WHERE singleton=1").Scan(&contract, &version); err != nil {
-			return err
-		}
-		if err = db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&uv); err != nil {
-			return err
-		}
-		if count != 1 || contract != d.Contract || version != d.SchemaVersion || uv != d.SchemaVersion {
-			return fmt.Errorf("offline upgrade refuses incompatible marker")
-		}
-		return nil // no ownership reset, including on repeated invocation
+		_, err = db.ExecContext(ctx, "COMMIT")
+		return err // no ownership reset or task reconciliation on declared stores
 	}
 	var uv int
 	if err = db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&uv); err != nil {
@@ -65,7 +61,16 @@ func upgradeOffline(ctx context.Context, path string, interrupted bool) error {
 	if !exists {
 		return fmt.Errorf("offline upgrade requires an existing conversation database")
 	}
+	if err = validateExistingExecutionBindings(db); err != nil {
+		return err
+	}
+	if err = backupOffline(ctx, path); err != nil {
+		return err
+	}
 	if err = initializeConversationSchema(db); err != nil {
+		return err
+	}
+	if _, err = db.ExecContext(ctx, strings.Replace(executionBindingsSchema, "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)); err != nil {
 		return err
 	}
 	s := &sqliteStore{db: db}

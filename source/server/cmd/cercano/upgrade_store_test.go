@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"cercano/source/server/internal/conversation"
 	"context"
+	"database/sql"
 	"errors"
 	"net/netip"
 	"os"
@@ -143,6 +145,102 @@ func TestAutomaticUpgradeStopThenCheck(t *testing.T) {
 			matches, _ := filepath.Glob(db + "*")
 			if len(matches) != 0 {
 				t.Fatal(matches)
+			}
+		})
+	}
+}
+
+// Exercises the actual CLI upgrade and startup admission without live discovery
+// or process shutdown. The fixture does not call current schema initializers.
+func TestProductionV2CLIStartupRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	for _, kind := range []string{"production", "fixture", "unknown"} {
+		t.Run(kind, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "history.db")
+			ddl, err := os.ReadFile("../../internal/conversation/testdata/production-v2.sql")
+			if err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.Exec(string(ddl)); err != nil {
+				t.Fatal(err)
+			}
+			if kind != "production" {
+				contract := "unknown-contract"
+				if kind == "fixture" {
+					contract = conversation.CurrentCoexistenceDeclaration().Contract
+				}
+				if _, err = db.Exec("UPDATE coexistence_metadata SET contract=?", contract); err != nil {
+					t.Fatal(err)
+				}
+			}
+			db.Close()
+			before, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			declaration := conversation.DevelopmentCoexistenceDeclaration()
+			if err := conversation.PreflightCoexistence(ctx, p, declaration); err == nil {
+				t.Fatal("v2 admitted before upgrade")
+			}
+			if store, err := conversation.OpenCoexistence(ctx, p, declaration); err == nil {
+				store.Close()
+				t.Fatal("v2 opened before upgrade")
+			}
+			after, err := os.ReadFile(p)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatal("startup refusal changed database", err)
+			}
+			var out bytes.Buffer
+			err = runUpgradeStoreChecked(ctx, []string{"--database", p, "--all-legacy-agents-stopped", "--interrupt-tasks"}, &out, func(context.Context) error { return nil })
+			if kind != "production" {
+				if err == nil {
+					t.Fatal("unsupported marker upgraded")
+				}
+				after, e := os.ReadFile(p)
+				if e != nil || !bytes.Equal(before, after) {
+					t.Fatal("unsupported upgrade changed database", e)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), "declared version upgrades preserve task statuses and ownership") {
+				t.Fatal(out.String())
+			}
+			if err := conversation.PreflightCoexistence(ctx, p, declaration); err != nil {
+				t.Fatal(err)
+			}
+			store, err := conversation.OpenCoexistence(ctx, p, declaration)
+			if err != nil {
+				t.Fatalf("v3 startup open: %v", err)
+			}
+			store.Close()
+			db, err = sql.Open("sqlite", p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			var status, owner, epoch, contract string
+			var version, uv, n int
+			if err := db.QueryRow("SELECT status FROM delegated_tasks WHERE id='task'").Scan(&status); err != nil || status != "running" {
+				t.Fatalf("task %q %v", status, err)
+			}
+			if err := db.QueryRow("SELECT owner,epoch FROM conversation_ownership WHERE conversation_id='legacy'").Scan(&owner, &epoch); err != nil || owner != "old-owner" || epoch != "epoch-7" {
+				t.Fatalf("ownership %q %q %v", owner, epoch, err)
+			}
+			if err := db.QueryRow("SELECT contract,schema_version FROM coexistence_metadata").Scan(&contract, &version); err != nil || contract != declaration.Contract || version != declaration.SchemaVersion {
+				t.Fatalf("marker %q %d %v", contract, version, err)
+			}
+			if err := db.QueryRow("PRAGMA user_version").Scan(&uv); err != nil || uv != version {
+				t.Fatalf("user_version %d %v", uv, err)
+			}
+			if err := db.QueryRow("SELECT count(*) FROM execution_bindings").Scan(&n); err != nil || n != 0 {
+				t.Fatalf("bindings %d %v", n, err)
 			}
 		})
 	}

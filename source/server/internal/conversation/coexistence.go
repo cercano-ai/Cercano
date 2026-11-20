@@ -41,7 +41,7 @@ func PrepareCoexistence(ctx context.Context, path string) error {
 // contract. It shares the ownership schema with fixtures but cannot be mistaken
 // for a fixture declaration. It does not authorize adopting legacy databases.
 func DevelopmentCoexistenceDeclaration() CoexistenceDeclaration {
-	return CoexistenceDeclaration{"cercano-development-owned-v2", 2}
+	return CoexistenceDeclaration{"cercano-development-bindings-v3", 3}
 }
 
 // PrepareDevelopmentStore exclusively creates a new development database.
@@ -83,7 +83,8 @@ func prepareCoexistence(ctx context.Context, path string, d CoexistenceDeclarati
 	if err := validateCoexistencePrivacy(path); err != nil {
 		return err
 	}
-	s, err := Open(uri)
+	// Fixture contracts retain their historical schema independently.
+	s, err := openConversationStore(uri, d == DevelopmentCoexistenceDeclaration())
 	if err != nil {
 		return err
 	}
