@@ -143,7 +143,7 @@ enforced by `test_render_packages.py` where testable:
 From the repository root (Windows; the choco and guard tests skip elsewhere):
 
 ```sh
-python -m unittest discover -s release/chocolatey -p 'test_render*.py'
+python -m unittest discover -s release/chocolatey -p 'test_*.py'
 powershell -NoProfile -ExecutionPolicy Bypass -File release/chocolatey/test_guard.ps1
 ```
 
@@ -157,4 +157,51 @@ python release/chocolatey/render_packages.py --version 1.2.3 \
   --archive dist/cercano-1.2.3-windows-x64.zip \
   --sha256 "$TRUSTED_SHA256" --output dist/choco
 choco pack dist/choco/cercano-agent/cercano-agent.nuspec --out dist/choco
+```
+
+## Release CI review packages (not submission)
+
+The Windows job in `.github/workflows/release-macos.yml` now wires the existing
+renderer and native pack/guard tests into release CI. Previously it uploaded
+only the Windows ZIP and its checksum; the renderer, optional local pack test,
+and lifecycle tooling existed but release CI did not create Chocolatey packages.
+
+After the tag/HEAD gate, build, archive smoke test and native helper checks,
+`pack_packages.py` consumes **that run's exact ZIP path and recorded SHA-256**
+from the build step outputs. The renderer verifies the digest, runtime inventory,
+layout and PE headers; no release download or rebuild supplies package payloads.
+The wrapper requires `choco`, packs all three nuspecs, then opens all three
+`.nupkg` files and checks rendered metadata (including copyright), dependency
+IDs/minimum versions, exact tools manifest and every payload byte. License bytes
+must also match the checkout's upstream `LICENSE`; `VERIFICATION.txt` and scripts
+must match the verified rendered sources. Unexpected package members fail closed.
+Only after every inspection passes are per-package SHA-256 sidecars emitted.
+Existing output directories are refused and failed runs leave no partial output.
+
+The separate `cercano-<version>-chocolatey` Actions review artifact contains the
+three `.nupkg` files and three `.nupkg.sha256` files (14-day retention). It is
+produced with either `publish=false` or `publish=true`, but is **not** part of
+the GitHub Release asset upload and is never pushed/submitted to Chocolatey.
+No new secrets, signing, install/upgrade operations or publishing access are used.
+The release's other-platform and ZIP publication behavior is unchanged.
+
+The job requires both `choco` and Windows PowerShell before running the isolated
+Python renderer/packing tests and `test_guard.ps1` (throwaway root and fixture
+processes). Native test prerequisites cannot silently skip on CI. The private-root
+lifecycle script remains a separate manual qualification: it needs a two-version
+0.0.1/0.0.2 local feed, installs/upgrades packages and launches real agents; it is
+not run against the one-version release set and is not claimed as release CI coverage.
+
+**Verification status:** this CI wiring has been tested structurally on macOS,
+with portable renderer tests and simulated pack-output inspection tests. The
+native `choco pack` and Windows PowerShell guard tests skip on macOS. The updated
+Windows CI job has **not yet been executed**; native packing success, package
+approval and default-source availability are not established by this change.
+
+Local equivalent (Windows, from a fresh output directory):
+
+```sh
+python release/chocolatey/pack_packages.py --version 1.2.3 \
+  --archive dist/cercano-1.2.3-windows-x64.zip \
+  --sha256 "$TRUSTED_SHA256" --output dist/chocolatey
 ```

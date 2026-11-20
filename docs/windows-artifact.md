@@ -52,6 +52,13 @@ The `build-windows` job of [release-macos.yml](../.github/workflows/release-maco
 - runs the Windows-native, hermetic helper tests
   (`localruntime/llamaserver` registry/PATH unit tests);
 - verifies the archive layout and integrity before upload;
+- renders from that same ZIP and recorded checksum, uses native `choco pack`
+  for `cercano-agent`, `cercano-cli` and `cercano`, inspects packed metadata,
+  licenses, payload and dependencies, and uploads packages/checksums as a
+  **separate Actions review artifact** even with `publish=false` (never
+  Chocolatey submission or GitHub Release package assets). This new wiring has
+  portable/structural macOS verification only; the updated Windows CI job has
+  **not yet been executed**. See the [Chocolatey CI details](../release/chocolatey/README.md#release-ci-review-packages-not-submission);
 - publishes with `publish=true` (the default), after **all three**
   platform verification gates (macOS, Windows, Linux) pass, and refuses to replace any already
   published asset (macOS, Windows or Linux).

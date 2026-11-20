@@ -282,6 +282,10 @@ class RenderPackagesTest(unittest.TestCase):
                                      "--limit-output", "--no-progress"],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            # Apply the release inspector to real native choco output too.
+            import pack_packages
+            pack_packages.inspect_package(out / f"{package_id}.{VERSION}.nupkg",
+                                          self.output, package_id, VERSION)
             with zipfile.ZipFile(out / f"{package_id}.{VERSION}.nupkg") as nupkg:
                 names = {n for n in nupkg.namelist() if n.startswith("tools/")}
                 metadata = ET.fromstring(nupkg.read(f"{package_id}.nuspec"))

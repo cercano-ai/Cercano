@@ -490,6 +490,36 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("test-windows-release-build.py", run)
         self.assertIn("test-release-workflow.py", run)
 
+    def test_chocolatey_release_pack_is_mandatory_and_uses_this_build(self):
+        steps = self.jobs["build-windows"]["steps"]
+        pack = self.step("build-windows", "Pack and inspect Chocolatey")
+        self.assertEqual(pack["shell"], "bash")
+        self.assertNotIn("if", pack)
+        self.assertNotIn("continue-on-error", pack)
+        self.assertEqual(pack["env"]["ARCHIVE"], "${{ steps.build.outputs.archive }}")
+        self.assertEqual(pack["env"]["SHA256"], "${{ steps.build.outputs.sha256 }}")
+        for text in ('set -euo pipefail', 'pack_packages.py', '--archive "$ARCHIVE"',
+                     '--sha256 "$SHA256"', '--version "$VERSION"'):
+            self.assertIn(text, pack["run"])
+        gate = self.step("build-windows", "Chocolatey isolated tests")
+        self.assertNotIn("if", gate)
+        self.assertIn("command -v choco", gate["run"])
+        self.assertIn("command -v powershell", gate["run"])
+        self.assertIn("unittest discover -s release/chocolatey", gate["run"])
+        upload = self.step("build-windows", "Upload Chocolatey packages")
+        self.assertNotIn("if", upload)
+        self.assertEqual(upload["uses"], "actions/upload-artifact@v4")
+        self.assertEqual(upload["with"]["if-no-files-found"], "error")
+        self.assertIn("dist/chocolatey/packages/*.nupkg", upload["with"]["path"])
+        self.assertIn("dist/chocolatey/packages/*.nupkg.sha256", upload["with"]["path"])
+        smoke = self.step("build-windows", "smoke test")
+        self.assertLess(steps.index(gate), steps.index(pack))
+        self.assertLess(steps.index(smoke), steps.index(pack))
+        self.assertLess(steps.index(pack), steps.index(upload))
+        text = json.dumps(self.jobs["build-windows"]).lower()
+        for forbidden in ("choco push", "choco install", "choco upgrade", "--api-key"):
+            self.assertNotIn(forbidden, text)
+
     def test_build_windows_runs_native_helper_tests(self):
         """Available Windows-native tests must run in the job."""
         run = self.step("build-windows", "native helper tests")["run"]
