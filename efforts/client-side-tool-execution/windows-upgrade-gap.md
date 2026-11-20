@@ -1,4 +1,6 @@
-# Windows upgrade compatibility gap
+# Windows upgrade compatibility gap — historical investigation
+
+**Current status (2026-11-20):** the backup-publication gap and bounded manual CLI prerequisite are resolved in `d73b699e`, `eeef482f` and `69c3d877`. Native Windows ARM64 selected tests passed with two existing skips. Manual support is limited to absent/empty retained-host inventory and local NTFS/private-path safeguards; retained/unknown entries, uncertain processes, automatic shutdown and development lifecycle still refuse. No power-loss qualification is claimed. See [durable evidence](windows-upgrade-evidence.md). The original investigation below is retained as history, not a current request for VM access or a remaining blanket Windows blocker.
 
 The macOS-tested upgrade currently refuses backup-requiring migrations on Windows. This is a known blocker, not completed cross-platform support. No native Windows runner was available to the implementation/review tasks in this session.
 
