@@ -17,6 +17,7 @@ folder path, so a feature's folder never moves when it ships. Reorg history is i
 - [Enterprise connection](enterprise-connection.md), [managed routing](enterprise-managed-routing.md),
   and [shared skills](enterprise-shared-skills.md).
 - [Contributor build/debug guide](agent/self-dev.md).
+- [Gated Chocolatey CI publishing](chocolatey-release.md) — release operators, approvals and recovery.
 - [Reference, distribution and skill audit](audit-reference.md).
 - [Publicity freshness audit and coverage limitations](publicity-freshness-audit.md).
 

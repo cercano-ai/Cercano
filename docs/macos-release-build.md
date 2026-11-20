@@ -109,7 +109,8 @@ validates the version before deriving an explicit `refs/tags/v<version>`
 checkout, then verifies that HEAD is that tag's commit. Logs identify both the
 source commit and the workflow ref/commit. All build scripts, tests, workflow
 fixtures read by those tests, and publication/tap tooling come from the tag;
-only the executing workflow comes from the selected ref. Thus the old source's
+the executing workflow and separately pinned Chocolatey packaging/publishing
+tools come from the selected workflow revision. Thus the old source's
 runner assertions still read its own matching workflow fixture. Never move the
 tag, bypass validation, or set `CERCANO_ALLOW_UNTAGGED` for recovery. Protected
 environment approval is still required for signing, even with `publish=false`.
@@ -117,8 +118,9 @@ environment approval is still required for signing, even with `publish=false`.
 `.github/workflows/release-macos.yml` is a **single-run release**. Dispatch it
 from a trusted, reviewed workflow ref, with the stable version without `v`.
 The release source is always the exact commit tagged `v<version>`.
-Leave **publish enabled (the default)** for a release. No prior rehearsal run
-or second dispatch is required.
+Explicitly enable **publish** for a release (default **false**). This also opts
+into protected Chocolatey submission; see the [Chocolatey operator guide](chocolatey-release.md).
+No prior rehearsal run or second dispatch is required.
 
 1. The secret-free Windows and Linux jobs build and smoke-test their archives.
 2. Once both succeed, approve the protected `release` environment **once**.
@@ -130,13 +132,14 @@ or second dispatch is required.
    artifacts, checks their SHA-256 digests against the recorded build outputs,
    refuses existing release assets, and publishes those exact bytes. It does
    not rebuild. The tap update follows successful publication, using the same
-   archive digest and environment-protected tap token. No further approval is
-   requested in this normal path.
+   archive digest and environment-protected tap token. The separate Chocolatey
+   publisher then downloads this run's inspected packages;
+   its own `release` environment gate is subject to configured protection rules.
 
 **Optional dry run:** set `publish=false` (uncheck publish). All builds,
 signing, notarization, verification and artifact retention still run, but no
-release or tap is written. This is not a prerequisite for a release. A later
-new dispatch is a new build, not promotion of a previous dry run's artifacts.
+release, tap or Chocolatey submission is written. This is not a prerequisite
+for a release. A later new dispatch is a new build, not promotion of a previous dry run's artifacts.
 
 **Manual-only:** no push, tag or pull-request trigger exists. The selected
 workflow ref may differ from the tagged source; validation rejects any source

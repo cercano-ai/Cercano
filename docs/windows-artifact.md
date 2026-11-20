@@ -16,7 +16,9 @@ not Chocolatey approval or complete runtime acceptance.
 ## What is produced
 
 `cercano-<version>-windows-x64.zip` and its `.sha256` checksum, attached to the
-GitHub release when `publish=true` (the default; `false` is an optional dry run).
+GitHub release only when `publish=true` (default **false**).
+For protected Chocolatey submission, inputs and recovery, see the
+[gated Chocolatey CI publishing guide](chocolatey-release.md).
 
 ```
 cercano-<version>-windows-x64/
@@ -56,10 +58,11 @@ The `build-windows` job of [release-macos.yml](../.github/workflows/release-maco
   for `cercano-agent`, `cercano-cli` and `cercano`, inspects packed metadata,
   licenses, payload and dependencies, and uploads packages/checksums as a
   **separate Actions review artifact** even with `publish=false` (never
-  Chocolatey submission or GitHub Release package assets). This new wiring has
+  GitHub Release package assets). Submission is a separate protected job,
+  enabled only with `publish=true`. This new wiring has
   portable/structural macOS verification only; the updated Windows CI job has
-  **not yet been executed**. See the [Chocolatey CI details](../release/chocolatey/README.md#release-ci-review-packages-not-submission);
-- publishes with `publish=true` (the default), after **all three**
+  **not yet been executed**. See the [Chocolatey CI details](../release/chocolatey/README.md#release-ci-packing-and-inspection);
+- publishes with `publish=true` (default **false**), after **all three**
   platform verification gates (macOS, Windows, Linux) pass, and refuses to replace any already
   published asset (macOS, Windows or Linux).
 
@@ -85,7 +88,7 @@ host coverage is part of the support checklist below.
   Windows signing at all — see the checklist.
 - The workflow remains manual-dispatch only; there is no push/tag/PR trigger,
   so no untrusted code can start it.
-- Publication defaults to `publish=true` in the same run, guarded by
+- Publication is opt-in with `publish=true` (default **false**), guarded by
   the protected `release` environment, and it never overwrites an existing
   asset.
 - The successful, immutable `v0.20.0` macOS release is untouched by this

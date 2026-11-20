@@ -1,5 +1,10 @@
 # Chocolatey packages
 
+For operator setup, exact workflow inputs, dispatch templates and failure recovery,
+see the [gated Chocolatey CI publishing guide](../../docs/chocolatey-release.md).
+Package **0.27.1** containing application **0.27.0** has already been submitted
+manually; do not use CI to duplicate that submission. Approval is separate.
+
 All three v0.27.0 packages were submitted successfully; this is not approval.
 Last known: agent/CLI Pending automated review, convenience package waiting on
 dependencies. Public package-page rechecks on 2026-11-15 returned HTTP 403, so
