@@ -391,6 +391,10 @@ type sqliteStore struct {
 // Open returns a Store backed by SQLite at the given path. ":memory:" works
 // for tests. Schema is applied on every Open (CREATE IF NOT EXISTS).
 func Open(path string) (Store, error) {
+	return openConversationStore(path, true)
+}
+
+func openConversationStore(path string, bindings bool) (Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite at %s: %w", path, err)
@@ -404,6 +408,10 @@ func Open(path string) (Store, error) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("marked store requires OpenCoexistence with explicit ownership; ordinary Open is forbidden")
+	}
+	if err := validateExistingExecutionBindings(db); err != nil {
+		db.Close()
+		return nil, err
 	}
 	// Pin the store to a single physical SQLite connection.
 	//
@@ -437,7 +445,13 @@ func Open(path string) (Store, error) {
 		err = fmt.Errorf("marked store requires OpenCoexistence with explicit ownership")
 	}
 	if err == nil {
+		err = validateExistingExecutionBindings(db)
+	}
+	if err == nil {
 		err = initializeConversationSchema(db)
+		if err == nil && bindings {
+			_, err = db.Exec(strings.Replace(executionBindingsSchema, "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1))
+		}
 	}
 	if err == nil {
 		_, err = db.Exec("COMMIT")

@@ -1,23 +1,37 @@
-# Persistence compatibility gate
+# Offline database upgrade
 
-Inspection 2026-11-18; no schema or user database changes performed.
+## Approved scope
 
-Bounded audit task `task_6b9e89345e363277e4f1e82172ddeebc` reports:
-- Ordinary `conversation.Open` initializes unmarked stores but refuses `coexistence_metadata` stores, rechecking inside BEGIN IMMEDIATE (`store.go:371–497`).
-- `PreflightCoexistence` / `OpenCoexistence` require exact declarations and do not migrate (`coexistence.go:115–180,266–295`). Current development and fixture declarations use schema 2; their contracts differ.
-- Conversation `project_dir` / `dev_work_dir` are not execution identities; tasks separately persist `work_dir`. Ownership host/epoch governs writer authority, not client executor identity.
-- Existing declared stores cannot gain binding columns by merely editing startup initialization.
+On 2026-11-19 the user approved building an upgrade for existing chat databases. Development and tests use temporary databases only. No actual user database has been migrated. This is a persistence prerequisite, not completion of client-side execution.
 
-Directly verified `internal/conversation/offline_upgrade.go`: `UpgradeOffline` requires all legacy agents stopped. Marked databases must already match the current development declaration and user_version, then return without initialization. Unmarked stores require user_version 0 and an existing conversations table, then initialize under a transaction. There is no current declared-version-to-version migrator. `UpgradeInterruptedOffline` also reconciles tasks, never replays them, and documents a saved-backup requirement.
+## Implemented storage change
 
-Before persistence implementation, select the rollout policy explicitly: support an offline versioned upgrade preserving existing host-bound conversations, or initially allow client binding only in newly prepared compatible stores while old stores retain host-only support. The former best matches eventual support for existing installations but requires migration implementation, backup/stopped-writer requirements and compatibility tests. Do not silently bump schema or repurpose existing host ownership as client authority.
+Production declaration advances from `cercano-development-owned-v2` / schema 2 to `cercano-development-bindings-v3` / schema 3. A compiled-in offline migration adds `execution_bindings` and updates the declaration and SQLite `user_version` in one transaction.
 
-Relevant tests identified by audit: TestOpenCoexistenceDoesNotInitializeOrMigrate, TestCoexistenceRefusalDoesNotMutate, TestOfflineUpgradePreservesAndRepeats, TestOfflineUpgradeRollsBack, TestOfflineUpgradeInterruptsWithoutReplay, TestOwnershipDeclarationMismatchFailsClosed. These specific conversation tests have not been run in this continuation.
+The new table stores conversation, host/client location, executor ID, workspace ID/root, and positive ownership generation. Constraints enforce structure, not authorization. Roots are opaque executor-local paths. No binding write API or execution routing is added.
 
-## Baseline verification in this continuation
+**Existing conversations receive no binding rows and retain current host behavior.** No identities are inferred from `project_dir`, `dev_work_dir`, or delegated task directories. Existing history, task statuses, and host ownership remain unchanged. The fixture declaration `cercano-dev-fixture-owned-v2` remains separate and unchanged.
 
-All PASS:
-- source/server: `go test ./internal/context ./internal/worker ./internal/dispatch ./internal/server -count=1 -timeout=120s`
-- source/clients/cli: `go test ./internal/ui -count=1 -timeout=120s`
+New production stores and ordinary unmarked stores get the table. Existing declared stores still refuse mismatched versions at startup; startup never silently upgrades them. Unknown/inconsistent declarations and incompatible same-name binding tables are refused. Current-version offline calls are idempotent.
 
-No client execution acceptance is implied by these host baseline tests.
+## Safety contract
+
+All writers must be stopped and remain stopped through backup, migration, and compatible restart. CLI process checks and writer admission are safeguards, not a guarantee against renamed/custom or subsequently launched writers.
+
+Before either declared-version migration or unmarked adoption mutates the source, the public API creates `<database>.pre-upgrade-backup` exclusively with private permissions. SQLite `VACUUM INTO` captures committed data, including data still in the write-ahead log. File and directory durability barriers precede migration. Existing backups are never overwritten; backup errors refuse mutation. Migration errors roll back the schema and both version markers together.
+
+A failed backup can leave an incomplete reserved file. Inspect and archive/remove it explicitly before retrying; do not assume it is usable. Upgrading an already-current store needs no new backup. Declared upgrades preserve task statuses even with `--interrupt-tasks`; that option reconciles unfinished work only during unmarked legacy adoption. CLI output documents this distinction.
+
+**Platform limitation:** durability and migration tests have run on macOS. Windows currently refuses migrations requiring a backup because a validated directory-publication durability implementation is missing; this is an unresolved compatibility blocker, not Windows support. No Linux runtime qualification has been performed in this slice.
+
+## Verification
+
+Main-agent run from `source/server`, 2026-11-19, PASS:
+
+```
+go test ./internal/conversation ./cmd/cercano ./internal/brewrestart ./internal/server -count=1 -timeout=120s
+```
+
+Tests include a frozen production-v2 DDL fixture, production public-API preservation checks, CLI/startup refusal→upgrade→admission round trip, rollback, idempotence, unknown/fixture declaration refusal, schema collision refusal, backup non-overwrite, injected file/directory-sync failures, and a live committed-WAL backup. The frozen DDL was captured from the existing v2 initializer, not an external production database archive.
+
+Earlier baselines passed for server context/worker/dispatch/server and CLI UI packages. These results do not establish client execution acceptance. Broader operation inventory, transport, routing, and client executor remain unfinished.

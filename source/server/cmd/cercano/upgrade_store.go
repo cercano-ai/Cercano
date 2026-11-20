@@ -73,7 +73,7 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 	db := fs.String("database", "", "existing conversation database (absolute path)")
 	checkOnly := fs.Bool("check-only", false, "check known processes without opening the store")
 	stopConfig := fs.String("stop-hosts-config", "", "after consent, stop verified DB-writing hosts (not descendants)")
-	interrupted := fs.Bool("interrupt-tasks", false, "recover interrupted tasks after verified writers exit")
+	interrupted := fs.Bool("interrupt-tasks", false, "interrupt unfinished tasks only on unmarked legacy adoption; declared upgrades preserve statuses")
 	stopped := fs.Bool("all-legacy-agents-stopped", false, "confirm ALL legacy Cercano agents are stopped and will remain stopped")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -125,7 +125,7 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 		return err
 	}
 	if *interrupted {
-		fmt.Fprintln(out, "Store upgraded. History and task rows preserved; unfinished tasks interrupted without replay. Never restart legacy writers against this store.")
+		fmt.Fprintln(out, "Store upgraded (or already compatible). History and task rows preserved. Unmarked legacy adoption interrupts unfinished tasks; declared version upgrades preserve task statuses and ownership. No replay. Never restart legacy writers against this store.")
 	} else {
 		fmt.Fprintln(out, "Store upgraded (or already compatible). History and task statuses preserved; no reconciliation or replay. Compatible ordinary launches now need no repeated upgrade. Never restart legacy writers against this store.")
 	}
