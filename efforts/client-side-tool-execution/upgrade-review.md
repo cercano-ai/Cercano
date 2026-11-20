@@ -1,5 +1,7 @@
 # Offline upgrade review (2026-11-19)
 
+Historical initial Darwin review below. The blanket Windows refusal described here was subsequently resolved for bounded manual offline upgrades by `d73b699e`, `eeef482f` and `69c3d877`. See [current Windows evidence and limits](windows-upgrade-evidence.md); no physical power-loss qualification or broader client execution completion is claimed.
+
 Independent read-only review of initial mechanism (task task_213aa59af348299a826508808ea8b87d), before production transition work:
 
 - Blocker: backup file Sync does not make the newly created directory entry durable. Flush parent directory with suitable platform handling before source migration SQL. Fail before mutation on flush failure.
