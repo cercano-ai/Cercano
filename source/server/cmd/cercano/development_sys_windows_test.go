@@ -14,7 +14,7 @@ import (
 // These tests must run on a Windows host; cross-compilation is not acceptance.
 func TestWindowsDevelopmentRefusalBeforeSideEffects(t *testing.T) {
 	prepareConfigFixture(t)
-	for _, name := range []string{"prepare", "launch", "receipt", "host", "upgrade", "instance"} {
+	for _, name := range []string{"prepare", "launch", "receipt", "host", "instance"} {
 		t.Run(name, func(t *testing.T) {
 			root, err := filepath.EvalSymlinks(t.TempDir())
 			if err != nil {
@@ -34,13 +34,6 @@ func TestWindowsDevelopmentRefusalBeforeSideEffects(t *testing.T) {
 				err = runDevelopmentLaunchReceipt(ctx, []string{"--operation-file", sentinel, "--action", "abort"}, io.Discard)
 			case "host":
 				err = runDevelopmentHostWithFactory(ctx, nil, io.Discard, nil)
-			case "upgrade":
-				var release func()
-				release, err = developmentUpgradeGuardWith(ctx, filepath.Join(root, "conversations.db"), func(context.Context, string) error { t.Fatal("process probe before refusal"); return nil })
-				if release != nil {
-					release()
-					t.Fatal("returned release on unsupported platform")
-				}
 			case "instance":
 				var f *os.File
 				f, err = developmentInstanceLock(filepath.Join(root, "instance"))

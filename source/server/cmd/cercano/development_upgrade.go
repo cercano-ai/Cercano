@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"cercano/source/server/internal/brewrestart"
 )
 
 // Migration must account for every retained instance, not just current discovery.
@@ -15,41 +13,33 @@ import (
 // still-live development host blocks offline upgrade; upgrade-wide shutdown is
 // not authority to discard its record or assume a startup intent never spawned.
 func developmentUpgradeGuard(ctx context.Context, database string) (func(), error) {
-	return developmentUpgradeGuardWith(ctx, database, brewrestart.VerifyHostAbsent)
+	return developmentUpgradeGuardWith(ctx, database, upgradeRecordedHostAbsent)
 }
 func developmentUpgradeGuardWith(ctx context.Context, database string, absent func(context.Context, string) error) (func(), error) {
-	if err := devHostSupported(); err != nil {
-		return nil, err
-	}
 	state := filepath.Dir(database)
 	hosts := filepath.Join(state, "hosts")
-	lock, err := os.OpenFile(filepath.Join(state, "current-target.lock"), os.O_CREATE|os.O_RDWR|devOpenNoFollow, 0600)
+	release, read, list, err := openUpgradeInventory(ctx, state)
 	if err != nil {
 		return nil, err
 	}
-	if err = devFlock(lock, devLockExclusive); err != nil {
-		lock.Close()
-		return nil, err
-	}
-	release := func() { devFlock(lock, devLockUnlock); lock.Close() }
 	fail := func(err error) (func(), error) {
 		release()
 		return nil, fmt.Errorf("offline upgrade blocked by development host inventory: %w", err)
 	}
 	// Lock even before the first hosts directory exists: otherwise an initial
 	// development launch could race an apparently empty migration inventory.
-	if _, err := os.Lstat(hosts); os.IsNotExist(err) {
+	entries, err := list(hosts)
+	if os.IsNotExist(err) {
 		return release, nil
 	}
-	if err := launchPrivateDir(hosts); err != nil {
-		return fail(err)
-	}
-	entries, err := os.ReadDir(hosts)
 	if err != nil {
 		return fail(err)
 	}
 	sources := map[string]string{}
 	for _, entry := range entries {
+		if err := validateUpgradeInventoryEntry(entry); err != nil {
+			return fail(err)
+		}
 		name := entry.Name()
 		suffix := ""
 		if strings.HasSuffix(name, ".starting") {
@@ -63,7 +53,7 @@ func developmentUpgradeGuardWith(ctx context.Context, database string, absent fu
 		host := ""
 		if suffix == ".starting" {
 			var intent map[string]string
-			if err := launchRead(base+suffix, &intent); err != nil {
+			if err := read(base+suffix, &intent); err != nil {
 				return fail(err)
 			}
 			if !developmentInstanceMatches(base, intent) {
@@ -72,7 +62,7 @@ func developmentUpgradeGuardWith(ctx context.Context, database string, absent fu
 			host = intent["host"]
 		} else {
 			var record launchSelection
-			if err := launchRead(base+suffix, &record); err != nil {
+			if err := read(base+suffix, &record); err != nil {
 				return fail(err)
 			}
 			host = record.Identity.GetHost()

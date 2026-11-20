@@ -7,13 +7,12 @@ import (
 	"io"
 	"net/netip"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"cercano/source/server/internal/brewrestart"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/pkg/config"
 )
@@ -22,27 +21,6 @@ import (
 // cercano/cercano-agent executable names. It is not a writer fence. Renamed,
 // custom, other-user, or subsequently launched processes are not covered.
 // Conservatively refuse known processes even when their compatibility is unknown.
-func knownUpgradeAgents(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-U", strconv.Itoa(os.Getuid()), "-o", "pid=,comm=").Output()
-	if err != nil {
-		return fmt.Errorf("cannot check known Cercano agents: %w", err)
-	}
-	var filtered strings.Builder
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) > 0 {
-			pid, err := strconv.Atoi(fields[0])
-			if err == nil && pid > 0 && brewrestart.IsUpgradeUnidentifiedOrNonWriter(pid) {
-				continue
-			}
-		}
-		filtered.WriteString(line + "\n")
-	}
-	return refuseKnownUpgradeAgents(filtered.String(), os.Getpid())
-}
-
 func refuseKnownUpgradeAgents(snapshot string, self int) error {
 	for _, line := range strings.Split(snapshot, "\n") {
 		f := strings.Fields(line)
@@ -87,6 +65,9 @@ func runUpgradeStoreWithGuard(ctx context.Context, args []string, out io.Writer,
 	}
 	if fs.NArg() != 0 || !*stopped || !filepath.IsAbs(*db) {
 		return fmt.Errorf("usage: cercano upgrade-store --database /absolute/path/conversations.db --all-legacy-agents-stopped; prerequisite: stop ALL legacy Cercano agents")
+	}
+	if runtime.GOOS == "windows" && *stopConfig != "" {
+		return fmt.Errorf("Windows upgrade-store does not support --stop-hosts-config; stop writers manually before retrying")
 	}
 	// Include all generation instances and intent-only attempts before any stop,
 	// backup authorization, or database open. Discovery alone is not inventory.

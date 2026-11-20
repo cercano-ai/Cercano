@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -133,7 +134,11 @@ func TestAutomaticUpgradeStopThenCheck(t *testing.T) {
 				}
 				return nil
 			})
-			if tc.want == "" {
+			if runtime.GOOS == "windows" {
+				if err == nil || !strings.Contains(err.Error(), "Windows upgrade-store does not support --stop-hosts-config") || len(calls) != 0 {
+					t.Fatalf("expected platform refusal without stop/check: err=%v calls=%v", err, calls)
+				}
+			} else if tc.want == "" {
 				if err != nil || strings.Join(calls, ",") != "stop,check" {
 					t.Fatalf("%v %v", err, calls)
 				}
@@ -145,7 +150,7 @@ func TestAutomaticUpgradeStopThenCheck(t *testing.T) {
 					t.Fatal(calls)
 				}
 			}
-			if tc.stopErr != "" && strings.Join(calls, ",") != "stop" {
+			if runtime.GOOS != "windows" && tc.stopErr != "" && strings.Join(calls, ",") != "stop" {
 				t.Fatal(calls)
 			}
 			if _, err := os.Stat(db); !os.IsNotExist(err) {
@@ -276,7 +281,13 @@ func TestUpgradeOrchestrationGuardRefusalBeforeStopCheckOrOpen(t *testing.T) {
 		}
 		return nil, refused
 	})
-	if !errors.Is(err, refused) || calls != 1 {
+	// Windows rejects host stopping before inventory/guard acquisition; Unix
+	// must retain guard precedence over config loading and host stopping.
+	if runtime.GOOS == "windows" {
+		if err == nil || !strings.Contains(err.Error(), "Windows upgrade-store does not support --stop-hosts-config") || calls != 0 {
+			t.Fatalf("expected platform refusal before guard: err=%v guard calls=%d", err, calls)
+		}
+	} else if !errors.Is(err, refused) || calls != 1 {
 		t.Fatalf("err=%v guard calls=%d", err, calls)
 	}
 	entries, err := os.ReadDir(dir)
@@ -332,6 +343,14 @@ func TestUpgradeOrchestrationGuardRelease(t *testing.T) {
 			want := "guard,check,release"
 			if kind == "config-error" {
 				want = "guard,release"
+				if runtime.GOOS == "windows" {
+					// Unsupported host stopping is refused before any guard,
+					// config access, detection, or database opening.
+					want = ""
+					if err == nil || !strings.Contains(err.Error(), "Windows upgrade-store does not support --stop-hosts-config") {
+						t.Fatalf("expected platform refusal, got %v", err)
+					}
+				}
 			}
 			if strings.Join(events, ",") != want {
 				t.Fatalf("events=%v want=%s", events, want)
