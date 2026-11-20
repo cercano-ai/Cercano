@@ -68,6 +68,13 @@ func runUpgradeStore(ctx context.Context, args []string, out io.Writer) error {
 	return runUpgradeStoreChecked(ctx, args, out, upgradeAgentCheck)
 }
 func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, check func(context.Context) error) error {
+	return runUpgradeStoreWithGuard(ctx, args, out, check, developmentUpgradeGuard)
+}
+
+// runUpgradeStoreWithGuard isolates orchestration from inventory acquisition.
+// Production entry points must retain developmentUpgradeGuard, including its
+// platform refusal and launch exclusion for the entire upgrade.
+func runUpgradeStoreWithGuard(ctx context.Context, args []string, out io.Writer, check func(context.Context) error, guard func(context.Context, string) (func(), error)) error {
 	fs := flag.NewFlagSet("upgrade-store", flag.ContinueOnError)
 	fs.SetOutput(out)
 	db := fs.String("database", "", "existing conversation database (absolute path)")
@@ -83,7 +90,7 @@ func runUpgradeStoreChecked(ctx context.Context, args []string, out io.Writer, c
 	}
 	// Include all generation instances and intent-only attempts before any stop,
 	// backup authorization, or database open. Discovery alone is not inventory.
-	release, err := developmentUpgradeGuard(ctx, *db)
+	release, err := guard(ctx, *db)
 	if err != nil {
 		return err
 	}

@@ -38,7 +38,7 @@ func developmentProductionFixture(t *testing.T) (developmentHostOptions, *devhos
 			t.Fatal(err)
 		}
 	}
-	resources, err := os.MkdirTemp("/tmp", "cdp-")
+	resources, err := os.MkdirTemp(developmentProductionTempParent(), "cdp-")
 	if err != nil {
 		t.Fatal(err)
 	}

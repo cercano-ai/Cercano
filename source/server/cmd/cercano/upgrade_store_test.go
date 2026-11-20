@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -14,13 +15,21 @@ import (
 	"time"
 )
 
+// Portable orchestration only: inventory and process detection are injected.
+// Real inventory integration and Windows command refusal are tested separately.
+func runUpgradeStoreOrchestration(ctx context.Context, args []string, out io.Writer, check func(context.Context) error) error {
+	return runUpgradeStoreWithGuard(ctx, args, out, check, func(context.Context, string) (func(), error) {
+		return func() {}, nil
+	})
+}
+
 func TestOfflineUpgradeKnownAgentBeforeChanges(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "history.db")
 	before := []byte("untouched existing database")
 	if err := os.WriteFile(p, before, 0600); err != nil {
 		t.Fatal(err)
 	}
-	err := runUpgradeStoreChecked(context.Background(), []string{"--database", p, "--all-legacy-agents-stopped"}, &bytes.Buffer{}, func(context.Context) error { return refuseKnownUpgradeAgents("123 /some/legacy/cercano\n", 456) })
+	err := runUpgradeStoreOrchestration(context.Background(), []string{"--database", p, "--all-legacy-agents-stopped"}, &bytes.Buffer{}, func(context.Context) error { return refuseKnownUpgradeAgents("123 /some/legacy/cercano\n", 456) })
 	if err == nil || !strings.Contains(err.Error(), "pid=123") {
 		t.Fatal(err)
 	}
@@ -29,8 +38,8 @@ func TestOfflineUpgradeKnownAgentBeforeChanges(t *testing.T) {
 		t.Fatal("modified database before refusal")
 	}
 	entries, _ := os.ReadDir(filepath.Dir(p))
-	if len(entries) != 2 || entries[0].Name() != "current-target.lock" || entries[1].Name() != "history.db" {
-		t.Fatalf("unexpected files beyond migration coordination lock and original database: %v", entries)
+	if len(entries) != 1 || entries[0].Name() != "history.db" {
+		t.Fatalf("unexpected files beyond original database: %v", entries)
 	}
 }
 func TestOfflineUpgradeDetectionLimits(t *testing.T) {
@@ -51,7 +60,7 @@ func TestOfflineUpgradeDiscoveryErrorBeforeOpen(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "missing.db")
 	discoveryErr := errors.New("synthetic discovery unavailable")
 	calls := 0
-	err := runUpgradeStoreChecked(context.Background(), []string{"--database", p, "--all-legacy-agents-stopped"}, &bytes.Buffer{}, func(context.Context) error {
+	err := runUpgradeStoreOrchestration(context.Background(), []string{"--database", p, "--all-legacy-agents-stopped"}, &bytes.Buffer{}, func(context.Context) error {
 		calls++
 		return discoveryErr
 	})
@@ -59,7 +68,7 @@ func TestOfflineUpgradeDiscoveryErrorBeforeOpen(t *testing.T) {
 		t.Fatalf("err=%v calls=%d", err, calls)
 	}
 	entries, err := os.ReadDir(filepath.Dir(p))
-	if err != nil || len(entries) != 1 || entries[0].Name() != "current-target.lock" {
+	if err != nil || len(entries) != 0 {
 		t.Fatalf("database opened before preflight: entries=%v err=%v", entries, err)
 	}
 }
@@ -68,12 +77,12 @@ func TestOfflineUpgradeDiscoveryErrorBeforeOpen(t *testing.T) {
 func TestOfflineUpgradeCheckOnlyNeverOpensStore(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "missing.db")
 	calls := 0
-	err := runUpgradeStoreChecked(context.Background(), []string{"--database", p, "--all-legacy-agents-stopped", "--check-only"}, &bytes.Buffer{}, func(context.Context) error {
+	err := runUpgradeStoreOrchestration(context.Background(), []string{"--database", p, "--all-legacy-agents-stopped", "--check-only"}, &bytes.Buffer{}, func(context.Context) error {
 		calls++
 		return nil
 	})
 	entries, readErr := os.ReadDir(filepath.Dir(p))
-	if err != nil || calls != 1 || readErr != nil || len(entries) != 1 || entries[0].Name() != "current-target.lock" {
+	if err != nil || calls != 1 || readErr != nil || len(entries) != 0 {
 		t.Fatalf("err=%v calls=%d entries=%v readErr=%v", err, calls, entries, readErr)
 	}
 }
@@ -114,7 +123,7 @@ func TestAutomaticUpgradeStopThenCheck(t *testing.T) {
 				}
 				return nil
 			}
-			err := runUpgradeStoreChecked(context.Background(), []string{"--database", db, "--all-legacy-agents-stopped", "--check-only", "--stop-hosts-config", cfg}, &bytes.Buffer{}, func(context.Context) error {
+			err := runUpgradeStoreOrchestration(context.Background(), []string{"--database", db, "--all-legacy-agents-stopped", "--check-only", "--stop-hosts-config", cfg}, &bytes.Buffer{}, func(context.Context) error {
 				if strings.Join(calls, ",") != "stop" {
 					t.Fatal(calls)
 				}
@@ -150,9 +159,9 @@ func TestAutomaticUpgradeStopThenCheck(t *testing.T) {
 	}
 }
 
-// Exercises the actual CLI upgrade and startup admission without live discovery
-// or process shutdown. The fixture does not call current schema initializers.
-func TestProductionV2CLIStartupRoundTrip(t *testing.T) {
+// Upgrade orchestration and startup admission with injected inventory and detector,
+// not full supported Windows CLI coverage. The fixture uses historical schema DDL.
+func TestProductionV2UpgradeOrchestrationStartupRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	for _, kind := range []string{"production", "fixture", "unknown"} {
 		t.Run(kind, func(t *testing.T) {
@@ -195,7 +204,7 @@ func TestProductionV2CLIStartupRoundTrip(t *testing.T) {
 				t.Fatal("startup refusal changed database", err)
 			}
 			var out bytes.Buffer
-			err = runUpgradeStoreChecked(ctx, []string{"--database", p, "--all-legacy-agents-stopped", "--interrupt-tasks"}, &out, func(context.Context) error { return nil })
+			err = runUpgradeStoreOrchestration(ctx, []string{"--database", p, "--all-legacy-agents-stopped", "--interrupt-tasks"}, &out, func(context.Context) error { return nil })
 			if kind != "production" {
 				if err == nil {
 					t.Fatal("unsupported marker upgraded")
@@ -241,6 +250,95 @@ func TestProductionV2CLIStartupRoundTrip(t *testing.T) {
 			}
 			if err := db.QueryRow("SELECT count(*) FROM execution_bindings").Scan(&n); err != nil || n != 0 {
 				t.Fatalf("bindings %d %v", n, err)
+			}
+		})
+	}
+}
+
+func TestUpgradeOrchestrationGuardRefusalBeforeStopCheckOrOpen(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "missing.db")
+	refused := errors.New("inventory refused")
+	previous := upgradeHostStop
+	defer func() { upgradeHostStop = previous }()
+	upgradeHostStop = func(context.Context, netip.AddrPort) error {
+		t.Fatal("stop ran after guard refusal")
+		return nil
+	}
+	calls := 0
+	err := runUpgradeStoreWithGuard(context.Background(), []string{"--database", db, "--all-legacy-agents-stopped", "--stop-hosts-config", filepath.Join(dir, "missing.yaml")}, &bytes.Buffer{}, func(context.Context) error {
+		t.Fatal("detector ran after guard refusal")
+		return nil
+	}, func(_ context.Context, path string) (func(), error) {
+		calls++
+		if path != db {
+			t.Fatalf("guard database=%q", path)
+		}
+		return nil, refused
+	})
+	if !errors.Is(err, refused) || calls != 1 {
+		t.Fatalf("err=%v guard calls=%d", err, calls)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("side effects: %v %v", entries, err)
+	}
+}
+
+func TestUpgradeOrchestrationGuardRelease(t *testing.T) {
+	for _, kind := range []string{"check-only", "upgrade-success", "config-error", "detector-error", "upgrade-error"} {
+		t.Run(kind, func(t *testing.T) {
+			dir, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			db := filepath.Join(dir, "history.db")
+			if kind == "upgrade-success" {
+				ddl, err := os.ReadFile("../../internal/conversation/testdata/production-v2.sql")
+				if err != nil {
+					t.Fatal(err)
+				}
+				store, err := sql.Open("sqlite", db)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = store.Exec(string(ddl))
+				closeErr := store.Close()
+				if err != nil || closeErr != nil {
+					t.Fatalf("fixture: %v close: %v", err, closeErr)
+				}
+			}
+			args := []string{"--database", db, "--all-legacy-agents-stopped"}
+			if kind == "check-only" {
+				args = append(args, "--check-only")
+			}
+			if kind == "config-error" {
+				args = append(args, "--stop-hosts-config", filepath.Join(filepath.Dir(db), "missing.yaml"))
+			}
+			var events []string
+			err = runUpgradeStoreWithGuard(context.Background(), args, &bytes.Buffer{}, func(context.Context) error {
+				if strings.Join(events, ",") != "guard" {
+					t.Fatalf("guard not held during detection: %v", events)
+				}
+				events = append(events, "check")
+				if kind == "detector-error" {
+					return errors.New("detector unavailable")
+				}
+				return nil
+			}, func(context.Context, string) (func(), error) {
+				events = append(events, "guard")
+				return func() { events = append(events, "release") }, nil
+			})
+			want := "guard,check,release"
+			if kind == "config-error" {
+				want = "guard,release"
+			}
+			if strings.Join(events, ",") != want {
+				t.Fatalf("events=%v want=%s", events, want)
+			}
+			success := kind == "check-only" || kind == "upgrade-success"
+			if (err == nil) != success {
+				t.Fatalf("err=%v success=%v", err, success)
 			}
 		})
 	}
