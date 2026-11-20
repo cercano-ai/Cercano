@@ -338,8 +338,8 @@ jobs:
       archive: ${{ steps.build.outputs.archive }}
       sha256: ${{ steps.build.outputs.sha256 }}
     steps:
-      # The manually selected ref supplies only the workflow. All release code,
-      # tests (including their workflow fixture), and tap tooling come from the tag.
+      # Build code and build tests remain tag-bound. Packaging tooling is
+      # separately pinned to the immutable workflow commit (older tags lack it).
       - name: Validate source version
         id: source
         shell: bash
@@ -355,6 +355,23 @@ jobs:
         with:
           ref: ${{ steps.source.outputs.ref }}
           fetch-depth: 0  # the build script requires the version tag to exist
+          persist-credentials: false
+
+      - name: Checkout immutable packaging tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: packaging-tools
+          persist-credentials: false
+
+      - name: Verify packaging tooling revision
+        shell: bash
+        env:
+          TOOLING_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid tooling SHA" >&2; exit 1; }
+          [[ "$(git -C packaging-tools rev-parse HEAD)" == "$TOOLING_SHA" ]] || { echo "Tooling revision mismatch" >&2; exit 1; }
 
       - uses: actions/setup-go@v5
         with:
@@ -393,7 +410,7 @@ jobs:
           # Fail rather than silently skipping the native pack/guard tests.
           command -v choco
           command -v powershell
-          python -m unittest discover -s release/chocolatey -p 'test_*.py' -v
+          python -m unittest discover -s packaging-tools/release/chocolatey -p 'test_*.py' -v
 
       - name: Build unsigned Windows archive
         id: build
@@ -464,9 +481,11 @@ jobs:
           SHA256: ${{ steps.build.outputs.sha256 }}
         run: |
           set -euo pipefail
-          python release/chocolatey/pack_packages.py \
+          python packaging-tools/release/chocolatey/pack_packages.py \
             --version "$VERSION" --archive "$ARCHIVE" --sha256 "$SHA256" \
             --output dist/chocolatey
+          python packaging-tools/release/chocolatey/check_packages.py \
+            --version "$VERSION" --packages dist/chocolatey/packages
 
       # Kept separate from the Windows ZIP artifact consumed by publication.
       # Always produced for review, including publish=false; never submitted.

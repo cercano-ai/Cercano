@@ -505,7 +505,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertNotIn("if", gate)
         self.assertIn("command -v choco", gate["run"])
         self.assertIn("command -v powershell", gate["run"])
-        self.assertIn("unittest discover -s release/chocolatey", gate["run"])
+        self.assertIn("unittest discover -s packaging-tools/release/chocolatey", gate["run"])
         upload = self.step("build-windows", "Upload Chocolatey packages")
         self.assertNotIn("if", upload)
         self.assertEqual(upload["uses"], "actions/upload-artifact@v4")
@@ -624,7 +624,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
                 self.assertEqual(validation["env"], {"VERSION": "${{ inputs.version }}"})
                 self.assertEqual(validation["shell"], "bash")
                 checkouts = [s for s in steps if s.get("uses", "").startswith("actions/checkout@")]
-                self.assertEqual(len(checkouts), 1)
+                self.assertEqual(len(checkouts), 2 if job == "build-windows" else 1)
                 checkout = checkouts[0]
                 self.assertIs(steps[1], checkout)
                 self.assertEqual(checkout["with"]["ref"], "${{ steps.source.outputs.ref }}")

@@ -1,0 +1,100 @@
+name: Package existing Windows release for Chocolatey review
+
+# No application build, installation, credentials, publication or submission.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing stable release, without v (e.g. 1.2.3)"
+        required: true
+        type: string
+      sha256:
+        description: "Independently trusted SHA256 of the published Windows ZIP (64 hex characters)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      # Validate before checkout or download. Inputs are data, never shell code.
+      - name: Validate immutable tooling and release inputs
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          SHA256: ${{ inputs.sha256 }}
+          TOOLING_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "Invalid stable version" >&2; exit 1; }
+          [[ "$SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Invalid SHA256" >&2; exit 1; }
+          [[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid tooling SHA" >&2; exit 1; }
+
+      # workflow_sha resolves the selected workflow revision once, even if its
+      # branch moves during this job. The release tag is never tooling source.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: packaging-tools
+          persist-credentials: false
+
+      - name: Verify packaging tooling revision
+        shell: bash
+        env:
+          TOOLING_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git -C packaging-tools rev-parse HEAD)" == "$TOOLING_SHA" ]] || { echo "Tooling revision mismatch" >&2; exit 1; }
+          echo "Packaging tooling commit: $TOOLING_SHA"
+
+      - name: Run isolated native packaging checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v choco
+          command -v powershell
+          python -m unittest discover -s packaging-tools/release/chocolatey -p 'test_*.py' -v
+
+      - name: Download independently verified published ZIP
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          SHA256: ${{ inputs.sha256 }}
+        run: |
+          set -euo pipefail
+          python packaging-tools/release/chocolatey/download_release.py \
+            --version "$VERSION" --sha256 "$SHA256" --directory downloads
+
+      - name: Pack and inspect actual packages
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          SHA256: ${{ inputs.sha256 }}
+        run: |
+          set -euo pipefail
+          python packaging-tools/release/chocolatey/pack_packages.py \
+            --version "$VERSION" --sha256 "$SHA256" \
+            --archive "downloads/cercano-$VERSION-windows-x64.zip" --output dist/chocolatey
+
+      - name: Check packaged binary versions in isolation
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python packaging-tools/release/chocolatey/check_packages.py \
+            --version "$VERSION" --packages dist/chocolatey/packages
+
+      - name: Upload only inspected packages and checksums for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: cercano-${{ inputs.version }}-chocolatey-review
+          path: |
+            dist/chocolatey/packages/*.nupkg
+            dist/chocolatey/packages/*.nupkg.sha256
+          if-no-files-found: error
+          retention-days: 14

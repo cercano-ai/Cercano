@@ -173,7 +173,8 @@ layout and PE headers; no release download or rebuild supplies package payloads.
 The wrapper requires `choco`, packs all three nuspecs, then opens all three
 `.nupkg` files and checks rendered metadata (including copyright), dependency
 IDs/minimum versions, exact tools manifest and every payload byte. License bytes
-must also match the checkout's upstream `LICENSE`; `VERIFICATION.txt` and scripts
+must match the digest-verified release archive's `LICENSE`, not the packaging
+tooling checkout's potentially newer license; `VERIFICATION.txt` and scripts
 must match the verified rendered sources. Unexpected package members fail closed.
 Only after every inspection passes are per-package SHA-256 sidecars emitted.
 Existing output directories are refused and failed runs leave no partial output.
@@ -205,3 +206,47 @@ python release/chocolatey/pack_packages.py --version 1.2.3 \
   --archive dist/cercano-1.2.3-windows-x64.zip \
   --sha256 "$TRUSTED_SHA256" --output dist/chocolatey
 ```
+
+
+## Package an already published release (manual review only)
+
+Use `.github/workflows/package-chocolatey.yml` (Actions name **Package existing
+Windows release for Chocolatey review**). Select the workflow revision containing
+these corrected tools. It resolves that selected revision to `github.workflow_sha`,
+checks out that exact 40-hex commit, verifies HEAD, and never checks out a moving
+branch or uses the release tag as tooling. The log records the tooling SHA.
+The integrated release job likewise uses a separate `packaging-tools` checkout
+at the immutable workflow SHA; application code, build tests and tag/HEAD checks
+remain bound to the requested release tag, including older tags without a packer.
+
+Exact manual inputs (both required strings):
+
+| Input | Value |
+| --- | --- |
+| `version` | Existing stable `X.Y.Z`, e.g. `0.27.0` (no `v`, leading zeroes or prerelease suffix) |
+| `sha256` | The full 64-hex SHA-256 of `cercano-<version>-windows-x64.zip`, independently obtained from a trusted release record |
+
+Do **not** calculate the expected digest only from the ZIP being downloaded or
+copy an untrusted digest from the same acquisition. This workflow does not fetch
+an expected checksum: it downloads the public release ZIP separately, with bounded
+HTTPS requests and validated redirects, and rejects it unless it matches the
+supplied trusted digest. It never rebuilds the application or changes tags.
+
+The existing renderer verifies ZIP layout, PE headers and archive inventory;
+the packer renders and packs all three packages with native `choco`, then
+inspects the actual nupkg metadata, members and exact payload bytes before
+writing package checksum sidecars. `check_packages.py` then runs the binaries
+extracted from those inspected packages with only `--version`, outside the
+checkout and with throwaway user directories. Native PowerShell guard tests use
+fixture processes and a fake Chocolatey root. No packages are installed, agents
+started, credentials supplied, or packages submitted.
+
+The only review artifact is `cercano-<version>-chocolatey-review`, containing
+three `.nupkg` and three `.nupkg.sha256` files with 14-day retention. The downloaded
+ZIP, unpacked binaries, profiles and rendered source trees are not uploaded.
+There is no publication step and no package-feed credential or API key.
+
+**Pending native CI validation:** portable tests and workflow regressions can run
+on macOS; actual Windows packing, guard execution and packaged-binary checks for
+this new workflow have not been run. Historical lifecycle evidence above does
+not validate this workflow, package approval, or repository availability.

@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
+import check_packages
 import pack_packages
 from test_render_packages import VERSION, default_files, write_archive
 
@@ -21,7 +22,7 @@ class PackPackagesTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         files = default_files()
-        files["LICENSE"] = ((Path(__file__).resolve().parents[2] / "LICENSE").read_bytes(), 0o644)
+        files["LICENSE"] = (b"License from the older independently verified release\n", 0o644)
         self.archive, self.digest = write_archive(self.root, files=files)
         self.output = self.root / "output"
         self.args = ["--version", VERSION, "--archive", str(self.archive),
@@ -64,6 +65,27 @@ class PackPackagesTest(unittest.TestCase):
             path = packages / f"{package_id}.{VERSION}.nupkg"
             self.assertEqual(path.with_name(path.name + ".sha256").read_text(),
                              f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
+
+    def test_native_checker_reads_actual_packages_and_uses_isolated_version_only(self):
+        self.build()
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            self.assertEqual(command[1:], ["--version"])
+            self.assertTrue(Path(command[0]).is_file())
+            self.assertEqual(Path(command[0]).parent, Path(kwargs["cwd"]))
+            self.assertNotEqual(kwargs["env"]["HOME"], str(Path.home()))
+            self.assertEqual(kwargs["timeout"], 30)
+            return subprocess.CompletedProcess(command, 0, Path(command[0]).stem + " v" + VERSION, "")
+
+        with patch.object(check_packages.subprocess, "run", side_effect=run):
+            check_packages.check(VERSION, self.output / "packages")
+        self.assertEqual(len(calls), 2)
+        with patch.object(check_packages.subprocess, "run", return_value=
+                          subprocess.CompletedProcess([], 0, "cercano 9.9.9", "")):
+            with self.assertRaisesRegex(ValueError, "requested release version"):
+                check_packages.check(VERSION, self.output / "packages")
 
     def test_missing_choco_is_failure_not_skip(self):
         with patch.object(pack_packages.shutil, "which", return_value=None):

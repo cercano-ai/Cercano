@@ -63,9 +63,8 @@ def inspect_package(package, rendered, package_id, version):
         for name, data in expected_tools.items():
             if archive.read(name) != data:
                 raise ValidationError(f"packed payload mismatch: {name}")
-        upstream = (Path(__file__).resolve().parents[2] / "LICENSE").read_bytes()
-        if archive.read("tools/LICENSE.txt") != upstream:
-            raise ValidationError("packed license differs from upstream LICENSE")
+        # License bytes are already compared with rendered sources above. Those
+        # sources come from the digest-verified release ZIP, not this tooling ref.
         for name in names:
             if name in expected_tools or name.endswith("/"):
                 continue
