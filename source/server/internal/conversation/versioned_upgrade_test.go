@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -169,6 +170,14 @@ func TestOfflineBackupDurabilityBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if runtime.GOOS == "windows" {
+		// Windows publication uses MoveFileEx WRITE_THROUGH after file close,
+		// not an unsupported os.File.Sync on a directory.
+		if len(kinds) != 1 || kinds[0] {
+			t.Fatalf("snapshot flush boundary: %v", kinds)
+		}
+		return
+	}
 	if len(kinds) != 2 || kinds[0] || !kinds[1] {
 		t.Fatalf("durability boundary: synced directory flags %v; want [false true] before source writes", kinds)
 	}
@@ -255,6 +264,9 @@ func TestOfflineUpgradeCommittedWALBackup(t *testing.T) {
 func TestOfflineUpgradeSyncFailureBeforeMutation(t *testing.T) {
 	for _, directory := range []bool{false, true} {
 		t.Run(map[bool]string{false: "file", true: "directory"}[directory], func(t *testing.T) {
+			if directory && runtime.GOOS == "windows" {
+				t.Skip("Windows uses write-through publication; covered by Windows publication failure tests")
+			}
 			ctx := context.Background()
 			p := offlinePath(t)
 			if err := prepareCoexistence(ctx, p, developmentMigrations[0].from); err != nil {
