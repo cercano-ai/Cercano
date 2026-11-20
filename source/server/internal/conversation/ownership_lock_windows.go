@@ -43,6 +43,11 @@ func validateWindowsPathSyntax(absolute string) error {
 }
 
 func windowsPrivateHandle(path string, directory bool) (windows.Handle, error) {
+	return windowsPrivateHandleAccess(path, directory, 0, nil, windows.OPEN_EXISTING)
+}
+
+// Internal only: callers must validate the returned IO handle before using it.
+func windowsPrivateHandleAccess(path string, directory bool, access uint32, security *windows.SecurityAttributes, disposition uint32) (windows.Handle, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return 0, err
@@ -83,7 +88,7 @@ func windowsPrivateHandle(path string, directory bool) (windows.Handle, error) {
 	if err != nil {
 		return 0, err
 	}
-	h, err := windows.CreateFile(p, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	h, err := windows.CreateFile(p, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES|access, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, security, disposition, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 	if err != nil {
 		return 0, err
 	}
