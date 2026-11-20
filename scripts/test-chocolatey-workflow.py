@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Portable regression checks for review-only Chocolatey workflow boundaries."""
+"""Portable regression checks for gated Chocolatey workflow boundaries."""
 import importlib.util
 import os
 from pathlib import Path
@@ -23,16 +23,54 @@ class ChocolateyWorkflowTest(unittest.TestCase):
     def test_manual_only_no_submission_credentials_or_builds(self):
         trigger = next(self.workflow[key] for key in ("on", True, "true") if key in self.workflow)
         self.assertEqual(set(trigger), {"workflow_dispatch"})
-        self.assertEqual(set(trigger["workflow_dispatch"]["inputs"]), {"version", "sha256"})
+        self.assertEqual(set(trigger["workflow_dispatch"]["inputs"]), {"version", "sha256", "package_version", "publish"})
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
         self.assertNotIn("environment", self.job)
-        text = str(self.workflow).lower()
+        text = str(self.job).lower()
         for forbidden in ("secrets.", "choco push", "choco install", "--api-key", "gh release", "git push", "build-windows-release", "workflow_call"):
             self.assertNotIn(forbidden, text)
         for step in self.steps:
             self.assertNotIn("continue-on-error", step)
             self.assertNotIn("if", step)
             self.assertNotIn("${{ inputs.", step.get("run", ""))
+
+    def test_publish_gates_secret_scope_artifact_binding_and_shared_lock(self):
+        integrated = helpers.load_workflow_file(REPO / ".github/workflows/release-macos.yml")
+        trigger = next(self.workflow[k] for k in ("on", True, "true") if k in self.workflow)
+        publish_input = trigger["workflow_dispatch"]["inputs"]["publish"]
+        self.assertEqual(publish_input["type"], "boolean")
+        self.assertIs(publish_input["default"], False)
+        groups = []
+        for workflow, producer, artifact in ((self.workflow, "package", "-chocolatey-review"),
+                                              (integrated, "build-windows", "-chocolatey")):
+            job = workflow["jobs"]["publish-chocolatey"]
+            self.assertEqual(job["if"], "inputs.publish")  # false => job cannot request a secret or submit
+            self.assertEqual(job["environment"], "release")
+            self.assertIn(producer, job["needs"])
+            self.assertNotIn("continue-on-error", job)
+            self.assertIs(job["concurrency"]["cancel-in-progress"], False)
+            group = job["concurrency"]["group"]
+            groups.append(group)
+            checkout, download, submit = job["steps"]
+            self.assertEqual(checkout["with"]["ref"], "${{ github.workflow_sha }}")
+            self.assertFalse(checkout["with"]["persist-credentials"])
+            self.assertEqual(download["uses"], "actions/download-artifact@v4")
+            self.assertEqual(download["with"]["name"], "cercano-${{ inputs.version }}" + artifact)
+            self.assertNotIn("run-id", download["with"])
+            self.assertNotIn("github-token", download["with"])
+            self.assertIn("publish_packages.py", submit["run"])
+            self.assertNotIn("CHOCOLATEY_API_KEY", submit["run"])
+            self.assertEqual(submit["env"]["PACKAGE_DIGESTS"], "${{ needs." + producer + ".outputs.package_digests }}")
+            self.assertEqual(submit["env"]["CHOCOLATEY_API_KEY"], "${{ secrets.CHOCOLATEY_API_KEY }}")
+            self.assertEqual(workflow["jobs"][producer]["outputs"]["package_digests"], "${{ steps.pack.outputs.package_digests }}")
+            for name, other in workflow["jobs"].items():
+                if name != "publish-chocolatey":
+                    self.assertNotIn("CHOCOLATEY_API_KEY", str(other))
+            self.assertNotIn("CHOCOLATEY_API_KEY", str(job.get("env", {})))
+            for step in (checkout, download):
+                self.assertNotIn("CHOCOLATEY_API_KEY", str(step))
+        self.assertEqual(groups, ["chocolatey-publish-${{ inputs.package_version || inputs.version }}",
+                                  "chocolatey-publish-${{ inputs.version }}"])
 
     def test_exact_tooling_not_release_tag_and_artifact_boundary(self):
         checkout = next(s for s in self.steps if s.get("uses", "").startswith("actions/checkout@"))
@@ -52,9 +90,9 @@ class ChocolateyWorkflowTest(unittest.TestCase):
 
     def test_validation_executes_before_checkout_and_rejects_bad_inputs(self):
         script = self.steps[0]["run"]
-        good = dict(VERSION="1.2.3", SHA256="a" * 64, TOOLING_SHA="b" * 40)
+        good = dict(VERSION="1.2.3", PACKAGE_VERSION="1.2.3", SHA256="a" * 64, TOOLING_SHA="b" * 40)
         with tempfile.TemporaryDirectory() as directory:
-            for key, bad in [("VERSION", "v1.2.3"), ("VERSION", "01.2.3"),
+            for key, bad in [("PACKAGE_VERSION", "1.2.4.1"), ("PACKAGE_VERSION", "1.2.3.0"), ("PACKAGE_VERSION", "1.2.3;echo bad"), ("VERSION", "v1.2.3"), ("VERSION", "01.2.3"),
                              ("VERSION", "$(touch injected)"), ("VERSION", "1.2.3\n"),
                              ("SHA256", "a" * 63), ("SHA256", "g" * 64),
                              ("TOOLING_SHA", "main"), ("TOOLING_SHA", "b" * 39)]:

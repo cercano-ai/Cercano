@@ -63,6 +63,16 @@ def parse_version(value):
     return value
 
 
+def parse_package_version(value, application_version):
+    """Allow stable application version or a four-part packaging-only revision."""
+    parse_version(application_version)
+    if value == application_version:
+        return value
+    if not re.fullmatch(re.escape(application_version) + r"\.[1-9][0-9]*", value):
+        raise ValidationError("package version must equal application version or append a positive revision")
+    return value
+
+
 def parse_digest(value):
     if not SHA256_PATTERN.match(value):
         raise ValidationError("sha256 must be 64 hexadecimal characters")
@@ -177,9 +187,10 @@ def write_text(path, text):
     path.write_bytes(text.replace("\r\n", "\n").replace("\n", "\r\n").encode("ascii"))
 
 
-def stage(root, version, archive_name, digest, files):
+def stage(root, version, archive_name, digest, files, package_version=None):
     common = {
         "VERSION": version,
+        "PACKAGE_VERSION": package_version or version,
         "ARCHIVE_NAME": archive_name,
         "RELEASE_URL": URL_TEMPLATE.format(version=version, name=archive_name),
         "SHA256": digest,
@@ -208,12 +219,14 @@ def stage(root, version, archive_name, digest, files):
 def build(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--version", required=True)
+    parser.add_argument("--package-version", help="defaults to application version; optional .N revision")
     parser.add_argument("--archive", required=True)
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--output", required=True, help="new directory for the three package sources")
     args = parser.parse_args(argv)
 
     version = parse_version(args.version)
+    package_version = parse_package_version(args.package_version or version, version)
     expected = parse_digest(args.sha256)
     archive = Path(args.archive)
     if not archive.is_file():
@@ -233,7 +246,7 @@ def build(argv=None):
     # Stage beside the output, then rename: a failure leaves no partial set.
     staging = Path(tempfile.mkdtemp(prefix=".cercano-choco-", dir=output.parent))
     try:
-        stage(staging, version, archive.name, expected, files)
+        stage(staging, version, archive.name, expected, files, package_version)
         os.rename(staging, output)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)

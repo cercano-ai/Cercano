@@ -1,6 +1,6 @@
 name: Package existing Windows release for Chocolatey review
 
-# No application build, installation, credentials, publication or submission.
+# No application build or installation; publishing is explicit and protected.
 on:
   workflow_dispatch:
     inputs:
@@ -13,6 +13,16 @@ on:
         required: true
         type: string
 
+      package_version:
+        description: "Optional package version: version or version.N packaging-only revision"
+        required: false
+        type: string
+      publish:
+        description: "Submit verified packages to Chocolatey (not moderation approval)"
+        required: true
+        default: false
+        type: boolean
+
 permissions:
   contents: read
 
@@ -20,17 +30,21 @@ jobs:
   package:
     runs-on: windows-latest
     timeout-minutes: 20
+    outputs:
+      package_digests: ${{ steps.pack.outputs.package_digests }}
     steps:
       # Validate before checkout or download. Inputs are data, never shell code.
       - name: Validate immutable tooling and release inputs
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ inputs.package_version || inputs.version }}
           SHA256: ${{ inputs.sha256 }}
           TOOLING_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
           [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "Invalid stable version" >&2; exit 1; }
+          [[ "$PACKAGE_VERSION" == "$VERSION" || "$PACKAGE_VERSION" =~ ^"$VERSION"\.[1-9][0-9]*$ ]] || { echo "Invalid package version" >&2; exit 1; }
           [[ "$SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Invalid SHA256" >&2; exit 1; }
           [[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid tooling SHA" >&2; exit 1; }
 
@@ -63,6 +77,7 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ inputs.package_version || inputs.version }}
           SHA256: ${{ inputs.sha256 }}
         run: |
           set -euo pipefail
@@ -70,24 +85,27 @@ jobs:
             --version "$VERSION" --sha256 "$SHA256" --directory downloads
 
       - name: Pack and inspect actual packages
+        id: pack
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ inputs.package_version || inputs.version }}
           SHA256: ${{ inputs.sha256 }}
         run: |
           set -euo pipefail
           python packaging-tools/release/chocolatey/pack_packages.py \
-            --version "$VERSION" --sha256 "$SHA256" \
+            --version "$VERSION" --package-version "$PACKAGE_VERSION" --sha256 "$SHA256" \
             --archive "downloads/cercano-$VERSION-windows-x64.zip" --output dist/chocolatey
 
       - name: Check packaged binary versions in isolation
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ inputs.package_version || inputs.version }}
         run: |
           set -euo pipefail
           python packaging-tools/release/chocolatey/check_packages.py \
-            --version "$VERSION" --packages dist/chocolatey/packages
+            --version "$VERSION" --package-version "$PACKAGE_VERSION" --packages dist/chocolatey/packages
 
       - name: Upload only inspected packages and checksums for review
         uses: actions/upload-artifact@v4
@@ -98,3 +116,38 @@ jobs:
             dist/chocolatey/packages/*.nupkg.sha256
           if-no-files-found: error
           retention-days: 14
+
+  publish-chocolatey:
+    name: Submit verified Chocolatey packages (moderation pending)
+    if: inputs.publish
+    needs: [package]
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    concurrency:
+      # Shared across both workflows; immutable package version is the lock key.
+      group: chocolatey-publish-${{ inputs.package_version || inputs.version }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Download this run's inspected packages
+        uses: actions/download-artifact@v4
+        with:
+          name: cercano-${{ inputs.version }}-chocolatey-review
+          path: packages
+      - name: Submit packages in dependency order
+        # Secret is intentionally scoped to this step, never packing or builds.
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+          PACKAGE_DIGESTS: ${{ needs.package.outputs.package_digests }}
+          VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ inputs.package_version || inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 release/chocolatey/publish_packages.py \
+            --version "$VERSION" --package-version "$PACKAGE_VERSION" --packages packages

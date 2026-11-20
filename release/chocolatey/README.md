@@ -10,8 +10,8 @@ experimental and unsigned.
 
 Windows phase 2 package definitions for `efforts/cross-platform-updates/plan.md`.
 The rendered packages are written to pass the community repository's
-package validator; publishing them (account, API key, `choco push`) and
-code signing are separate, manual steps. Nothing here signs or publishes.
+package validator. Packing stays credential-free; optional submission is a
+separate protected CI job (setup below). Nothing here signs binaries.
 The Phase 1 evidence cited below (`native-go-next-results.md`,
 `windows-transaction-audit.md`, the effort handoff) is under
 `efforts/cross-platform-updates/` on branch `handoff/windows-replacement-sanitized`.
@@ -159,7 +159,7 @@ python release/chocolatey/render_packages.py --version 1.2.3 \
 choco pack dist/choco/cercano-agent/cercano-agent.nuspec --out dist/choco
 ```
 
-## Release CI review packages (not submission)
+## Release CI packing and inspection
 
 The Windows job in `.github/workflows/release-macos.yml` now wires the existing
 renderer and native pack/guard tests into release CI. Previously it uploaded
@@ -182,9 +182,12 @@ Existing output directories are refused and failed runs leave no partial output.
 The separate `cercano-<version>-chocolatey` Actions review artifact contains the
 three `.nupkg` files and three `.nupkg.sha256` files (14-day retention). It is
 produced with either `publish=false` or `publish=true`, but is **not** part of
-the GitHub Release asset upload and is never pushed/submitted to Chocolatey.
-No new secrets, signing, install/upgrade operations or publishing access are used.
-The release's other-platform and ZIP publication behavior is unchanged.
+the GitHub Release asset upload. With `publish=false`, no submission job runs
+and no Chocolatey credentials are supplied. With `publish=true`, the separate
+protected job described below submits this run's inspected packages. No signing
+or install/upgrade operations are added. The release's existing `publish` input
+also controls its other publication steps; its default is now **false** to make
+publication opt-in.
 
 The job requires both `choco` and Windows PowerShell before running the isolated
 Python renderer/packing tests and `test_guard.ps1` (throwaway root and fixture
@@ -208,7 +211,7 @@ python release/chocolatey/pack_packages.py --version 1.2.3 \
 ```
 
 
-## Package an already published release (manual review only)
+## Package an already published release
 
 Use `.github/workflows/package-chocolatey.yml` (Actions name **Package existing
 Windows release for Chocolatey review**). Select the workflow revision containing
@@ -219,12 +222,14 @@ The integrated release job likewise uses a separate `packaging-tools` checkout
 at the immutable workflow SHA; application code, build tests and tag/HEAD checks
 remain bound to the requested release tag, including older tags without a packer.
 
-Exact manual inputs (both required strings):
+Exact manual inputs:
 
 | Input | Value |
 | --- | --- |
 | `version` | Existing stable `X.Y.Z`, e.g. `0.27.0` (no `v`, leading zeroes or prerelease suffix) |
-| `sha256` | The full 64-hex SHA-256 of `cercano-<version>-windows-x64.zip`, independently obtained from a trusted release record |
+| `sha256` | Required full 64-hex SHA-256 of `cercano-<version>-windows-x64.zip`, independently obtained from a trusted release record |
+| `package_version` | Optional string; defaults to `version`. May append a positive fourth component, e.g. application `1.2.3`, package `1.2.3.1` |
+| `publish` | Boolean, default **false**. Set **true** explicitly to submit after successful native inspection and binary checks |
 
 Do **not** calculate the expected digest only from the ZIP being downloaded or
 copy an untrusted digest from the same acquisition. This workflow does not fetch
@@ -238,15 +243,84 @@ inspects the actual nupkg metadata, members and exact payload bytes before
 writing package checksum sidecars. `check_packages.py` then runs the binaries
 extracted from those inspected packages with only `--version`, outside the
 checkout and with throwaway user directories. Native PowerShell guard tests use
-fixture processes and a fake Chocolatey root. No packages are installed, agents
-started, credentials supplied, or packages submitted.
+fixture processes and a fake Chocolatey root. No packages are installed or agents
+started. Packing never receives credentials; submission requires `publish=true`.
 
 The only review artifact is `cercano-<version>-chocolatey-review`, containing
 three `.nupkg` and three `.nupkg.sha256` files with 14-day retention. The downloaded
 ZIP, unpacked binaries, profiles and rendered source trees are not uploaded.
-There is no publication step and no package-feed credential or API key.
+The packaging job has no feed credentials. Only the separate, explicitly opted-in
+protected submission job receives the API key.
 
 **Pending native CI validation:** portable tests and workflow regressions can run
 on macOS; actual Windows packing, guard execution and packaged-binary checks for
 this new workflow have not been run. Historical lifecycle evidence above does
 not validate this workflow, package approval, or repository availability.
+
+
+## Opt-in submission setup (repository owner action required)
+
+Before enabling either publisher, **you must configure** GitHub:
+
+1. Add the repository Actions secret **`CHOCOLATEY_API_KEY`**, using an authorized
+   Chocolatey community-feed account key. Never put the value into workflow
+   inputs, logs, committed files, issue comments, or command arguments.
+2. Create/configure the **`release` environment** with required reviewers and
+   deployment branch/tag restrictions appropriate to your trusted workflow
+   revisions. Do not rely on automatic environment creation as protection.
+   The repository secret is available only in the publisher step's environment;
+   environment approval gates the job. Protect trusted workflow refs too: a
+   repository secret is not intrinsically restricted to an environment.
+3. Review native Windows packing/inspection results and the workflow revision.
+   Dispatch with `publish=true` only for a new intended immutable package version.
+   No repository secret or environment configuration is performed by this change.
+
+Both workflows default `publish` to **false**. The integrated release uses its
+existing boolean `publish` (also controls GitHub Release/Homebrew publication)
+and submits package version equal to application `version`. The standalone
+workflow supports packaging-only revisions via `package_version`; `version`
+still selects the original application's ZIP, release URLs, provenance and
+binary `--version` checks. `1.2.3.1` packages still contain `1.2.3` binaries;
+all three nuspec versions and convenience dependency minimums become `1.2.3.1`.
+Use a new positive fourth-component revision for a packaging correction; do not
+rebuild, retag, or mislabel the application. Never overwrite a submitted version.
+
+After native `choco pack`, metadata/payload inspection, and extracted-binary
+checks succeed, the publisher downloads **only the named artifact of the current
+run**. It verifies all three files against the packer's recorded job-output
+SHA-256 manifest as well as sidecars before making any request. The publisher
+submits retained verified bytes in order: **`cercano-agent`, `cercano-cli`,
+`cercano`**. Both workflows use the shared concurrency key
+`chocolatey-publish-<effective-package-version>` with `cancel-in-progress: false`.
+This serializes publishers for that version; it is not a duplicate-submission
+ledger (GitHub may replace older pending jobs). A later rerun must still be
+reviewed manually for an already-submitted or partially submitted version.
+
+### Credential handling and fail-closed transport
+
+Chocolatey's `NugetPush` delegates to NuGet `PackageUpdateResource`: multipart
+HTTP PUT to `https://push.chocolatey.org/api/v2/package` with `X-NuGet-ApiKey`.
+The upstream implementation accepts a CLI/configured key and has retry paths;
+using `choco push --api-key ...` would expose the key in process arguments.
+Our small publisher uses that supported wire protocol directly, in-process,
+putting the step-scoped environment value only in the HTTPS header. It does not
+invoke a child process, persist a key in Chocolatey config, follow redirects,
+print server bodies/headers, or automatically retry a mutation.
+
+Source behavior reviewed:
+- [Chocolatey NugetPush](https://github.com/chocolatey/choco/blob/develop/src/chocolatey/infrastructure.app/nuget/NugetPush.cs)
+- [NuGet PackageUpdateResource](https://github.com/NuGet/NuGet.Client/blob/dev/src/NuGet.Core/NuGet.Protocol/Resources/PackageUpdateResource.cs)
+
+Only **HTTP 201 Created** confirms submission. All other statuses (including
+409, redirects and otherwise ambiguous 2xx responses), timeouts and transport
+errors stop immediately, without submitting later packages or retrying. Partial
+success is possible: previous packages cannot be rolled back. Inspect the feed
+and moderator/account state manually before deciding what to do next. Do not
+blindly rerun or automatically increment versions to bypass an unknown outcome.
+
+**Submission is not moderation approval.** A 201 does not establish public
+availability or acceptance; monitor each package's moderation status separately.
+This change has not submitted anything. In particular, do **not** use these
+workflows to duplicate the separately dispatched manual `0.27.1` submission.
+Native Windows CI and live-feed compatibility have not been exercised locally;
+portable tests use fixtures/fake HTTPS only and never contact the feed.

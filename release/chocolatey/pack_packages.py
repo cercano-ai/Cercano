@@ -78,11 +78,13 @@ def inspect_package(package, rendered, package_id, version):
 def build(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--package-version")
     parser.add_argument("--archive", required=True)
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
-    version = render_packages.parse_version(args.version)
+    application_version = render_packages.parse_version(args.version)
+    version = render_packages.parse_package_version(args.package_version or application_version, application_version)
     choco = shutil.which("choco")
     if not choco:
         raise ValidationError("choco is required; packing cannot be skipped")
@@ -93,7 +95,7 @@ def build(argv=None):
     staging = Path(tempfile.mkdtemp(prefix=".cercano-pack-", dir=output.parent))
     try:
         rendered = render_packages.build([
-            "--version", version, "--archive", str(Path(args.archive).resolve()),
+            "--version", application_version, "--package-version", version, "--archive", str(Path(args.archive).resolve()),
             "--sha256", args.sha256, "--output", str(staging / "rendered")])
         packages = staging / "packages"
         packages.mkdir()
@@ -116,6 +118,12 @@ def build(argv=None):
     finally:
         if staging.exists():
             shutil.rmtree(staging)
+    # Bind downstream publishers to this run, not merely downloaded sidecars.
+    if os.environ.get("GITHUB_OUTPUT"):
+        import json
+        digests = {p.name: render_packages.hash_file(p) for p in (output / "packages").glob("*.nupkg")}
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+            handle.write("package_digests=" + json.dumps(digests, sort_keys=True) + "\n")
     return output
 
 

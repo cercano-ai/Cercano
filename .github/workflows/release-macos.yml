@@ -29,7 +29,7 @@ on:
       publish:
         description: "Publish verified artifacts in this run. Uncheck for an optional dry run."
         required: true
-        default: true
+        default: false
         type: boolean
 
 # Read-only by default; only the protected release job can publish.
@@ -337,6 +337,7 @@ jobs:
     outputs:
       archive: ${{ steps.build.outputs.archive }}
       sha256: ${{ steps.build.outputs.sha256 }}
+      package_digests: ${{ steps.pack.outputs.package_digests }}
     steps:
       # Build code and build tests remain tag-bound. Packaging tooling is
       # separately pinned to the immutable workflow commit (older tags lack it).
@@ -474,6 +475,7 @@ jobs:
       # Use the run's exact smoke-tested ZIP and independently recorded digest.
       # This only packs/inspects local files: no install, push or submission.
       - name: Pack and inspect Chocolatey packages
+        id: pack
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
@@ -488,7 +490,7 @@ jobs:
             --version "$VERSION" --packages dist/chocolatey/packages
 
       # Kept separate from the Windows ZIP artifact consumed by publication.
-      # Always produced for review, including publish=false; never submitted.
+      # Always produced for review, including publish=false; submission is a separate protected job.
       - name: Upload Chocolatey packages for review
         uses: actions/upload-artifact@v4
         with:
@@ -666,3 +668,38 @@ jobs:
             dist/cercano-${{ inputs.version }}-linux-x64.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
+
+  publish-chocolatey:
+    name: Submit verified Chocolatey packages (moderation pending)
+    if: inputs.publish
+    needs: [build, build-windows]
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    concurrency:
+      # Shared across both workflows; immutable package version is the lock key.
+      group: chocolatey-publish-${{ inputs.version }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Download this run's inspected packages
+        uses: actions/download-artifact@v4
+        with:
+          name: cercano-${{ inputs.version }}-chocolatey
+          path: packages
+      - name: Submit packages in dependency order
+        # Secret is intentionally scoped to this step, never packing or builds.
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+          PACKAGE_DIGESTS: ${{ needs.build-windows.outputs.package_digests }}
+          VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 release/chocolatey/publish_packages.py \
+            --version "$VERSION" --package-version "$PACKAGE_VERSION" --packages packages

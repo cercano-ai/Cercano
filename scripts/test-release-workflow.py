@@ -128,7 +128,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertEqual(list(self.triggers), ["workflow_dispatch"])
         inputs = self.triggers["workflow_dispatch"]["inputs"]
         self.assertTrue(inputs["version"]["required"])
-        self.assertIs(inputs["publish"]["default"], True)
+        self.assertIs(inputs["publish"]["default"], False)
 
     def test_default_permissions_are_read_only(self):
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
@@ -141,7 +141,8 @@ class ReleaseWorkflowTest(unittest.TestCase):
 
     def test_credentialed_jobs_use_the_protected_environment(self):
         protected = [name for name, job in self.jobs.items() if "environment" in job]
-        self.assertEqual(protected, ["build"])
+        self.assertEqual(protected, ["build", "publish-chocolatey"])
+        self.assertEqual(self.jobs["publish-chocolatey"]["environment"], "release")
         self.assertEqual(self.jobs["build"]["environment"], "release")
 
     def test_build_runs_on_supported_standard_apple_silicon(self):

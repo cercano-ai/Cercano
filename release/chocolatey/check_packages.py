@@ -14,8 +14,9 @@ import zipfile
 import render_packages
 
 
-def check(version, packages):
+def check(version, packages, package_version=None):
     version = render_packages.parse_version(version)
+    package_version = render_packages.parse_package_version(package_version or version, version)
     with tempfile.TemporaryDirectory(prefix="cercano-package-smoke-") as temporary:
         root = Path(temporary)
         env = os.environ.copy()
@@ -26,7 +27,7 @@ def check(version, packages):
         run = root / "run"
         run.mkdir()
         for package_id, exe in render_packages.COMPONENTS.items():
-            package = Path(packages) / f"{package_id}.{version}.nupkg"
+            package = Path(packages) / f"{package_id}.{package_version}.nupkg"
             with zipfile.ZipFile(package) as archive:
                 binary = run / exe
                 binary.write_bytes(archive.read(f"tools/{exe}"))
@@ -43,6 +44,7 @@ def check(version, packages):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--package-version")
     parser.add_argument("--packages", required=True)
     args = parser.parse_args()
-    check(args.version, args.packages)
+    check(args.version, args.packages, args.package_version)

@@ -4,6 +4,9 @@ The existing renderer suite separately exercises real choco when available.
 These tests do not constitute native packing evidence.
 """
 import hashlib
+import json
+import os
+import xml.etree.ElementTree as ET
 from pathlib import Path
 import subprocess
 import tempfile
@@ -40,7 +43,8 @@ class PackPackagesTest(unittest.TestCase):
                    for p in source.rglob("*") if p.is_file()}
         members["[Content_Types].xml"] = b"fixture NuGet bookkeeping"
         members = self.mutate(source.name, members)
-        dest = Path(command[command.index("--out") + 1]) / f"{source.name}.{VERSION}.nupkg"
+        package_version = ET.parse(nuspec).getroot().find("{*}metadata/{*}version").text
+        dest = Path(command[command.index("--out") + 1]) / f"{source.name}.{package_version}.nupkg"
         with zipfile.ZipFile(dest, "w") as archive:
             for name, data in members.items():
                 archive.writestr(name, data)
@@ -65,6 +69,41 @@ class PackPackagesTest(unittest.TestCase):
             path = packages / f"{package_id}.{VERSION}.nupkg"
             self.assertEqual(path.with_name(path.name + ".sha256").read_text(),
                              f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
+
+    def test_package_only_revision_preserves_application_url_and_binary_version(self):
+        revision = VERSION + ".1"
+        self.args += ["--package-version", revision]
+        output_file = self.root / "github-output"
+        with patch.dict(os.environ, {"GITHUB_OUTPUT": str(output_file)}):
+            self.build()
+        manifest = json.loads(output_file.read_text().removeprefix("package_digests="))
+        self.assertEqual(set(manifest), {f"{p}.{revision}.nupkg" for p in pack_packages.PACKAGE_IDS})
+        for name, digest in manifest.items():
+            self.assertEqual(hashlib.sha256((self.output / "packages" / name).read_bytes()).hexdigest(), digest)
+        rendered = self.output / "rendered"
+        for component in ("cercano-agent", "cercano-cli"):
+            source = (rendered / component / (component + ".nuspec")).read_text()
+            self.assertIn(f"<version>{revision}</version>", source)
+            self.assertIn(f"/tag/v{VERSION}</releaseNotes>", source)
+            verification = (rendered / component / "tools/VERIFICATION.txt").read_text()
+            self.assertIn(f"/download/v{VERSION}/", verification)
+            self.assertNotIn(f"/download/v{revision}/", verification)
+        convenience = (rendered / "cercano/cercano.nuspec").read_text()
+        self.assertIn(f'version="{revision}"', convenience)
+        def run(command, **kwargs):
+            return subprocess.CompletedProcess(command, 0, Path(command[0]).stem + " v" + VERSION, "")
+        with patch.object(check_packages.subprocess, "run", side_effect=run):
+            check_packages.check(VERSION, self.output / "packages", revision)
+
+    def test_package_revision_validation_and_no_outputs_on_failed_inspection(self):
+        for invalid in ("1.2.4", VERSION + ".0", VERSION + ".01", VERSION + ".1.2"):
+            with self.assertRaises(pack_packages.ValidationError):
+                pack_packages.render_packages.parse_package_version(invalid, VERSION)
+        output_file = self.root / "github-output"
+        self.mutate = lambda package_id, members: dict(members, **{"bad.txt": b"unexpected"})
+        with patch.dict(os.environ, {"GITHUB_OUTPUT": str(output_file)}):
+            self.assert_refused("unexpected package member")
+        self.assertFalse(output_file.exists())
 
     def test_native_checker_reads_actual_packages_and_uses_isolated_version_only(self):
         self.build()

@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>cercano-cli</id>
-    <version>@VERSION@</version>
+    <version>@PACKAGE_VERSION@</version>
     <packageSourceUrl>https://github.com/cercano-ai/Cercano/tree/main/release/chocolatey</packageSourceUrl>
     <title>Cercano CLI</title>
     <authors>Cercano contributors</authors>

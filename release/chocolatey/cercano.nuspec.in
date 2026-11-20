@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>cercano</id>
-    <version>@VERSION@</version>
+    <version>@PACKAGE_VERSION@</version>
     <packageSourceUrl>https://github.com/cercano-ai/Cercano/tree/main/release/chocolatey</packageSourceUrl>
     <title>Cercano</title>
     <authors>Cercano contributors</authors>
@@ -24,8 +24,8 @@ This package installs `cercano-agent` and `cercano-cli`; run `cercano-cli` to st
 - A local model runtime is not bundled.</description>
     <releaseNotes>https://github.com/cercano-ai/Cercano/releases/tag/v@VERSION@</releaseNotes>
     <dependencies>
-      <dependency id="cercano-agent" version="@VERSION@" />
-      <dependency id="cercano-cli" version="@VERSION@" />
+      <dependency id="cercano-agent" version="@PACKAGE_VERSION@" />
+      <dependency id="cercano-cli" version="@PACKAGE_VERSION@" />
     </dependencies>
   </metadata>
   <files>
