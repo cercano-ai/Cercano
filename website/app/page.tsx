@@ -142,33 +142,35 @@ export default function Home() {
 
       <main id="top">
         <section className="hero" aria-labelledby="hero-title">
-          <div className="hero-copy">
-            <p className="eyebrow">Free forever · Apache 2.0 · runs on your machine</p>
-            <h1 id="hero-title">The free and open source AI agent for any model.</h1>
-          </div>
-          <div className="hero-aside">
-            <p className="lede">A fast, polished agent that works with frontier models, local models, and the subscriptions you already pay for.</p>
-            <div className="hero-installer" aria-live="polite">
-              <p>{heroInstall.label}</p>
-              {heroInstall.command && heroInstall.installer ? (
-                <div className="hero-command">
-                  <code><span>{detectedOs === "windows" ? ">" : "$"}</span> {heroInstall.command}</code>
-                  <button type="button" onClick={() => copyInstallCommand(heroInstall.command, heroInstall.installer)}>
-                    {copiedCommand === heroInstall.installer ? "Copied" : "Copy"}
-                  </button>
-                </div>
-              ) : (
-                <a className="button button--primary" href={`${docsUrl}/getting-started/install/`}>{detectedOs === "linux" ? "View Linux installation" : "Choose an installer"}</a>
-              )}
-              <a className="other-installers" href={`${docsUrl}/getting-started/install/`}>Other OS installation instructions</a>
+          <div className="hero-top">
+            <div className="hero-copy">
+              <p className="eyebrow">Free forever · Apache 2.0 · runs on your machine</p>
+              <h1 id="hero-title">The free and open source AI agent for any model.</h1>
             </div>
           </div>
+          <div className="hero-bottom">
+            <div className="hero-aside">
+              <p className="lede">A fast, polished agent that works with frontier models, local models, and the subscriptions you already pay for.</p>
+              <div className="hero-installer" aria-live="polite">
+                <p>{heroInstall.label}</p>
+                {heroInstall.command && heroInstall.installer ? (
+                  <div className="hero-command">
+                    <code><span>{detectedOs === "windows" ? ">" : "$"}</span> {heroInstall.command}</code>
+                    <button type="button" onClick={() => copyInstallCommand(heroInstall.command, heroInstall.installer)}>
+                      {copiedCommand === heroInstall.installer ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                ) : (
+                  <a className="button button--primary" href={`${docsUrl}/getting-started/install/`}>{detectedOs === "linux" ? "View Linux installation" : "Choose an installer"}</a>
+                )}
+                <a className="other-installers" href={`${docsUrl}/getting-started/install/`}>Other OS installation instructions</a>
+              </div>
+            </div>
+            <figure className="hero-product-shot">
+              <img src={assetUrl("/hero-tui.png")} alt="Cercano in the terminal describing the project, with cloud and local model status and a context meter visible" />
+            </figure>
+          </div>
         </section>
-
-        <figure className="hero-product-shot">
-          <img src={assetUrl("/hero-tui.png")} alt="Cercano in the terminal describing the project, with cloud and local model status and a context meter visible" />
-          <figcaption>Cercano in the terminal—model status, tool activity, working context, and the conversation in one place.</figcaption>
-        </figure>
 
         <section className="capabilities" id="features" aria-labelledby="capabilities-title">
           <div className="capabilities-intro">
