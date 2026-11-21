@@ -2,18 +2,18 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://cercano-ai-agent.b-c119.chatgpt.site"),
-  title: "Cercano — Use context and compute deliberately",
-  description: "A 100% free and open agent harness for working with frontier and open-weight models—separately or together.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://cercano-ai.github.io/Cercano"),
+  title: "Cercano — The free and open source AI agent for any model",
+  description: "A fast, polished AI agent for frontier models, local models, and the subscriptions you already pay for.",
   openGraph: {
-    title: "Cercano — Use context and compute deliberately",
-    description: "A free and open agent harness for frontier and open-weight models, built around deliberate context and compute.",
+    title: "Cercano — The free and open source AI agent for any model",
+    description: "Use frontier models, local models, and your existing subscriptions through one fast, polished agent.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Cercano — Use context and compute deliberately",
-    description: "A free and open agent harness for frontier and open-weight models, built around deliberate context and compute.",
+    title: "Cercano — The free and open source AI agent for any model",
+    description: "Use frontier models, local models, and your existing subscriptions through one fast, polished agent.",
   },
   alternates: { canonical: "/" },
 };

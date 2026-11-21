@@ -5,16 +5,21 @@ import test from "node:test";
 test("exports the landing page beneath the Cercano project path", async () => {
   const html = await readFile(new URL("../out/index.html", import.meta.url), "utf8");
 
+  assert.match(html, /The free and open source AI agent for any model/);
   assert.match(html, /Install in one line/);
   assert.match(html, /\/Cercano\/_next\/static\//);
-  assert.match(html, /\/Cercano\/videos\/sessions\.mp4/);
+  assert.match(html, /https:\/\/developer\.cercloud\.ai\/cercano\/routing\//);
+  assert.match(html, /https:\/\/developer\.cercloud\.ai\/cercano\/multimodal\//);
   assert.match(html, /https:\/\/cercano-ai\.github\.io\/Cercano/);
+  assert.match(html, /https:\/\/developer\.cercloud\.ai\/getting-started\/install\//);
+  assert.doesNotMatch(html, /github\.com\/cercano-ai\/Cercano\/blob\/main\/docs/);
   assert.doesNotMatch(html, /cercano-ai-agent\.b-c119\.chatgpt\.site/);
 });
 
 test("exports every public demonstration and disables Jekyll processing", async () => {
   await access(new URL("../out/.nojekyll", import.meta.url));
   await access(new URL("../out/icon.svg", import.meta.url));
+  await access(new URL("../out/hero-tui.png", import.meta.url));
 
   for (const name of ["delegation", "metrics", "terminal-ui", "sessions"]) {
     const [video, poster] = await Promise.all([

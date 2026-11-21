@@ -16,27 +16,32 @@ test("renders the Cercano landing page", async () => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
-  assert.match(html, /Use context and compute deliberately/);
-  assert.match(html, /Frontier \+ open/);
-  assert.match(html, /An agent designed around the work/);
-  assert.match(html, /Delegate work\. Keep your focus/);
-  assert.match(html, /Know where the tokens go/);
-  assert.match(html, /A terminal that stays readable/);
-  assert.match(html, /Resume the session, not the setup/);
-  assert.match(html, /One agent\. More than one client/);
-  assert.match(html, /100% free and open source under Apache 2\.0/);
-  for (const video of ["delegation", "metrics", "terminal-ui", "sessions"]) {
-    assert.match(html, new RegExp(`/videos/${video}\\.mp4`));
-    assert.match(html, new RegExp(`/videos/${video}\\.jpg`));
-  }
-  assert.match(html, /Install Cercano/);
+  assert.match(html, /The free and open source AI agent for any model/);
+  assert.doesNotMatch(html, /Use the best model/);
+  assert.match(html, /Make your tokens go further/);
+  assert.match(html, /Never stop for compaction/);
+  assert.match(html, /A complete agent, not a model wrapper/);
+  assert.match(html, /Background compaction/);
+  assert.match(html, /Headless automation/);
+  assert.match(html, /Run a full-power agent entirely on your machine/);
+  assert.match(html, /Use rich media models for specialized tasks/);
+  assert.match(html, /The agent is yours/);
+  assert.match(html, /free and open source under Apache 2\.0/);
+  assert.match(html, /More capability. Less friction/);
+  assert.match(html, /href="https:\/\/developer\.cercloud\.ai\/cercano\/routing\/"/);
+  assert.match(html, /href="https:\/\/developer\.cercloud\.ai\/cercano\/multimodal\/"/);
+  assert.doesNotMatch(html, /<video\b/);
+  assert.match(html, /\/hero-tui\.png/);
+  assert.doesNotMatch(html, /\/videos\/terminal-ui\.mp4/);
+  assert.match(html, /Try Cercano/);
   assert.match(html, /Install in one line/);
-  assert.match(html, /brew install cercano-ai\/cercano\/cercano/);
+  assert.match(html, /brew install cercano-ai\/cercano\/cercano-agent/);
   assert.match(html, /Homebrew/);
   assert.match(html, /Debian \+ Ubuntu/);
   assert.match(html, /choco install cercano -y/);
   assert.match(html, /Package publishing in progress/);
-  assert.match(html, /href="https:\/\/github\.com\/cercano-ai\/Cercano"[^>]*>Cercano - 100% Free \+ Open<\/a>/);
+  assert.match(html, /href="https:\/\/developer\.cercloud\.ai\/getting-started\/install\/"/);
+  assert.doesNotMatch(html, /github\.com\/cercano-ai\/Cercano\/blob\/main\/docs/);
   assert.match(html, /Switch to (daylight|night) theme/);
   assert.doesNotMatch(html, /codex-preview|Building your site|react-loading-skeleton/);
 });
@@ -52,26 +57,30 @@ test("keeps the TUI palettes and persistent theme behavior", async () => {
     assert.match(css, new RegExp(color, "i"));
   }
   assert.match(css, /--font-mono:\s*"IBM Plex Mono"/);
-  assert.match(css, /body\s*\{[^}]*font-family:\s*var\(--font-serif\)/s);
+  assert.match(css, /body\s*\{[^}]*font-family:\s*var\(--font-mono\)/s);
   assert.match(page, /className="brand-mark"[^>]*assetUrl\("\/icon\.svg"\)/);
-  assert.match(css, /feature-story--visual:nth-child\(odd\)[^{]*\{[^}]*1\.34fr[^}]*\.66fr/s);
+  assert.match(css, /\.value-blocks\s*\{[^}]*grid-template-columns:\s*repeat\(3/s);
   assert.match(page, /localStorage\.setItem\("cercano-theme"/);
   assert.match(page, /navigator\.clipboard\.writeText\(command\)/);
-  assert.match(page, /copyInstallCommand\("brew install cercano-ai\/cercano\/cercano", "homebrew"\)/);
+  assert.match(page, /window\.navigator\.platform/);
+  assert.match(page, /Other OS installation instructions/);
+  assert.match(page, /copyInstallCommand\("brew install cercano-ai\/cercano\/cercano-agent cercano-ai\/cercano\/cercano-cli cercano-ai\/cercano\/cercano", "homebrew"\)/);
   assert.match(page, /copyInstallCommand\("choco install cercano -y", "chocolatey"\)/);
   assert.match(layout, /prefers-color-scheme:\s*dark/);
   assert.match(layout, /fonts\.googleapis\.com\/css2\?family=IBM\+Plex\+Mono:wght@400;500;600/);
 });
 
-test("shows current package availability and links platform guides", async () => {
+test("shows current package availability and links the developer documentation", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /choco install cercano -y/);
   assert.match(page, /Chocolatey[\s\S]*Available/);
   assert.match(page, /apt[\s\S]*Coming soon/);
   assert.doesNotMatch(page, /moderation pending|availability are not confirmed/i);
-  assert.match(page, /docs\/installation-macos\.md/);
-  assert.match(page, /docs\/installation-windows\.md/);
-  assert.match(page, /Windows installation guide/);
+  assert.match(page, /developer\.cercloud\.ai/);
+  assert.match(page, /getting-started\/install/);
+  assert.match(page, /getting-started\/first-run/);
+  assert.match(page, /troubleshooting/);
+  assert.doesNotMatch(page, /github\.com\/cercano-ai\/Cercano\/blob\/main\/docs/);
 });
 
 test("ships all four README demonstrations and their poster frames", async () => {
