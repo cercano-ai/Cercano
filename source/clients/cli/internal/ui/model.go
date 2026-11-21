@@ -188,22 +188,23 @@ type Model struct {
 	// bannerTickActive tracks whether the banner.TickMsg chain is alive — it
 	// serves the splash first, then the scrollback banner. applyResume checks
 	// it to restart the loop when resuming without ever having shown a splash.
-	bannerTickActive    bool
-	lastLatencyMs       int
-	modelMaxTokens      int
-	openModel           string // configured local/open model name, used for the o: header chip
-	lastModel           string // model/provider that served the last completed turn
-	sessionTierPicker   *sessionTierPicker
-	sessionModelState   agentclient.SessionModelStatus
-	sessionModelConv    string
-	sessionModelSerial  uint64
-	sessionModelPending bool
-	cloudModel          string // cloud model name (from config), used for the c: header chip; empty when no cloud configured
-	activeCloudProfile  string // active cloud profile name, used as a fallback when the model is unknown
-	cloudState          string // "" = unknown, "NONE" = absent, "ok" = real cloud configured
-	intentionalExit     bool
-	ctrlCArmed          bool // first ctrl-c on empty input arms quit; any other key disarms
-	errMsg              string
+	bannerTickActive      bool
+	lastLatencyMs         int
+	modelMaxTokens        int
+	openModel             string // configured local model for optional slot 3
+	lastModel             string // model/provider that served the last completed turn
+	sessionTierPicker     *sessionTierPicker
+	sessionModelState     agentclient.SessionModelStatus
+	sessionModelConv      string
+	sessionModelSerial    uint64
+	sessionModelPending   bool
+	cloudModel            string // legacy cloud model name (from config)
+	secondaryCloudProfile string // configured secondary routing slot
+	activeCloudProfile    string // configured primary routing slot (account identity, not quality model)
+	cloudState            string // "" = unknown, "NONE" = absent, "ok" = real cloud configured
+	intentionalExit       bool
+	ctrlCArmed            bool // first ctrl-c on empty input arms quit; any other key disarms
+	errMsg                string
 
 	// Live turn telemetry, surfaced by renderStatus while a turn streams. Reset
 	// when a turn begins; the engine fields fill in on the RouteSelected event.
@@ -706,12 +707,15 @@ func invokeToolCmd(ag *agentclient.Client, name, argsJSON string) tea.Cmd {
 
 // configLoadedMsg carries the result of the startup / post-edit GetConfig RPC.
 type configLoadedMsg struct {
-	OpenModel          string
-	OpenRuntime        string
-	CloudModel         string
-	ActiveCloudProfile string
-	CloudConfigured    bool
-	LocusMode          string
+	OpenModel             string
+	OpenRuntime           string
+	CloudModel            string
+	ActiveCloudProfile    string
+	SecondaryCloudProfile string
+	Failed                bool // failed RPCs must not clear the last successful snapshot
+	SlotsLoaded           bool // a successful config snapshot, including empty/removed slots
+	CloudConfigured       bool
+	LocusMode             string
 }
 
 // primaryModelName resolves the model that the current Locus Mode routes to
@@ -738,7 +742,7 @@ func fetchConfigCmd(ag *agentclient.Client) tea.Cmd {
 		defer cancel()
 		cfg, err := ag.GetConfig(ctx)
 		if err != nil || cfg == nil {
-			return configLoadedMsg{}
+			return configLoadedMsg{Failed: true}
 		}
 		// Treat "cloud configured" as: the server's CloudState reports "ok" —
 		// that flag reflects whether the router actually has a live cloud
@@ -748,17 +752,25 @@ func fetchConfigCmd(ag *agentclient.Client) tea.Cmd {
 		// active-profile model, where those legacy fields can be empty even
 		// while a profile with a keychain-stored key is happily routing.
 		configured := cfg.CloudState == "ok"
-		active := ""
+		active, secondary := "", ""
 		if view, err := ag.GetCloudProviders(ctx); err == nil {
 			active = view.Active
+			if view.Assignments != nil {
+				active = view.Assignments.Primary
+				secondary = view.Assignments.Secondary
+			}
+		} else {
+			return configLoadedMsg{Failed: true}
 		}
 		return configLoadedMsg{
-			OpenModel:          cfg.OpenModel,
-			OpenRuntime:        cfg.OpenRuntime,
-			CloudModel:         cfg.CloudModel,
-			ActiveCloudProfile: active,
-			CloudConfigured:    configured,
-			LocusMode:          cfg.LocusMode,
+			OpenModel:             cfg.OpenModel,
+			OpenRuntime:           cfg.OpenRuntime,
+			CloudModel:            cfg.CloudModel,
+			ActiveCloudProfile:    active,
+			SecondaryCloudProfile: secondary,
+			SlotsLoaded:           true,
+			CloudConfigured:       configured,
+			LocusMode:             cfg.LocusMode,
 		}
 	}
 }
@@ -2247,10 +2259,18 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		return m, nil
 
 	case configLoadedMsg:
+		if msg.Failed {
+			return m, nil
+		}
+		if msg.SlotsLoaded {
+			m.openModel = msg.OpenModel
+			m.activeCloudProfile = msg.ActiveCloudProfile
+			m.secondaryCloudProfile = msg.SecondaryCloudProfile
+		}
 		if msg.OpenModel != "" {
 			m.openModel = msg.OpenModel
 			// Keep lastModel initialized for legacy telemetry/tests until a real
-			// turn completes, but do not let it drive the o: header chip.
+			// turn completes, but do not let it drive the local header chip.
 			if m.lastModel == "" {
 				m.lastModel = msg.OpenModel
 			}
@@ -2260,10 +2280,10 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		// install?" — empty is a legitimate value (defaults to ollama),
 		// so we always take the fresh value from the config load.
 		m.currentOpenRuntime = msg.OpenRuntime
-		// Keep the c: header chip tied to concrete cloud identity, not only to
+		// Keep the legacy cloud identity tied to concrete cloud identity, not only to
 		// transient CloudState. During startup/rebuilds the server can briefly report
 		// a non-ok cloud state while still returning the configured active profile and
-		// model; clearing the chip in that window leaves the title bar missing c: even
+		// model; clearing the chip in that window leaves the title bar missing cloud identity even
 		// though cloud routing is configured. If both identity fields are empty, clear
 		// as before.
 		if msg.ActiveCloudProfile != "" || msg.CloudModel != "" {
@@ -6012,57 +6032,51 @@ func (m Model) renderHeaderRight(maxWidth int) string {
 	if maxWidth <= 0 {
 		return ""
 	}
-	cloudChip := m.cloudModel
-	if m.sessionModelConv == m.convID && m.sessionModelState.Effective != nil {
-		cloudChip = m.sessionModelState.Effective.Model
-	}
-	if cloudChip == "" {
-		cloudChip = m.activeCloudProfile
-	}
-	cloudLabel := ""
-	if cloudChip != "" {
-		cloudLabel = abbreviateModel(cloudChip)
-	}
-	openChip := m.openModel
-	openChipStyle := m.styles.Accent
-	if m.openRuntimeStatus != nil && m.openRuntimeStatus.Downloading {
-		// The top-bar o: chip is the primary local-runtime state surface. If the
-		// configured open model is actively downloading, say so here; do not show
-		// the last served model (which may be a cloud profile such as
-		// openai-responses).
-		openChip = "downloading"
-		openChipStyle = m.styles.BorderDim
-	}
-	if openChip == "" {
-		openChip = m.lastModel
-	}
-	openLabel := abbreviateModel(openChip)
-
-	build := func() string {
-		pieces := []string{}
-		if cloudLabel != "" {
-			pieces = append(pieces,
-				m.styles.Info.Render("c:"),
-				m.styles.Accent.Render(cloudLabel),
-				m.styles.BorderDim.Render(" │ "),
-			)
+	// Cloud destinations select accounts, not a single quality model. Show the
+	// configured account identities rather than inventing a quality tier or
+	// substituting the current session/last-served model.
+	labels := []string{m.activeCloudProfile, m.secondaryCloudProfile}
+	for i := range labels {
+		if labels[i] == "" {
+			labels[i] = "—"
 		}
-		pieces = append(pieces,
-			m.styles.Info.Render("o:"),
-			openChipStyle.Render(openLabel),
-		)
+	}
+	localStyle := m.styles.Accent
+	if m.openModel != "" {
+		label := abbreviateModel(m.openModel)
+		if m.openRuntimeStatus != nil && m.openRuntimeStatus.Downloading {
+			label = "downloading"
+			localStyle = m.styles.BorderDim
+		}
+		labels = append(labels, label)
+	}
+	build := func() string {
+		var pieces []string
+		for i, label := range labels {
+			if i > 0 {
+				pieces = append(pieces, m.styles.BorderDim.Render(" │ "))
+			}
+			style := m.styles.Accent
+			if i == 2 {
+				style = localStyle
+			}
+			pieces = append(pieces, m.styles.Info.Render(fmt.Sprintf("%d:", i+1)), style.Render(label))
+		}
 		return lipgloss.JoinHorizontal(lipgloss.Left, pieces...)
 	}
-
 	right := build()
 	for headerDisplayWidth(right) > maxWidth {
-		if lipgloss.Width(openLabel) > 1 {
-			openLabel = ansi.Truncate(openLabel, lipgloss.Width(openLabel)-1, "…")
-		} else if lipgloss.Width(cloudLabel) > 1 {
-			cloudLabel = ansi.Truncate(cloudLabel, lipgloss.Width(cloudLabel)-1, "…")
-		} else {
+		// Shrink the longest label first, keeping all slot prefixes visible.
+		longest := 0
+		for i := range labels {
+			if lipgloss.Width(labels[i]) > lipgloss.Width(labels[longest]) {
+				longest = i
+			}
+		}
+		if lipgloss.Width(labels[longest]) <= 1 {
 			break
 		}
+		labels[longest] = ansi.Truncate(labels[longest], lipgloss.Width(labels[longest])-1, "…")
 		right = build()
 	}
 	if headerDisplayWidth(right) > maxWidth {
@@ -6127,7 +6141,7 @@ func (m Model) renderHeader() string {
 	// Three regions:
 	//   left   — brand + version, anchored at column 0
 	//   center — session title (centered across full width when present)
-	//   right  — cloud + local model strip, anchored at the right edge
+	//   right  — primary, secondary, and optional local slots, anchored at the right edge
 	//
 	// With the title centered, the left and right slots stay symmetric so
 	// the bar reads cleanly even on wide terminals.

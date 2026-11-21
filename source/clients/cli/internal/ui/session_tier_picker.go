@@ -48,7 +48,7 @@ func (m Model) cloudChipRange() (int, int, bool) {
 		return 0, 0, false
 	}
 	plain := ansi.Strip(m.renderHeader())
-	at := strings.LastIndex(plain, "c:")
+	at := strings.LastIndex(plain, "1:")
 	if at < 0 {
 		return 0, 0, false
 	}

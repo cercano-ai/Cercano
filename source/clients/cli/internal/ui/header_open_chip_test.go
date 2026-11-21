@@ -20,11 +20,11 @@ func TestHeaderOpenChipUsesConfiguredOpenModelNotLastServed(t *testing.T) {
 	}
 
 	out := stripAnsiCSI(m.renderHeader())
-	if !strings.Contains(out, "o:qwen3-30b") {
-		t.Fatalf("header should show configured open model in o: chip, got %q", out)
+	if !strings.Contains(out, "3:qwen3-30b") {
+		t.Fatalf("header should show configured open model in 3: chip, got %q", out)
 	}
-	if strings.Contains(out, "o:openai-responses") {
-		t.Fatalf("header o: chip should not show last-served cloud model, got %q", out)
+	if strings.Contains(out, "3:openai-responses") {
+		t.Fatalf("header 3: chip should not show last-served cloud model, got %q", out)
 	}
 }
 
@@ -40,8 +40,8 @@ func TestHeaderOpenChipStripsRuntimeCatalogPrefix(t *testing.T) {
 	if strings.Contains(out, "llama_server:catalog") {
 		t.Fatalf("header should not show runtime catalog namespace, got %q", out)
 	}
-	if !strings.Contains(out, "o:glm-4.5-air") {
-		t.Fatalf("header should show model name in o: chip, got %q", out)
+	if !strings.Contains(out, "3:glm-4.5-air") {
+		t.Fatalf("header should show model name in 3: chip, got %q", out)
 	}
 }
 
@@ -59,8 +59,8 @@ func TestHeaderOpenChipShowsDownloadingWhenRuntimeStatusDownloading(t *testing.T
 	}
 
 	out := stripAnsiCSI(m.renderHeader())
-	if !strings.Contains(out, "o:downloading") {
-		t.Fatalf("header should show o:downloading while local model downloads, got %q", out)
+	if !strings.Contains(out, "3:downloading") {
+		t.Fatalf("header should show 3:downloading while local model downloads, got %q", out)
 	}
 	if strings.Contains(out, "openai-responses") || strings.Contains(out, "qwen3-30b") {
 		t.Fatalf("downloading state should take priority over model labels, got %q", out)
@@ -73,7 +73,7 @@ func TestHeaderLongModelChipDoesNotDisplaceTitle(t *testing.T) {
 		palette:            theme.Cracker(),
 		width:              115,
 		sessionTitle:       "CERCANO - MORE UX",
-		activeCloudProfile: "openai-responses",
+		activeCloudProfile: "openai",
 		openModel:          "qwen3-30b-a3b-instruct-2507",
 	}
 
@@ -90,7 +90,7 @@ func TestHeaderLongModelChipDoesNotDisplaceTitle(t *testing.T) {
 	if idxCol < wantStart-2 || idxCol > wantStart+6 {
 		t.Fatalf("title start = %d, want near centered start %d; header=%q", idxCol, wantStart, plain)
 	}
-	if !strings.Contains(plain, "c:openai-responses") || !strings.Contains(plain, "o:") {
+	if !strings.Contains(plain, "1:openai") || !strings.Contains(plain, "3:") {
 		t.Fatalf("header should preserve model chip prefixes while truncating labels, got %q", plain)
 	}
 }
@@ -108,12 +108,12 @@ func TestStatusDoesNotRenderOpenRuntimeMissingModelChip(t *testing.T) {
 	}
 
 	out := stripAnsiCSI(m.renderStatus())
-	if strings.Contains(out, "model not downloaded") || strings.Contains(out, "o: downloading") || strings.Contains(out, "(F1)") {
+	if strings.Contains(out, "model not downloaded") || strings.Contains(out, "3: downloading") || strings.Contains(out, "(F1)") {
 		t.Fatalf("footer/status bar should not render local-runtime model state anymore, got %q", out)
 	}
 }
 
-func TestConfigLoadedCloudChipPrefersModelDuringTransientCloudState(t *testing.T) {
+func TestConfigLoadedPrimarySlotUsesAccountDuringTransientCloudState(t *testing.T) {
 	m := Model{
 		styles:    theme.NewStyles(theme.Cracker()),
 		palette:   theme.Cracker(),
@@ -129,13 +129,13 @@ func TestConfigLoadedCloudChipPrefersModelDuringTransientCloudState(t *testing.T
 	m = updated.(Model)
 
 	out := stripAnsiCSI(m.renderHeader())
-	if !strings.Contains(out, "c:opus-5") {
-		t.Fatalf("header should show the cloud model, not the active profile name, got %q", out)
+	if !strings.Contains(out, "1:claude") {
+		t.Fatalf("header should show the configured primary account, got %q", out)
 	}
-	if strings.Contains(out, "c:claude") {
-		t.Fatalf("header c: chip should not prefer active profile over model, got %q", out)
+	if strings.Contains(out, "1:opus-5") {
+		t.Fatalf("header primary slot must not substitute a quality model, got %q", out)
 	}
-	if !strings.Contains(out, "o:qwen3-30b") {
+	if !strings.Contains(out, "3:qwen3-30b") {
 		t.Fatalf("header should still show open chip, got %q", out)
 	}
 }

@@ -15,6 +15,7 @@ func tierPickerModel() Model {
 	m.width = 120
 	m.height = 36
 	m.cloudModel = "gpt-6-astra"
+	m.activeCloudProfile = "openai"
 	m.sessionModelConv = m.convID
 	m.sessionModelState = agentclient.SessionModelStatus{Effective: &agentclient.SessionModelRoute{Profile: "openai", Model: "gpt-6-astra"}, Tiers: []agentclient.SessionModelTier{{Tier: "premium", Model: "gpt-6-astra"}, {Tier: "standard", Model: "gpt-6.1-sol"}, {Tier: "economy", Model: "gpt-6-luna"}}}
 	m.sessionTierPicker = &sessionTierPicker{convID: m.convID, status: m.sessionModelState}
@@ -46,7 +47,7 @@ func TestSessionTierPickerMouseAndKeys(t *testing.T) {
 	if cmd == nil || !m.sessionModelPending || m.sessionTierPicker.cursor != 2 {
 		t.Fatal("economy click did not request change")
 	}
-	if !strings.Contains(ansi.Strip(m.renderHeader()), "c:gpt-6-astra") {
+	if !strings.Contains(ansi.Strip(m.renderHeader()), "1:openai") {
 		t.Fatal("optimistic header changed before acknowledgement")
 	}
 	// A failure preserves the existing effective model and leaves a usable picker.
@@ -71,8 +72,8 @@ func TestSessionTierAcknowledgementAndStaleReplies(t *testing.T) {
 	state.Override = &route
 	next, _ := m.Update(sessionModelMsg{convID: m.convID, serial: m.sessionModelSerial, status: state})
 	m = next.(Model)
-	if m.activeSessionTierPicker() || !strings.Contains(ansi.Strip(m.renderHeader()), "c:gpt-6.1-sol") {
-		t.Fatal("successful override not reflected")
+	if m.activeSessionTierPicker() || !strings.Contains(ansi.Strip(m.renderHeader()), "1:openai") {
+		t.Fatal("successful override should close picker without changing configured slot")
 	}
 	// Both conversation and request generation protect against old responses.
 	old := m.sessionModelSerial
