@@ -1,0 +1,142 @@
+name: Homebrew clean install diagnostic
+
+on:
+  push:
+    branches: [fix/homebrew-clean-install-diagnostic]
+    paths: [.github/workflows/homebrew-clean-install-diagnostic.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Clean install (${{ matrix.case }})
+    runs-on: macos-15
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [original, explicit-three]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert fresh arm64 runner and current stable Homebrew
+        run: |
+          mkdir -p diagnostic
+          exec > >(tee diagnostic/preflight.log) 2>&1
+          test "$(uname -m)" = arm64
+          uname -a
+          brew --version
+          # Only named trust/update-related variables; never dump the environment.
+          python3 - <<'PY'
+          import os
+          keys = ['HOMEBREW_NO_REQUIRE_TAP_TRUST', 'HOMEBREW_REQUIRE_TAP_TRUST',
+                  'HOMEBREW_DEVELOPER', 'HOMEBREW_UPDATE_TO_TAG',
+                  'HOMEBREW_NO_AUTO_UPDATE', 'HOMEBREW_NO_INSTALL_FROM_API',
+                  'HOMEBREW_ALLOWED_TAPS', 'HOMEBREW_FORBIDDEN_TAPS',
+                  'HOMEBREW_AUTO_UPDATE_SECS', 'XDG_CONFIG_HOME', 'CI']
+          for key in keys:
+              print(f'{key}={os.environ.get(key, "<unset>")}', flush=True)
+          assert 'HOMEBREW_NO_REQUIRE_TAP_TRUST' not in os.environ, 'Trust bypass forbidden'
+          assert 'HOMEBREW_DEVELOPER' not in os.environ, 'Use stable, not developer mode'
+          PY
+          HOMEBREW_UPDATE_TO_TAG=1 brew update
+          brew --version
+          git -C "$(brew --repository)" describe --tags --exact-match
+          brew list --formula > diagnostic/installed-before.txt
+          cat diagnostic/installed-before.txt
+          if grep -E '^cercano($|-)' diagnostic/installed-before.txt; then exit 1; fi
+          brew tap > diagnostic/taps-before.txt
+          cat diagnostic/taps-before.txt
+          if grep -i 'cercano' diagnostic/taps-before.txt; then exit 1; fi
+          # With no targets this is a read-only listing, not a trust operation.
+          brew trust --json=v1 > diagnostic/trust-before.json
+          cat diagnostic/trust-before.json
+          if grep -i 'cercano' diagnostic/trust-before.json; then exit 1; fi
+      - name: Install without pretrust or preinstallation
+        id: install
+        env:
+          DIAGNOSTIC_CASE: ${{ matrix.case }}
+        run: |
+          set +e
+          if [[ "$DIAGNOSTIC_CASE" == original ]]; then
+            echo 'brew install --verbose cercano-ai/cercano/cercano' | tee diagnostic/command.txt
+            brew install --verbose cercano-ai/cercano/cercano 2>&1 | tee diagnostic/install.log
+            rc=${PIPESTATUS[0]}
+          else
+            echo 'brew install --verbose cercano-ai/cercano/cercano cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli' | tee diagnostic/command.txt
+            brew install --verbose cercano-ai/cercano/cercano cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli 2>&1 | tee diagnostic/install.log
+            rc=${PIPESTATUS[0]}
+          fi
+          echo "$rc" | tee diagnostic/install.exit
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+      - name: Comparison versions and all three formula tests (not inference)
+        if: matrix.case == 'explicit-three' && steps.install.outputs.exit_code == '0'
+        run: |
+          # Keep every result even if one version or test fails. Never start services,
+          # provision models/runtimes, or invoke providers. Public formula tests are
+          # constrained to the inspected version/executable-only test bodies below.
+          set +e
+          result=0
+          for binary in cercano cercano-cli; do
+            "$binary" --version 2>&1 | tee "diagnostic/$binary-version.log"
+            rc=${PIPESTATUS[0]}
+            echo "$rc" > "diagnostic/$binary-version.exit"
+            if [[ "$rc" != 0 ]]; then result=1; fi
+          done
+          for formula in cercano cercano-agent cercano-cli; do
+            path="$(brew --repository)/Library/Taps/cercano-ai/homebrew-cercano/Formula/$formula.rb"
+            cp "$path" "diagnostic/$formula.rb"
+            # Fail closed if upstream tests change beyond the observed safe bodies.
+            if ! python3 - "$path" "$formula" <<'PY'
+          import pathlib, sys
+          source = pathlib.Path(sys.argv[1]).read_text()
+          expected = {
+              'cercano': 'assert_predicate Formula["cercano-agent"].opt_bin/"cercano", :executable?\nassert_predicate Formula["cercano-cli"].opt_bin/"cercano-cli", :executable?',
+              'cercano-agent': 'assert_match "cercano v#{version}", shell_output("#{bin}/cercano --version")',
+              'cercano-cli': 'assert_match "cercano-cli v#{version}", shell_output("#{bin}/cercano-cli --version")',
+          }
+          body = source.split('  test do\n', 1)[1].rsplit('  end\nend', 1)[0]
+          assert '\n'.join(line.strip() for line in body.strip().splitlines()) == expected[sys.argv[2]], 'Unreviewed formula test; refusing execution'
+          PY
+            then
+              result=1
+              continue
+            fi
+            brew test "cercano-ai/cercano/$formula" 2>&1 | tee "diagnostic/$formula-test.log"
+            rc=${PIPESTATUS[0]}
+            echo "$rc" > "diagnostic/$formula-test.exit"
+            if [[ "$rc" != 0 ]]; then result=1; fi
+          done
+          exit "$result"
+      - name: Record final state even on failure
+        if: always()
+        run: |
+          mkdir -p diagnostic
+          set +e
+          brew --version > diagnostic/brew-version-after.txt 2>&1
+          brew list --versions > diagnostic/installed-after.txt 2>&1
+          brew tap > diagnostic/taps-after.txt 2>&1
+          brew trust --json=v1 > diagnostic/trust-after.json 2>&1
+          {
+            echo '## Homebrew clean install diagnostic: ${{ matrix.case }}'
+            echo 'Install/version/formula-test evidence only; not inference or runtime acceptance.'
+            if [[ -f diagnostic/install.exit ]]; then
+              echo "Install exit: $(cat diagnostic/install.exit)"
+            else
+              echo 'Install did not execute; inspect preflight logs.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: homebrew-clean-install-${{ matrix.case }}-${{ github.run_attempt }}
+          path: diagnostic/
+          retention-days: 14
+          if-no-files-found: error
