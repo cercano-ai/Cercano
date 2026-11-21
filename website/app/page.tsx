@@ -267,15 +267,16 @@ export default function Home() {
 
         <section className="control" aria-labelledby="control-title">
           <div>
-            <p className="section-label">Fully local</p>
-            <h2 id="control-title">Run a full-power agent entirely on your machine.</h2>
+            <p className="section-label">Managed local inference</p>
+            <h2 id="control-title">Run a full-power agent on local models—without managing the stack.</h2>
           </div>
           <div className="control-copy">
-            <p>Keep prompts, context, and inference on your own machine when privacy matters. Cercano manages local models as first-class agent runtimes—with tools, delegation, sessions, and workflows—not as a separate chat window. You can still mix in hosted models when you choose.</p>
+            <p>Cercano&apos;s integrated llama-server runtime handles model downloads, configuration, startup, and process lifecycle inside the agent. Choose a compatible model and put it to work with the same tools, sessions, delegation, and workflows as hosted models.</p>
+            <p>Keep sensitive code and context on your machine, use hardware you already own, and avoid per-token charges for work routed locally.</p>
             <div className="control-options" aria-label="Model deployment choices">
               <span><i />Local</span><span><i />Hosted</span><span><i />Both</span>
             </div>
-            <a className="text-link" href={`${docsUrl}/cercano/models/`}>Set up models</a>
+            <a className="text-link" href={`${docsUrl}/cercano/models/`}>Set up local models</a>
           </div>
         </section>
 
