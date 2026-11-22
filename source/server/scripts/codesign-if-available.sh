@@ -6,13 +6,21 @@
 # binary gets a fresh ad-hoc signature each build and looks like a stranger
 # to the Keychain.
 #
-# Usage: codesign-if-available.sh <binary> [stable-identifier]
+# Usage: codesign-if-available.sh [--development] <binary> [stable-identifier]
+# --development explicitly disables network timestamping for local builds.
+# Without it, retain codesign's system default. Releases use sign-macos-release.sh.
 #
 # Identity: $CERCANO_CODESIGN_ID when set ("none" disables signing entirely);
 # otherwise the first "Developer ID Application" identity in the keychain.
 # No identity found = silent no-op, so builds on machines without one (CI,
 # other platforms) are unaffected.
 set -euo pipefail
+
+development=false
+if [[ "${1:-}" == "--development" ]]; then
+    development=true
+    shift
+fi
 
 bin="${1:?usage: codesign-if-available.sh <binary> | --resolve-identity}"
 # --resolve-identity emits the signing selector on line one, followed by
@@ -53,5 +61,11 @@ fi
 # The launcher builds into a PID-suffixed temporary file. Use the final
 # executable name as its identifier so Keychain requirements survive rebuilds.
 identifier="${2:-$(basename "$bin")}"
-codesign --force --sign "$id" --identifier "$identifier" "$bin"
+sign=(codesign --force --sign "$id" --identifier "$identifier")
+# Omitting --timestamp does NOT disable it for Developer ID identities.
+# Do not retry signing errors or fall back to another identity.
+if $development; then
+    sign+=(--timestamp=none)
+fi
+"${sign[@]}" "$bin"
 echo "[codesign] signed $bin as $id" >&2

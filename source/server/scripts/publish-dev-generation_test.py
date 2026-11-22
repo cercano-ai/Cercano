@@ -684,7 +684,7 @@ output.chmod(0o755)
         for name, code in {
             "security": '''import os
 print('  1) %s "%s"' % (os.environ["CERT"], os.environ["IDENTITY_NAME"]) if os.environ["CERT"] else "0 valid identities found")''',
-            "codesign": 'import os,sys,json\nwith open(os.environ["SIGN_LOG"], "a") as f: f.write(json.dumps(sys.argv[1:])+"\\n")\nsys.exit(7 if os.environ.get("FAIL_PHASE") in sys.argv[1:] else 0)',
+            "codesign": 'import os,sys,json\nwith open(os.environ["SIGN_LOG"], "a") as f: f.write(json.dumps(sys.argv[1:])+"\\n")\nif os.environ.get("TIMESTAMP_OFFLINE") and "--sign" in sys.argv and "--timestamp=none" not in sys.argv:\n    print("The timestamp service is not available.", file=sys.stderr)\n    sys.exit(69)\nsys.exit(7 if os.environ.get("FAIL_PHASE") in sys.argv[1:] else 0)',
         }.items():
             tool = tools / name
             tool.write_text(f"#!{sys.executable}\n" + code + "\n")
@@ -694,6 +694,52 @@ print('  1) %s "%s"' % (os.environ["CERT"], os.environ["IDENTITY_NAME"]) if os.e
     def signing_calls(self):
         log = Path(self.env["SIGN_LOG"])
         return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_helper_default_can_require_timestamp_service(self):
+        # Model the documented system default: omission may timestamp Developer ID.
+        self.signing_tools()
+        self.env["TIMESTAMP_OFFLINE"] = "1"
+        helper = self.repo / "source/server/scripts/codesign-if-available.sh"
+        output = self.base / "fixture binary"
+        output.write_bytes(b"fixture never execute")
+        result = subprocess.run(["/bin/bash", str(helper), str(output), "cercano"],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 69)
+        self.assertIn("The timestamp service is not available.", result.stderr)
+        self.assertEqual(self.signing_calls(), [["--force", "--sign",
+                         self.env["IDENTITY_NAME"], "--identifier", "cercano", str(output)]])
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin signing")
+    def test_development_signing_without_timestamp_service(self):
+        self.signing_tools()
+        self.env["TIMESTAMP_OFFLINE"] = "1"
+        result = self.publish(extra=["--sign"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.signing_calls()
+        self.assertEqual(len(calls), 4)
+        for i, name in enumerate(("cercano", "cercano-cli")):
+            self.assertEqual(calls[i*2][:-1], ["--force", "--sign", "A"*40,
+                             "--identifier", name, "--timestamp=none"])
+            self.assertEqual(calls[i*2+1], ["--verify", "--strict", calls[i*2][-1]])
+
+    def test_helper_development_preserves_identity_and_fails_closed(self):
+        self.signing_tools()
+        self.env["TIMESTAMP_OFFLINE"] = "1"
+        helper = self.repo / "source/server/scripts/codesign-if-available.sh"
+        output = self.base / "fixture binary"
+        output.write_bytes(b"fixture never execute")
+        def sign():
+            return subprocess.run(["/bin/bash", str(helper), "--development", str(output), "cercano"],
+                                  env=self.env, capture_output=True, text=True)
+        for identity in (self.env["IDENTITY_NAME"], "Explicit Override", "B"*40, "-"):
+            self.env["CERCANO_CODESIGN_ID"] = identity
+            self.assertEqual(sign().returncode, 0)
+            self.assertEqual(self.signing_calls()[-1], ["--force", "--sign", identity,
+                             "--identifier", "cercano", "--timestamp=none", str(output)])
+        self.env["FAIL_PHASE"] = "--sign"
+        before = len(self.signing_calls())
+        self.assertEqual(sign().returncode, 7)
+        self.assertEqual(len(self.signing_calls()), before + 1)  # no retry/fallback
 
     def test_existing_build_helper_policy(self):
         self.signing_tools()
@@ -725,7 +771,7 @@ print('  1) %s "%s"' % (os.environ["CERT"], os.environ["IDENTITY_NAME"]) if os.e
         calls = self.signing_calls()
         self.assertEqual(len(calls), 4)
         for i, name in enumerate(("cercano", "cercano-cli")):
-            self.assertEqual(calls[i*2][:-1], ["--force", "--sign", "A"*40, "--identifier", name])
+            self.assertEqual(calls[i*2][:-1], ["--force", "--sign", "A"*40, "--identifier", name, "--timestamp=none"])
             self.assertEqual(calls[i*2+1], ["--verify", "--strict", calls[i*2][-1]])
         manifest = (self.root / "test-gen/manifest.json").read_text()
         self.assertNotIn(self.env["IDENTITY_NAME"], manifest)

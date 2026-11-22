@@ -96,6 +96,11 @@ with the leading `v` stripped; `VERSION` overrides it) and invoke
 available Developer ID identity; `CERCANO_CODESIGN_ID` selects one (`none`
 disables signing). A stable identity is intended to preserve macOS Keychain
 access across rebuilds, but prompts depend on OS and Keychain configuration.
+Development Makefile builds and the launcher publisher explicitly pass
+`--development` to disable network timestamping (`--timestamp=none`) while
+retaining the selected signing identity. The helper without that flag retains
+macOS timestamp defaults; release signing still requires a secure timestamp
+and hardened runtime through `scripts/sign-macos-release.sh`.
 The launcher uses the same version/signing convention. Bare `go build` without
 version ldflags reports `dev` and does not run this signing helper.
 
@@ -305,7 +310,7 @@ A build-tagged tracer dumps every raw tool-call fragment to stderr. It is
 cd source/server
 tmp="$HOME/bin/.cercano-libexec/cercano.new.$$"
 go build -tags cercano_streamtrace -o "$tmp" ./cmd/cercano && \
-  scripts/codesign-if-available.sh "$tmp" cercano && \
+  scripts/codesign-if-available.sh --development "$tmp" cercano && \
   mv -f "$tmp" "$HOME/bin/.cercano-libexec/cercano"
 # Restart the agent only when it is safe to interrupt active work.
 ```

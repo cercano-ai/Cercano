@@ -10,7 +10,8 @@ source/clients/cli . into ONE temporary sibling directory under --root, validate
 both outputs without executing them, writes manifest.json, then atomically
 renames with no replacement (macOS/Linux only; other platforms fail closed).
 --go accepts an absolute build-tool path (also useful for fixture tests).
---sign uses codesign-if-available.sh on Darwin: stable Developer ID signing,
+--sign uses codesign-if-available.sh --development on Darwin (no network
+timestamp service): stable Developer ID signing,
 CERCANO_CODESIGN_ID override (none disables), or no-op without an identity.
 Applied signatures are strictly verified. Non-applicable on other platforms.
 VERSION overrides the Git-derived version.
@@ -339,7 +340,7 @@ def signing_identity(repo, requested, env):
     # Only a digest enters manifests; do not persist identity names or discovery
     # output. Pin the resolved certificate for both snapshot signing calls.
     env["CERCANO_CODESIGN_ID"] = identity or "none"
-    return {"policy": "codesign-if-available-v1", "enabled": bool(identity),
+    return {"policy": "codesign-if-available-dev-no-timestamp-v2", "enabled": bool(identity),
             "identity_sha256": hashlib.sha256(resolution.encode()).hexdigest(),
             "helper_sha256": hashlib.sha256(helper.read_bytes()).hexdigest()}
 
@@ -490,7 +491,7 @@ def publish(args, *, fingerprint_generation=False):
             subprocess.run(command, cwd=snapshot / module, env=env, check=True)
             if args.sign and sys.platform == "darwin":
                 helper = snapshot / "source/server/scripts/codesign-if-available.sh"
-                subprocess.run(["/bin/bash", str(helper), str(output), name],
+                subprocess.run(["/bin/bash", str(helper), "--development", str(output), name],
                                env=env, check=True, stdout=sys.stderr)
                 if metadata["signing"]["enabled"]:
                     subprocess.run(["codesign", "--verify", "--strict", str(output)],
