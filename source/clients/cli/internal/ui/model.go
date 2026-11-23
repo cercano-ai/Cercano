@@ -200,6 +200,8 @@ type Model struct {
 	sessionModelPending   bool
 	cloudModel            string // legacy cloud model name (from config)
 	secondaryCloudProfile string // configured secondary routing slot
+	primarySlotModel      string
+	secondarySlotModel    string
 	activeCloudProfile    string // configured primary routing slot (account identity, not quality model)
 	cloudState            string // "" = unknown, "NONE" = absent, "ok" = real cloud configured
 	intentionalExit       bool
@@ -712,6 +714,8 @@ type configLoadedMsg struct {
 	CloudModel            string
 	ActiveCloudProfile    string
 	SecondaryCloudProfile string
+	PrimarySlotModel      string
+	SecondarySlotModel    string
 	Failed                bool // failed RPCs must not clear the last successful snapshot
 	SlotsLoaded           bool // a successful config snapshot, including empty/removed slots
 	CloudConfigured       bool
@@ -753,8 +757,10 @@ func fetchConfigCmd(ag *agentclient.Client) tea.Cmd {
 		// while a profile with a keychain-stored key is happily routing.
 		configured := cfg.CloudState == "ok"
 		active, secondary := "", ""
+		primaryModel, secondaryModel := "", ""
 		if view, err := ag.GetCloudProviders(ctx); err == nil {
 			active = view.Active
+			primaryModel, secondaryModel = configuredHeaderModels(cfg, &view)
 			if view.Assignments != nil {
 				active = view.Assignments.Primary
 				secondary = view.Assignments.Secondary
@@ -768,6 +774,8 @@ func fetchConfigCmd(ag *agentclient.Client) tea.Cmd {
 			CloudModel:            cfg.CloudModel,
 			ActiveCloudProfile:    active,
 			SecondaryCloudProfile: secondary,
+			PrimarySlotModel:      primaryModel,
+			SecondarySlotModel:    secondaryModel,
 			SlotsLoaded:           true,
 			CloudConfigured:       configured,
 			LocusMode:             cfg.LocusMode,
@@ -2266,6 +2274,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			m.openModel = msg.OpenModel
 			m.activeCloudProfile = msg.ActiveCloudProfile
 			m.secondaryCloudProfile = msg.SecondaryCloudProfile
+			m.primarySlotModel, m.secondarySlotModel = msg.PrimarySlotModel, msg.SecondarySlotModel
 		}
 		if msg.OpenModel != "" {
 			m.openModel = msg.OpenModel
@@ -6032,10 +6041,9 @@ func (m Model) renderHeaderRight(maxWidth int) string {
 	if maxWidth <= 0 {
 		return ""
 	}
-	// Cloud destinations select accounts, not a single quality model. Show the
-	// configured account identities rather than inventing a quality tier or
-	// substituting the current session/last-served model.
-	labels := []string{m.activeCloudProfile, m.secondaryCloudProfile}
+	// Labels are resolved configured destination models, never profile IDs or
+	// the last-served/session model. Quality is independent of slot numbering.
+	labels := []string{m.primarySlotModel, m.secondarySlotModel}
 	for i := range labels {
 		if labels[i] == "" {
 			labels[i] = "—"

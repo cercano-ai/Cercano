@@ -9,9 +9,9 @@ import (
 )
 
 func TestHeaderNumberedSlotsWithoutLocal(t *testing.T) {
-	m := Model{styles: theme.NewStyles(theme.Cracker()), activeCloudProfile: "primary-account", lastModel: "last-served-cloud"}
+	m := Model{styles: theme.NewStyles(theme.Cracker()), activeCloudProfile: "primary-account", primarySlotModel: "primary-model", lastModel: "last-served-cloud"}
 	out := stripAnsiCSI(m.renderHeaderRight(120))
-	if !strings.Contains(out, "1:primary-account") || !strings.Contains(out, "2:—") || strings.Contains(out, "3:") || strings.Contains(out, "last-served") {
+	if !strings.Contains(out, "1:primary-model") || !strings.Contains(out, "2:—") || strings.Contains(out, "3:") || strings.Contains(out, "last-served") {
 		t.Fatalf("want configured primary, unconfigured secondary, and no local slot; got %q", out)
 	}
 }
@@ -30,13 +30,13 @@ func TestHeaderNumberedSlotsConfigTransport(t *testing.T) {
 	updated, _ := m.Update(msg)
 	m = updated.(Model)
 	out := stripAnsiCSI(m.renderHeaderRight(120))
-	if out != "1:team-external │ 2:personal" {
+	if out != "1:team-opus │ 2:claude-sonnet-4" {
 		t.Fatalf("unexpected slots: %q", out)
 	}
-	updated, _ = m.Update(configLoadedMsg{SlotsLoaded: true, ActiveCloudProfile: "personal", SecondaryCloudProfile: "team-external", OpenModel: "qwen3:8b"})
+	updated, _ = m.Update(configLoadedMsg{SlotsLoaded: true, ActiveCloudProfile: "personal", SecondaryCloudProfile: "team-external", PrimarySlotModel: "claude-opus-4", SecondarySlotModel: "team-sonnet", OpenModel: "qwen3:8b"})
 	m = updated.(Model)
 	out = stripAnsiCSI(m.renderHeaderRight(120))
-	if out != "1:personal │ 2:team-external │ 3:qwen3:8b" {
+	if out != "1:claude-opus-4 │ 2:team-sonnet │ 3:qwen3:8b" {
 		t.Fatalf("unexpected swapped/local slots: %q", out)
 	}
 	updated, _ = m.Update(configLoadedMsg{Failed: true})
@@ -46,5 +46,19 @@ func TestHeaderNumberedSlotsConfigTransport(t *testing.T) {
 	updated, _ = m.Update(configLoadedMsg{SlotsLoaded: true})
 	if got := stripAnsiCSI(updated.(Model).renderHeaderRight(120)); got != "1:— │ 2:—" {
 		t.Fatalf("removed slots remain: %q", got)
+	}
+}
+
+// Matches the live configuration: secondary is redirected, not unconfigured.
+func TestHeaderNumberedSlotsSecondaryRedirect(t *testing.T) {
+	stub, client := newScenario(t)
+	stub.mu.Lock()
+	stub.routing = &proto.RoutingAssignments{Primary: "personal", SecondaryRedirect: "primary"}
+	stub.mu.Unlock()
+	msg := fetchConfigCmd(client)().(configLoadedMsg)
+	m := Model{styles: theme.NewStyles(theme.Cracker())}
+	updated, _ := m.Update(msg)
+	if got := stripAnsiCSI(updated.(Model).renderHeaderRight(120)); got != "1:claude-opus-4 │ 2:claude-sonnet-4" {
+		t.Fatalf("want resolved chat/dispatch models, got %q", got)
 	}
 }

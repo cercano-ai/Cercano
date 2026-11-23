@@ -74,6 +74,7 @@ func TestHeaderLongModelChipDoesNotDisplaceTitle(t *testing.T) {
 		width:              115,
 		sessionTitle:       "CERCANO - MORE UX",
 		activeCloudProfile: "openai",
+		primarySlotModel:   "gpt-6-astra",
 		openModel:          "qwen3-30b-a3b-instruct-2507",
 	}
 
@@ -90,7 +91,7 @@ func TestHeaderLongModelChipDoesNotDisplaceTitle(t *testing.T) {
 	if idxCol < wantStart-2 || idxCol > wantStart+6 {
 		t.Fatalf("title start = %d, want near centered start %d; header=%q", idxCol, wantStart, plain)
 	}
-	if !strings.Contains(plain, "1:openai") || !strings.Contains(plain, "3:") {
+	if !strings.Contains(plain, "1:gpt-6") || !strings.Contains(plain, "3:") {
 		t.Fatalf("header should preserve model chip prefixes while truncating labels, got %q", plain)
 	}
 }
@@ -113,7 +114,7 @@ func TestStatusDoesNotRenderOpenRuntimeMissingModelChip(t *testing.T) {
 	}
 }
 
-func TestConfigLoadedPrimarySlotUsesAccountDuringTransientCloudState(t *testing.T) {
+func TestConfigLoadedPrimarySlotUsesModelDuringTransientCloudState(t *testing.T) {
 	m := Model{
 		styles:    theme.NewStyles(theme.Cracker()),
 		palette:   theme.Cracker(),
@@ -124,16 +125,18 @@ func TestConfigLoadedPrimarySlotUsesAccountDuringTransientCloudState(t *testing.
 		OpenModel:          "qwen3-30b-a3b-instruct-2507",
 		CloudModel:         "claude-opus-5",
 		ActiveCloudProfile: "claude",
+		SlotsLoaded:        true,
+		PrimarySlotModel:   "claude-opus-5",
 		CloudConfigured:    false,
 	})
 	m = updated.(Model)
 
 	out := stripAnsiCSI(m.renderHeader())
-	if !strings.Contains(out, "1:claude") {
-		t.Fatalf("header should show the configured primary account, got %q", out)
+	if !strings.Contains(out, "1:claude-opus-5") {
+		t.Fatalf("header should show the configured primary model, got %q", out)
 	}
-	if strings.Contains(out, "1:opus-5") {
-		t.Fatalf("header primary slot must not substitute a quality model, got %q", out)
+	if strings.Contains(out, "1:claude │") {
+		t.Fatalf("header primary slot must not substitute an account name, got %q", out)
 	}
 	if !strings.Contains(out, "3:qwen3-30b") {
 		t.Fatalf("header should still show open chip, got %q", out)
