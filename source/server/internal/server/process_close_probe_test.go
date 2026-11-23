@@ -6,19 +6,24 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/conversation"
+	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/internal/runner"
+	"cercano/source/server/internal/secrets"
 	"cercano/source/server/internal/worker"
 	"cercano/source/server/pkg/agentclient"
+	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/devhostauth"
 	pb "cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
@@ -35,14 +40,29 @@ func (closeProbePeer) RunTurn(stream pb.Worker_RunTurnServer) error {
 		return err
 	}
 	raw, _ := json.Marshal(conversation.AutonomyRun{ConversationID: "parent", State: "running"})
-	if err := stream.Send(&pb.WorkerToHost{Msg: &pb.WorkerToHost_AutonomyRequest{AutonomyRequest: &pb.AutonomyLedgerRequest{Id: 1, Op: "create", RunJson: raw}}}); err != nil {
+	op := "create"
+	if strings.HasPrefix(os.Getenv("CERCANO_CLOSE_PROBE_MODE"), "update-") {
+		var err error
+		raw, err = os.ReadFile(filepath.Join(os.Getenv("CERCANO_CLOSE_PROBE_ROOT"), "autonomy-run"))
+		if err != nil {
+			return err
+		}
+		op = "update"
+	}
+	request := &pb.WorkerToHost{Msg: &pb.WorkerToHost_AutonomyRequest{AutonomyRequest: &pb.AutonomyLedgerRequest{Id: 1, Op: op, RunJson: raw}}}
+	if strings.HasPrefix(os.Getenv("CERCANO_CLOSE_PROBE_MODE"), "route-") {
+		request = &pb.WorkerToHost{Msg: &pb.WorkerToHost_SessionModelRequest{SessionModelRequest: &pb.SessionModelRequest{Id: "1", ConversationId: "parent", Action: "set", Profile: "fixture", Model: "exact-model"}}}
+	}
+	if err := stream.Send(request); err != nil {
 		return err
 	}
-	if _, err := stream.Recv(); err != nil {
+	response, err := stream.Recv()
+	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "callback response: %v\n", response)
 	root := os.Getenv("CERCANO_CLOSE_PROBE_ROOT")
-	if err := os.WriteFile(filepath.Join(root, "callback-returned"), nil, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "callback-returned"), []byte(response.String()), 0600); err != nil {
 		return err
 	}
 	deadline := time.NewTimer(15 * time.Second)
@@ -83,7 +103,7 @@ func init() {
 // Each case runs in a disposable independent host process. A parent watchdog
 // bounds even a broken synchronous Shutdown/join (the regression under probe).
 func TestProcessCloseInstalledCallbacks(t *testing.T) {
-	for _, mode := range []string{"success", "write-failure"} {
+	for _, mode := range []string{"success", "write-failure", "update-success", "update-write-failure", "blocked-success", "route-success", "route-write-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			exe, err := os.Executable()
@@ -109,7 +129,9 @@ func TestProcessCloseHostProbe(t *testing.T) {
 	} // helper, not a skipped acceptance
 	ctx, cancel := context.WithTimeout(t.Context(), 18*time.Second)
 	defer cancel()
-	s, owned, owner, _ := preparedWakeFixture(t)
+	cfg := config.Config{OpenRuntime: "synthetic"}
+	cfg.CloudProfiles = []config.CloudProfile{{Name: "fixture", Provider: "deepinfra", Flavor: "chat_completions", Model: "default", BaseURL: "https://example.invalid/v1"}}
+	s, owned, owner, _ := preparedWakeFixtureWithConfig(t, cfg)
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -135,13 +157,40 @@ func TestProcessCloseHostProbe(t *testing.T) {
 	must(err)
 	t.Setenv("CERCANO_CLOSE_PROBE_WORKER", "1")
 	s.SetPermissions(agent.NewStaticPermissionStore(agent.ModeBypass), nil)
+	entered, unblock := make(chan struct{}), make(chan struct{})
+	blocked := os.Getenv("CERCANO_CLOSE_PROBE_MODE") == "blocked-success"
+	if blocked {
+		s.persistSvc = closeProbePersistence{Service: s.persistSvc, store: closeProbeBlockedStore{Store: s.persistSvc.Store(), entered: entered, unblock: unblock}}
+	}
 	must(s.ConfigurePreparedWorker(policy))
 	defer s.workerRunner.(interface{ CleanupOwnedWorkers() }).CleanupOwnedWorkers()
-	if os.Getenv("CERCANO_CLOSE_PROBE_MODE") == "write-failure" {
+	mode := os.Getenv("CERCANO_CLOSE_PROBE_MODE")
+	operation := "INSERT"
+	table := "autonomy_runs"
+	if strings.HasPrefix(mode, "route-") {
+		t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
+		table = "conversation_chat_routes"
+		cfg := config.Defaults()
+		cfg.CloudProfiles = []config.CloudProfile{{Name: "fixture", Provider: "deepinfra", Flavor: "chat_completions", Model: "default", BaseURL: "https://example.invalid/v1"}}
+		s.SetConfigPersistence("", cfg)
+		keys := secrets.NewMemory()
+		must(keys.Set("fixture", "test-only"))
+		s.SetSecrets(keys)
+	}
+	if strings.HasPrefix(mode, "update-") {
+		run, err := s.persistSvc.Store().CreateAutonomyRun(owned, conversation.AutonomyRun{ConversationID: owner.Conversation, State: "running"})
+		must(err)
+		run.State = "completed"
+		raw, err := json.Marshal(run)
+		must(err)
+		must(os.WriteFile(filepath.Join(root, "autonomy-run"), raw, 0600))
+		operation = "UPDATE"
+	}
+	if strings.HasSuffix(os.Getenv("CERCANO_CLOSE_PROBE_MODE"), "write-failure") {
 		db, err := sql.Open("sqlite", s.coexistence.options.StorePath)
 		must(err)
 		defer db.Close()
-		_, err = db.Exec(`CREATE TRIGGER injected BEFORE INSERT ON autonomy_runs BEGIN SELECT RAISE(ABORT, 'real callback failure'); END`)
+		_, err = db.Exec(fmt.Sprintf(`CREATE TRIGGER injected BEFORE %s ON %s BEGIN SELECT RAISE(ABORT, 'real callback failure'); END`, operation, table))
 		must(err)
 	}
 	done := make(chan error, 1)
@@ -159,7 +208,17 @@ func TestProcessCloseHostProbe(t *testing.T) {
 			}
 		}
 	}
-	wait(func() bool { _, err := os.Stat(filepath.Join(root, "callback-returned")); return err == nil })
+	if blocked {
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			t.Fatal("callback entry deadline")
+		}
+	} else {
+		wait(func() bool { _, err := os.Stat(filepath.Join(root, "callback-returned")); return err == nil })
+	}
+
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	attachment, err := s.coexistence.admission.AttachTerminal(owner, "probe")
 	must(err)
 	defer attachment.Detach()
@@ -172,12 +231,19 @@ func TestProcessCloseHostProbe(t *testing.T) {
 	must(err)
 	g := grpc.NewServer(auth.ServerOptions()...)
 	pb.RegisterAgentServer(g, s)
-	go g.Serve(lis)
-	defer g.Stop()
+	served := make(chan struct{})
+	go func() { defer close(served); _ = g.Serve(lis) }()
+	defer func() { g.Stop(); <-served }()
 	opts := append(auth.DialOptions(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	conn, err := grpc.NewClient(lis.Addr().String(), opts...)
 	must(err)
 	defer conn.Close()
+	identity, err := pb.NewAgentClient(conn).GetDevelopmentHostIdentity(ctx, &pb.GetDevelopmentHostIdentityRequest{})
+	must(err)
+	pinned, err := agentclient.DialAuthenticatedPinnedSession(ctx, agentclient.PinnedSessionIntent{Endpoint: lis.Addr().String(), HostInstance: owner.Host, Contract: identity.GetContract(), SchemaVersion: identity.GetSchemaVersion(), ConversationID: owner.Conversation, OwnershipEpoch: owner.Epoch}, token)
+	must(err)
+	defer pinned.Close()
+	must(pinned.ReconnectPinnedSession(ctx))
 	rpcctx := metadata.AppendToOutgoingContext(ctx, agentclient.PinnedHostMetadata, owner.Host, agentclient.PinnedConversationMetadata, owner.Conversation, agentclient.PinnedEpochMetadata, owner.Epoch, agentclient.PinnedTerminalMetadata, "probe")
 	_, err = pb.NewAgentClient(conn).LifecycleRelease(rpcctx, &pb.LifecycleControlRequest{Target: s.coexistence.controlIdentity(), Source: s.coexistence.controlIdentity(), Owner: wireOwner(owner)})
 	must(err)
@@ -194,6 +260,10 @@ func TestProcessCloseHostProbe(t *testing.T) {
 	if err == nil {
 		t.Fatal("acquired before drain")
 	}
+	if blocked {
+		close(unblock)
+		wait(func() bool { _, err := os.Stat(filepath.Join(root, "callback-returned")); return err == nil })
+	}
 	must(os.WriteFile(filepath.Join(root, "drop-response"), nil, 0600))
 	select {
 	case err := <-done:
@@ -207,9 +277,11 @@ func TestProcessCloseHostProbe(t *testing.T) {
 	if _, err := os.Stat(string(socket)); !os.IsNotExist(err) {
 		t.Fatalf("old worker socket remains: %v", err)
 	}
-	if os.Getenv("CERCANO_CLOSE_PROBE_MODE") == "write-failure" {
+	if strings.HasSuffix(os.Getenv("CERCANO_CLOSE_PROBE_MODE"), "write-failure") {
 		snap := s.coexistence.admission.Snapshot(owner)
 		if snap.UnresolvedWork == 0 {
+			response, _ := os.ReadFile(filepath.Join(root, "callback-returned"))
+			t.Logf("response: %s", response)
 			t.Fatalf("production callback lost mutation uncertainty: %+v", snap)
 		}
 		cap, err := conversation.AcquireOwnership(ctx, s.coexistence.store, owner.Conversation, "replacement")
@@ -220,6 +292,20 @@ func TestProcessCloseHostProbe(t *testing.T) {
 			t.Fatal("acquired uncertain mutation")
 		}
 	} else {
+		db, err := sql.Open("sqlite", s.coexistence.options.StorePath)
+		must(err)
+		defer db.Close()
+		var count int
+		if strings.HasPrefix(mode, "route-") {
+			must(db.QueryRowContext(ctx, `SELECT COUNT(*) FROM conversation_chat_routes WHERE conversation_id='parent' AND profile='fixture' AND model='exact-model'`).Scan(&count))
+		} else if strings.HasPrefix(mode, "update-") {
+			must(db.QueryRowContext(ctx, `SELECT COUNT(*) FROM autonomy_runs WHERE conversation_id='parent' AND state='completed'`).Scan(&count))
+		} else {
+			must(db.QueryRowContext(ctx, `SELECT COUNT(*) FROM autonomy_runs WHERE conversation_id='parent'`).Scan(&count))
+		}
+		if count != 1 {
+			t.Fatalf("actual persisted callback rows = %d", count)
+		}
 		wait(func() bool {
 			row, err := conversation.ReadOwnership(ctx, s.coexistence.store, owner.Conversation)
 			return err == nil && row.State == "released"
@@ -231,6 +317,10 @@ func TestProcessCloseHostProbe(t *testing.T) {
 			t.Fatalf("replacement: %v: %s", err, out)
 		}
 		t.Logf("replacement: %s", out)
+		if err := pinned.ReconnectPinnedSession(ctx); !errors.Is(err, agentclient.ErrPinnedSession) {
+			t.Fatalf("stale source binding accepted after replacement: %v", err)
+		}
+
 	}
 }
 
@@ -243,11 +333,19 @@ func TestProcessResumeProbe(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	s, err := NewCoexistenceServer(ctx, CoexistenceOptions{StorePath: path, Host: "replacement", Build: "B", Contract: conversation.CurrentCoexistenceDeclaration(), Reload: func(context.Context, conversation.Store, *conversation.Ownership) error { return nil }, CloseParticipation: func(context.Context) error { return nil }})
+	root := t.TempDir()
+	s, err := NewPreparedServer(ctx, PreparedServerOptions{
+		Coexistence: CoexistenceOptions{StorePath: path, Host: "replacement", Build: "B", Contract: conversation.CurrentCoexistenceDeclaration(), Reload: func(context.Context, conversation.Store, *conversation.Ownership) error { return nil }, CloseParticipation: func(context.Context) error { return nil }},
+		Config:      config.Config{OpenRuntime: "synthetic"}, ConfigPath: filepath.Join(root, "config"), RoutingPath: filepath.Join(root, "routing"), FailurePath: filepath.Join(root, "failures"),
+		Agent: func(st conversation.Store) (*agent.Agent, error) {
+			return agent.NewAgent(nil, nil, agent.WithPersistentStore(st)), nil
+		},
+	}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.CloseCoexistenceStore()
+	defer s.Shutdown()
 	owner, err := s.Retain(ctx, "parent")
 	if err != nil {
 		t.Fatal(err)
@@ -258,6 +356,43 @@ func TestProcessResumeProbe(t *testing.T) {
 	row, err := conversation.ReadOwnership(ctx, s.GenerationStore(), "parent")
 	if err != nil || row.Epoch != owner.Epoch || row.Owner != owner.Host {
 		t.Fatalf("durable replacement: %+v %v", row, err)
+	}
+	token := filepath.Join(root, "token")
+	if err := devhostauth.Create(token); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := devhostauth.Load(owner.Host, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.coexistence.options.ControlAuthorize = auth.Authorize
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := grpc.NewServer(auth.ServerOptions()...)
+	pb.RegisterAgentServer(g, s)
+	served := make(chan struct{})
+	go func() { defer close(served); _ = g.Serve(lis) }()
+	defer func() { g.Stop(); <-served }()
+	id := s.coexistence.controlIdentity()
+	client, err := agentclient.DialAuthenticatedPinnedSession(ctx, agentclient.PinnedSessionIntent{Endpoint: lis.Addr().String(), HostInstance: owner.Host, Contract: id.GetContract(), SchemaVersion: int32(conversation.CurrentCoexistenceDeclaration().SchemaVersion), ConversationID: owner.Conversation, OwnershipEpoch: row.Epoch}, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	turns, err := client.ResumeConversation(ctx, owner.Conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, turn := range turns {
+		if turn.Content == "process close evidence" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("explicit pinned resume lost transcript: %+v", turns)
 	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -275,4 +410,29 @@ func TestProcessResumeProbe(t *testing.T) {
 	if len(history) == 0 {
 		t.Fatal("transcript lost")
 	}
+}
+
+// This barrier delays the actual installed ledger callback at its store call.
+// It does not install mutation scopes or report failures on production's behalf.
+type closeProbePersistence struct {
+	persistsvc.Service
+	store conversation.Store
+}
+
+func (p closeProbePersistence) Store() conversation.Store { return p.store }
+
+type closeProbeBlockedStore struct {
+	conversation.Store
+	entered chan struct{}
+	unblock <-chan struct{}
+}
+
+func (s closeProbeBlockedStore) CreateAutonomyRun(ctx context.Context, run conversation.AutonomyRun) (conversation.AutonomyRun, error) {
+	close(s.entered)
+	select {
+	case <-s.unblock:
+	case <-ctx.Done():
+		return conversation.AutonomyRun{}, ctx.Err()
+	}
+	return s.Store.CreateAutonomyRun(ctx, run)
 }

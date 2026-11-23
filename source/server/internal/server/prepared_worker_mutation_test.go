@@ -66,9 +66,9 @@ func (p *mutationLostResponsePeer) RunTurn(stream pb.Worker_RunTurnServer) error
 func TestPreparedWorkerRealMutationLostResponse(t *testing.T) {
 	for _, kind := range []string{"session", "task", "autonomy", "dispatch"} {
 		for _, mode := range []string{"write-failure", "success", "validation", "read-rejection"} {
-			// Task success starts independent execution, covered by task lifecycle tests;
+			// Task has no read-only launch operation;
 			// ledger/evidence validation has a distinct (broader) production error policy.
-			if kind == "task" && mode != "write-failure" && mode != "validation" {
+			if kind == "task" && mode == "read-rejection" {
 				continue
 			}
 			if (kind == "autonomy" || kind == "dispatch") && mode != "write-failure" && mode != "success" {
@@ -170,6 +170,12 @@ func TestPreparedWorkerRealMutationLostResponse(t *testing.T) {
 						}
 						if (persistsvc.WriteFailure(c) != nil) != (mode == "write-failure") {
 							t.Errorf("evidence before response loss=%v", persistsvc.WriteFailure(c))
+						}
+						if kind == "task" && mode == "success" {
+							var count int
+							if e := db.QueryRowContext(c, `SELECT count(*) FROM delegated_tasks WHERE id != 'one'`).Scan(&count); e != nil || count != 1 {
+								t.Errorf("successful task INSERT before response loss: rows=%d err=%v", count, e)
+							}
 						}
 						close(recorded)
 						select {
