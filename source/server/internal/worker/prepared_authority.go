@@ -142,3 +142,13 @@ func configurePreparedDispatch(ctx context.Context, tools any, prepared ...bool)
 		scoped.SetDispatchScope(lifetime.begin)
 	}
 }
+
+// CallbackCleanupError marks a host callback failure after its producer has
+// joined. Unlike an ordinary model/transport result, it conservatively retains
+// the authority's persistence fence. Wrapping/joining preserves this distinction.
+type CallbackCleanupError struct{ Err error }
+
+func (e *CallbackCleanupError) Error() string {
+	return "worker callback cleanup failed: " + e.Err.Error()
+}
+func (e *CallbackCleanupError) Unwrap() error { return e.Err }

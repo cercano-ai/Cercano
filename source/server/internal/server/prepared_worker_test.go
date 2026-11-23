@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -79,7 +80,7 @@ func TestPreparedWorkerConfiguration(t *testing.T) {
 }
 
 func TestPreparedWorkerAuthorityConservativeCompletion(t *testing.T) {
-	for _, mode := range []string{"success", "turn-error", "write-error"} {
+	for _, mode := range []string{"success", "turn-error", "canceled", "deadline", "wrapped-canceled", "joined-canceled", "write-error", "canceled-write", "callback-error"} {
 		t.Run(mode, func(t *testing.T) {
 			s, ctx, owner, _ := preparedWakeFixture(t)
 			workctx, ticket, err := s.BeginRetainedWork(ctx, owner, broker.PersistenceWork)
@@ -103,15 +104,32 @@ func TestPreparedWorkerAuthorityConservativeCompletion(t *testing.T) {
 			if mode == "turn-error" {
 				turnErr = errors.New("worker failed")
 			}
-			if mode == "write-error" {
+			switch mode {
+			case "canceled":
+				turnErr = context.Canceled
+			case "deadline":
+				turnErr = context.DeadlineExceeded
+			case "wrapped-canceled":
+				turnErr = fmt.Errorf("worker: %w", context.Canceled)
+			case "joined-canceled":
+				turnErr = errors.Join(context.Canceled, errors.New("model failed"))
+			}
+			if mode == "callback-error" {
+				turnErr = errors.Join(context.Canceled, fmt.Errorf("wrapped: %w", &worker.CallbackCleanupError{Err: errors.New("cleanup uncertain")}))
+			}
+			if mode == "canceled-write" {
+				turnErr = fmt.Errorf("wrapped: %w", context.Canceled)
+			}
+			uncertain := mode == "write-error" || mode == "canceled-write" || mode == "callback-error"
+			if mode == "write-error" || mode == "canceled-write" {
 				persistsvc.ReportWriteFailure(workctx, errors.New("durable write failed"))
 			}
 			a.Close(turnErr)
 			err = s.ReleaseRetained(ctx, owner, nil)
-			if mode == "success" && err != nil {
+			if !uncertain && err != nil {
 				t.Fatalf("successful ticket not completed: %v", err)
 			}
-			if mode != "success" && err == nil {
+			if uncertain && err == nil {
 				t.Fatal("failed turn advertised closure readiness")
 			}
 		})

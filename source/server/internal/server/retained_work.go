@@ -45,6 +45,7 @@ func (s *Server) beginRetainedWorkLocked(ctx context.Context, owner broker.Owner
 	ctx = WithPreparedTaskOwnership(ctx, owner, o)
 	ctx = persistsvc.WithWriteFailure(ctx, func(error) {
 		// Accounting changes kind without releasing the live work blocker.
+		s.logPersistenceFailure("retained_write")
 		_ = ticket.Advance(broker.PersistenceWork)
 		_ = ticket.PersistenceFailed()
 	})

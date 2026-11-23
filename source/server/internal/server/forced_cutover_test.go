@@ -12,6 +12,7 @@ import (
 	"cercano/source/server/internal/dispatch"
 	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/internal/taskrun"
+	"cercano/source/server/internal/worker"
 	pb "cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -161,7 +162,7 @@ func TestForcedCutoverWorkerCancellationAccounting(t *testing.T) {
 				persistsvc.ReportWriteFailure(workctx, errors.New("uncertain write"))
 			}
 			if mode == "callback-failure" {
-				outcome = errors.Join(outcome, errors.New("callback failed"))
+				outcome = errors.Join(outcome, &worker.CallbackCleanupError{Err: errors.New("callback failed")})
 			}
 			authority.Close(outcome) // host invokes this only after cleanup and callback join
 			err = s.ReleaseRetained(ctx, owner, nil)

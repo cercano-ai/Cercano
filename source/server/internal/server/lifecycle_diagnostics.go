@@ -103,3 +103,14 @@ func (s *Server) logLifecycleRefusalLocked(l *coexistenceLifecycle, r *pb.Lifecy
 	// Raw errors, endpoints, store paths, receipts, and request bodies are never logged.
 	s.failureLog.Log("lifecycle.resume_refused", fields)
 }
+
+// logPersistenceFailure accepts only internal, fixed origin labels. Never pass
+// errors or caller data: these events must remain safe even for secret-bearing
+// dependency failures. It does not take lifecycle locks (write observers may hold them).
+func (s *Server) logPersistenceFailure(origin string) {
+	if s != nil && s.failureLog != nil {
+		s.failureLog.Log("lifecycle.persistence_retained", failurelog.Event{
+			"scope": "lifecycle", "origin": origin, "work_kind": "persistence",
+		})
+	}
+}

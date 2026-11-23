@@ -3,6 +3,7 @@ package server
 import (
 	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -151,7 +152,7 @@ func TestPreparedWorkerDescendantAuthorityIsolation(t *testing.T) {
 			if failed {
 				persistsvc.ReportWriteFailure(grandchild, errors.New("fake descendant write failure"))
 			}
-			a.Close(nil)
+			a.Close(fmt.Errorf("joined model failure: %w", context.Canceled))
 			for _, id := range []string{"wc", "wg", "ws"} {
 				state, err := conversation.ReadOwnership(ctx, s.coexistence.store, id)
 				if err != nil {
@@ -230,5 +231,65 @@ func TestPreparedWorkerCloseWaitsForHostCallbacks(t *testing.T) {
 	case <-returned:
 	case <-ctx.Done():
 		t.Fatal("host failed to join callback")
+	}
+}
+
+// A failed acquisition/registration has no completion callback to append to the
+// authority. Its reserved parent join slot must still retain the failure when
+// Close discards the ordinary execution error.
+func TestPreparedWorkerFailedDescendantAcquisition(t *testing.T) {
+	for _, mode := range []string{"uncertain-commit", "registration"} {
+		t.Run(mode, func(t *testing.T) {
+			s, ctx, owner, _ := preparedWakeFixture(t)
+			workctx, ticket, err := s.BeginRetainedWork(ctx, owner, broker.PersistenceWork)
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := &preparedWorkerAuthority{server: s, ctx: workctx, id: owner.Conversation, ticket: ticket}
+			if err := a.Ensure(ctx, "acquire-child", owner.Conversation, "", "", nil); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "registration" {
+				// Store acquisition will succeed, but admission already has this ID.
+				if err := s.coexistence.admission.RegisterOwner(broker.Owner{Host: owner.Host, Conversation: "acquire-grandchild", Epoch: "conflicting-epoch"}); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				db, err := sql.Open("sqlite", s.coexistence.options.StorePath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				// Deferred FK failure occurs at Commit, not Exec: acquisition must return
+				// its retained capability even though the durable outcome is uncertain.
+				if _, err := db.Exec(`CREATE TABLE injected_fk_parent(id INTEGER PRIMARY KEY);
+CREATE TABLE injected_fk_child(id INTEGER REFERENCES injected_fk_parent(id) DEFERRABLE INITIALLY DEFERRED);
+CREATE TRIGGER fail_acquire_commit AFTER INSERT ON conversation_ownership WHEN NEW.conversation_id='acquire-grandchild' BEGIN INSERT INTO injected_fk_child VALUES(1); END;`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := a.Ensure(ctx, "acquire-grandchild", "acquire-child", "", "", nil); err == nil {
+				t.Fatal("expected failed descendant acquisition")
+			}
+			a.Close(errors.New("ordinary execution failure"))
+			if err := s.ReleaseRetained(ctx, owner, nil); !errors.Is(err, broker.ErrAdmissionBusy) {
+				t.Fatalf("uncertain descendant lost parent blocker: %v", err)
+			}
+			snap := s.coexistence.admission.Snapshot(owner)
+			if snap.UnresolvedWork == 0 {
+				t.Fatalf("lost unresolved blocker: %+v", snap)
+			}
+			state, err := conversation.ReadOwnership(ctx, s.coexistence.store, "acquire-child")
+			if err != nil || state.State != "owned" {
+				t.Fatalf("parent released despite descendant uncertainty: %+v %v", state, err)
+			}
+			for _, id := range []string{"acquire-child", "acquire-grandchild"} {
+				cap := s.coexistence.owners[id]
+				if cap == nil {
+					t.Fatalf("lost uncertain capability for %s", id)
+				}
+				_ = cap.Close()
+			}
+		})
 	}
 }

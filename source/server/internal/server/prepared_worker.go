@@ -186,26 +186,27 @@ func (a *preparedWorkerAuthority) Ensure(ctx context.Context, id, parent, dir, m
 
 // Close is called only after the stream and all host callbacks have drained.
 // Reverse admission order is a topological bottom-up join. A failed or uncertain
-// turn never proves completion, so its scopes and work blockers remain retained.
+// durable write or cleanup never proves completion, so its blockers remain retained.
 func (a *preparedWorkerAuthority) Close(err error) {
 	a.once.Do(func() {
 		a.mu.Lock()
 		a.closed = true
 		completions := append([]func(error) error(nil), a.completions...)
 		a.mu.Unlock()
-		// Close runs after worker teardown and all host callbacks have joined.
-		// A clean, exact cancellation is execution completion, not an uncertain
-		// database write. Joined callback errors and observed write failures still
-		// retain the persistence fence.
-		if err == context.Canceled || err == context.DeadlineExceeded {
-			err = nil
+		// Execution has joined, regardless of its result. Only observed durable
+		// uncertainty and explicitly marked callback cleanup failures retain work.
+		runErr := persistsvc.WriteFailure(a.ctx)
+		var cleanup *worker.CallbackCleanupError
+		if errors.As(err, &cleanup) {
+			runErr = errors.Join(runErr, cleanup)
+			a.server.logPersistenceFailure("worker_callback_cleanup")
 		}
-		runErr := errors.Join(err, persistsvc.WriteFailure(a.ctx))
 		var closeErr error
 		for i := len(completions) - 1; i >= 0; i-- {
 			closeErr = errors.Join(closeErr, completions[i](runErr))
 		}
 		if runErr != nil || closeErr != nil {
+			a.server.logPersistenceFailure("worker_close")
 			_ = a.ticket.PersistenceFailed()
 			return
 		}
@@ -296,6 +297,9 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 	l.mu.Unlock()
 	if err != nil {
 		if owned != nil {
+			descendantErr = err
+			persistsvc.ReportWriteFailure(ctx, err)
+			s.logPersistenceFailure("dispatch_acquire")
 			_ = ticket.PersistenceFailed()
 		} else {
 			_ = ticket.Complete()
@@ -316,6 +320,9 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 	}
 	l.mu.Unlock()
 	if err != nil {
+		descendantErr = err
+		persistsvc.ReportWriteFailure(ctx, err)
+		s.logPersistenceFailure("dispatch_register")
 		_ = ticket.PersistenceFailed()
 		return nil, nil, err
 	}
@@ -331,8 +338,10 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 				descendantErr = closeErr
 				close(done)
 			}()
+			// runErr is a persistence/cleanup outcome, not a model result.
 			closeErr = errors.Join(scope.join(), persistsvc.WriteFailure(ctx), runErr)
 			if closeErr != nil {
+				s.logPersistenceFailure("dispatch_join")
 				_ = ticket.PersistenceFailed()
 				return
 			}
@@ -346,17 +355,20 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 			l.mu.Unlock()
 			if err != nil {
 				closeErr = err
+				s.logPersistenceFailure("dispatch_close_owner")
 				_ = ticket.PersistenceFailed()
 				return
 			}
 			// Durable release must precede removal of the parent work blocker.
 			closeErr = owned.Release(context.WithoutCancel(ctx))
 			if closeErr != nil {
+				s.logPersistenceFailure("dispatch_release")
 				_ = ticket.PersistenceFailed()
 				return
 			}
 			closeErr = closure.Relinquished()
 			if closeErr != nil {
+				s.logPersistenceFailure("dispatch_relinquish")
 				_ = ticket.PersistenceFailed()
 				return
 			}
