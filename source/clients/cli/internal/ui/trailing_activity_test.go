@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cercano/source/clients/cli/internal/theme"
+	tea "charm.land/bubbletea/v2"
 )
 
 // IsBetweenPhases is false when nothing is streaming — the whole indicator
@@ -200,5 +201,107 @@ func TestChatView_TrailingActivityReservePreventsMidTurnBounce(t *testing.T) {
 	settled := stripAnsiCSI(strings.Join(settledLines, "\n"))
 	if strings.Contains(settled, "thinking") {
 		t.Fatalf("completed turn should not retain trailing activity text, got:\n%s", settled)
+	}
+}
+
+// Advancing animation time must create the activity row even when no new
+// content arrives to trigger a transcript rebuild.
+func TestChatView_QuietStreamCreatesTrailingActivity(t *testing.T) {
+	p := theme.Cracker()
+	c := newChatView(theme.NewStyles(p), p, "", "", 100, 20)
+	c.SetStreaming(true)
+	entries := []*Entry{{Role: RoleAssistant, Content: "Inspecting the repo.", Streaming: true}}
+	c.SetEntriesSlice(entries)
+	now := time.Now()
+	c.SetAnimationTime(now)
+	c.lastTokenAt = now
+	c.SetEntries(entries)
+	if strings.Contains(stripAnsiCSI(c.View()), "thinking") {
+		t.Fatal("fresh stream shows activity")
+	}
+	c.SetAnimationTime(now.Add(staleStreamThreshold + time.Millisecond))
+	quiet := stripAnsiCSI(c.View())
+	t.Logf("quiet: between=%t activity=%t", c.IsBetweenPhases(), strings.Contains(quiet, "thinking"))
+	// Control probe: a queue-triggered rebuild must not be necessary.
+	c.Enqueue("next prompt", nil)
+	c.SetEntries(entries)
+	if !strings.Contains(stripAnsiCSI(c.View()), "thinking") {
+		t.Fatal("queue-triggered rebuild lacks activity")
+	}
+	if !strings.Contains(quiet, "thinking") {
+		t.Fatal("quiet stream lacks activity until layout rebuild")
+	}
+}
+
+func TestQuietStreamAnimationTickLifecycle(t *testing.T) {
+	for _, child := range []bool{false, true} {
+		name := "main"
+		if child {
+			name = "child"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := New(nil, false)
+			m = send(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+			if child {
+				m.applySubAgentEvent(subAgentEventMsg{id: "child", kind: "started"})
+				m.chatTabs.active = "child"
+			} else {
+				m.streaming = true
+			}
+			c := m.activeChat()
+			c.SetStreaming(true)
+			now := time.Now()
+			c.SetAnimationTime(now)
+			c.SetEntriesSlice([]*Entry{{Role: RoleAssistant, Content: "Inspecting the repo.", Streaming: true}})
+			c.lastTokenAt = now
+			m.refreshViewport()
+			if m.ensureAnimTick() == nil || !m.animTickActive {
+				t.Fatal("tick did not start")
+			}
+			if m.ensureAnimTick() != nil {
+				t.Fatal("duplicate tick")
+			}
+			// Deliver the scheduled tick with deterministic time past the threshold.
+			next, cmd := m.Update(progressAnimTickMsg(now.Add(staleStreamThreshold + time.Millisecond)))
+			m = next.(Model)
+			if cmd == nil || !m.animTickActive {
+				t.Fatal("quiet active chat lost tick")
+			}
+			if !strings.Contains(stripAnsiCSI(m.View().Content), "thinking") {
+				t.Fatal("tick did not reveal quiet-stream activity")
+			}
+			if !strings.Contains(stripAnsiCSI(c.View()), "thinking") {
+				t.Fatal("activity missing from chat")
+			}
+			// Queue changes must neither be needed for activity nor cancel it.
+			c.Enqueue("next prompt", nil)
+			m.relayout()
+			if !strings.Contains(stripAnsiCSI(m.View().Content), "thinking") {
+				t.Fatal("enqueue hid activity")
+			}
+			c.DrainNext()
+			m.relayout()
+			if !strings.Contains(stripAnsiCSI(m.View().Content), "thinking") {
+				t.Fatal("draining queue hid activity")
+			}
+			// Fresh text must remove the old activity unit without waiting for a
+			// separate full-transcript refresh, while retaining reserved tail rows.
+			c.lastTokenAt = now.Add(staleStreamThreshold + time.Millisecond)
+			if strings.Contains(stripAnsiCSI(c.View()), "thinking") {
+				t.Fatal("fresh stream retained stale activity")
+			}
+			c.SetStreaming(false)
+			c.entries[0].Streaming = false
+			if child {
+				m.closeSubAgentTab("child")
+			} else {
+				m.streaming = false
+			}
+			next, cmd = m.Update(progressAnimTickMsg(now.Add(time.Second)))
+			m = next.(Model)
+			if cmd != nil || m.animTickActive {
+				t.Fatal("idle chat retained tick")
+			}
+		})
 	}
 }

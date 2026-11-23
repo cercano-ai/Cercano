@@ -10,6 +10,16 @@ func (c *chatView) visibleLines(top, height int) []string {
 }
 
 func (c *chatView) RefreshVisibleDynamicUnits() {
+	// A quiet stream can cross the stale-token threshold without any content
+	// event. Refreshing existing units cannot create (or remove) the trailing
+	// activity unit, which is always last. Rebuild only on that transition,
+	// not on every animation frame, and preserve the usual scroll anchoring.
+	units := c.layout.units
+	hasActivity := len(units) > 0 && units[len(units)-1].kind == unitTrailingActivity
+	if hasActivity != c.IsBetweenPhases() {
+		c.rebuild()
+		return
+	}
 	if c.refreshVisibleDynamicUnits(c.YOffset(), c.Height()) {
 		// A dynamic unit changed shape (usually because elapsed/status text wrapped
 		// differently). Rebuild the layout once so offsets and following unit start
