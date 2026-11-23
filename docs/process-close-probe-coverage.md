@@ -10,9 +10,9 @@ conflicts. The accounting auto-merge was reviewed: process-local `source` sessio
 identity and privacy-safe diagnostic correlation remain intact. No additional
 production integration changes were necessary; same-child observable Wait,
 per-session diagnostic connections and exact stale Chat admission refusal remain.
-**Final combined verification passed; not landing-ready until the separate reconnect
-independent review returns. Retirement/lifecycle independent review has no blockers
-(as supplied with this integration task); those approvals and diagnostics are preserved.**
+**Final correction and independent combined review passed: READY TO LAND (not landed).
+Retirement/lifecycle approval supplied with this task is preserved; its production
+files are unchanged since f8b0b0e5. See final correction verification below.**
 
 ## Reviewed blockers addressed by the correction (retirement/lifecycle approved)
 
@@ -84,13 +84,13 @@ Validated code HEAD: `e6441d7de6c55f9220f070a337669e4b692516e3` on
 `1ac4e5739db850ee51c919b062b0b6fac9d1437d` cherry-picked without conflicts;
 base b360 was not reapplied. No conflict resolution or production integration
 edits were needed. Changes are client SDK, CLI tests and documentation only.
-No landing or push performed. Reconnect independent review remains pending.
+No landing or push performed. This earlier verification is superseded by the final correction review below.
 
 | Reconnect scenario | Validated evidence | Boundary |
 | --- | --- | --- |
 | Exact validation | Host instance, contract, schema version, retired state, retained conversation and ownership epoch; existing connect-intent credential/isolation policy | No independent store attestation; build identity is not compared. |
 | Task-only recovery | `TestPinnedTaskOnlyRecoveryBounded`, `TestPinnedTaskRecoveryPreservesCursor`: real loopback stop/rebind refusal, bounded retry, ordered progress sequences 1,2 | Stop/rebind refusal and cursor continuation are separate fixtures, not one durable-store restart journey. |
-| Ambiguous/partial/completed chat | `TestPinnedChatAutomaticallyRevalidatesWithoutResend`, `TestPinnedPartialAndAuthBoundaries`, `TestPinnedCompletedChatRepairsWithoutDeliveryWarning` | Partial delivery remains unknown; FinalResponse establishes completion; repair does not blindly replay chat. Authentication/permission errors do not trigger replay/validation. |
+| Ambiguous/intermediate-final chat | `TestPinnedChatAutomaticallyRevalidatesWithoutResend`, `TestPinnedPartialAndAuthBoundaries`, `TestPinnedIntermediateFinalStreamOutcome` | FinalResponse may precede autonomous continuation. Only normal EOF establishes normal stream completion; non-EOF Unavailable remains uncertain with successful or refused repair, without resend. Authentication/permission failures remain visible without repair. |
 | Identity/policy/stale epoch | `TestPinnedAttachmentTransportDrop` A/B/stale/credentials, `TestPinnedNoLaunchRefusals`, authenticated reconnect and DialExisting suites | Real transport with fake identity/session service; stale state represents epoch rejection, not actual ownership migration. |
 | Cancellation/close concurrency | `TestPinnedConcurrentRecoveryAndCancellation`, `TestPinnedCloseDuringValidationCannotInstall`, attachment cancellation; full focused broad race | Shared failed-attempt concurrency remains without its own dedicated stress probe. |
 | Actual CLI command loop | `TestMainDriverPinnedRecoveryDoesNotResubmit` drives Model.Update commands through stream end, retains/renders warning, exactly one submission | In-process model, not installed terminal/launcher acceptance. |
@@ -133,3 +133,68 @@ uncovered by dedicated follow-up tests. Generic unary RPCs do not automatically
 retry; initial attachment-open/takeover is not blindly replayed; budget exhaustion
 surfaces an error. No live hosts/configuration/data/signals were used; only disposable
 test fixtures. No other worktrees were modified or cleaned.
+
+## Final narrow correction: independent verification
+
+Reviewed and tested code SHA: `62ee7901d459eb2591169ccb3a59e715fd408a1b`.
+Correction `48aa767116e4e2ef2ebc1fe51943fbfee41325d9` cherry-picked cleanly;
+patch IDs match (`6392de30bbab65f84f211fcaa205e6fba2a47961`). Only the
+expected two client production files, two tests, and coverage document changed.
+No additional production changes. The following checkpoint adds documentation
+and verification logs only, so its production/test tree is identical.
+
+Independent review: no blockers. Server server.go:4400–4469 sends intermediate
+FinalResponse before autonomous continuation. Client client.go:2274–2303 now
+waits for EOF and exposes receive failures; pinned_session.go:175–183 retains
+original and repair identities using multiple wrapping, repairs only Unavailable,
+and never resubmits. Fresh connectIntent validates before transport installation;
+identity/contract/schema/retirement/retained epoch checks remain enforced.
+Unauthenticated/PermissionDenied are not converted into successful completion.
+Task subscription review (tasks.go:20–124) retains bounded fresh validated
+observation retry and cursor advancement only after FIFO enqueue; no changes to
+this approved flow or new event suppression. Retirement/worker/server lifecycle
+production diff against f8b0b0e5 is empty; the correction cannot change its
+classification, accounting authority, budget or reaping behavior.
+
+All final commands passed (exit 0), run on the code SHA above:
+
+From `source/server`:
+```sh
+go test ./internal/server ./internal/worker -run '^TestProcessClose' -count=1 -timeout=180s
+go test -race ./internal/server ./internal/worker -run '^TestProcessClose' -count=1 -timeout=300s
+go test ./pkg/agentclient -run TestPinnedIntermediateFinalStreamOutcome -count=10 -timeout=120s
+go test -race ./pkg/agentclient -run 'TestPinned|TestAuthenticatedPinnedReconnect|TestDialExisting|TestAttachmentCancellation' -count=5 -timeout=300s
+go test ./... -count=1 -timeout=300s
+go build -o /tmp/cercano-correction-build.M7hxwC/cercano ./cmd/cercano/
+```
+From `source/clients/cli`:
+```sh
+go test -race ./internal/ui -run 'TestMainDriverPinnedRecoveryDoesNotResubmit|TestMainAgentDriver|TestConn|TestPinned' -count=5 -timeout=180s
+go test ./... -count=1 -timeout=300s
+go build ./...
+```
+
+Process-close normal server/worker: 8.773s/0.911s; race: 25.451s/1.577s.
+Matrix ten-repeat: 4.532s; broad pinned five-repeat race: 261.235s
+(Go timeout 300s, outer 1000s). Other command groups had outer 900s limits.
+Selected UI five-repeat race: 30.889s. Full normal server/CLI suites passed,
+as did both production builds. Captured logs are in
+`verification/combined-correction/` except process-close: its tests passed but
+the initial tee destination was absent; the times above are from tool stdout,
+not a saved log. No hang, failure, or production fix was needed.
+
+Matrix covers immediate post-final loss and continuation-output loss, each with
+successful/refused repair; multiple finals with normal EOF; post-final auth and
+permission failure; original Unavailable and ErrPinnedSession identities; and
+one submission. Actual Model.Update command-loop cases retain and render the
+warning (ANSI/line-wrap normalized) with one submission. Reported prior red
+results against 1ac4 were not rerun in this independent final verification.
+
+Residual boundaries: intermediate-final fixtures use real ephemeral loopback
+RPCs with Unavailable trailers, not a killed production host. Task stop/rebind
+refusal and cursor continuity are separate tests, not one durable-store restart.
+In-process UI is not installed terminal/launcher acceptance. Existing process
+fixture substitutions and uncovered dedicated synchronous-open/shared-failed-
+attempt/automatic contract-schema replacement probes remain as documented above.
+No full-repository race suite claimed. Only disposable test processes/resources
+were used; no live host state, landing, push, or worktree removal.

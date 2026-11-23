@@ -23,4 +23,13 @@ go test -race ./internal/ui -run 'TestMainDriverPinnedRecoveryDoesNotResubmit|Te
 
 All passed. Client matrix also covers normal EOF with two FinalResponses, and Unauthenticated/PermissionDenied after FinalResponse without repair. Every matrix case asserts exactly one submission; repair failure retains original status and ErrPinnedSession. UI cases execute driver commands through Model.Update and assert warning retention/rendering and exactly one submission. Render assertions normalize ANSI/line wrapping.
 
-Task-only recovery and progress cursor code is unchanged. Limitations: fixtures return gRPC Unavailable trailers rather than killing a live production host; no full repository/UI suite or durable-store restart integration was run. Existing task stop/rebind refusal and cursor continuation remain separate probes. No live host/config/data operations, protocol changes, landing, or push.
+Task-only recovery and progress cursor code is unchanged. Limitations: fixtures return gRPC Unavailable trailers rather than killing a live production host; the correction-author run did not include full repository/UI suites or durable-store restart integration. The final independent combined run below includes both full normal server and CLI suites. Existing task stop/rebind refusal and cursor continuation remain separate probes. No live host/config/data operations, protocol changes, landing, or push.
+
+## Final independent combined verification
+
+Correction applied without conflicts as `62ee7901d459eb2591169ccb3a59e715fd408a1b`;
+independent review found no blockers. Full exact commands, timings, scope and
+fixture boundaries are recorded in [combined coverage](process-close-probe-coverage.md#final-narrow-correction-independent-verification).
+The matrix passed ten repeats; broad pinned race passed five repeats in 261.235s
+with Go timeout 300s / outer 1000s. Selected UI race, process-close normal/race,
+full normal server/CLI suites and production builds passed. READY TO LAND; not landed.
