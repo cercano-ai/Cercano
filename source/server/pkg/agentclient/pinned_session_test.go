@@ -19,6 +19,12 @@ import (
 )
 
 type pinnedFake struct {
+	partial            bool
+	chatCode           codes.Code
+	taskStarted        chan struct{}
+	taskRelease        chan struct{}
+	taskRequests       atomic.Int32
+	completed          bool
 	credentialsEnabled bool
 	validationStarted  chan struct{}
 	validationRelease  chan struct{}
@@ -210,6 +216,19 @@ func (f *pinnedFake) GetCredentialPolicy(context.Context, *proto.GetCredentialPo
 
 func (f *pinnedFake) StreamProcessRequest(_ *proto.ProcessRequestRequest, stream grpc.ServerStreamingServer[proto.StreamProcessResponse]) error {
 	f.requests.Add(1)
+	if f.partial {
+		if err := stream.Send(&proto.StreamProcessResponse{Payload: &proto.StreamProcessResponse_TokenDelta{TokenDelta: &proto.TokenDelta{Content: "partial"}}}); err != nil {
+			return err
+		}
+	}
+	if f.chatCode != codes.OK {
+		return status.Error(f.chatCode, "refused")
+	}
+	if f.completed {
+		if err := stream.Send(&proto.StreamProcessResponse{Payload: &proto.StreamProcessResponse_FinalResponse{FinalResponse: &proto.ProcessRequestResponse{Output: "done"}}}); err != nil {
+			return err
+		}
+	}
 	return status.Error(codes.Unavailable, "transport lost after submission")
 }
 func TestPinnedChatAutomaticallyRevalidatesWithoutResend(t *testing.T) {
@@ -372,5 +391,157 @@ func TestPinnedCloseDuringValidationCannotInstall(t *testing.T) {
 	}
 	if c.readConn() != old || c.readConn().GetState() != connectivity.Shutdown {
 		t.Fatal("closed client replaced")
+	}
+}
+
+func TestPinnedCompletedChatRepairsWithoutDeliveryWarning(t *testing.T) {
+	f := &pinnedFake{host: "A", completed: true}
+	f.state.Store(1)
+	_, addr := pinnedHost(t, "127.0.0.1:0", f)
+	c, err := DialPinnedSession(context.Background(), pinAt(addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	out, err := c.StreamChatWithRecovery(context.Background(), "conversation", "once", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := false
+	for msg := range out {
+		if msg.Type == TypeDone {
+			done = true
+		}
+		if msg.Err != nil {
+			t.Errorf("completed turn reported failure: %v", msg.Err)
+		}
+	}
+	if !done || f.checks.Load() != 2 || f.requests.Load() != 1 {
+		t.Fatalf("done=%v checks=%d requests=%d", done, f.checks.Load(), f.requests.Load())
+	}
+}
+
+func (f *pinnedFake) SubscribeTasks(r *proto.SubscribeTasksRequest, stream grpc.ServerStreamingServer[proto.TaskSubscriptionEvent]) error {
+	f.taskRequests.Add(1)
+	if r.ParentId == "cursor-test" {
+		seq := int64(1)
+		if len(r.Cursors) > 0 {
+			seq = r.Cursors[0].Sequence + 1
+		}
+		if err := stream.Send(&proto.TaskSubscriptionEvent{Payload: &proto.TaskSubscriptionEvent_Progress{Progress: &proto.TaskProgressRecord{TaskId: "task", Sequence: seq}}}); err != nil {
+			return err
+		}
+		if seq > 1 {
+			<-stream.Context().Done()
+			return stream.Context().Err()
+		}
+	}
+	if f.taskStarted != nil {
+		close(f.taskStarted)
+	}
+	if f.taskRelease != nil {
+		select {
+		case <-f.taskRelease:
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		}
+	}
+	return status.Error(codes.Unavailable, "task transport failed")
+}
+func TestPinnedTaskOnlyRecoveryBounded(t *testing.T) {
+	f := &pinnedFake{host: "A", taskStarted: make(chan struct{}), taskRelease: make(chan struct{})}
+	f.state.Store(1)
+	s, addr := pinnedHost(t, "127.0.0.1:0", f)
+	c, err := DialPinnedSession(context.Background(), pinAt(addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	updates, err := c.SubscribeTasks(ctx, "conversation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-f.taskStarted
+	s.Stop()
+	replacement := &pinnedFake{host: "B"}
+	replacement.state.Store(1)
+	pinnedHost(t, addr, replacement)
+	select {
+	case update, ok := <-updates:
+		if !ok || !errors.Is(update.Err, ErrPinnedSession) {
+			t.Fatalf("missing validation refusal: %+v", update)
+		}
+	case <-ctx.Done():
+		t.Fatal("stale task retries never surfaced validation refusal")
+	}
+	if replacement.identities.Load() != 1 || replacement.taskRequests.Load() != 0 {
+		t.Fatalf("identity=%d task=%d", replacement.identities.Load(), replacement.taskRequests.Load())
+	}
+}
+
+func TestPinnedTaskRecoveryPreservesCursor(t *testing.T) {
+	f := &pinnedFake{host: "A"}
+	f.state.Store(1)
+	_, addr := pinnedHost(t, "127.0.0.1:0", f)
+	c, err := DialPinnedSession(context.Background(), pinAt(addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	updates, err := c.SubscribeTasks(ctx, "cursor-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for seq := int64(1); seq <= 2; seq++ {
+		select {
+		case update := <-updates:
+			if update.Err != nil || update.Event.GetProgress().GetSequence() != seq {
+				t.Fatalf("sequence %d: %+v", seq, update)
+			}
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	if f.checks.Load() != 2 || f.taskRequests.Load() != 2 {
+		t.Fatalf("checks=%d subscriptions=%d", f.checks.Load(), f.taskRequests.Load())
+	}
+}
+
+func TestPinnedPartialAndAuthBoundaries(t *testing.T) {
+	for _, code := range []codes.Code{codes.Unavailable, codes.Unauthenticated, codes.PermissionDenied} {
+		t.Run(code.String(), func(t *testing.T) {
+			f := &pinnedFake{host: "A", partial: true, chatCode: code}
+			f.state.Store(1)
+			_, addr := pinnedHost(t, "127.0.0.1:0", f)
+			c, err := DialPinnedSession(context.Background(), pinAt(addr))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			out, err := c.StreamChatWithRecovery(context.Background(), "conversation", "once", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			failures := 0
+			for msg := range out {
+				if msg.Err != nil {
+					failures++
+					if status.Code(msg.Err) != code {
+						t.Fatalf("lost cause: %v", msg.Err)
+					}
+				}
+			}
+			checks := int32(1)
+			if code == codes.Unavailable {
+				checks = 2
+			}
+			if failures != 1 || f.checks.Load() != checks || f.requests.Load() != 1 {
+				t.Fatalf("errors=%d checks=%d requests=%d", failures, f.checks.Load(), f.requests.Load())
+			}
+		})
 	}
 }

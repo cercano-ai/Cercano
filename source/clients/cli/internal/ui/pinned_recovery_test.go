@@ -1,11 +1,13 @@
 package ui
 
 import (
+	tea "charm.land/bubbletea/v2"
 	"context"
 	"net"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"cercano/source/server/pkg/agentclient"
 	"cercano/source/server/pkg/proto"
@@ -53,14 +55,46 @@ func TestMainDriverPinnedRecoveryDoesNotResubmit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cancel()
-	msg, ok := wait().(chatStreamMsg)
-	if !ok {
-		t.Fatal("missing error event")
+	m := New(c, false)
+	m = send(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.turnGen = 1
+	m.streaming = true
+	m.cancelStream = cancel
+	m.mainChat().AppendEntry(&Entry{Role: RoleUser, Content: "once"})
+	m.mainChat().AppendEntry(&Entry{Role: RoleAssistant, Streaming: true})
+	queue := []tea.Cmd{wait}
+	deadline := time.After(3 * time.Second)
+	for steps := 0; m.streaming && steps < 30 && len(queue) > 0; steps++ {
+		cmd := queue[0]
+		queue = queue[1:]
+		if cmd == nil {
+			continue
+		}
+		result := make(chan tea.Msg, 1)
+		go func() { result <- cmd() }()
+		var event tea.Msg
+		select {
+		case event = <-result:
+		case <-deadline:
+			t.Fatal("update loop timed out")
+		}
+		if batch, ok := event.(tea.BatchMsg); ok {
+			queue = append(queue, batch...)
+			continue
+		}
+		next, cmd := m.Update(event)
+		m = next.(Model)
+		queue = append(queue, cmd)
 	}
-	// The driver must preserve the recoverable SDK error, not start another turn.
-	failure, ok := msg.ev.(chatErrorMsg)
-	if !ok || !strings.Contains(failure.err.Error(), "not resent") {
-		t.Fatalf("missing delivery warning: %v", msg.ev)
+	if m.streaming {
+		t.Fatal("stream did not finish")
+	}
+	retained := false
+	for _, entry := range m.mainChat().Entries() {
+		retained = retained || strings.Contains(entry.Content, "not resent")
+	}
+	if !retained || !strings.Contains(m.View().Content, "not resent") {
+		t.Fatalf("delivery warning not retained/rendered: %s", m.View().Content)
 	}
 	if h.requests.Load() != 1 || h.checks.Load() != 2 {
 		t.Fatalf("requests=%d validations=%d", h.requests.Load(), h.checks.Load())

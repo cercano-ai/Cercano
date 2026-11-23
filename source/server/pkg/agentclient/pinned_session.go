@@ -189,7 +189,7 @@ func validatePinnedSession(ctx context.Context, agent proto.AgentClient, p Pinne
 		return fmt.Errorf("%w: identity: %w", ErrPinnedSession, err)
 	}
 	if id.GetHostInstance() != p.HostInstance || id.GetContract() != p.Contract || id.GetSchemaVersion() != p.SchemaVersion {
-		return fmt.Errorf("%w: host/store contract mismatch", ErrPinnedSession)
+		return fmt.Errorf("%w: host identity/contract/schema mismatch", ErrPinnedSession)
 	}
 	if id.GetRetired() {
 		return &SessionCheckError{proto.RetainedSessionState_RETAINED_SESSION_STATE_RETIRED}

@@ -20,9 +20,21 @@ type TaskUpdate struct {
 func (c *Client) SubscribeTasks(ctx context.Context, parent string) (<-chan TaskUpdate, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	c.connMu.Lock()
-	agent := c.agent
+	agent, failedConn := c.agent, c.conn
 	c.connMu.Unlock()
 	stream, err := agent.SubscribeTasks(ctx, &proto.SubscribeTasksRequest{ParentId: parent})
+	recovered := false
+	if err != nil && c.pinned != nil && isUnavailable(err) {
+		if recoveryErr := c.reconnectPinnedTransport(ctx, failedConn); recoveryErr != nil {
+			err = recoveryErr
+		} else {
+			recovered = true
+			c.connMu.Lock()
+			agent, failedConn = c.agent, c.conn
+			c.connMu.Unlock()
+			stream, err = agent.SubscribeTasks(ctx, &proto.SubscribeTasksRequest{ParentId: parent})
+		}
+	}
 	if err != nil {
 		cancel()
 		return nil, err
@@ -58,6 +70,7 @@ func (c *Client) SubscribeTasks(ctx context.Context, parent string) (<-chan Task
 				}
 				c.connMu.Lock()
 				agent := c.agent
+				failedConn = c.conn
 				c.connMu.Unlock()
 				stream, err = agent.SubscribeTasks(ctx, request)
 			}
@@ -68,6 +81,19 @@ func (c *Client) SubscribeTasks(ctx context.Context, parent string) (<-chan Task
 			if err != nil {
 				if ctx.Err() != nil {
 					return
+				}
+				if c.pinned != nil && (isUnavailable(err) || errors.Is(err, io.EOF)) {
+					if recovered {
+						send(TaskUpdate{Err: err})
+						return
+					}
+					if recoveryErr := c.reconnectPinnedTransport(ctx, failedConn); recoveryErr != nil {
+						send(TaskUpdate{Err: recoveryErr})
+						return
+					}
+					recovered = true
+					stream, err = nil, nil
+					continue
 				}
 				if isUnavailable(err) || errors.Is(err, io.EOF) {
 					stream = nil
@@ -87,6 +113,7 @@ func (c *Client) SubscribeTasks(ctx context.Context, parent string) (<-chan Task
 				send(TaskUpdate{Err: err})
 				return
 			}
+			recovered = false
 			if !send(TaskUpdate{Event: event}) {
 				return
 			}

@@ -2274,18 +2274,30 @@ func (c *Client) streamChat(ctx context.Context, conversationID, input, workDir 
 	go func() {
 		defer close(out)
 		defer c.resolveLocalRequest(local, nil)
+		completed := false
 		for {
 			msg, err := stream.Recv()
 			if errors.Is(err, io.EOF) {
 				return
 			}
 			if err != nil {
+				if completed && c.pinned != nil && isUnavailable(err) {
+					// FinalResponse is the protocol terminal result, not a partial delta.
+					if repairErr := c.reconnectPinnedTransport(ctx, failedConn); repairErr != nil {
+						select {
+						case out <- StreamMsg{Type: TypeError, Err: fmt.Errorf("turn completed; connection recovery failed: %w", repairErr)}:
+						case <-ctx.Done():
+						}
+					}
+					return
+				}
 				select {
 				case out <- StreamMsg{Type: TypeError, Err: c.recoverChatTransport(ctx, failedConn, err)}:
 				case <-ctx.Done():
 				}
 				return
 			}
+			completed = completed || msg.GetFinalResponse() != nil
 			c.resolveLocalRequest(local, msg)
 			c.observeTurn(conversationID, msg)
 			if decoded := decodeStreamResponse(msg); decoded != nil {
