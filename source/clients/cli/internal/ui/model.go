@@ -2019,6 +2019,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		if !m.streaming {
 			return m, nil
 		}
+		var activityCmd tea.Cmd
 		// Route by event class: telemetry → footer, transcript → chatView.Apply,
 		// permission → host confirm gate. turnActivity/turnTokOut are derived
 		// from the event type here.
@@ -2054,8 +2055,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			// Re-arm the spinner loop if it stopped (the placeholder loop
 			// dies once tokens begin streaming), and fall through to the
 			// shared repaint so the new tool row appears immediately.
-			m.refreshViewport()
-			return m, tea.Batch(msg.next, m.ensureAnimTick())
+			activityCmd = m.ensureAnimTick()
 		case toolEntryExecCompleteMsg:
 			if m.turnToolDone < m.turnToolStarted {
 				m.turnToolDone++
@@ -2066,8 +2066,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			m.mainChat().Apply(ev)
 		case subAgentEventMsg:
 			m.applySubAgentEvent(ev)
-			m.refreshViewport()
-			return m, tea.Batch(msg.next, m.ensureAnimTick())
+			activityCmd = m.ensureAnimTick()
 		case taskChangeMsg:
 			m.applyTaskChange(ev.kind, ev.task)
 			m.refreshViewport()
@@ -2111,8 +2110,18 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			// error) carry no turn-telemetry side effect.
 			m.mainChat().Apply(ev)
 		}
+		// A prompt queued during dispatch must get the same first-Enter
+		// treatment as one entered after the foreground becomes wait-only.
+		// Cancel only the observer stream; durable tasks own their lifetime.
+		if m.waitBlocked() {
+			if next, ok := m.drainQueuedChat(); ok {
+				m.cancelCurrentStreamSilently()
+				nm, cmd := m.submit(next.text, next.images)
+				return nm, tea.Batch(msg.next, activityCmd, cmd)
+			}
+		}
 		m.refreshViewport()
-		return m, msg.next
+		return m, tea.Batch(msg.next, activityCmd)
 
 	case contextRegenProgressMsg:
 		m.mainChat().AppendNotice(&Entry{Role: RoleSystem, Content: m.styles.Muted.Render("context-regen: " + msg.line)})
@@ -3283,24 +3292,23 @@ func (m *Model) setInputValue(s string) {
 }
 
 // waitBlocked reports whether the foreground turn is blocked solely on
-// delegated-task polling: at least one chat view (main or child pane) holds an
-// in-flight task_wait and no view holds any other in-flight tool. The polling
-// child keeps running independently of the foreground turn, so steering in
-// this state cancels only the wait and can submit on the first Enter.
+// delegated-task polling. Main-chat tools take precedence over child panes:
+// dispatch must finish before we interrupt a wait, but independent child work
+// must not keep the parent blocked. With no main tool, retain the child-pane
+// wait behavior. Steering cancels only the foreground turn, not durable tasks.
 func (m Model) waitBlocked() bool {
 	if m.chatTabs.tabs == nil {
 		return false
 	}
-	blocked := false
+	if main := m.mainChat(); main.hasInProgressTool() {
+		return main.waitBlockedOnly()
+	}
 	for id, tab := range m.chatTabs.tabs {
-		if m.chatTabs.closed[id] {
-			continue
-		}
-		if tab.view.waitBlockedOnly() {
-			blocked = true
+		if !m.chatTabs.closed[id] && tab.view.waitBlockedOnly() {
+			return true
 		}
 	}
-	return blocked
+	return false
 }
 
 // cancelCurrentStream aborts an in-flight prompt: cancel the StreamChat context
