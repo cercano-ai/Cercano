@@ -1,6 +1,6 @@
 # Production-generation acceptance matrix
 
-Status: acceptance design only, 2026-10-27. This completes the Phase 1 specification-to-test mapping, not implementation or product qualification. **Every acceptance evidence slot is PENDING. No tests, builds, migrations, native operations or live journeys were performed for this document.**
+Status: acceptance design baseline, 2026-10-27; bounded regression supplement added 2026-11-22. This completes the Phase 1 specification-to-test mapping, not implementation or product qualification. **Every acceptance evidence slot is PENDING. No tests, builds, migrations, native operations or live journeys were performed for the original design. The supplement below records isolated regression runs only, not completed acceptance slots.**
 
 ## Contract and evidence conventions
 
@@ -114,3 +114,46 @@ Run rows 33–38 as one ordered isolated journey on the same exact candidate art
 - The synthetic development-generation journey mentioned in `spec.md` is a historical limited result, not evidence for production parity, adopted data, native credentials, real inference or any E-slot.
 
 Completion of this document means test obligations and qualification boundaries are mapped. Product readiness requires candidate-specific evidence in every applicable slot, explicit handling of all limitations, adoption rehearsal, and separately authorized live gates; it cannot be inferred from this matrix or a reduced-mode launch.
+
+
+## Bounded close/resume mutation regression supplement (2026-11-22)
+
+Source baseline: `ac1fd960f5db`, branch `test/close-resume-regressions`, Darwin.
+Evidence: `source/server/internal/server/prepared_worker_mutation_test.go`,
+`TestPreparedWorkerRealMutationLostResponse`. Q0 only; E-07/E-12/E-14/E-17
+remain PENDING for full composition/terminal qualification.
+
+| Boundary | Actual fault/control | EOF and canceled gRPC status | Evidence scope |
+|---|---|---|---|
+| Session model route | SQLite BEFORE DELETE abort on route clear; successful clear; invalid action; missing-table read rejection | Both, each case | Production session callback and prepared authority |
+| Task insertion | SQLite BEFORE INSERT abort on delegated_tasks; empty-task validation | Both, each case | Production serverTasks.Launch and prepared authority |
+| Autonomy ledger | SQLite BEFORE INSERT abort on autonomy_runs; successful create | Both, each case | Production HostAutonomyLedger store adapter, explicit ReportWriteFailure scope, prepared authority |
+| Dispatch evidence | SQLite BEFORE INSERT abort on dispatch_events; successful append | Both, each case | Real ensured descendant, production HostDispatchEventSink adapter, explicit ReportWriteFailure scope, prepared authority |
+
+The peer never receives the response. Channel barriers require the real SQL
+callback to finish and its failure evidence to be inspected before the peer exits;
+the callback joins that exit before returning. Failure cases assert the injected
+SQL error, unresolved persistence tickets (root plus descendant for dispatch),
+non-drained terminal closure, refused release, unchanged original owner/epoch,
+and refused successor acquisition. Controls assert no false uncertain tickets.
+Temporary SQLite/bufconn fixtures only; no sleeps or worker processes.
+
+Commands from `source/server` (both passed after final test edits):
+- `go test ./internal/server -run '^TestPreparedWorkerRealMutationLostResponse$' -count=10 -timeout=90s`
+- `go test -race ./internal/server -run '^TestPreparedWorkerRealMutationLostResponse$' -count=5 -timeout=120s`
+
+Negative control: temporarily replaced the session/task production failure
+reporter's error argument with nil, ran the same test restricted to
+`/(session|task)/write-failure` with count=1. All four EOF/canceled cases failed
+on absent evidence and absent unresolved tickets. Restored production files
+byte-for-byte; no production changes retained. This is regression sensitivity
+evidence, not a newly discovered production bug.
+
+Exact gaps: session route SET/UPSERT and autonomy UPDATE are not exercised by
+this new test; successful task insertion with response loss is not covered here
+(it starts independent execution); ledger/evidence validation/read rejection
+policies are not covered. Autonomy/dispatch lifecycle callback-installation and
+process-launch wiring are not exercised: adapters use an explicit failure scope.
+Canceled cases are peer-returned gRPC Canceled, not concurrent host-context
+cancellation during SQL. No compiled terminal, full-suite, live-store, native,
+worker-pool or cleanup-order qualification is claimed.
