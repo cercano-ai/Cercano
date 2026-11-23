@@ -691,10 +691,13 @@ func TestRemoteRecoveryLogsNewerHostOnce(t *testing.T) {
 
 	newer := &newerHost{}
 	addr := serve(t, newer)
-	first.g.Stop()
+	// Publish the replacement before breaking the old connection. Otherwise
+	// recovery can observe the dead first host and legitimately launch one
+	// before the newer host's record is visible.
 	if err := WriteRecord(dir, Record{PID: 4244, Addr: addr, Token: "tok", APIVersion: APIVersion + 1}); err != nil {
 		t.Fatal(err)
 	}
+	first.g.Stop()
 	// Recovery retries with backoff 100ms, 200ms, 400ms, 800ms, ...
 	time.Sleep(2 * time.Second)
 	r.Close()
