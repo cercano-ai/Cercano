@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"cercano/source/server/internal/chatroute"
+	"cercano/source/server/internal/conversation"
+	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 )
@@ -80,6 +82,9 @@ func (s *Server) sessionModel(ctx context.Context, convID string, req chatroute.
 			return chatroute.Status{}, err
 		}
 		if err := store.SetChatRoute(ctx, convID, &route); err != nil {
+			if conversation.IsMutationFailure(err) {
+				persistsvc.ReportWriteFailure(ctx, err)
+			}
 			return chatroute.Status{}, err
 		}
 	case "clear", "status":
@@ -88,6 +93,9 @@ func (s *Server) sessionModel(ctx context.Context, convID string, req chatroute.
 		}
 		if req.Action == "clear" {
 			if err := store.SetChatRoute(ctx, convID, nil); err != nil {
+				if conversation.IsMutationFailure(err) {
+					persistsvc.ReportWriteFailure(ctx, err)
+				}
 				return chatroute.Status{}, err
 			}
 		}

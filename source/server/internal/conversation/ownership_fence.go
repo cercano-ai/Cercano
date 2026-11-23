@@ -29,7 +29,8 @@ var ownedTables = map[string]string{
 
 func (s *sqliteStore) execOwned(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if s.coexistencePath == "" {
-		return s.db.ExecContext(ctx, query, args...)
+		res, err := s.db.ExecContext(ctx, query, args...)
+		return res, mutationError(err)
 	}
 	tx, err := s.beginOwned(ctx, nil)
 	if err != nil {
@@ -38,10 +39,10 @@ func (s *sqliteStore) execOwned(ctx context.Context, query string, args ...any) 
 	defer tx.Rollback()
 	res, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, mutationError(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return nil, err
+		return nil, &MutationError{Err: err}
 	}
 	return res, nil
 }
@@ -189,7 +190,8 @@ func (s *sqliteStore) execTarget(ctx context.Context, target, query string, args
 // parent must match the stored parent, even when the DML predicate matches zero.
 func (s *sqliteStore) execResolvedTarget(ctx context.Context, target, lookup, id, query string, args ...any) (sql.Result, error) {
 	if s.coexistencePath == "" {
-		return s.db.ExecContext(ctx, query, args...)
+		res, err := s.db.ExecContext(ctx, query, args...)
+		return res, mutationError(err)
 	}
 	tx, err := s.beginOwned(ctx, nil)
 	if err != nil {
@@ -211,10 +213,10 @@ func (s *sqliteStore) execResolvedTarget(ctx context.Context, target, lookup, id
 	}
 	res, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, mutationError(err)
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return nil, &MutationError{Err: err}
 	}
 	return res, nil
 }

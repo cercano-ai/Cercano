@@ -1074,10 +1074,10 @@ func (w *workerRunner) RunTurn(
 
 		case *proto.WorkerToHost_HistoryRequest:
 			request := m.HistoryRequest
-			go func() {
+			spawnCallback(func() {
 				response := handleHistory(ctx, w.history, req.ConversationID, request)
 				_ = safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_HistoryResponse{HistoryResponse: response}})
-			}()
+			})
 
 		case *proto.WorkerToHost_TaskControlRequest:
 			request := m.TaskControlRequest

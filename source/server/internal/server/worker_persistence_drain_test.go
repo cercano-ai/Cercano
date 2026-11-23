@@ -12,11 +12,17 @@ import (
 	"time"
 
 	"cercano/source/server/internal/broker"
+	"cercano/source/server/internal/chatroute"
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/internal/credentialtest"
+	"cercano/source/server/internal/dispatch"
 	"cercano/source/server/internal/failurelog"
 	persistsvc "cercano/source/server/internal/hostsvc/persistence"
+	"cercano/source/server/internal/secrets"
+	"cercano/source/server/internal/taskrun"
 	"cercano/source/server/internal/worker"
 	"cercano/source/server/pkg/agentclient"
+	"cercano/source/server/pkg/config"
 	pb "cercano/source/server/pkg/proto"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
@@ -24,9 +30,13 @@ import (
 
 // Exercise the real explicit-close/drain callback, not just ticket completion.
 func TestWorkerPersistenceTerminalDrain(t *testing.T) {
-	for _, mode := range []string{"model", "cancel", "deadline", "write", "canceled-write", "descendant-write", "callback"} {
+	for _, mode := range []string{"model", "cancel", "deadline", "write", "canceled-write", "descendant-write", "callback", "session-set", "session-clear", "session-canceled-write", "session-validation", "session-read", "task-insert", "task-validation", "task-authorization"} {
 		t.Run(mode, func(t *testing.T) {
-			s, _, owner, _ := preparedWakeFixture(t)
+			credentialtest.Enable(t)
+			cfg := config.Defaults()
+			cfg.OpenRuntime = "synthetic"
+			cfg.CloudProfiles = []config.CloudProfile{{Name: "saved", Provider: "deepinfra", Flavor: "chat_completions", Model: "default", BaseURL: "https://example.invalid/v1"}}
+			s, _, owner, _ := preparedWakeFixtureWithConfig(t, cfg)
 			l := s.coexistence
 			path := filepath.Join(t.TempDir(), "diagnostics.jsonl")
 			log, err := failurelog.NewWriter(path)
@@ -48,7 +58,7 @@ func TestWorkerPersistenceTerminalDrain(t *testing.T) {
 			a := &preparedWorkerAuthority{server: s, ctx: workctx, id: owner.Conversation, ticket: ticket}
 			secret := errors.New("SECRET prompt /private/path credential receipt")
 			outcome := secret
-			if mode == "cancel" || mode == "canceled-write" {
+			if mode == "cancel" || mode == "canceled-write" || mode == "session-canceled-write" {
 				outcome = fmt.Errorf("worker: %w", context.Canceled)
 			}
 			if mode == "deadline" {
@@ -67,6 +77,49 @@ func TestWorkerPersistenceTerminalDrain(t *testing.T) {
 				}
 				persistsvc.ReportWriteFailure(child, secret)
 			}
+			if strings.HasPrefix(mode, "session-") {
+				keys := secrets.NewMemory()
+				if err := keys.Set("saved", "fixture-key"); err != nil {
+					t.Fatal(err)
+				}
+				s.SetSecrets(keys)
+				s.persistSvc = sessionFailureService{Service: s.persistSvc, store: sessionFailureStore{Store: s.persistSvc.Store(), route: s.persistSvc.Store().(chatroute.Store), err: secret, read: mode == "session-read"}}
+				req := chatroute.Request{Action: "clear"}
+				if mode == "session-set" {
+					req = chatroute.Request{Action: "set", Profile: "saved", Model: "exact"}
+				}
+				if mode == "session-validation" {
+					req = chatroute.Request{Action: "set", Profile: "missing", Model: "exact"}
+				}
+				if mode == "session-read" {
+					req.Action = "status"
+				}
+				if _, err := s.sessionModel(workctx, owner.Conversation, req); err == nil {
+					t.Fatal("expected session model failure")
+				}
+			}
+			if strings.HasPrefix(mode, "task-") {
+				insertErr := error(&conversation.MutationError{Err: secret})
+				if mode == "task-authorization" {
+					insertErr = secret
+				}
+				manager, err := taskrun.NewPrepared(taskInsertFailureStore{TaskStore: l.store.(conversation.TaskStore), err: insertErr}, func(context.Context, dispatch.Spec) (dispatch.Result, error) {
+					t.Error("execution started despite insert failure")
+					return dispatch.Result{}, nil
+				}, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer manager.Close(context.Background())
+				s.taskManager = manager
+				spec := dispatch.Spec{ConversationID: owner.Conversation, Task: "work"}
+				if mode == "task-validation" {
+					spec.Task = ""
+				}
+				if _, err := (serverTasks{s}).Launch(workctx, spec); err == nil {
+					t.Fatal("expected task launch failure")
+				}
+			}
 			if mode == "callback" {
 				outcome = errors.Join(context.Canceled, fmt.Errorf("callback: %w", &worker.CallbackCleanupError{Err: secret}))
 			}
@@ -81,7 +134,7 @@ func TestWorkerPersistenceTerminalDrain(t *testing.T) {
 			}
 			a.Close(outcome)
 			a.Close(nil) // idempotence must never clear a retained failure
-			uncertain := mode == "write" || mode == "canceled-write" || mode == "descendant-write" || mode == "callback"
+			uncertain := mode == "task-insert" || mode == "write" || mode == "canceled-write" || mode == "descendant-write" || mode == "callback" || mode == "session-set" || mode == "session-clear" || mode == "session-canceled-write"
 			if uncertain {
 				snap := l.snapshotBlockers(owner)
 				if !snap.Admission.Closed || !snap.Admission.Draining || snap.Admission.UnresolvedWork == 0 {
@@ -138,4 +191,39 @@ func TestWorkerPersistenceTerminalDrain(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Fail at the mutation boundary independently of the worker execution outcome.
+type sessionFailureService struct {
+	persistsvc.Service
+	store conversation.Store
+}
+
+func (s sessionFailureService) Store() conversation.Store { return s.store }
+
+type sessionFailureStore struct {
+	conversation.Store
+	route chatroute.Store
+	err   error
+	read  bool
+}
+
+func (s sessionFailureStore) SetChatRoute(context.Context, string, *chatroute.Route) error {
+	return &conversation.MutationError{Err: s.err}
+}
+func (s sessionFailureStore) ChatRoute(ctx context.Context, id string) (*chatroute.Route, error) {
+	if s.read {
+		return nil, s.err
+	}
+	return s.route.ChatRoute(ctx, id)
+}
+
+// Launch must preserve insertion uncertainty even before a task becomes active.
+type taskInsertFailureStore struct {
+	conversation.TaskStore
+	err error
+}
+
+func (s taskInsertFailureStore) InsertTask(context.Context, conversation.TaskRecord) error {
+	return s.err
 }

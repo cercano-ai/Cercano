@@ -4,6 +4,7 @@ import (
 	"cercano/source/server/internal/capabilities"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/dispatch"
+	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/internal/taskrun"
 	"context"
 	"errors"
@@ -28,7 +29,11 @@ func (x serverTasks) Launch(ctx context.Context, spec dispatch.Spec) (conversati
 	if err != nil {
 		return conversation.TaskRecord{}, err
 	}
-	return m.Launch(ctx, spec)
+	task, err := m.Launch(ctx, spec)
+	if conversation.IsMutationFailure(err) {
+		persistsvc.ReportWriteFailure(ctx, err)
+	}
+	return task, err
 }
 func (x serverTasks) List(ctx context.Context, parent string, limit int) ([]conversation.TaskRecord, error) {
 	m, err := x.manager()
