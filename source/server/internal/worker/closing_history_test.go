@@ -39,6 +39,9 @@ func (w *closingHistoryWorker) RunTurn(stream proto.Worker_RunTurnServer) error 
 	case <-stream.Context().Done():
 		return stream.Context().Err()
 	}
+	if w.mode == "authority-cancel" {
+		return stream.Send(&proto.WorkerToHost{Msg: &proto.WorkerToHost_DispatchEvent{DispatchEvent: &proto.DispatchEventRequest{ConversationId: "unauthorized"}}})
+	}
 	if w.mode == "execution-error" {
 		return errors.New("fixture execution failed")
 	}
@@ -51,7 +54,7 @@ func (w *closingHistoryWorker) RunTurn(stream proto.Worker_RunTurnServer) error 
 }
 
 func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
-	for _, mode := range []string{"complete", "execution-error", "cancel", "cancel-budget"} {
+	for _, mode := range []string{"complete", "execution-error", "cancel", "cancel-budget", "authority-cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			entered, canceled, release, exited := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 			var releaseOnce sync.Once
@@ -84,6 +87,7 @@ func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
 			defer finish()
 			ctx, cancel := context.WithCancel(deadline)
 			defer cancel()
+			a.reject = func() { cancel() }
 			done := make(chan struct{})
 			dir := t.TempDir()
 			var turnErr error
@@ -115,10 +119,14 @@ func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
 				t.Fatal("callback never reached cancellation barrier")
 			}
 			conn := <-connections
-			if mode == "execution-error" || mode == "cancel-budget" {
+			if mode == "execution-error" || mode == "cancel-budget" || mode == "authority-cancel" {
 				// Containment must finish while the deliberately uncooperative history
 				// callback still owns authority. Ordinary cancellation gets the drain budget.
-				limit := time.After(5 * time.Second)
+				budget := 5 * time.Second
+				if mode == "authority-cancel" {
+					budget = 200 * time.Millisecond
+				}
+				limit := time.After(budget)
 				ticker := time.NewTicker(time.Millisecond)
 				defer ticker.Stop()
 			waitRetirement:
@@ -172,9 +180,14 @@ type closingHistoryAuthority struct {
 	err         error
 	exited      <-chan struct{}
 	closedEarly bool
+	reject      func()
 }
 
-func (a *closingHistoryAuthority) Context(ctx context.Context, _ string) (context.Context, error) {
+func (a *closingHistoryAuthority) Context(ctx context.Context, cid string) (context.Context, error) {
+	if cid == "unauthorized" {
+		a.reject()
+		return nil, errors.New("authority scope violation")
+	}
 	return ctx, nil
 }
 func (a *closingHistoryAuthority) Close(err error) {

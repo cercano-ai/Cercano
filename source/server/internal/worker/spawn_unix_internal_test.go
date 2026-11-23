@@ -13,9 +13,12 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -67,4 +70,58 @@ func TestSpawnWorker_ProcessOutlivesTurnContext(t *testing.T) {
 			"reuse is defeated; spawnWorker must not bind process lifetime to the turn ctx", ws)
 	}
 	// wpid == 0: the process is still running (not reaped) — correct.
+}
+
+// Startup failure must reap the exact temporary child, not just signal it.
+func TestSpawnWorkerStartupFailureReapsExactChild(t *testing.T) {
+	for _, mode := range []string{"cancel", "exit"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			marker := filepath.Join(dir, "child-pid")
+			script := fmt.Sprintf("#!/bin/sh\necho $$ > %q\n", marker)
+			if mode == "exit" {
+				script += "exit 7\n"
+			} else {
+				script += "exec sleep 30\n"
+			}
+			if err := os.WriteFile(filepath.Join(dir, "cercano"), []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { _, err := spawnWorkerWithPolicy(ctx, "startup-failure", 1, SpawnPolicy{dir: dir}); done <- err }()
+			var pid int
+			deadline := time.Now().Add(time.Second)
+			for time.Now().Before(deadline) {
+				b, _ := os.ReadFile(marker)
+				pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+				if pid > 0 {
+					break
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if pid <= 0 {
+				cancel()
+				t.Fatalf("temporary child did not start: %v", <-done)
+			}
+			if mode == "cancel" {
+				cancel()
+			}
+			if err := <-done; err == nil {
+				t.Fatal("startup unexpectedly succeeded")
+			}
+			// Signal zero succeeds for a zombie; ESRCH therefore proves the child
+			// has disappeared, rather than merely having received SIGKILL.
+			deadline = time.Now().Add(time.Second)
+			for time.Now().Before(deadline) {
+				if syscall.Kill(pid, 0) == syscall.ESRCH {
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+			t.Fatalf("exact startup child %d remains live or unreaped", pid)
+		})
+	}
 }

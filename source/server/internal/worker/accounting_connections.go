@@ -168,6 +168,9 @@ func (m *accountingConnections) ensure(conn *grpc.ClientConn) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if conn.GetState() == connectivity.Shutdown {
+		return fmt.Errorf("worker accounting connection is closed")
+	}
 	if m.closed {
 		return fmt.Errorf("worker runner is shutting down")
 	}
@@ -190,13 +193,25 @@ func (m *accountingConnections) ensure(conn *grpc.ClientConn) error {
 	go func() {
 		s.run()
 		s.cancel()
-		m.mu.Lock()
-		if m.sessions[conn] == s {
-			m.states[conn] = accountingTerminal
-		}
-		m.mu.Unlock()
+		m.retire(conn, s)
 	}()
 	return nil
+}
+
+// retire serializes terminal transport closure and deregistration with ensure.
+// Shutdown is the permanent, connection-owned terminal marker: no manager
+// tombstone retains a dead transport. Never remove an entry before Close.
+func (m *accountingConnections) retire(conn *grpc.ClientConn, s *hostAccountingSession) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_ = conn.Close()
+	if m.sessions[conn] == s {
+		delete(m.sessions, conn)
+		delete(m.states, conn)
+	}
+	if m.injectedConn == conn {
+		m.injectedConn = nil
+	}
 }
 func (m *accountingConnections) drainConnection(ctx context.Context, conn *grpc.ClientConn) error {
 	m.mu.Lock()
@@ -206,10 +221,12 @@ func (m *accountingConnections) drainConnection(ctx context.Context, conn *grpc.
 	}
 	m.mu.Unlock()
 	if s == nil {
-		_ = conn.Close()
+		m.retire(conn, nil)
 		return fmt.Errorf("worker accounting session missing; drain unverified")
 	}
-	return s.close(ctx)
+	err := s.close(ctx)
+	m.retire(conn, s)
+	return err
 }
 func (m *accountingConnections) shutdown(ctx context.Context) error {
 	m.mu.Lock()
@@ -232,6 +249,7 @@ func (m *accountingConnections) shutdown(ctx context.Context) error {
 	var result error
 	for _, s := range sessions {
 		result = errors.Join(result, s.close(ctx))
+		m.retire(s.conn, s)
 	}
 	return result
 }
@@ -262,6 +280,10 @@ func (m *accountingConnections) dial(ctx context.Context, dial dialFunc) (*grpc.
 		m.mu.Unlock()
 		conn.Close()
 		return nil, fmt.Errorf("worker runner is shutting down")
+	}
+	if conn.GetState() == connectivity.Shutdown {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("worker dial returned a closed connection")
 	}
 	existing = m.injectedConn
 	if existing != nil && existing.GetState() != connectivity.Shutdown {

@@ -224,3 +224,116 @@ func TestRetirementAccountingProducerFence(t *testing.T) {
 		})
 	}
 }
+
+func TestRetirementAccountingRegistryBounded(t *testing.T) {
+	for _, mode := range []string{"drained", "failed", "unsafe", "shutdown"} {
+		t.Run(mode, func(t *testing.T) {
+			m := newAccountingConnections(&immediateAccountingReceiver{})
+			for i := 0; i < 12; i++ {
+				_, conn := accountingTestTransport(t)
+				if err := m.ensure(conn); err != nil {
+					t.Fatal(err)
+				}
+				switch mode {
+				case "drained":
+					if err := m.drainConnection(t.Context(), conn); err != nil {
+						t.Fatal(err)
+					}
+				case "failed":
+					ctx, cancel := context.WithCancel(t.Context())
+					cancel()
+					_ = m.drainConnection(ctx, conn)
+				case "unsafe":
+					_ = conn.Close()
+				case "shutdown":
+					if err := m.shutdown(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				_ = conn.Close()
+				deadline := time.Now().Add(time.Second)
+				for {
+					m.mu.Lock()
+					n, states := len(m.sessions), len(m.states)
+					m.mu.Unlock()
+					if n == 0 && states == 0 {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatalf("terminal registry retained sessions=%d states=%d", n, states)
+					}
+					time.Sleep(time.Millisecond)
+				}
+				if m.ensure(conn) == nil {
+					t.Fatal("closed connection resurrected")
+				}
+				if mode == "shutdown" {
+					m = newAccountingConnections(&immediateAccountingReceiver{})
+				}
+			}
+		})
+	}
+}
+
+func TestRetirementAccountingEnsureTerminalRace(t *testing.T) {
+	for _, mode := range []string{"drain", "close", "missing"} {
+		t.Run(mode, func(t *testing.T) {
+			for i := 0; i < 20; i++ {
+				_, conn := accountingTestTransport(t)
+				m := newAccountingConnections(&immediateAccountingReceiver{})
+				if mode != "missing" {
+					if err := m.ensure(conn); err != nil {
+						t.Fatal(err)
+					}
+				}
+				start := make(chan struct{})
+				var wg sync.WaitGroup
+				for j := 0; j < 8; j++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						<-start
+						for k := 0; k < 20; k++ {
+							_ = m.ensure(conn)
+						}
+					}()
+				}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					if mode == "close" {
+						_ = conn.Close()
+					} else {
+						_ = m.drainConnection(t.Context(), conn)
+					}
+				}()
+				close(start)
+				wg.Wait()
+				if m.ensure(conn) == nil {
+					t.Fatal("terminal connection resurrected")
+				}
+				if _, err := m.dial(t.Context(), func(context.Context) (*grpc.ClientConn, error) { return conn, nil }); err == nil {
+					t.Fatal("closed injected transport accepted")
+				}
+				_, fresh := accountingTestTransport(t)
+				got, err := m.dial(t.Context(), func(context.Context) (*grpc.ClientConn, error) { return fresh, nil })
+				if err != nil || got != fresh {
+					t.Fatalf("fresh dial: %v", err)
+				}
+				if err := m.ensure(got); err != nil {
+					t.Fatal(err)
+				}
+				if err := m.drainConnection(t.Context(), got); err != nil {
+					t.Fatal(err)
+				}
+				m.mu.Lock()
+				injected := m.injectedConn
+				m.mu.Unlock()
+				if injected != nil {
+					t.Fatal("terminal injected connection retained")
+				}
+			}
+		})
+	}
+}

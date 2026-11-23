@@ -689,14 +689,11 @@ func (w *workerRunner) RunTurn(
 	var cleanupFn func()
 	var retirement *turnRetirement
 	var turnHealthy bool
+	exitDisposition := unsafeRetire // only an actual cancellation outcome permits draining
 	var watchStop, watchDone chan struct{}
 	defer func() {
 		if retirement != nil && !turnHealthy {
-			if ctx.Err() != nil {
-				retirement.retire(ordinaryRetire)
-			} else {
-				retirement.retire(unsafeRetire)
-			}
+			retirement.retire(exitDisposition)
 		}
 		// Cancellation stops RPC/callback work, but never substitutes for joining
 		// persistence authority users. Retirement proceeds independently of this join.
@@ -832,7 +829,9 @@ func (w *workerRunner) RunTurn(
 		stream, err = client.RunTurn(ctx)
 	}
 	if err != nil {
-		if !localCancellation(err) {
+		if localCancellation(err) {
+			exitDisposition = ordinaryRetire
+		} else {
 			retirement.retire(unsafeRetire)
 		}
 		return runner.Result{}, fmt.Errorf("workerRunner: open stream: %w", err)
@@ -843,7 +842,9 @@ func (w *workerRunner) RunTurn(
 	// reports that status only through Recv, so fall through to the drain loop,
 	// whose Recv classifies it (e.g. the enterprise downgrade refusal).
 	if err := stream.Send(&proto.HostToWorker{Msg: &proto.HostToWorker_Start{Start: startTurn}}); err != nil && !errors.Is(err, io.EOF) {
-		if !localCancellation(err) {
+		if localCancellation(err) {
+			exitDisposition = ordinaryRetire
+		} else {
 			retirement.retire(unsafeRetire)
 		}
 		return runner.Result{}, fmt.Errorf("workerRunner: send StartTurn: %w", err)
@@ -882,6 +883,7 @@ func (w *workerRunner) RunTurn(
 			// deferred cleanup evict + kill it (turnHealthy stays false). A
 			// canceled turn may leave the worker mid-tool in an ambiguous
 			// state, so B1 does NOT keep it warm — the next turn spawns fresh.
+			exitDisposition = ordinaryRetire
 			retirement.retire(ordinaryRetire)
 			return runner.Result{}, ctx.Err()
 		default:
@@ -890,6 +892,9 @@ func (w *workerRunner) RunTurn(
 		msg, recvErr := stream.Recv()
 		if recvErr != nil {
 			localCancel := localCancellation(recvErr)
+			if localCancel {
+				exitDisposition = ordinaryRetire
+			}
 			if !(turnDone && errors.Is(recvErr, io.EOF)) && !localCancel {
 				retirement.retire(unsafeRetire)
 			}
@@ -920,6 +925,9 @@ func (w *workerRunner) RunTurn(
 			// Re-read the host authority for every attempt, including SDK retries.
 			allowed := managed && modelpolicy.Managed(ctx) && modelpolicy.Check(ctx, attempt) == nil
 			if err := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_ModelAuthorizationResponse{ModelAuthorizationResponse: &proto.WorkerModelAuthorizationResponse{Id: request.GetId(), Allowed: allowed}}}); err != nil {
+				if localCancellation(err) {
+					exitDisposition = ordinaryRetire
+				}
 				return runner.Result{}, fmt.Errorf("workerRunner: send model authorization: %w", err)
 			}
 		case *proto.WorkerToHost_Event:
@@ -1010,6 +1018,7 @@ func (w *workerRunner) RunTurn(
 				lm, err := UnmarshalMessage(m.Persist.Message)
 				if err != nil {
 					if authority != nil {
+						retirement.retire(unsafeRetire)
 						return runner.Result{}, fmt.Errorf("prepared worker invalid persistence message: %w", err)
 					}
 					log.Printf("[workerRunner] unmarshal persist message: %v", err)
@@ -1023,6 +1032,7 @@ func (w *workerRunner) RunTurn(
 							var err error
 							writeCtx, err = authority.Context(ctx, cid)
 							if err != nil {
+								retirement.retire(unsafeRetire)
 								return runner.Result{}, err
 							}
 						}
@@ -1038,6 +1048,7 @@ func (w *workerRunner) RunTurn(
 			// row on the host so the tab survives restart and is post-mortemable.
 			if err := w.ensureDispatchChild(ctx, m.EnsureSubagent, req.ConversationID, dispatchScope, authority); err != nil {
 				if authority != nil {
+					retirement.retire(unsafeRetire)
 					return runner.Result{}, err
 				}
 				log.Print("[workerRunner] dispatch child creation failed")
@@ -1056,13 +1067,20 @@ func (w *workerRunner) RunTurn(
 					var err error
 					eventCtx, err = authority.Context(ctx, m.DispatchEvent.GetConversationId())
 					if err != nil {
+						retirement.retire(unsafeRetire)
 						return runner.Result{}, err
 					}
 				}
 				resp := w.handleDispatchEvent(eventCtx, m.DispatchEvent, dispatchScope)
+				if authority != nil && resp.Error != "" {
+					retirement.retire(unsafeRetire)
+				}
 				if err := safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_DispatchEventResponse{DispatchEventResponse: resp}}); err != nil {
 					log.Printf("[workerRunner] send dispatch event response: %v", err)
 					if authority != nil {
+						if localCancellation(err) {
+							exitDisposition = ordinaryRetire
+						}
 						return runner.Result{}, err
 					}
 				}
