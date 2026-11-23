@@ -57,17 +57,19 @@ func TestAccountingDiagnosticCorrelationAndPrivacy(t *testing.T) {
 	wire.RegisterWorkerServer(server, &diagnosticAccountingServer{})
 	go server.Serve(listener)
 	defer server.Stop()
-	conn, err := grpc.NewClient("passthrough:///SECRET-target", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
 	var output bytes.Buffer
 	old := log.Writer()
 	log.SetOutput(&output)
 	defer log.SetOutput(old)
 	sources := []string{usage.NewIdentity(), usage.NewIdentity()}
 	for _, source := range sources {
+		// Each terminal accounting session owns and closes its transport.
+		conn, err := grpc.NewClient("passthrough:///SECRET-target", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		receiver := &diagnosticReceiver{}
 		s := &hostAccountingSession{conn: conn, sink: receiver, source: source, ctx: ctx, cancel: cancel, drain: make(chan struct{}), done: make(chan struct{})}

@@ -84,7 +84,9 @@ func (h *workerHandle) Kill() {
 		return
 	}
 	h.killOnce.Do(func() {
-		h.reapDone = make(chan struct{})
+		if h.reapDone == nil {
+			h.reapDone = make(chan struct{})
+		}
 		if h.cmd != nil && h.cmd.Process != nil {
 			killGroupOrProcess(h.cmd.Process)
 			go func() {
@@ -184,6 +186,7 @@ func spawnWorkerWithPolicy(ctx context.Context, conversationID string, gen uint6
 
 	h := &workerHandle{
 		cmd:        cmd,
+		reapDone:   make(chan struct{}),
 		socketPath: sockPath,
 		pidPath:    pidPath,
 	}

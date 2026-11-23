@@ -1,86 +1,50 @@
-# Process close acceptance probe
+# Combined close / retirement / resume coverage
 
-Base: `9a3aaffe9353`. Test-only changes; no worker/pool, agentclient or CLI production changes.
+Integration base: `45a1c3d7` (main). Scoped cherry-picks: `8c8c0a18`,
+`ac1fd960`, `9a3aaffe`, `7ef1f492`, `6adc6103`, `80bb1697`, `00baa19a`,
+`b360424d`, `cbc09573`; shared ancestors included once. No textual conflicts.
+Bounded retirement supersedes join-before-cleanup without releasing callback authority.
+**Not landing-ready: independent bounded-retirement and reconnect reviews pending.**
 
-## Execution
+| Scenario / tests | Real paths exercised | Substitutions / limits |
+| --- | --- | --- |
+| `TestProcessCloseInstalledCallbacks/blocked-success` | ConfigurePreparedWorker; autonomy callback; authenticated pinned source close; real Unix pooled child; cancel active turn; owned Wait of captured same child PID within 4s accounting budget + 1s scheduling/reap allowance; original owner/epoch retained and successor refused while callback blocked; successful SQL completion then release; independent replacement host explicitly pins new epoch and ResumeConversation reads transcript | Test executable is policy worker binary, not installed launcher. Store decorator deliberately ignores cancellation until barrier opens. Turn cancellation is test-driven after close, not CLI cancellation. |
+| Same test: autonomy INSERT/UPDATE and route success / write-failure | Real SQLite rows or abort triggers; same child Wait before authority assertions; failure retains original owner/epoch and refuses successor even after exit | Route uses dummy secret and invalid endpoint; no inference. Success response received before turn completion; not lost-response coverage. |
+| Same successful journeys: stale Chat and reconnect | Actual authenticated pinned Chat RPC to closed source denied with exact admission-busy status; no input persisted; explicit reconnect rejects stale binding; replacement authenticated resume on same store | Source admission denies before pin validation; does not demonstrate stale Chat to replacement endpoint or full CLI rendering. |
+| `TestPreparedWorkerRealMutationLostResponse` | Real serverTasks.Launch, SQL mutations, EOF/cancellation response loss, mutation accounting | Observation wrapper; process journey task row remains fixture-created, and its policy task adapter is not installed task-launch wiring. No claim of end-to-end delegated task launch. |
+| `TestProcessCloseWaitResult`, `TestRetirement*` | Kill initiates owned asynchronous reaper; waitReaped joins exact PID; bounded detach/kill, accounting deadlines, displaced workers | Separate unit/process probes supplement, not substitute for same-journey Wait above. |
+| `TestPinnedChatAutomaticallyRevalidatesWithoutResend` and agentclient suite | Fresh attestation after transport loss; exactly one chat request, no ambiguous resend | Separate client transport scenario, not transparent replay in process journey. |
+| Lifecycle / accounting diagnostic tests | Original owner/epoch, worker connection identity, safe reasons, privacy assertions | Each terminal accounting session needs its own connection; no raw credentials/paths in diagnostic output. |
 
-From `source/server`:
+All processes, signals, stores, sockets, tokens and configurations are test-owned.
+The process observer captures a pooled handle without killing/detaching it and waits
+on its owned reaper channel; ProcessState is read only after Wait completion.
+No installed launcher or full CLI rendering acceptance is claimed. Installed task
+launch remains covered separately: replacing the policy adapter here would change
+this deterministic worker protocol fixture, rather than prove installed CLI use.
 
-```sh
-go test ./internal/server -run '^TestProcessCloseInstalledCallbacks$' -count=3 -timeout=90s
-go test -race ./internal/server -run '^TestProcessCloseInstalledCallbacks$' -count=2 -timeout=120s
+## Executed verification
+
+From `source/server` (all passed after integration adjustments):
+
+```
+go test ./internal/server ./internal/worker -run '^TestProcessClose' -count=3 -timeout=120s
+go test -race ./internal/server ./internal/worker ./pkg/agentclient -count=1 -timeout=300s
+go test ./... -count=1 -timeout=300s
+go build -o bin/cercano ./cmd/cercano/
 ```
 
-Normal `go test` builds the test executable; the acceptance copies that compiled executable into a private generation as its worker binary and executes independent host and worker processes. There is no optional binary lookup or silently skipped acceptance. This is NOT installed launcher/production CLI binary acceptance. Helper tests return when not invoked by the parent.
+From `source/clients/cli`:
 
-## Matrix
-
-| Boundary | Evidence |
-| --- | --- |
-| Actual callback installation | `ConfigurePreparedWorker`, not test-installed ledger/evidence wrappers |
-| Actual persistence failure tracking | SQLite autonomy INSERT abort trigger; unresolved work survives transport EOF and cleanup |
-| Real worker transport | Policy-spawned child, Unix gRPC socket; deterministic callback-returned/drop-response file barriers |
-| Real control transport | Loopback gRPC, development token authentication, exact pinned host/conversation/epoch/terminal metadata |
-| Intentional close before worker completion | LifecycleRelease while callback has returned but peer has not completed RunTurn |
-| No authority from transport loss | Durable owner and rejected acquisition before completion; failure also rejects acquisition after EOF |
-| Ordinary outcome | EOF without TurnDone, no injected callback error; durable release required |
-| Cleanup | Explicit production CleanupOwnedWorkers and socket absence assertion; worker has self-exit watchdog if host is killed |
-| Replacement | Independent host process, same SQLite store, exact durable new epoch, different from old epoch |
-| Evidence | Replacement reads preserved assistant transcript and completed delegated task row |
-
-## Follow-up coverage and remaining boundaries
-
-The matrix now additionally runs autonomy UPDATE and route SET success/SQLite
-abort cases through `ConfigurePreparedWorker`. Success asserts the actual SQL
-row, not just lack of an error. Route validation uses an in-memory dummy secret
-and an invalid network endpoint; no inference or live credentials are used.
-
-`blocked-success` places a channel barrier inside the installed autonomy callback's
-store call (a forwarding store decorator, not a failure marker). After callback
-entry, authenticated terminal release must leave ownership durable and reject
-replacement acquisition. Only after opening the barrier may callback completion,
-worker EOF, release and independent replacement occur.
-
-Both hosts use real authenticated pinned agentclient APIs. The original client
-validates its binding before close and rejects `ReconnectPinnedSession` after
-replacement. The replacement explicitly creates a new binding to the exact durable
-epoch and uses `ResumeConversation` to read the preserved transcript. The completed
-task row is separately verified in SQLite. No Chat call or automatic replay occurs.
-This tests explicit binding/resume, not new reconnect orchestration or stale Chat RPCs.
-
-`TestProcessCloseWaitResult` observes production `workerHandle.Kill`'s `cmd.Wait`
-ProcessState for the exact test-owned child PID and SIGKILL, then verifies it is
-already reaped. This is a separate worker-package test: the installed-callback
-probe still only observes its pooled child's socket disappearance, not that child's
-Wait result. These must not be conflated.
-
-`TestPreparedWorkerRealMutationLostResponse/task/success` now covers both EOF and
-cancellation, verifies the successful task INSERT before dropping the response,
-and requires zero unresolved mutation tickets. It uses real `serverTasks.Launch`
-with an observation wrapper, not test-created mutation evidence. It is not yet a
-policy-spawned installed-task-callback probe. Task evidence in replacement remains
-fixture-created. Route/autonomy process probes receive callback responses before
-withholding TurnDone; they are not lost-callback-response probes.
-
-The combined bounded callback-deadline/worker-retirement/new reconnect integration
-is still unverified. Current `worker/host.go` unconditionally waits on callback
-completion before cleanup; this work tests ordinary blocked-callback completion,
-not a context-ignoring callback deadline or an integrated retirement branch. No
-pending test is silently skipped and no deadline defect reproduction is claimed.
-No production changes, launcher/CLI rebuild, or automatic ambiguous chat replay
-coverage are claimed.
-
-### Follow-up verification
-
-From `source/server`:
-
-```sh
-go test ./internal/server ./internal/worker -run '^(TestProcessClose(InstalledCallbacks|WaitResult)|TestPreparedWorkerRealMutationLostResponse)$' -count=3 -timeout=90s
-go test -race ./internal/server ./internal/worker -run '^(TestProcessClose(InstalledCallbacks|WaitResult)|TestPreparedWorkerRealMutationLostResponse)$' -count=2 -timeout=120s
+```
+go test ./... -count=1
+go build ./...
 ```
 
-During development the route fixture initially failed profile/credential validation
-rather than reaching SQLite; configuring the prepared profile and in-memory secret
-fixed that. Darwin's second Process.Wait returns ECHILD rather than ErrProcessDone;
-the reaping assertion accepts either platform result. Neither was a production defect.
-All stores, sockets, auth tokens and processes are test-owned and disposable.
+Integration adjustments: old Kill test assumed synchronous Wait; it now joins the
+owned reaper. Diagnostic test reused a connection that bounded retirement now
+closes; each session now creates its own, preserving all privacy/correlation
+assertions. Initial stale-Chat probe expected a client pin error; actual closed
+source denies admission first, now asserted as the precise server error plus no
+persisted input. Initial full race run failed only the reused-connection test;
+subsequent full focused race, server suite and CLI suite passed.

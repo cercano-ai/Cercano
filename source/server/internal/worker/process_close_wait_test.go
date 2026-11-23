@@ -38,6 +38,7 @@ func TestProcessCloseWaitResult(t *testing.T) {
 		<-joined
 		t.Fatal("production Kill/Wait exceeded deadline")
 	}
+	_ = h.waitReaped(ctx) // Kill initiates retirement; only the owned reaper joins Wait.
 	state := cmd.ProcessState
 	if state == nil || state.Pid() != pid {
 		t.Fatalf("missing exact child Wait state: %v, want pid %d", state, pid)

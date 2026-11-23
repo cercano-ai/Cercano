@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"cercano/source/server/internal/agent"
+	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
 	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/internal/runner"
@@ -27,8 +28,10 @@ import (
 	"cercano/source/server/pkg/devhostauth"
 	pb "cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 // Only the worker protocol peer is synthetic. The host runner, spawn policy,
@@ -193,9 +196,11 @@ func TestProcessCloseHostProbe(t *testing.T) {
 		_, err = db.Exec(fmt.Sprintf(`CREATE TRIGGER injected BEFORE %s ON %s BEGIN SELECT RAISE(ABORT, 'real callback failure'); END`, operation, table))
 		must(err)
 	}
+	turnCtx, cancelTurn := context.WithCancel(owned)
+	defer cancelTurn()
 	done := make(chan error, 1)
 	go func() {
-		_, err := s.workerRunner.RunTurn(owned, runner.Request{ConversationID: owner.Conversation, Input: "probe"}, nil, nil, nil)
+		_, err := s.workerRunner.RunTurn(turnCtx, runner.Request{ConversationID: owner.Conversation, Input: "probe"}, nil, nil, nil)
 		done <- err
 	}()
 	wait := func(check func() bool) {
@@ -218,6 +223,18 @@ func TestProcessCloseHostProbe(t *testing.T) {
 		wait(func() bool { _, err := os.Stat(filepath.Join(root, "callback-returned")); return err == nil })
 	}
 
+	pid, waitExit, err := s.workerRunner.(interface {
+		ObserveWorkerExit(string) (int, func(context.Context) (*os.ProcessState, error), error)
+	}).ObserveWorkerExit(owner.Conversation)
+	must(err)
+	assertExit := func(deadline context.Context) {
+		t.Helper()
+		state, err := waitExit(deadline)
+		if state == nil || state.Pid() != pid || state.Success() {
+			t.Fatalf("exact pooled child %d not reaped with unsuccessful exit: %v %v", pid, state, err)
+		}
+		t.Logf("owned Wait for pooled child pid=%d: %v", pid, state)
+	}
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	attachment, err := s.coexistence.admission.AttachTerminal(owner, "probe")
 	must(err)
@@ -261,8 +278,30 @@ func TestProcessCloseHostProbe(t *testing.T) {
 		t.Fatal("acquired before drain")
 	}
 	if blocked {
+		// Model a canceled active turn after terminal close. The deliberately
+		// context-ignoring store operation must retain authority beyond retirement.
+		budget, stop := context.WithTimeout(ctx, 5*time.Second) // production 4s + scheduler/reap slack
+		defer stop()
+		cancelTurn()
+		assertExit(budget)
+		select {
+		case err := <-done:
+			t.Fatalf("callback not joined but turn returned: %v", err)
+		default:
+		}
+		row, err := conversation.ReadOwnership(ctx, s.coexistence.store, owner.Conversation)
+		must(err)
+		if row.State != "owned" || row.Owner != owner.Host || row.Epoch != owner.Epoch {
+			t.Fatalf("lost original authority: %+v", row)
+		}
+		cap, err := conversation.AcquireOwnership(ctx, s.coexistence.store, owner.Conversation, "replacement")
+		if cap != nil {
+			_ = cap.Close()
+		}
+		if err == nil {
+			t.Fatal("successor admitted while callback blocked after child Wait")
+		}
 		close(unblock)
-		wait(func() bool { _, err := os.Stat(filepath.Join(root, "callback-returned")); return err == nil })
 	}
 	must(os.WriteFile(filepath.Join(root, "drop-response"), nil, 0600))
 	select {
@@ -272,6 +311,7 @@ func TestProcessCloseHostProbe(t *testing.T) {
 		t.Fatal("worker completion join exceeded deadline")
 	}
 	s.workerRunner.(interface{ CleanupOwnedWorkers() }).CleanupOwnedWorkers()
+	assertExit(ctx)
 	socket, err := os.ReadFile(filepath.Join(root, "worker-socket"))
 	must(err)
 	if _, err := os.Stat(string(socket)); !os.IsNotExist(err) {
@@ -290,6 +330,11 @@ func TestProcessCloseHostProbe(t *testing.T) {
 		}
 		if err == nil {
 			t.Fatal("acquired uncertain mutation")
+		}
+		row, err := conversation.ReadOwnership(ctx, s.coexistence.store, owner.Conversation)
+		must(err)
+		if row.State != "owned" || row.Owner != owner.Host || row.Epoch != owner.Epoch {
+			t.Fatalf("mutation failure lost original authority after Wait: %+v", row)
 		}
 	} else {
 		db, err := sql.Open("sqlite", s.coexistence.options.StorePath)
@@ -317,6 +362,24 @@ func TestProcessCloseHostProbe(t *testing.T) {
 			t.Fatalf("replacement: %v: %s", err, out)
 		}
 		t.Logf("replacement: %s", out)
+		messages, chatErr := pinned.StreamChatWithRecovery(ctx, owner.Conversation, "stale chat must not run", "")
+		if chatErr == nil {
+			for msg := range messages {
+				if msg.Err != nil {
+					chatErr = msg.Err
+				}
+			}
+		}
+		// The closed source rejects admission before pin validation. Require that
+		// exact authority denial, not an arbitrary transport failure.
+		if status.Code(chatErr) != codes.Unknown || status.Convert(chatErr).Message() != broker.ErrAdmissionBusy.Error() {
+			t.Fatalf("stale Chat not denied: %v", chatErr)
+		}
+		history, err := s.GenerationStore().ReadHistory(ctx, owner.Conversation, conversation.HistoryQuery{Query: "stale chat must not run", Limit: 10})
+		must(err)
+		if len(history) != 0 {
+			t.Fatal("denied stale Chat persisted input")
+		}
 		if err := pinned.ReconnectPinnedSession(ctx); !errors.Is(err, agentclient.ErrPinnedSession) {
 			t.Fatalf("stale source binding accepted after replacement: %v", err)
 		}
@@ -429,10 +492,6 @@ type closeProbeBlockedStore struct {
 
 func (s closeProbeBlockedStore) CreateAutonomyRun(ctx context.Context, run conversation.AutonomyRun) (conversation.AutonomyRun, error) {
 	close(s.entered)
-	select {
-	case <-s.unblock:
-	case <-ctx.Done():
-		return conversation.AutonomyRun{}, ctx.Err()
-	}
-	return s.Store.CreateAutonomyRun(ctx, run)
+	<-s.unblock // simulate a store operation already in progress, ignoring cancellation
+	return s.Store.CreateAutonomyRun(context.WithoutCancel(ctx), run)
 }
