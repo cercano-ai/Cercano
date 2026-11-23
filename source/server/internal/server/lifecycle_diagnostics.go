@@ -1,11 +1,13 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"os"
 
 	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/failurelog"
+	"cercano/source/server/internal/usage"
 	pb "cercano/source/server/pkg/proto"
 	"google.golang.org/grpc/status"
 )
@@ -104,13 +106,34 @@ func (s *Server) logLifecycleRefusalLocked(l *coexistenceLifecycle, r *pb.Lifecy
 	s.failureLog.Log("lifecycle.resume_refused", fields)
 }
 
-// logPersistenceFailure accepts only internal, fixed origin labels. Never pass
-// errors or caller data: these events must remain safe even for secret-bearing
-// dependency failures. It does not take lifecycle locks (write observers may hold them).
-func (s *Server) logPersistenceFailure(origin string) {
+// persistenceDiagnosticMetadata contains only admitted identity and optional operation
+// attribution. An operation may span multiple tickets; it is not a ticket ID.
+type persistenceDiagnosticMetadata struct {
+	owner       broker.Owner
+	operationID string
+}
+
+// Read the immutable admitted identity, never the lifecycle's current owner.
+func persistenceMetadata(ctx context.Context) persistenceDiagnosticMetadata {
+	a, _ := ctx.Value(preparedTaskAuthorityKey{}).(preparedTaskAuthority)
+	attribution, _ := usage.AttributionFromContext(ctx)
+	return persistenceDiagnosticMetadata{owner: a.owner, operationID: attribution.OperationID}
+}
+
+// logPersistenceFailure accepts fixed internal origins and narrow typed metadata,
+// never errors or arbitrary fields. It takes no lifecycle locks: write observers
+// can run while those locks are held.
+func (s *Server) logPersistenceFailure(origin string, metadata persistenceDiagnosticMetadata) {
 	if s != nil && s.failureLog != nil {
-		s.failureLog.Log("lifecycle.persistence_retained", failurelog.Event{
-			"scope": "lifecycle", "origin": origin, "work_kind": "persistence",
-		})
+		fields := failurelog.Event{"scope": "lifecycle", "origin": origin, "work_kind": "persistence"}
+		if metadata.owner != (broker.Owner{}) {
+			fields["conversation_id"] = metadata.owner.Conversation
+			fields["host_id"] = metadata.owner.Host
+			fields["ownership_epoch"] = metadata.owner.Epoch
+		}
+		if metadata.operationID != "" {
+			fields["operation_id"] = metadata.operationID
+		}
+		s.failureLog.Log("lifecycle.persistence_retained", fields)
 	}
 }

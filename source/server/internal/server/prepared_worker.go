@@ -199,14 +199,14 @@ func (a *preparedWorkerAuthority) Close(err error) {
 		var cleanup *worker.CallbackCleanupError
 		if errors.As(err, &cleanup) {
 			runErr = errors.Join(runErr, cleanup)
-			a.server.logPersistenceFailure("worker_callback_cleanup")
+			a.server.logPersistenceFailure("worker_callback_cleanup", persistenceMetadata(a.ctx))
 		}
 		var closeErr error
 		for i := len(completions) - 1; i >= 0; i-- {
 			closeErr = errors.Join(closeErr, completions[i](runErr))
 		}
 		if runErr != nil || closeErr != nil {
-			a.server.logPersistenceFailure("worker_close")
+			a.server.logPersistenceFailure("worker_close", persistenceMetadata(a.ctx))
 			_ = a.ticket.PersistenceFailed()
 			return
 		}
@@ -299,7 +299,7 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 		if owned != nil {
 			descendantErr = err
 			persistsvc.ReportWriteFailure(ctx, err)
-			s.logPersistenceFailure("dispatch_acquire")
+			s.logPersistenceFailure("dispatch_acquire", persistenceMetadata(ctx))
 			_ = ticket.PersistenceFailed()
 		} else {
 			_ = ticket.Complete()
@@ -322,7 +322,7 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 	if err != nil {
 		descendantErr = err
 		persistsvc.ReportWriteFailure(ctx, err)
-		s.logPersistenceFailure("dispatch_register")
+		s.logPersistenceFailure("dispatch_register", persistenceMetadata(ctx))
 		_ = ticket.PersistenceFailed()
 		return nil, nil, err
 	}
@@ -341,7 +341,7 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 			// runErr is a persistence/cleanup outcome, not a model result.
 			closeErr = errors.Join(scope.join(), persistsvc.WriteFailure(ctx), runErr)
 			if closeErr != nil {
-				s.logPersistenceFailure("dispatch_join")
+				s.logPersistenceFailure("dispatch_join", persistenceMetadata(ctx))
 				_ = ticket.PersistenceFailed()
 				return
 			}
@@ -355,20 +355,20 @@ func (s *Server) beginPreparedDispatch(ctx context.Context, parent, child string
 			l.mu.Unlock()
 			if err != nil {
 				closeErr = err
-				s.logPersistenceFailure("dispatch_close_owner")
+				s.logPersistenceFailure("dispatch_close_owner", persistenceMetadata(ctx))
 				_ = ticket.PersistenceFailed()
 				return
 			}
 			// Durable release must precede removal of the parent work blocker.
 			closeErr = owned.Release(context.WithoutCancel(ctx))
 			if closeErr != nil {
-				s.logPersistenceFailure("dispatch_release")
+				s.logPersistenceFailure("dispatch_release", persistenceMetadata(ctx))
 				_ = ticket.PersistenceFailed()
 				return
 			}
 			closeErr = closure.Relinquished()
 			if closeErr != nil {
-				s.logPersistenceFailure("dispatch_relinquish")
+				s.logPersistenceFailure("dispatch_relinquish", persistenceMetadata(ctx))
 				_ = ticket.PersistenceFailed()
 				return
 			}

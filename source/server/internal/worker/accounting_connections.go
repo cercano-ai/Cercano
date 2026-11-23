@@ -37,8 +37,13 @@ type hostAccountingSession struct {
 	failure   error
 }
 
+// source is the same process-local session identity used on observations. No
+// connection target, error, or invented conversation/ownership attribution.
+func (s *hostAccountingSession) logDiagnostic(reason string) {
+	log.Printf("[accounting] reason=%q worker_connection_id=%q", reason, "worker/"+s.source)
+}
 func (s *hostAccountingSession) gap(reason string) {
-	s.gapOnce.Do(func() { s.sink.MarkAccountingIncomplete(reason); log.Printf("[accounting] %s", reason) })
+	s.gapOnce.Do(func() { s.sink.MarkAccountingIncomplete(reason); s.logDiagnostic(reason) })
 }
 func (s *hostAccountingSession) requestDrain() { s.drainOnce.Do(func() { close(s.drain) }) }
 func (s *hostAccountingSession) run() {
@@ -53,7 +58,7 @@ func (s *hostAccountingSession) run() {
 	for {
 		err := receiveAccountingControlled(s.ctx, wire.NewWorkerClient(s.conn), s.sink, s.source, func() {
 			if warned {
-				log.Printf("[accounting] worker connection recovered")
+				s.logDiagnostic("recovered")
 				warned = false
 			}
 			retryDelay = 100 * time.Millisecond
@@ -72,7 +77,7 @@ func (s *hostAccountingSession) run() {
 			return
 		}
 		if !warned {
-			log.Printf("[accounting] worker delivery unavailable; retrying: %v", err)
+			s.logDiagnostic("delivery_unavailable")
 			warned = true
 		}
 		timer := time.NewTimer(retryDelay)

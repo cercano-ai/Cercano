@@ -43,9 +43,10 @@ func (s *Server) beginRetainedWorkLocked(ctx context.Context, owner broker.Owner
 	}
 	ctx = conversation.WithOwnership(ctx, o)
 	ctx = WithPreparedTaskOwnership(ctx, owner, o)
+	metadata := persistenceMetadata(ctx)
 	ctx = persistsvc.WithWriteFailure(ctx, func(error) {
 		// Accounting changes kind without releasing the live work blocker.
-		s.logPersistenceFailure("retained_write")
+		s.logPersistenceFailure("retained_write", metadata)
 		_ = ticket.Advance(broker.PersistenceWork)
 		_ = ticket.PersistenceFailed()
 	})

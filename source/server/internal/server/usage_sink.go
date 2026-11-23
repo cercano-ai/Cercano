@@ -80,7 +80,7 @@ func (s *Server) configureWorkerAccounting() {
 	}
 	if target, ok := s.workerRunner.(worker.AccountingConfigurer); ok {
 		if err := target.SetAccountingReceiver(receiver); err != nil {
-			log.Printf("[accounting] worker configuration failed: %v", err)
+			log.Printf("[accounting] reason=config_failed")
 			receiver.MarkAccountingIncomplete("worker accounting configuration failed")
 		}
 	}
