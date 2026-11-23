@@ -681,9 +681,15 @@ func (w *workerRunner) RunTurn(
 	var callbacks sync.WaitGroup
 	callbackCtx, cancelCallbacks := context.WithCancel(ctx)
 	ctx = callbackCtx
+	var cleanupFn func()
 	defer func() {
 		cancelCallbacks()
 		callbacks.Wait()
+		// Keep the process-owned accounting transport alive until callbacks have
+		// finished. Authority.Close was registered earlier and therefore runs last.
+		if cleanupFn != nil {
+			cleanupFn()
+		}
 	}()
 	spawnCallback := func(f func()) { callbacks.Add(1); go func() { defer callbacks.Done(); f() }() }
 
@@ -698,7 +704,6 @@ func (w *workerRunner) RunTurn(
 	//     handle); unhealthy kills + evicts so the next Acquire spawns fresh.
 	var (
 		conn        *grpc.ClientConn
-		cleanupFn   func()
 		turnHealthy bool
 	)
 
@@ -730,7 +735,6 @@ func (w *workerRunner) RunTurn(
 		conn = wh.conn
 		cleanupFn = func() { w.pool.Release(req.ConversationID, wh, turnHealthy) }
 	}
-	defer cleanupFn()
 	if manager != nil {
 		if err := manager.ensure(conn); err != nil {
 			return runner.Result{}, err

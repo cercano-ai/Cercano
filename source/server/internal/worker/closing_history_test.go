@@ -16,6 +16,7 @@ import (
 	"cercano/source/server/pkg/config"
 	"cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -61,8 +62,11 @@ func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
 			served := make(chan struct{})
 			go func() { defer close(served); _ = srv.Serve(lis) }()
 			defer func() { srv.Stop(); _ = lis.Close(); <-served }()
+			connections := make(chan *grpc.ClientConn, 1)
 			dial := func(ctx context.Context) (*grpc.ClientConn, error) {
-				return grpc.NewClient("passthrough:///history-barrier", grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }), grpc.WithTransportCredentials(insecure.NewCredentials()))
+				conn, err := grpc.NewClient("passthrough:///history-barrier", grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }), grpc.WithTransportCredentials(insecure.NewCredentials()))
+				connections <- conn
+				return conn, err
 			}
 			cfg := cfgsvc.New("", config.Config{LocusMode: "open_primary"}, secrets.NewMemory())
 			wr := worker.NewWorkerRunnerForTest(&fakeHistory{}, cfg, newTestBroker(), newHostSecrets(nil), dial)
@@ -110,6 +114,10 @@ func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
 				releaseHistory()
 				t.Fatal("callback never reached cancellation barrier")
 			}
+			conn := <-connections
+			if conn.GetState() == connectivity.Shutdown {
+				t.Error("transport destroyed before callback join")
+			}
 			early := false
 			select {
 			case <-done:
@@ -123,6 +131,9 @@ func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
 				t.Fatal("turn failed to join released callback")
 			}
 			<-exited
+			if conn.GetState() != connectivity.Shutdown {
+				t.Error("transport not destroyed after callback join")
+			}
 			var cleanup *worker.CallbackCleanupError
 			if errors.As(a.err, &cleanup) {
 				t.Fatalf("response delivery is not cleanup uncertainty: %v", a.err)
