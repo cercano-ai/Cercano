@@ -3,6 +3,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 	"context"
+	"github.com/charmbracelet/x/ansi"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -18,28 +19,55 @@ import (
 
 type recoveryHost struct {
 	proto.UnimplementedAgentServer
-	checks, requests atomic.Int32
+	checks, requests                        atomic.Int32
+	intermediate, continuation, repairFails bool
 }
 
 func (*recoveryHost) GetDevelopmentHostIdentity(context.Context, *proto.GetDevelopmentHostIdentityRequest) (*proto.GetDevelopmentHostIdentityResponse, error) {
 	return &proto.GetDevelopmentHostIdentityResponse{HostInstance: "A", Contract: "contract", SchemaVersion: 2}, nil
 }
 func (h *recoveryHost) CheckRetainedSession(context.Context, *proto.CheckRetainedSessionRequest) (*proto.CheckRetainedSessionResponse, error) {
-	h.checks.Add(1)
+	if h.checks.Add(1) > 1 && h.repairFails {
+		return nil, status.Error(codes.FailedPrecondition, "repair refused")
+	}
 	return &proto.CheckRetainedSessionResponse{State: proto.RetainedSessionState_RETAINED_SESSION_STATE_RETAINED}, nil
 }
-func (h *recoveryHost) StreamProcessRequest(*proto.ProcessRequestRequest, grpc.ServerStreamingServer[proto.StreamProcessResponse]) error {
+func (h *recoveryHost) StreamProcessRequest(_ *proto.ProcessRequestRequest, stream grpc.ServerStreamingServer[proto.StreamProcessResponse]) error {
 	h.requests.Add(1)
+	if h.intermediate {
+		if err := stream.Send(&proto.StreamProcessResponse{Payload: &proto.StreamProcessResponse_FinalResponse{FinalResponse: &proto.ProcessRequestResponse{Output: "intermediate"}}}); err != nil {
+			return err
+		}
+	}
+	if h.continuation {
+		if err := stream.Send(&proto.StreamProcessResponse{Payload: &proto.StreamProcessResponse_TokenDelta{TokenDelta: &proto.TokenDelta{Content: "continuation"}}}); err != nil {
+			return err
+		}
+	}
 	return status.Error(codes.Unavailable, "ambiguous delivery")
 }
 
 func TestMainDriverPinnedRecoveryDoesNotResubmit(t *testing.T) {
+	for _, tc := range []struct {
+		name                                    string
+		intermediate, continuation, repairFails bool
+	}{
+		{"before-response", false, false, false},
+		{"immediate/repaired", true, false, false},
+		{"immediate/refused", true, false, true},
+		{"continuation/repaired", true, true, false},
+		{"continuation/refused", true, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) { testMainDriverPinnedRecovery(t, tc.intermediate, tc.continuation, tc.repairFails) })
+	}
+}
+func testMainDriverPinnedRecovery(t *testing.T, intermediate, continuation, repairFails bool) {
 	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "0")
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &recoveryHost{}
+	h := &recoveryHost{intermediate: intermediate, continuation: continuation, repairFails: repairFails}
 	s := grpc.NewServer()
 	proto.RegisterAgentServer(s, h)
 	go s.Serve(l)
@@ -93,7 +121,7 @@ func TestMainDriverPinnedRecoveryDoesNotResubmit(t *testing.T) {
 	for _, entry := range m.mainChat().Entries() {
 		retained = retained || strings.Contains(entry.Content, "not resent")
 	}
-	if !retained || !strings.Contains(m.View().Content, "not resent") {
+	if !retained || !strings.Contains(strings.Join(strings.Fields(ansi.Strip(m.View().Content)), " "), "not resent") {
 		t.Fatalf("delivery warning not retained/rendered: %s", m.View().Content)
 	}
 	if h.requests.Load() != 1 || h.checks.Load() != 2 {

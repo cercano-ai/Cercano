@@ -3,8 +3,10 @@ package agentclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -25,6 +27,10 @@ type pinnedFake struct {
 	taskRelease        chan struct{}
 	taskRequests       atomic.Int32
 	completed          bool
+	continuation       bool
+	normalEOF          bool
+	repairFails        bool
+	afterFinalCode     codes.Code
 	credentialsEnabled bool
 	validationStarted  chan struct{}
 	validationRelease  chan struct{}
@@ -42,6 +48,9 @@ func (f *pinnedFake) GetDevelopmentHostIdentity(context.Context, *proto.GetDevel
 }
 func (f *pinnedFake) CheckRetainedSession(ctx context.Context, r *proto.CheckRetainedSessionRequest) (*proto.CheckRetainedSessionResponse, error) {
 	n := f.checks.Add(1)
+	if n > 1 && f.repairFails {
+		return nil, status.Error(codes.FailedPrecondition, "repair refused")
+	}
 	if n > 1 && f.validationStarted != nil {
 		close(f.validationStarted)
 		select {
@@ -229,6 +238,20 @@ func (f *pinnedFake) StreamProcessRequest(_ *proto.ProcessRequestRequest, stream
 			return err
 		}
 	}
+	if f.continuation {
+		if err := stream.Send(&proto.StreamProcessResponse{Payload: &proto.StreamProcessResponse_TokenDelta{TokenDelta: &proto.TokenDelta{Content: "continuation"}}}); err != nil {
+			return err
+		}
+	}
+	if f.normalEOF {
+		if err := stream.Send(&proto.StreamProcessResponse{Payload: &proto.StreamProcessResponse_FinalResponse{FinalResponse: &proto.ProcessRequestResponse{Output: "second final"}}}); err != nil {
+			return err
+		}
+		return nil
+	}
+	if f.afterFinalCode != codes.OK {
+		return status.Error(f.afterFinalCode, "after final")
+	}
 	return status.Error(codes.Unavailable, "transport lost after submission")
 }
 func TestPinnedChatAutomaticallyRevalidatesWithoutResend(t *testing.T) {
@@ -394,30 +417,77 @@ func TestPinnedCloseDuringValidationCannotInstall(t *testing.T) {
 	}
 }
 
-func TestPinnedCompletedChatRepairsWithoutDeliveryWarning(t *testing.T) {
-	f := &pinnedFake{host: "A", completed: true}
-	f.state.Store(1)
-	_, addr := pinnedHost(t, "127.0.0.1:0", f)
-	c, err := DialPinnedSession(context.Background(), pinAt(addr))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	out, err := c.StreamChatWithRecovery(context.Background(), "conversation", "once", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := false
-	for msg := range out {
-		if msg.Type == TypeDone {
-			done = true
+func TestPinnedIntermediateFinalStreamOutcome(t *testing.T) {
+	for _, continuation := range []bool{false, true} {
+		for _, repairFails := range []bool{false, true} {
+			for _, code := range []codes.Code{codes.Unavailable, codes.OK, codes.Unauthenticated, codes.PermissionDenied} {
+				t.Run(fmt.Sprintf("continuation=%v/repairFails=%v/%s", continuation, repairFails, code), func(t *testing.T) {
+					f := &pinnedFake{host: "A", completed: true, continuation: continuation, repairFails: repairFails, normalEOF: code == codes.OK}
+					if code != codes.Unavailable {
+						f.afterFinalCode = code
+					}
+					f.state.Store(1)
+					_, addr := pinnedHost(t, "127.0.0.1:0", f)
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					c, err := DialPinnedSession(ctx, pinAt(addr))
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer c.Close()
+					out, err := c.StreamChatWithRecovery(ctx, "conversation", "once", "")
+					if err != nil {
+						t.Fatal(err)
+					}
+					finals, tokens := 0, 0
+					var streamErr error
+					for msg := range out {
+						if msg.Type == TypeDone {
+							finals++
+						}
+						if msg.Type == TypeToken {
+							tokens++
+						}
+						if msg.Err != nil {
+							streamErr = msg.Err
+						}
+					}
+					wantFinals := 1
+					if code == codes.OK {
+						wantFinals = 2
+					}
+					wantTokens := 0
+					if continuation {
+						wantTokens = 1
+					}
+					if finals != wantFinals || tokens != wantTokens {
+						t.Fatalf("finals=%d tokens=%d", finals, tokens)
+					}
+					if code == codes.OK {
+						if streamErr != nil {
+							t.Fatal(streamErr)
+						}
+					} else {
+						if status.Code(streamErr) != code {
+							t.Errorf("original status lost: got %v want %s", streamErr, code)
+						}
+						if code == codes.Unavailable && (streamErr == nil || !strings.Contains(streamErr.Error(), "remaining request outcome unknown; not resent")) {
+							t.Errorf("missing uncertainty: %v", streamErr)
+						}
+						if code == codes.Unavailable && repairFails && !errors.Is(streamErr, ErrPinnedSession) {
+							t.Errorf("repair identity lost: %v", streamErr)
+						}
+					}
+					checks := int32(1)
+					if code == codes.Unavailable {
+						checks = 2
+					}
+					if f.requests.Load() != 1 || f.checks.Load() != checks {
+						t.Fatalf("requests=%d checks=%d", f.requests.Load(), f.checks.Load())
+					}
+				})
+			}
 		}
-		if msg.Err != nil {
-			t.Errorf("completed turn reported failure: %v", msg.Err)
-		}
-	}
-	if !done || f.checks.Load() != 2 || f.requests.Load() != 1 {
-		t.Fatalf("done=%v checks=%d requests=%d", done, f.checks.Load(), f.requests.Load())
 	}
 }
 

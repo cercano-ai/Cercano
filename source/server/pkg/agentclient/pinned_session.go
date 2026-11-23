@@ -178,9 +178,9 @@ func (c *Client) recoverChatTransport(ctx context.Context, failed *grpcConn, cau
 		return cause
 	}
 	if err := c.reconnectPinnedTransport(ctx, failed); err != nil {
-		return fmt.Errorf("connection recovery failed; message delivery unknown; not resent (inspect conversation before sending again): %w", err)
+		return fmt.Errorf("connection recovery failed; stream interrupted; remaining request outcome unknown; not resent (inspect conversation before sending again): %w (recovery: %w)", cause, err)
 	}
-	return fmt.Errorf("connection restored; message delivery unknown; not resent (inspect conversation before sending again): %w", cause)
+	return fmt.Errorf("connection restored; stream interrupted; remaining request outcome unknown; not resent (inspect conversation before sending again): %w", cause)
 }
 
 func validatePinnedSession(ctx context.Context, agent proto.AgentClient, p PinnedSessionIntent) error {
