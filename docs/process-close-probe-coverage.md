@@ -4,7 +4,22 @@ Integration base: `45a1c3d7` (main). Scoped cherry-picks: `8c8c0a18`,
 `ac1fd960`, `9a3aaffe`, `7ef1f492`, `6adc6103`, `80bb1697`, `00baa19a`,
 `b360424d`, `cbc09573`; shared ancestors included once. No textual conflicts.
 Bounded retirement supersedes join-before-cleanup without releasing callback authority.
-**Not landing-ready: independent bounded-retirement and reconnect reviews pending.**
+Incremental correction `567d4aab18e375b84ea39ab96b0cdd4a92f8e4f4`
+was applied as `365ac08a` on integration HEAD `3fb4b6d4`, without textual
+conflicts. The accounting auto-merge was reviewed: process-local `source` session
+identity and privacy-safe diagnostic correlation remain intact. No additional
+production integration changes were necessary; same-child observable Wait,
+per-session diagnostic connections and exact stale Chat admission refusal remain.
+**Ready for final independent combined review, not landing-ready: retirement
+re-review pending; separate reconnect review still pending.**
+
+## Reviewed blockers addressed by the correction (independent re-review pending)
+
+| Reviewed blocker | Correction / regression evidence | Review boundary |
+| --- | --- | --- |
+| Cancellation could downgrade protocol/authority rejection to ordinary retirement while callbacks retain authority | Explicit unsafe default; only actual cancellation outcomes select ordinary retirement; authority/protocol rejection escalates before callback joins. `TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure/authority-cancel` and `TestRetirementUnsafeWinsCancellation` exercise containment. | Integration verification passed; not an independent approval. |
+| Terminal accounting ownership either resurrected or retained dead connections indefinitely | Exact connection closes under registration synchronization before session/state deregistration; permanent gRPC Shutdown rejects reuse; injected ownership cleared. `TestRetirementAccountingRegistryBounded`, `TestRetirementAccountingEnsureTerminalRace`, terminal-resurrection and timeout probes cover lifecycle. | No retained manager tombstones; session diagnostic metadata preserved. |
+| Startup failure must reap its own child | `TestSpawnWorkerStartupFailureReapsExactChild` covers cancellation and early exit with temporary children. | Supplementary regression, not installed-launcher acceptance. |
 
 | Scenario / tests | Real paths exercised | Substitutions / limits |
 | --- | --- | --- |
@@ -25,11 +40,22 @@ this deterministic worker protocol fixture, rather than prove installed CLI use.
 
 ## Executed verification
 
-From `source/server` (all passed after integration adjustments):
+Re-executed after incremental correction (all passed, no test failures).
+Containment/accounting/startup selection: normal 10 repetitions (124.111s),
+race 5 repetitions (64.324s). Combined ProcessClose: normal 3 repetitions
+(server 24.820s, worker 0.810s), race 3 repetitions (server 71.916s,
+worker 1.510s). Full server and CLI suites and production builds passed.
+Broader focused race suite also passed (server 107.801s, worker 67.893s,
+agentclient 93.442s; runner, hostsvc and conversation passed).
+
+From `source/server`:
 
 ```
+go test ./internal/worker -run 'TestRetirement|TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure|TestSpawnWorkerStartupFailureReapsExactChild' -count=10 -timeout=300s
+go test -race ./internal/worker -run 'TestRetirement|TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure|TestSpawnWorkerStartupFailureReapsExactChild' -count=5 -timeout=300s
 go test ./internal/server ./internal/worker -run '^TestProcessClose' -count=3 -timeout=120s
-go test -race ./internal/server ./internal/worker ./pkg/agentclient -count=1 -timeout=300s
+go test -race ./internal/server ./internal/worker -run '^TestProcessClose' -count=3 -timeout=300s
+go test -race ./internal/server ./internal/worker ./internal/runner ./internal/hostsvc/... ./internal/conversation ./pkg/agentclient -count=1 -timeout=300s
 go test ./... -count=1 -timeout=300s
 go build -o bin/cercano ./cmd/cercano/
 ```
