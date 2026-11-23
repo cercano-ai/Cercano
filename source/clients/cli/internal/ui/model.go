@@ -1512,10 +1512,13 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		if m.chatgptLoginModal != nil {
 			return m.handleChatGPTLoginModalKey(msg)
 		}
-		if m.pendingConfirm != nil && m.pendingConfirm.auth != nil && msg.String() == "ctrl+c" {
+		// Config owns keyboard input while open. Keep background confirmations
+		// pending until it closes, then resume their normal hotkeys. Continue
+		// through the existing global shortcuts and content-page routing below.
+		if m.configSurface == nil && m.pendingConfirm != nil && m.pendingConfirm.auth != nil && msg.String() == "ctrl+c" {
 			return m.cancelAuthentication(m.pendingConfirm)
 		}
-		if m.pendingConfirm != nil {
+		if m.configSurface == nil && m.pendingConfirm != nil {
 			next, cmd := m.handlePendingConfirmKey(msg)
 			return next, cmd
 		}
