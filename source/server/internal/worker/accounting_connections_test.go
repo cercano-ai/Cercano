@@ -37,7 +37,7 @@ func TestIdleAccountingRetirementRunsOutsidePoolLock(t *testing.T) {
 	active := &workerHandle{onKill: func() { t.Error("active worker reaped") }}
 	pool.byConv["idle"] = &pooledEntry{handle: idle, lastUsed: now.Add(-20 * time.Second)}
 	pool.byConv["active"] = &pooledEntry{handle: active, inUse: true, lastUsed: now.Add(-20 * time.Second)}
-	pool.setIdleRetirement(func(h *workerHandle) {
+	pool.setIdleRetirement(func(_ context.Context, h *workerHandle) {
 		pool.mu.Lock()
 		defer pool.mu.Unlock()
 		if h != idle {
@@ -61,7 +61,7 @@ func TestUnhealthyReleaseKeepsImmediateKillSemantics(t *testing.T) {
 	killed := false
 	handle := &workerHandle{onKill: func() { killed = true }}
 	pool.byConv["canceled"] = &pooledEntry{handle: handle, inUse: true}
-	pool.setIdleRetirement(func(*workerHandle) { t.Error("unhealthy cancellation was delayed for accounting") })
+	pool.setIdleRetirement(func(context.Context, *workerHandle) { t.Error("unhealthy cancellation was delayed for accounting") })
 	pool.Release("canceled", handle, false)
 	if !killed {
 		t.Fatal("unhealthy worker not killed")

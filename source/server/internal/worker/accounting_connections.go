@@ -33,6 +33,8 @@ type hostAccountingSession struct {
 	done      chan struct{}
 	err       error // read only after done closes
 	gapOnce   sync.Once
+	failureMu sync.Mutex
+	failure   error
 }
 
 func (s *hostAccountingSession) gap(reason string) {
@@ -41,6 +43,11 @@ func (s *hostAccountingSession) gap(reason string) {
 func (s *hostAccountingSession) requestDrain() { s.drainOnce.Do(func() { close(s.drain) }) }
 func (s *hostAccountingSession) run() {
 	defer close(s.done)
+	defer func() {
+		if s.err != nil {
+			_ = s.conn.Close()
+		}
+	}()
 	warned := false
 	retryDelay := 100 * time.Millisecond
 	for {
@@ -85,8 +92,30 @@ func (s *hostAccountingSession) run() {
 		}
 	}
 }
-func (s *hostAccountingSession) close(ctx context.Context) error {
+func (s *hostAccountingSession) close(ctx context.Context) (err error) {
+	defer func() {
+		// Concurrent close callers must not replace an already recorded timeout
+		// with a late successful receipt. Uncertainty is terminal for this session.
+		s.failureMu.Lock()
+		if s.failure == nil && err != nil {
+			s.failure = err
+		}
+		if s.failure != nil {
+			err = s.failure
+		}
+		s.failureMu.Unlock()
+		if err != nil {
+			s.cancel()
+			_ = s.conn.Close()
+		}
+	}()
 	s.requestDrain()
+	s.failureMu.Lock()
+	prior := s.failure
+	s.failureMu.Unlock()
+	if prior != nil {
+		return prior
+	}
 	select {
 	case <-s.done:
 		return s.err
@@ -96,7 +125,10 @@ func (s *hostAccountingSession) close(ctx context.Context) error {
 			return s.err
 		default:
 		}
-		s.gap("worker accounting shutdown exceeded its budget")
+		s.failureMu.Lock()
+		s.failure = ctx.Err()
+		s.failureMu.Unlock()
+		go s.gap("worker accounting shutdown exceeded its budget")
 		s.cancel()
 		return ctx.Err()
 	}
@@ -105,7 +137,16 @@ func (s *hostAccountingSession) close(ctx context.Context) error {
 // One receiver per existing worker connection, never a goroutine per attempt.
 // Entries are removed when their stream/process closes; the ordinary turn path
 // only looks up/registers a connection and never waits for its accounting RPC.
+type accountingState uint8
+
+const (
+	accountingActive accountingState = iota
+	accountingDraining
+	accountingTerminal
+)
+
 type accountingConnections struct {
+	states       map[*grpc.ClientConn]accountingState
 	mu           sync.Mutex
 	sink         AccountingReceiver
 	sessions     map[*grpc.ClientConn]*hostAccountingSession
@@ -114,7 +155,7 @@ type accountingConnections struct {
 }
 
 func newAccountingConnections(sink AccountingReceiver) *accountingConnections {
-	return &accountingConnections{sink: sink, sessions: make(map[*grpc.ClientConn]*hostAccountingSession)}
+	return &accountingConnections{states: make(map[*grpc.ClientConn]accountingState), sink: sink, sessions: make(map[*grpc.ClientConn]*hostAccountingSession)}
 }
 func (m *accountingConnections) ensure(conn *grpc.ClientConn) error {
 	if conn == nil {
@@ -125,18 +166,28 @@ func (m *accountingConnections) ensure(conn *grpc.ClientConn) error {
 	if m.closed {
 		return fmt.Errorf("worker runner is shutting down")
 	}
-	if _, ok := m.sessions[conn]; ok {
+	if state, ok := m.states[conn]; ok && state != accountingActive {
+		return fmt.Errorf("worker accounting connection is draining or terminal")
+	}
+	if existing, ok := m.sessions[conn]; ok {
+		select {
+		case <-existing.done:
+			m.states[conn] = accountingTerminal
+			return fmt.Errorf("worker accounting session is terminal")
+		default:
+		}
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &hostAccountingSession{conn: conn, sink: m.sink, source: usage.NewIdentity(), ctx: ctx, cancel: cancel, drain: make(chan struct{}), done: make(chan struct{})}
 	m.sessions[conn] = s
+	m.states[conn] = accountingActive
 	go func() {
 		s.run()
 		s.cancel()
 		m.mu.Lock()
 		if m.sessions[conn] == s {
-			delete(m.sessions, conn)
+			m.states[conn] = accountingTerminal
 		}
 		m.mu.Unlock()
 	}()
@@ -145,9 +196,13 @@ func (m *accountingConnections) ensure(conn *grpc.ClientConn) error {
 func (m *accountingConnections) drainConnection(ctx context.Context, conn *grpc.ClientConn) error {
 	m.mu.Lock()
 	s := m.sessions[conn]
+	if m.states[conn] != accountingTerminal {
+		m.states[conn] = accountingDraining
+	}
 	m.mu.Unlock()
 	if s == nil {
-		return nil
+		_ = conn.Close()
+		return fmt.Errorf("worker accounting session missing; drain unverified")
 	}
 	return s.close(ctx)
 }
@@ -228,9 +283,7 @@ func (w *workerRunner) SetAccountingReceiver(sink AccountingReceiver) error {
 	manager := newAccountingConnections(sink)
 	w.accounting = manager
 	if w.pool != nil {
-		w.pool.setIdleRetirement(func(h *workerHandle) {
-			ctx, cancel := context.WithTimeout(context.Background(), workerAccountingDrainBudget)
-			defer cancel()
+		w.pool.setIdleRetirement(func(ctx context.Context, h *workerHandle) {
 			_ = manager.drainConnection(ctx, h.conn)
 		})
 	}

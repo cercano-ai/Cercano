@@ -65,7 +65,7 @@ func TestAccountingEvictionVersusExplicitDrain(t *testing.T) {
 			if mode == "healthy-idle-retirement" {
 				now := time.Unix(100, 0)
 				p.now = func() time.Time { return now }
-				p.setIdleRetirement(func(*workerHandle) {
+				p.setIdleRetirement(func(context.Context, *workerHandle) {
 					c, cancel := context.WithTimeout(t.Context(), workerAccountingDrainBudget)
 					defer cancel()
 					if err := s.close(c); err != nil {

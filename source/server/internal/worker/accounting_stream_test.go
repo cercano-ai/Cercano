@@ -17,6 +17,12 @@ import (
 
 func accountingTestConnection(t *testing.T) (*WorkerServer, wire.WorkerClient) {
 	t.Helper()
+	worker, conn := accountingTestTransport(t)
+	return worker, wire.NewWorkerClient(conn)
+}
+
+func accountingTestTransport(t *testing.T) (*WorkerServer, *grpc.ClientConn) {
+	t.Helper()
 	worker := New()
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
@@ -28,7 +34,7 @@ func accountingTestConnection(t *testing.T) (*WorkerServer, wire.WorkerClient) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	return worker, wire.NewWorkerClient(conn)
+	return worker, conn
 }
 func openAccountingStream(t *testing.T, client wire.WorkerClient) (wire.Worker_AccountingClient, context.CancelFunc) {
 	t.Helper()

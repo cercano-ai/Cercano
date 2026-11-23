@@ -56,10 +56,11 @@ type pooledEntry struct {
 
 // workerPool keeps at most one warm worker per conversation.
 type workerPool struct {
-	beforeIdleKill func(*workerHandle) // guarded by mu; called outside it
+	beforeIdleKill func(context.Context, *workerHandle) // guarded by mu; called outside it
 	mu             sync.Mutex
 	closed         bool // guarded by mu; shutdown permanently closes admission
 	byConv         map[string]*pooledEntry
+	all            map[*workerHandle]struct{}
 	spawn          spawnFunc
 
 	// now is the pool's clock, injectable so tests exercise the idle-reaper with
@@ -81,6 +82,7 @@ func newWorkerPool(spawn spawnFunc) *workerPool {
 	}
 	return &workerPool{
 		byConv: make(map[string]*pooledEntry),
+		all:    make(map[*workerHandle]struct{}),
 		spawn:  spawn,
 		now:    time.Now,
 		done:   make(chan struct{}),
@@ -114,13 +116,9 @@ func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*w
 		if !e.inUse {
 			delete(p.byConv, convID)
 			stale := e.handle
-			beforeKill := p.beforeIdleKill
 			modeChanged := e.managed != managed
 			p.mu.Unlock()
-			if modeChanged && beforeKill != nil {
-				beforeKill(stale)
-			}
-			stale.Kill()
+			p.retireIdle(stale, modeChanged)
 			p.mu.Lock()
 		}
 	}
@@ -144,9 +142,10 @@ func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*w
 	// verify process exits before treating the host as quiescent.
 	if p.closed {
 		p.mu.Unlock()
-		h.Kill()
+		p.kill(h)
 		return nil, errors.New("worker pool is shut down")
 	}
+	p.all[h] = struct{}{}
 	// Re-check: a racing entry may have appeared while we spawned outside the
 	// lock. Under Phase-4 turn-exclusivity a single conversation is used by at
 	// most one live turn, but during a SUPERSESSION window a new turn's Acquire
@@ -160,19 +159,16 @@ func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*w
 			e.lastUsed = p.now()
 			reuse := e.handle
 			p.mu.Unlock()
-			h.Kill()
+			p.kill(h)
 			return reuse, nil
 		}
 		// An active displaced turn releases its own handle. An idle entry has no
 		// remaining owner, so a mode mismatch or unhealthy entry must be killed here.
 		p.byConv[convID] = &pooledEntry{handle: h, inUse: true, managed: managed, lastUsed: p.now()}
-		stale, inUse, modeChanged, beforeKill := e.handle, e.inUse, e.managed != managed, p.beforeIdleKill
+		stale, inUse, modeChanged := e.handle, e.inUse, e.managed != managed
 		p.mu.Unlock()
 		if !inUse {
-			if modeChanged && beforeKill != nil {
-				beforeKill(stale)
-			}
-			stale.Kill()
+			p.retireIdle(stale, modeChanged)
 		}
 		return h, nil
 	}
@@ -194,17 +190,27 @@ func (p *workerPool) Acquire(ctx context.Context, convID string, gen uint64) (*w
 //   - NOT healthy (crash/ambiguous) + entry still holds h → evict + kill.
 //   - entry no longer holds h (displaced by a racing Acquire) → this handle is
 //     orphaned; Kill it here so it doesn't leak. The live entry is untouched.
+//
+// Release is the compatibility entry point for existing pool callers. Turn
+// cancellation uses turnRetirement, never the ambiguous unhealthy branch.
 func (p *workerPool) Release(convID string, h *workerHandle, healthy bool) {
+	d := unsafeRetire
+	if healthy {
+		d = keepCandidate
+	}
+	p.release(convID, h, d)
+}
+func (p *workerPool) release(convID string, h *workerHandle, disposition retirementDisposition) {
 	p.mu.Lock()
 	e, ok := p.byConv[convID]
 	if !ok || e.handle != h {
 		// Our handle was displaced (supersession) or already gone. Don't touch
 		// the pool entry (it belongs to a newer turn). Kill our orphan handle.
 		p.mu.Unlock()
-		h.Kill() // nil-safe; no-op on a nil handle.
+		p.retireIdle(h, disposition != unsafeRetire) // exact orphan only.
 		return
 	}
-	if healthy {
+	if disposition == keepCandidate && !p.closed {
 		e.inUse = false
 		e.lastUsed = p.now() // returned warm: start the idle clock from now.
 		p.mu.Unlock()
@@ -213,7 +219,7 @@ func (p *workerPool) Release(convID string, h *workerHandle, healthy bool) {
 	// Unhealthy: evict + kill.
 	delete(p.byConv, convID)
 	p.mu.Unlock()
-	e.handle.Kill()
+	p.retireIdle(e.handle, disposition != unsafeRetire)
 }
 
 // Shutdown kills every cached worker and clears the pool (host-shutdown drain).
@@ -223,15 +229,19 @@ func (p *workerPool) Shutdown() {
 
 	p.mu.Lock()
 	p.closed = true
-	entries := make([]*pooledEntry, 0, len(p.byConv))
 	for _, e := range p.byConv {
-		entries = append(entries, e)
+		p.all[e.handle] = struct{}{}
 	}
+	entries := make([]*workerHandle, 0, len(p.all))
+	for h := range p.all {
+		entries = append(entries, h)
+	}
+	p.all = make(map[*workerHandle]struct{})
 	p.byConv = make(map[string]*pooledEntry)
 	p.mu.Unlock()
 
-	for _, e := range entries {
-		e.handle.Kill()
+	for _, h := range entries {
+		p.kill(h)
 	}
 }
 
@@ -311,12 +321,27 @@ func (p *workerPool) reapIdle(window time.Duration) {
 	}
 	p.mu.Unlock()
 
+	// Start the entire retirement batch together; a stalled hook cannot renew
+	// the four-second budget for each successive worker.
+	ctx, cancel := context.WithTimeout(context.Background(), workerAccountingDrainBudget)
+	defer cancel()
+	var joined sync.WaitGroup
 	for _, h := range reaped {
-		if beforeKill != nil {
-			beforeKill(h)
-		}
-		h.Kill()
+		joined.Add(1)
+		go func(h *workerHandle) {
+			defer joined.Done()
+			if beforeKill != nil && workerHealthy(h) {
+				done := make(chan struct{})
+				go func() { beforeKill(ctx, h); close(done) }()
+				select {
+				case <-done:
+				case <-ctx.Done():
+				}
+			}
+			p.kill(h)
+		}(h)
 	}
+	joined.Wait()
 }
 
 // workerHealthy reports whether a pooled handle is usable for another turn.
@@ -375,8 +400,46 @@ func processAlive(h *workerHandle) bool {
 
 // setIdleRetirement adds best-effort background drain only for idle workers.
 // Crash, cancellation, and unhealthy-release Kill behavior is unchanged.
-func (p *workerPool) setIdleRetirement(fn func(*workerHandle)) {
+func (p *workerPool) setIdleRetirement(fn func(context.Context, *workerHandle)) {
 	p.mu.Lock()
 	p.beforeIdleKill = fn
 	p.mu.Unlock()
+}
+
+// detach revokes reuse immediately without touching a replacement's ownership.
+func (p *workerPool) detach(conv string, h *workerHandle) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if e := p.byConv[conv]; e != nil && e.handle == h {
+		delete(p.byConv, conv)
+	}
+}
+func (p *workerPool) closeAdmission() {
+	p.mu.Lock()
+	p.closed = true
+	p.mu.Unlock()
+}
+
+func (p *workerPool) kill(h *workerHandle) {
+	h.Kill()
+	p.mu.Lock()
+	delete(p.all, h)
+	p.mu.Unlock()
+}
+
+func (p *workerPool) retireIdle(h *workerHandle, ordinary bool) {
+	p.mu.Lock()
+	hook := p.beforeIdleKill
+	p.mu.Unlock()
+	if ordinary && hook != nil && workerHealthy(h) {
+		ctx, cancel := context.WithTimeout(context.Background(), workerAccountingDrainBudget)
+		defer cancel()
+		done := make(chan struct{})
+		go func() { hook(ctx, h); close(done) }()
+		select {
+		case <-done:
+		case <-ctx.Done():
+		}
+	}
+	p.kill(h)
 }

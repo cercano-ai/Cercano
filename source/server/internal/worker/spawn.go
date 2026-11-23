@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -61,6 +62,10 @@ const MaxMsgBytes = maxGRPCWorkerMsgBytes
 
 // workerHandle owns a spawned worker process and its gRPC connection.
 type workerHandle struct {
+	killOnce sync.Once
+	reapDone chan struct{} // closed only after cmd.Wait, never merely after signalling
+	reapErr  error         // readable after reapDone closes
+
 	cmd        *exec.Cmd
 	conn       *grpc.ClientConn
 	socketPath string
@@ -78,23 +83,28 @@ func (h *workerHandle) Kill() {
 	if h == nil {
 		return
 	}
-	if h.cmd != nil && h.cmd.Process != nil {
-		killGroupOrProcess(h.cmd.Process)
-		// Best-effort wait so the OS reclaims the zombie.
-		_ = h.cmd.Wait()
-		// Only our own pidfile is removed; needs the pid, so it lives inside
-		// this guard (a partially-built handle has no process and no pidfile).
-		removePidFileIfOwned(h.pidPath, h.cmd.Process.Pid)
-	}
-	if h.conn != nil {
-		_ = h.conn.Close()
-	}
-	if h.socketPath != "" {
-		_ = os.Remove(h.socketPath)
-	}
-	if h.onKill != nil {
-		h.onKill()
-	}
+	h.killOnce.Do(func() {
+		h.reapDone = make(chan struct{})
+		if h.cmd != nil && h.cmd.Process != nil {
+			killGroupOrProcess(h.cmd.Process)
+			go func() {
+				h.reapErr = h.cmd.Wait()
+				removePidFileIfOwned(h.pidPath, h.cmd.Process.Pid)
+				close(h.reapDone)
+			}()
+		} else {
+			close(h.reapDone)
+		}
+		if h.conn != nil {
+			_ = h.conn.Close()
+		}
+		if h.socketPath != "" {
+			_ = os.Remove(h.socketPath)
+		}
+		if h.onKill != nil {
+			h.onKill()
+		}
+	})
 }
 
 // spawnWorker starts a worker process on a fresh unix socket and returns a
@@ -387,4 +397,16 @@ func workerCommandWithPolicy(binary, socket string, policy SpawnPolicy) *exec.Cm
 		cmd.Args = append(cmd.Args, "--failure-log", policy.failureLogPath(), "--routing-log", policy.routingLogPath())
 	}
 	return cmd
+}
+
+// waitReaped reports completion of Wait, not merely delivery of a kill signal.
+// The reaper remains owned by the handle if the caller stops waiting.
+func (h *workerHandle) waitReaped(ctx context.Context) error {
+	h.Kill()
+	select {
+	case <-h.reapDone:
+		return h.reapErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

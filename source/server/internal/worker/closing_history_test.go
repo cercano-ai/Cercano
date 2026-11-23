@@ -42,7 +42,7 @@ func (w *closingHistoryWorker) RunTurn(stream proto.Worker_RunTurnServer) error 
 	if w.mode == "execution-error" {
 		return errors.New("fixture execution failed")
 	}
-	if w.mode == "cancel" {
+	if w.mode == "cancel" || w.mode == "cancel-budget" {
 		<-stream.Context().Done()
 		return stream.Context().Err()
 	}
@@ -51,7 +51,7 @@ func (w *closingHistoryWorker) RunTurn(stream proto.Worker_RunTurnServer) error 
 }
 
 func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
-	for _, mode := range []string{"complete", "execution-error", "cancel"} {
+	for _, mode := range []string{"complete", "execution-error", "cancel", "cancel-budget"} {
 		t.Run(mode, func(t *testing.T) {
 			entered, canceled, release, exited := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 			var releaseOnce sync.Once
@@ -80,7 +80,7 @@ func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
 			}))
 			a := &closingHistoryAuthority{exited: exited}
 			wr.(worker.TurnAuthoritySetter).SetTurnAuthority(func(context.Context, string) (worker.TurnAuthority, error) { return a, nil })
-			deadline, finish := context.WithTimeout(t.Context(), 5*time.Second)
+			deadline, finish := context.WithTimeout(t.Context(), 7*time.Second)
 			defer finish()
 			ctx, cancel := context.WithCancel(deadline)
 			defer cancel()
@@ -100,7 +100,7 @@ func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
 					t.Error("turn goroutine failed to join")
 				}
 			}()
-			if mode == "cancel" {
+			if mode == "cancel" || mode == "cancel-budget" {
 				select {
 				case <-entered:
 					cancel()
@@ -115,8 +115,25 @@ func TestClosingTurnJoinsReadOnlyHistoryWithoutCleanupFailure(t *testing.T) {
 				t.Fatal("callback never reached cancellation barrier")
 			}
 			conn := <-connections
-			if conn.GetState() == connectivity.Shutdown {
-				t.Error("transport destroyed before callback join")
+			if mode == "execution-error" || mode == "cancel-budget" {
+				// Containment must finish while the deliberately uncooperative history
+				// callback still owns authority. Ordinary cancellation gets the drain budget.
+				limit := time.After(5 * time.Second)
+				ticker := time.NewTicker(time.Millisecond)
+				defer ticker.Stop()
+			waitRetirement:
+				for conn.GetState() != connectivity.Shutdown {
+					select {
+					case <-ticker.C:
+					case <-limit:
+						t.Error("worker not retired with callback blocked")
+						break waitRetirement
+					}
+				}
+			}
+
+			if mode == "complete" && conn.GetState() == connectivity.Shutdown {
+				t.Error("clean transport destroyed before callback join")
 			}
 			early := false
 			select {

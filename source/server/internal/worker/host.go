@@ -495,6 +495,9 @@ func (w *workerRunner) resolveOpenTiers() map[string]string {
 // stops the idle-reaper. Safe to call once at host shutdown; a no-op on a
 // dial-injected (test) runner with no pool.
 func (w *workerRunner) Shutdown() {
+	if w.pool != nil {
+		w.pool.closeAdmission()
+	}
 	if manager := w.accountingManager(); manager != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), workerAccountingDrainBudget)
 		if err := manager.shutdown(ctx); err != nil {
@@ -679,15 +682,34 @@ func (w *workerRunner) RunTurn(
 	// Fence every asynchronous host callback before the authority's deferred Close.
 	// Cancel first on all exits so context-aware callbacks cannot await the dead stream.
 	var callbacks sync.WaitGroup
+	callbacksDone := make(chan struct{})
+	parentTurnCtx := ctx
 	callbackCtx, cancelCallbacks := context.WithCancel(ctx)
 	ctx = callbackCtx
 	var cleanupFn func()
+	var retirement *turnRetirement
+	var turnHealthy bool
+	var watchStop, watchDone chan struct{}
 	defer func() {
+		if retirement != nil && !turnHealthy {
+			if ctx.Err() != nil {
+				retirement.retire(ordinaryRetire)
+			} else {
+				retirement.retire(unsafeRetire)
+			}
+		}
+		// Cancellation stops RPC/callback work, but never substitutes for joining
+		// persistence authority users. Retirement proceeds independently of this join.
 		cancelCallbacks()
 		callbacks.Wait()
-		// Keep the process-owned accounting transport alive until callbacks have
-		// finished. Authority.Close was registered earlier and therefore runs last.
-		if cleanupFn != nil {
+		close(callbacksDone)
+		if watchStop != nil {
+			close(watchStop)
+			<-watchDone
+		}
+		if retirement != nil {
+			retirement.finish(turnHealthy, cleanupFn)
+		} else if cleanupFn != nil {
 			cleanupFn()
 		}
 	}()
@@ -703,10 +725,10 @@ func (w *workerRunner) RunTurn(
 	//     healthy keeps the process warm (conn NOT closed, owned by the pooled
 	//     handle); unhealthy kills + evicts so the next Acquire spawns fresh.
 	var (
-		conn        *grpc.ClientConn
-		turnHealthy bool
+		conn *grpc.ClientConn
 	)
 
+	var acquired *workerHandle
 	manager := w.accountingManager()
 	if w.dial != nil {
 		// Accounting-enabled dialers mirror the process-owned production transport.
@@ -732,9 +754,41 @@ func (w *workerRunner) RunTurn(
 		if err != nil {
 			return runner.Result{}, fmt.Errorf("workerRunner: acquire: %w", err)
 		}
+		acquired = wh
 		conn = wh.conn
-		cleanupFn = func() { w.pool.Release(req.ConversationID, wh, turnHealthy) }
+		cleanupFn = func() { w.pool.release(req.ConversationID, wh, keepCandidate) }
 	}
+	retirement = &turnRetirement{done: make(chan struct{}), detach: func() {
+		if acquired != nil {
+			w.pool.detach(req.ConversationID, acquired)
+		}
+	}, kill: func() {
+		if acquired != nil {
+			w.pool.kill(acquired)
+		} else {
+			_ = conn.Close()
+		}
+	}, drain: func(drainCtx context.Context) error {
+		if manager != nil {
+			return manager.drainConnection(drainCtx, conn)
+		}
+		select {
+		case <-callbacksDone:
+			return nil
+		case <-drainCtx.Done():
+			return drainCtx.Err()
+		}
+	}}
+	watchStop, watchDone = make(chan struct{}), make(chan struct{})
+	// Capture the original callback context: later metadata wrapping must not race.
+	go func(cancelled context.Context) {
+		defer close(watchDone)
+		select {
+		case <-cancelled.Done():
+			retirement.retire(ordinaryRetire)
+		case <-watchStop:
+		}
+	}(parentTurnCtx)
 	if manager != nil {
 		if err := manager.ensure(conn); err != nil {
 			return runner.Result{}, err
@@ -759,6 +813,11 @@ func (w *workerRunner) RunTurn(
 		ctx = withInitialProfileMetadata(ctx, string(profileJSON))
 	}
 
+	// A local cancellation is ordinary only when the transport error actually
+	// represents that cancellation. Concurrent corruption must remain unsafe.
+	localCancellation := func(err error) bool {
+		return ctx.Err() != nil && (status.Code(err) == codes.Canceled || status.Code(err) == codes.DeadlineExceeded || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
+	}
 	// ── 6. Open bidi stream and send StartTurn ────────────────────────────
 	client := proto.NewWorkerClient(conn)
 	var err error
@@ -773,6 +832,9 @@ func (w *workerRunner) RunTurn(
 		stream, err = client.RunTurn(ctx)
 	}
 	if err != nil {
+		if !localCancellation(err) {
+			retirement.retire(unsafeRetire)
+		}
 		return runner.Result{}, fmt.Errorf("workerRunner: open stream: %w", err)
 	}
 
@@ -781,6 +843,9 @@ func (w *workerRunner) RunTurn(
 	// reports that status only through Recv, so fall through to the drain loop,
 	// whose Recv classifies it (e.g. the enterprise downgrade refusal).
 	if err := stream.Send(&proto.HostToWorker{Msg: &proto.HostToWorker_Start{Start: startTurn}}); err != nil && !errors.Is(err, io.EOF) {
+		if !localCancellation(err) {
+			retirement.retire(unsafeRetire)
+		}
 		return runner.Result{}, fmt.Errorf("workerRunner: send StartTurn: %w", err)
 	}
 
@@ -793,7 +858,11 @@ func (w *workerRunner) RunTurn(
 		// A failed response delivery is not evidence of an uncertain durable
 		// mutation. Callbacks are joined above; persistence services report
 		// write failures through the authority context independently of Send.
-		return stream.Send(msg)
+		err := stream.Send(msg)
+		if err != nil && !localCancellation(err) {
+			retirement.retire(unsafeRetire)
+		}
+		return err
 	}
 
 	// ── 7. Drain loop ─────────────────────────────────────────────────────
@@ -813,13 +882,17 @@ func (w *workerRunner) RunTurn(
 			// deferred cleanup evict + kill it (turnHealthy stays false). A
 			// canceled turn may leave the worker mid-tool in an ambiguous
 			// state, so B1 does NOT keep it warm — the next turn spawns fresh.
-			_ = safeSend(&proto.HostToWorker{Msg: &proto.HostToWorker_Cancel{Cancel: &proto.Cancel{}}})
+			retirement.retire(ordinaryRetire)
 			return runner.Result{}, ctx.Err()
 		default:
 		}
 
 		msg, recvErr := stream.Recv()
 		if recvErr != nil {
+			localCancel := localCancellation(recvErr)
+			if !(turnDone && errors.Is(recvErr, io.EOF)) && !localCancel {
+				retirement.retire(unsafeRetire)
+			}
 			if turnDone && errors.Is(recvErr, io.EOF) {
 				// TurnDone received; the stream closed normally afterwards. The
 				// worker finished cleanly → keep it WARM for the next turn.
@@ -1125,6 +1198,7 @@ func (w *workerRunner) RunTurn(
 			turnDone = true
 
 		case *proto.WorkerToHost_Error:
+			retirement.retire(unsafeRetire)
 			if m.Error.GetEnterprisePolicyDenied() {
 				return runner.Result{}, modelpolicy.Deny(modelpolicy.Attempt{}, "worker did not authorize this model request")
 			}
