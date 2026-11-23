@@ -10,10 +10,11 @@ conflicts. The accounting auto-merge was reviewed: process-local `source` sessio
 identity and privacy-safe diagnostic correlation remain intact. No additional
 production integration changes were necessary; same-child observable Wait,
 per-session diagnostic connections and exact stale Chat admission refusal remain.
-**Ready for final independent combined review, not landing-ready: retirement
-re-review pending; separate reconnect review still pending.**
+**Final combined verification passed; not landing-ready until the separate reconnect
+independent review returns. Retirement/lifecycle independent review has no blockers
+(as supplied with this integration task); those approvals and diagnostics are preserved.**
 
-## Reviewed blockers addressed by the correction (independent re-review pending)
+## Reviewed blockers addressed by the correction (retirement/lifecycle approved)
 
 | Reviewed blocker | Correction / regression evidence | Review boundary |
 | --- | --- | --- |
@@ -28,7 +29,7 @@ re-review pending; separate reconnect review still pending.**
 | Same successful journeys: stale Chat and reconnect | Actual authenticated pinned Chat RPC to closed source denied with exact admission-busy status; no input persisted; explicit reconnect rejects stale binding; replacement authenticated resume on same store | Source admission denies before pin validation; does not demonstrate stale Chat to replacement endpoint or full CLI rendering. |
 | `TestPreparedWorkerRealMutationLostResponse` | Real serverTasks.Launch, SQL mutations, EOF/cancellation response loss, mutation accounting | Observation wrapper; process journey task row remains fixture-created, and its policy task adapter is not installed task-launch wiring. No claim of end-to-end delegated task launch. |
 | `TestProcessCloseWaitResult`, `TestRetirement*` | Kill initiates owned asynchronous reaper; waitReaped joins exact PID; bounded detach/kill, accounting deadlines, displaced workers | Separate unit/process probes supplement, not substitute for same-journey Wait above. |
-| `TestPinnedChatAutomaticallyRevalidatesWithoutResend` and agentclient suite | Fresh attestation after transport loss; exactly one chat request, no ambiguous resend | Separate client transport scenario, not transparent replay in process journey. |
+| `TestPinnedChatAutomaticallyRevalidatesWithoutResend` and agentclient suite | Fresh identity/session validation after transport loss; exactly one chat request, no ambiguous resend | Separate client transport scenario, not transparent replay in process journey. |
 | Lifecycle / accounting diagnostic tests | Original owner/epoch, worker connection identity, safe reasons, privacy assertions | Each terminal accounting session needs its own connection; no raw credentials/paths in diagnostic output. |
 
 All processes, signals, stores, sockets, tokens and configurations are test-owned.
@@ -74,3 +75,61 @@ assertions. Initial stale-Chat probe expected a client pin error; actual closed
 source denies admission first, now asserted as the precise server error plus no
 persisted input. Initial full race run failed only the reused-connection test;
 subsequent full focused race, server suite and CLI suite passed.
+
+## Final reconnect integration verification
+
+Validated code HEAD: `e6441d7de6c55f9220f070a337669e4b692516e3` on
+`integration/combined-close-resume`, starting at
+`f8b0b0e5145449326af5997fc410d4558c9dca5b`. Incremental reconnect
+`1ac4e5739db850ee51c919b062b0b6fac9d1437d` cherry-picked without conflicts;
+base b360 was not reapplied. No conflict resolution or production integration
+edits were needed. Changes are client SDK, CLI tests and documentation only.
+No landing or push performed. Reconnect independent review remains pending.
+
+| Reconnect scenario | Validated evidence | Boundary |
+| --- | --- | --- |
+| Exact validation | Host instance, contract, schema version, retired state, retained conversation and ownership epoch; existing connect-intent credential/isolation policy | No independent store attestation; build identity is not compared. |
+| Task-only recovery | `TestPinnedTaskOnlyRecoveryBounded`, `TestPinnedTaskRecoveryPreservesCursor`: real loopback stop/rebind refusal, bounded retry, ordered progress sequences 1,2 | Stop/rebind refusal and cursor continuation are separate fixtures, not one durable-store restart journey. |
+| Ambiguous/partial/completed chat | `TestPinnedChatAutomaticallyRevalidatesWithoutResend`, `TestPinnedPartialAndAuthBoundaries`, `TestPinnedCompletedChatRepairsWithoutDeliveryWarning` | Partial delivery remains unknown; FinalResponse establishes completion; repair does not blindly replay chat. Authentication/permission errors do not trigger replay/validation. |
+| Identity/policy/stale epoch | `TestPinnedAttachmentTransportDrop` A/B/stale/credentials, `TestPinnedNoLaunchRefusals`, authenticated reconnect and DialExisting suites | Real transport with fake identity/session service; stale state represents epoch rejection, not actual ownership migration. |
+| Cancellation/close concurrency | `TestPinnedConcurrentRecoveryAndCancellation`, `TestPinnedCloseDuringValidationCannotInstall`, attachment cancellation; full focused broad race | Shared failed-attempt concurrency remains without its own dedicated stress probe. |
+| Actual CLI command loop | `TestMainDriverPinnedRecoveryDoesNotResubmit` drives Model.Update commands through stream end, retains/renders warning, exactly one submission | In-process model, not installed terminal/launcher acceptance. |
+
+Final commands (all exit 0), from server module:
+
+```sh
+go test ./internal/server ./internal/worker -run '^TestProcessClose' -count=1 -timeout=180s
+go test -race ./internal/server ./internal/worker -run '^TestProcessClose' -count=1 -timeout=300s
+go test ./pkg/agentclient -run 'TestPinned|TestAuthenticatedPinnedReconnect|TestDialExisting|TestAttachmentCancellation' -count=1 -timeout=300s
+go test -race ./pkg/agentclient -run 'TestPinned|TestAuthenticatedPinnedReconnect|TestDialExisting|TestAttachmentCancellation' -count=5 -timeout=300s
+go test ./... -count=1 -timeout=300s
+go test -race ./internal/server ./internal/worker ./internal/runner ./internal/hostsvc/... ./internal/conversation ./pkg/agentclient -count=1 -timeout=300s
+go build -o /tmp/cercano-combined-final/cercano ./cmd/cercano/
+```
+
+From CLI module:
+
+```sh
+go test ./internal/ui -run TestMainDriverPinnedRecoveryDoesNotResubmit -count=1 -timeout=120s
+go test -race ./internal/ui -run TestMainDriverPinnedRecoveryDoesNotResubmit -count=5 -timeout=180s
+go test ./... -count=1 -timeout=300s
+go build ./...
+```
+
+Exact captured test output is preserved in `verification/combined-final/`.
+Process-close normal server/worker: 8.811s/0.485s; race: 24.684s/2.062s.
+Pinned normal: 25.301s; five-repeat broad pinned race: 243.143s.
+This replaces the previously unclassified external-120s timeout with a completed
+pass (Go timeout 300s; external tool timeout 1000s for that command group).
+No hang occurred, so no stack investigation or fixture fix was required.
+Remaining command groups used external 900s deadlines, exceeding Go timeouts.
+Broad focused race server/worker/agentclient: 107.314s/65.820s/100.037s.
+CLI Model.Update normal/race: 0.488s/7.391s. Both full normal suites and
+production builds passed; builds emitted no output.
+
+Prior process-fixture boundaries above remain unchanged. Additional synchronous
+chat-open failure and automatic contract/schema replacement-specific probes remain
+uncovered by dedicated follow-up tests. Generic unary RPCs do not automatically
+retry; initial attachment-open/takeover is not blindly replayed; budget exhaustion
+surfaces an error. No live hosts/configuration/data/signals were used; only disposable
+test fixtures. No other worktrees were modified or cleaned.

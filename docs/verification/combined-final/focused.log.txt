@@ -1,0 +1,6 @@
+ok  	cercano/source/server/internal/server	8.811s
+ok  	cercano/source/server/internal/worker	0.485s
+ok  	cercano/source/server/internal/server	24.684s
+ok  	cercano/source/server/internal/worker	2.062s
+ok  	cercano/source/server/pkg/agentclient	25.301s
+ok  	cercano/source/server/pkg/agentclient	243.143s

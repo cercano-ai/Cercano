@@ -1,0 +1,13 @@
+ok  	cercano/source/clients/cli/internal/ui	0.488s
+ok  	cercano/source/clients/cli/internal/ui	7.391s
+ok  	cercano/source/clients/cli	3.523s
+ok  	cercano/source/clients/cli/internal/banner	0.239s
+?   	cercano/source/clients/cli/internal/buildversion	[no test files]
+ok  	cercano/source/clients/cli/internal/form	1.260s
+ok  	cercano/source/clients/cli/internal/overlay	0.829s
+ok  	cercano/source/clients/cli/internal/render	1.104s
+ok  	cercano/source/clients/cli/internal/slash	2.148s
+ok  	cercano/source/clients/cli/internal/theme	1.478s
+ok  	cercano/source/clients/cli/internal/ui	5.265s
+ok  	cercano/source/clients/cli/internal/uiconfig	2.346s
+ok  	cercano/source/clients/cli/internal/wizard	1.907s

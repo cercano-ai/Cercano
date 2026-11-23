@@ -1,0 +1,150 @@
+ok  	cercano/source/server/cmd/agent	0.453s
+ok  	cercano/source/server/cmd/cercano	86.905s
+ok  	cercano/source/server/cmd/compaction-bakeoff	1.512s
+?   	cercano/source/server/cmd/compaction-repro	[no test files]
+?   	cercano/source/server/cmd/ctx-usage-probe	[no test files]
+?   	cercano/source/server/cmd/elide-probe	[no test files]
+?   	cercano/source/server/cmd/export-enterprise-catalog	[no test files]
+?   	cercano/source/server/cmd/keychain-read-diagnostic	[no test files]
+?   	cercano/source/server/cmd/mcp	[no test files]
+?   	cercano/source/server/cmd/proposal-repro	[no test files]
+ok  	cercano/source/server/cmd/upgrade-discovery-preflight	0.693s
+ok  	cercano/source/server/internal/acp	1.671s
+?   	cercano/source/server/internal/acp/v1	[no test files]
+ok  	cercano/source/server/internal/agent	5.479s
+ok  	cercano/source/server/internal/agenttools	2.078s
+ok  	cercano/source/server/internal/anthropicauth	0.968s
+ok  	cercano/source/server/internal/brewrestart	71.805s
+ok  	cercano/source/server/internal/broker	2.064s
+ok  	cercano/source/server/internal/capabilities	2.989s
+ok  	cercano/source/server/internal/capabilities/agentadapter	3.249s
+ok  	cercano/source/server/internal/capabilities/builtins	24.647s
+ok  	cercano/source/server/internal/capabilities/mcpadapter	3.875s
+ok  	cercano/source/server/internal/catalog	3.995s
+ok  	cercano/source/server/internal/catalogexport	3.970s
+ok  	cercano/source/server/internal/chatgptauth	4.212s
+ok  	cercano/source/server/internal/chatroute	4.259s
+ok  	cercano/source/server/internal/cloudcatalog	4.351s
+ok  	cercano/source/server/internal/cloudfactory	4.510s
+ok  	cercano/source/server/internal/compaction	5.560s
+ok  	cercano/source/server/internal/compactiongen	4.283s
+ok  	cercano/source/server/internal/compactor	18.321s
+ok  	cercano/source/server/internal/context	4.196s
+ok  	cercano/source/server/internal/contextedit	4.362s
+ok  	cercano/source/server/internal/contextmeter	3.898s
+ok  	cercano/source/server/internal/conversation	10.303s
+ok  	cercano/source/server/internal/crashlog	3.812s
+ok  	cercano/source/server/internal/credentialtest	3.328s
+ok  	cercano/source/server/internal/deepinfracatalog	3.321s
+ok  	cercano/source/server/internal/dispatch	3.213s
+ok  	cercano/source/server/internal/dispatchhistory	3.507s
+ok  	cercano/source/server/internal/document	3.305s
+ok  	cercano/source/server/internal/engine	3.206s
+ok  	cercano/source/server/internal/engine/llamaserver	4.093s
+ok  	cercano/source/server/internal/engine/mistralrs	3.035s
+ok  	cercano/source/server/internal/engine/ollama	2.979s
+ok  	cercano/source/server/internal/enterprise	3.315s
+ok  	cercano/source/server/internal/failurelog	2.937s
+ok  	cercano/source/server/internal/filelock	3.132s
+ok  	cercano/source/server/internal/gguf	2.526s
+ok  	cercano/source/server/internal/gitflow	12.337s
+ok  	cercano/source/server/internal/hostsvc/config	2.943s
+ok  	cercano/source/server/internal/hostsvc/credentials	2.842s
+ok  	cercano/source/server/internal/hostsvc/permissions	3.416s
+ok  	cercano/source/server/internal/hostsvc/persistence	3.975s
+ok  	cercano/source/server/internal/hostsvc/providers	4.075s
+?   	cercano/source/server/internal/hostsvc/runtimes	[no test files]
+ok  	cercano/source/server/internal/hostsvc/tools	4.026s
+ok  	cercano/source/server/internal/inference	3.621s
+ok  	cercano/source/server/internal/inference/profilechain	4.639s
+ok  	cercano/source/server/internal/inference/resilience	3.708s
+ok  	cercano/source/server/internal/invocationapproval	3.816s
+ok  	cercano/source/server/internal/llamacompat	3.750s
+ok  	cercano/source/server/internal/llm	4.371s
+ok  	cercano/source/server/internal/llm/anthropic	5.858s
+ok  	cercano/source/server/internal/llm/bedrock	4.013s
+ok  	cercano/source/server/internal/llm/httpx	3.280s
+ok  	cercano/source/server/internal/llm/ollama	2.903s
+ok  	cercano/source/server/internal/llm/openai	2.893s
+ok  	cercano/source/server/internal/llm/responses	2.807s
+ok  	cercano/source/server/internal/localruntime	3.285s
+ok  	cercano/source/server/internal/localruntime/catalogdefaults	2.800s
+ok  	cercano/source/server/internal/localruntime/llamaserver	17.525s
+?   	cercano/source/server/internal/localruntime/localruntimetest	[no test files]
+ok  	cercano/source/server/internal/localruntime/mistralrs	3.478s
+ok  	cercano/source/server/internal/locus	3.163s
+ok  	cercano/source/server/internal/loop	3.126s
+ok  	cercano/source/server/internal/loop/adapters	3.548s
+ok  	cercano/source/server/internal/loopcompact	3.890s
+ok  	cercano/source/server/internal/managedrouting	6.880s
+ok  	cercano/source/server/internal/managedsettings	3.854s
+?   	cercano/source/server/internal/managedsettings/settingstest	[no test files]
+ok  	cercano/source/server/internal/mcp	4.052s
+ok  	cercano/source/server/internal/mcp_host	3.919s
+ok  	cercano/source/server/internal/mistralcatalog	3.771s
+ok  	cercano/source/server/internal/mistralrscompat	3.920s
+ok  	cercano/source/server/internal/modelbudget	3.862s
+ok  	cercano/source/server/internal/modelcatalog	3.813s
+ok  	cercano/source/server/internal/modelevidence	4.020s
+ok  	cercano/source/server/internal/modelhost	18.173s
+ok  	cercano/source/server/internal/modelmetadata	3.926s
+ok  	cercano/source/server/internal/modelpolicy	3.666s
+ok  	cercano/source/server/internal/modelwindow	3.858s
+ok  	cercano/source/server/internal/ollamacatalog	4.277s
+ok  	cercano/source/server/internal/openmodels	3.985s
+ok  	cercano/source/server/internal/procx	6.784s
+ok  	cercano/source/server/internal/projectconfig	4.039s
+ok  	cercano/source/server/internal/protocols	4.238s
+ok  	cercano/source/server/internal/reasoningexperiment	5.536s
+ok  	cercano/source/server/internal/recap	4.608s
+?   	cercano/source/server/internal/recoveryguard	[no test files]
+ok  	cercano/source/server/internal/requestassembly	4.492s
+ok  	cercano/source/server/internal/research	4.755s
+ok  	cercano/source/server/internal/retention	4.109s
+ok  	cercano/source/server/internal/routinglog	4.281s
+ok  	cercano/source/server/internal/routingwire	4.108s
+ok  	cercano/source/server/internal/runner	4.721s
+ok  	cercano/source/server/internal/runtimebundle	4.221s
+ok  	cercano/source/server/internal/runtimecontrol	4.122s
+ok  	cercano/source/server/internal/secrets	3.993s
+ok  	cercano/source/server/internal/server	42.727s
+ok  	cercano/source/server/internal/setupreset	4.071s
+ok  	cercano/source/server/internal/setupresetcmd	3.906s
+ok  	cercano/source/server/internal/skills	3.962s
+ok  	cercano/source/server/internal/skills/consumer	3.849s
+ok  	cercano/source/server/internal/sysram	3.849s
+ok  	cercano/source/server/internal/taskmodel	3.973s
+ok  	cercano/source/server/internal/taskrun	4.880s
+ok  	cercano/source/server/internal/telemetry	6.514s
+ok  	cercano/source/server/internal/testfixtures	3.994s
+ok  	cercano/source/server/internal/tools	9.172s
+ok  	cercano/source/server/internal/toolstack	3.642s
+ok  	cercano/source/server/internal/trajectory	3.714s
+ok  	cercano/source/server/internal/usage	3.771s
+ok  	cercano/source/server/internal/visionattach	3.757s
+ok  	cercano/source/server/internal/visioninspect	3.600s
+ok  	cercano/source/server/internal/watchdog	3.644s
+ok  	cercano/source/server/internal/web	3.666s
+?   	cercano/source/server/internal/workadmission	[no test files]
+ok  	cercano/source/server/internal/worker	50.717s
+?   	cercano/source/server/pkg/accountidentity	[no test files]
+ok  	cercano/source/server/pkg/agentclient	66.261s
+?   	cercano/source/server/pkg/approvaldisclosure	[no test files]
+ok  	cercano/source/server/pkg/config	6.246s
+ok  	cercano/source/server/pkg/devhostauth	3.328s
+ok  	cercano/source/server/pkg/proto	3.485s
+ok  	cercano/source/server/pkg/setupstate	3.325s
+ok  	cercano/source/server/pkg/update	4.637s
+ok  	cercano/source/server/test/integration	3.440s
+ok  	cercano/source/server/internal/server	107.314s
+ok  	cercano/source/server/internal/worker	65.820s
+ok  	cercano/source/server/internal/runner	4.719s
+ok  	cercano/source/server/internal/hostsvc/config	2.829s
+ok  	cercano/source/server/internal/hostsvc/credentials	15.128s
+ok  	cercano/source/server/internal/hostsvc/permissions	4.005s
+ok  	cercano/source/server/internal/hostsvc/persistence	7.249s
+ok  	cercano/source/server/internal/hostsvc/providers	3.526s
+?   	cercano/source/server/internal/hostsvc/runtimes	[no test files]
+ok  	cercano/source/server/internal/hostsvc/tools	5.801s
+ok  	cercano/source/server/internal/conversation	21.269s
+ok  	cercano/source/server/pkg/agentclient	100.037s
