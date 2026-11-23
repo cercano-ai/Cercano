@@ -74,7 +74,10 @@ type Client struct {
 	// SubscribeEvents drain loop can both detect a dead transport and
 	// call reconnect() concurrently; without this they'd run competing
 	// retry loops, each spawning replacement servers.
-	reconnectMu sync.Mutex
+	reconnectMu              sync.Mutex
+	pinnedGate               chan struct{}
+	pinnedRecoveryGeneration uint64
+	pinnedRecoveryErr        error
 }
 
 // InlineImage is a user-attached image sent with a chat turn. Index matches the
@@ -296,6 +299,7 @@ func (c *Client) Close() error {
 	if c == nil {
 		return nil
 	}
+	c.connMu.Lock()
 	if c.stopWatch != nil {
 		select {
 		case <-c.stopWatch:
@@ -304,7 +308,6 @@ func (c *Client) Close() error {
 			close(c.stopWatch)
 		}
 	}
-	c.connMu.Lock()
 	conn := c.conn
 	c.connMu.Unlock()
 	if conn == nil {
@@ -363,7 +366,7 @@ type Config struct {
 
 // GetConfig fetches the agent's current runtime config.
 func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
-	resp, err := c.agent.GetConfig(ctx, &proto.GetConfigRequest{})
+	resp, err := c.readAgent().GetConfig(ctx, &proto.GetConfigRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -703,7 +706,7 @@ type ResumeViewportEvent struct {
 
 // ListConversations returns the persisted conversation history.
 func (c *Client) ListConversations(ctx context.Context, projectDir string, limit int) ([]ConversationInfo, error) {
-	resp, err := c.agent.ListConversations(ctx, &proto.ListConversationsRequest{
+	resp, err := c.readAgent().ListConversations(ctx, &proto.ListConversationsRequest{
 		ProjectDir: projectDir,
 		Limit:      int32(limit),
 	})
@@ -735,7 +738,7 @@ func (c *Client) StreamResumeConversationViewportFirst(ctx context.Context, conv
 	if handle == nil {
 		return errors.New("resume viewport handler required")
 	}
-	stream, err := c.agent.StreamResumeConversationViewportFirst(ctx, &proto.ResumeConversationViewportFirstRequest{
+	stream, err := c.readAgent().StreamResumeConversationViewportFirst(ctx, &proto.ResumeConversationViewportFirstRequest{
 		ConversationId:  conversationID,
 		TailTurns:       int32(tailTurns),
 		OlderChunkTurns: int32(olderChunkTurns),
@@ -791,7 +794,7 @@ func resumeViewportKindFromProto(kind proto.ResumeConversationViewportFirstEvent
 // resume RPC and collects chunks so callers keep a simple full-transcript API
 // without forcing the transport to carry one giant response message.
 func (c *Client) ResumeConversation(ctx context.Context, conversationID string) ([]PersistedTurn, error) {
-	stream, err := c.agent.StreamResumeConversation(ctx, &proto.ResumeConversationRequest{ConversationId: conversationID})
+	stream, err := c.readAgent().StreamResumeConversation(ctx, &proto.ResumeConversationRequest{ConversationId: conversationID})
 	if err != nil {
 		if status.Code(err) == codes.Unimplemented {
 			return c.resumeConversationUnary(ctx, conversationID)
@@ -815,7 +818,7 @@ func (c *Client) ResumeConversation(ctx context.Context, conversationID string) 
 }
 
 func (c *Client) resumeConversationUnary(ctx context.Context, conversationID string) ([]PersistedTurn, error) {
-	resp, err := c.agent.ResumeConversation(ctx, &proto.ResumeConversationRequest{ConversationId: conversationID})
+	resp, err := c.readAgent().ResumeConversation(ctx, &proto.ResumeConversationRequest{ConversationId: conversationID})
 	if err != nil {
 		return nil, err
 	}
@@ -856,7 +859,7 @@ type SubAgentInfo struct {
 // parent conversation, in spawn order. The CLI calls this on resume to reopen
 // each sub-agent chat tab, then fetches each transcript via ResumeConversation.
 func (c *Client) ListSubAgents(ctx context.Context, parentID string) ([]SubAgentInfo, error) {
-	resp, err := c.agent.ListSubAgents(ctx, &proto.ListSubAgentsRequest{ParentId: parentID})
+	resp, err := c.readAgent().ListSubAgents(ctx, &proto.ListSubAgentsRequest{ParentId: parentID})
 	if err != nil {
 		return nil, err
 	}
@@ -877,26 +880,26 @@ func (c *Client) ListSubAgents(ctx context.Context, parentID string) ([]SubAgent
 // DismissSubAgent marks a sub-agent conversation dismissed so a resumed CLI
 // does not reopen its tab. Best-effort from the caller's side.
 func (c *Client) DismissSubAgent(ctx context.Context, conversationID string) error {
-	_, err := c.agent.DismissSubAgent(ctx, &proto.DismissSubAgentRequest{ConversationId: conversationID})
+	_, err := c.readAgent().DismissSubAgent(ctx, &proto.DismissSubAgentRequest{ConversationId: conversationID})
 	return err
 }
 
 // ReopenSubAgent persists explicit history-open intent. Transcript reads alone
 // deliberately do not change visibility. Reject servers predating this contract.
 func (c *Client) ReopenSubAgent(ctx context.Context, conversationID string) error {
-	_, err := c.agent.ReopenSubAgent(ctx, &proto.ReopenSubAgentRequest{ConversationId: conversationID})
+	_, err := c.readAgent().ReopenSubAgent(ctx, &proto.ReopenSubAgentRequest{ConversationId: conversationID})
 	return err
 }
 
 // DeleteConversation removes a persisted conversation.
 func (c *Client) DeleteConversation(ctx context.Context, conversationID string) error {
-	_, err := c.agent.DeleteConversation(ctx, &proto.DeleteConversationRequest{ConversationId: conversationID})
+	_, err := c.readAgent().DeleteConversation(ctx, &proto.DeleteConversationRequest{ConversationId: conversationID})
 	return err
 }
 
 // RenameConversation sets a custom title on a persisted conversation.
 func (c *Client) RenameConversation(ctx context.Context, conversationID, title string) error {
-	_, err := c.agent.RenameConversation(ctx, &proto.RenameConversationRequest{
+	_, err := c.readAgent().RenameConversation(ctx, &proto.RenameConversationRequest{
 		ConversationId: conversationID,
 		Title:          title,
 	})
@@ -905,7 +908,7 @@ func (c *Client) RenameConversation(ctx context.Context, conversationID, title s
 
 // GetConversation fetches a single conversation's metadata including its recap.
 func (c *Client) GetConversation(ctx context.Context, conversationID string) (ConversationInfo, error) {
-	resp, err := c.agent.GetConversation(ctx, &proto.GetConversationRequest{ConversationId: conversationID})
+	resp, err := c.readAgent().GetConversation(ctx, &proto.GetConversationRequest{ConversationId: conversationID})
 	if err != nil {
 		return ConversationInfo{}, err
 	}
@@ -934,7 +937,7 @@ type ToolInfo struct {
 
 // ListTools enumerates the agent's registered tools.
 func (c *Client) ListTools(ctx context.Context) ([]ToolInfo, error) {
-	resp, err := c.agent.ListTools(ctx, &proto.ListToolsRequest{})
+	resp, err := c.readAgent().ListTools(ctx, &proto.ListToolsRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -964,7 +967,7 @@ type ToolResult struct {
 
 // InvokeTool runs the named tool with JSON args.
 func (c *Client) InvokeTool(ctx context.Context, name, argsJSON string) (*ToolResult, error) {
-	resp, err := c.agent.InvokeTool(ctx, &proto.InvokeToolRequest{Name: name, ArgsJson: argsJSON})
+	resp, err := c.readAgent().InvokeTool(ctx, &proto.InvokeToolRequest{Name: name, ArgsJson: argsJSON})
 	if err != nil {
 		return nil, err
 	}
@@ -1036,7 +1039,7 @@ func (u *ContextUsage) Approximate() bool {
 
 // GetContextUsage fetches the live context-window meter for a conversation.
 func (c *Client) GetContextUsage(ctx context.Context, conversationID string) (*ContextUsage, error) {
-	resp, err := c.agent.GetContextUsage(ctx, &proto.GetContextUsageRequest{ConversationId: conversationID})
+	resp, err := c.readAgent().GetContextUsage(ctx, &proto.GetContextUsageRequest{ConversationId: conversationID})
 	if err != nil {
 		return nil, err
 	}
@@ -1084,7 +1087,7 @@ type ToolCallDetail struct {
 // a conversation, by tool_use_id. Backs the CLI's expand-on-click of a folded
 // scrollback tool entry.
 func (c *Client) GetToolCall(ctx context.Context, conversationID, toolUseID string) (*ToolCallDetail, error) {
-	resp, err := c.agent.GetToolCall(ctx, &proto.GetToolCallRequest{ConversationId: conversationID, ToolUseId: toolUseID})
+	resp, err := c.readAgent().GetToolCall(ctx, &proto.GetToolCallRequest{ConversationId: conversationID, ToolUseId: toolUseID})
 	if err != nil {
 		return nil, err
 	}
@@ -1115,7 +1118,7 @@ type CompactionState struct {
 // raw turns are untouched and the effect resets on agent restart. Returns
 // sent-view token counts before/after and how many results were stubbed.
 func (c *Client) ElideContext(ctx context.Context, conversationID string) (pre, post, stubbed int, err error) {
-	resp, err := c.agent.ElideContext(ctx, &proto.ElideContextRequest{ConversationId: conversationID})
+	resp, err := c.readAgent().ElideContext(ctx, &proto.ElideContextRequest{ConversationId: conversationID})
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -1123,7 +1126,7 @@ func (c *Client) ElideContext(ctx context.Context, conversationID string) (pre, 
 }
 
 func (c *Client) GetCompactionState(ctx context.Context, conversationID string) (*CompactionState, error) {
-	resp, err := c.agent.GetCompactionState(ctx, &proto.GetCompactionStateRequest{ConversationId: conversationID})
+	resp, err := c.readAgent().GetCompactionState(ctx, &proto.GetCompactionStateRequest{ConversationId: conversationID})
 	if err != nil {
 		return nil, err
 	}
@@ -1143,7 +1146,7 @@ func (c *Client) GetCompactionState(ctx context.Context, conversationID string) 
 // user might send next, given the conversation so far. Returns "" on any
 // failure — the CLI treats empty as "no suggestion" and hides the ghost text.
 func (c *Client) SuggestNextPrompt(ctx context.Context, conversationID string) (string, error) {
-	resp, err := c.agent.SuggestNextPrompt(ctx, &proto.SuggestNextPromptRequest{ConversationId: conversationID})
+	resp, err := c.readAgent().SuggestNextPrompt(ctx, &proto.SuggestNextPromptRequest{ConversationId: conversationID})
 	if err != nil {
 		return "", err
 	}
@@ -1152,7 +1155,7 @@ func (c *Client) SuggestNextPrompt(ctx context.Context, conversationID string) (
 
 // ExportContext returns the full uncapped raw history as a JSON []llm.Message.
 func (c *Client) ExportContext(ctx context.Context, conversationID string) (string, error) {
-	resp, err := c.agent.ExportContext(ctx, &proto.ExportContextRequest{ConversationId: conversationID})
+	resp, err := c.readAgent().ExportContext(ctx, &proto.ExportContextRequest{ConversationId: conversationID})
 	if err != nil {
 		return "", err
 	}
@@ -1190,7 +1193,7 @@ func (c *Client) ExportTrajectory(ctx context.Context, opts ExportTrajectoryOpti
 	go func() {
 		defer close(events)
 		defer close(errs)
-		stream, err := c.agent.ExportTrajectory(ctx, &proto.ExportTrajectoryRequest{
+		stream, err := c.readAgent().ExportTrajectory(ctx, &proto.ExportTrajectoryRequest{
 			ConversationId: opts.ConversationID,
 			OutPath:        opts.OutPath,
 			Format:         opts.Format,
@@ -1248,7 +1251,7 @@ type ContextTurn struct {
 
 // GetConversationTurns returns side-effect-free turn summaries for the /c viewer.
 func (c *Client) GetConversationTurns(ctx context.Context, conversationID string) ([]ContextTurn, error) {
-	resp, err := c.agent.GetConversationTurns(ctx, &proto.GetConversationTurnsRequest{ConversationId: conversationID})
+	resp, err := c.readAgent().GetConversationTurns(ctx, &proto.GetConversationTurnsRequest{ConversationId: conversationID})
 	if err != nil {
 		return nil, err
 	}
@@ -1281,7 +1284,7 @@ type Proposal struct {
 // ProposeContextEdit asks the agent to analyse a conversation and propose turns
 // to delete based on the given instruction. Read-only — no turns are deleted.
 func (c *Client) ProposeContextEdit(ctx context.Context, conversationID, instruction string) (Proposal, error) {
-	resp, err := c.agent.ProposeContextEdit(ctx, &proto.ProposeContextEditRequest{
+	resp, err := c.readAgent().ProposeContextEdit(ctx, &proto.ProposeContextEditRequest{
 		ConversationId: conversationID, Instruction: instruction,
 	})
 	if err != nil {
@@ -1304,7 +1307,7 @@ type ExportedImage struct {
 // conversationID to search all live conversations; that succeeds only when the
 // image ID is unique across the live in-memory store.
 func (c *Client) ExportImage(ctx context.Context, conversationID, imageID string) (ExportedImage, error) {
-	resp, err := c.agent.ExportImage(ctx, &proto.ExportImageRequest{
+	resp, err := c.readAgent().ExportImage(ctx, &proto.ExportImageRequest{
 		ConversationId: conversationID,
 		ImageId:        imageID,
 	})
@@ -1321,7 +1324,7 @@ func (c *Client) ExportImage(ctx context.Context, conversationID, imageID string
 // DeleteConversationTurns hard-deletes the named turns from a conversation and
 // returns the number of turns deleted.
 func (c *Client) DeleteConversationTurns(ctx context.Context, conversationID string, ids []string) (int, error) {
-	resp, err := c.agent.DeleteConversationTurns(ctx, &proto.DeleteConversationTurnsRequest{
+	resp, err := c.readAgent().DeleteConversationTurns(ctx, &proto.DeleteConversationTurnsRequest{
 		ConversationId: conversationID, TurnId: ids,
 	})
 	if err != nil {
@@ -1331,7 +1334,7 @@ func (c *Client) DeleteConversationTurns(ctx context.Context, conversationID str
 }
 
 func (c *Client) GetRuntimeStatus(ctx context.Context) (*RuntimeStatus, error) {
-	resp, err := c.agent.GetRuntimeStatus(ctx, &proto.GetRuntimeStatusRequest{})
+	resp, err := c.readAgent().GetRuntimeStatus(ctx, &proto.GetRuntimeStatusRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -1371,7 +1374,7 @@ type RuntimeModelCatalog struct {
 }
 
 func (c *Client) ListRuntimeModelsForProfile(ctx context.Context, profileName string) (RuntimeModelCatalog, error) {
-	resp, err := c.agent.ListRuntimeModels(ctx, &proto.ListRuntimeModelsRequest{ProfileName: profileName})
+	resp, err := c.readAgent().ListRuntimeModels(ctx, &proto.ListRuntimeModelsRequest{ProfileName: profileName})
 	if err != nil {
 		return RuntimeModelCatalog{}, err
 	}
@@ -1396,7 +1399,7 @@ func (c *Client) ListRuntimeModels(ctx context.Context) (RuntimeModelCatalog, er
 }
 
 func (c *Client) ListRuntimeEndpoints(ctx context.Context) ([]RuntimeEndpoint, error) {
-	resp, err := c.agent.ListRuntimeEndpoints(ctx, &proto.ListRuntimeEndpointsRequest{})
+	resp, err := c.readAgent().ListRuntimeEndpoints(ctx, &proto.ListRuntimeEndpointsRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -1404,7 +1407,7 @@ func (c *Client) ListRuntimeEndpoints(ctx context.Context) ([]RuntimeEndpoint, e
 }
 
 func (c *Client) StartRuntimeModel(ctx context.Context, runtimeName, modelID string) (*RuntimeInstance, error) {
-	resp, err := c.agent.StartRuntimeModel(ctx, &proto.StartRuntimeModelRequest{
+	resp, err := c.readAgent().StartRuntimeModel(ctx, &proto.StartRuntimeModelRequest{
 		Runtime: runtimeName,
 		ModelId: modelID,
 	})
@@ -1419,7 +1422,7 @@ func (c *Client) StartRuntimeModel(ctx context.Context, runtimeName, modelID str
 }
 
 func (c *Client) StopRuntimeModel(ctx context.Context, instanceID string) error {
-	resp, err := c.agent.StopRuntimeModel(ctx, &proto.StopRuntimeModelRequest{InstanceId: instanceID})
+	resp, err := c.readAgent().StopRuntimeModel(ctx, &proto.StopRuntimeModelRequest{InstanceId: instanceID})
 	if err != nil {
 		return err
 	}
@@ -1430,7 +1433,7 @@ func (c *Client) StopRuntimeModel(ctx context.Context, instanceID string) error 
 }
 
 func (c *Client) RestartRuntime(ctx context.Context, instanceID, runtimeName, modelID string) (*RuntimeInstance, error) {
-	resp, err := c.agent.RestartRuntime(ctx, &proto.RestartRuntimeRequest{
+	resp, err := c.readAgent().RestartRuntime(ctx, &proto.RestartRuntimeRequest{
 		InstanceId: instanceID,
 		Runtime:    runtimeName,
 		ModelId:    modelID,
@@ -1480,7 +1483,7 @@ func (r CatalogRef) String() string {
 // server defaults to the :latest tag); pass the zero CatalogRef for
 // already-enrolled models.
 func (c *Client) DownloadRuntimeModel(ctx context.Context, runtimeName, modelID string, ref CatalogRef) (*RuntimeModel, error) {
-	resp, err := c.agent.DownloadRuntimeModel(ctx, &proto.DownloadRuntimeModelRequest{
+	resp, err := c.readAgent().DownloadRuntimeModel(ctx, &proto.DownloadRuntimeModelRequest{
 		Runtime:       runtimeName,
 		ModelId:       modelID,
 		CatalogId:     ref.ID,
@@ -1497,7 +1500,7 @@ func (c *Client) DownloadRuntimeModel(ctx context.Context, runtimeName, modelID 
 }
 
 func (c *Client) CancelRuntimeModelDownload(ctx context.Context, runtimeName, modelID string) (*RuntimeModel, error) {
-	resp, err := c.agent.CancelRuntimeModelDownload(ctx, &proto.CancelRuntimeModelDownloadRequest{
+	resp, err := c.readAgent().CancelRuntimeModelDownload(ctx, &proto.CancelRuntimeModelDownloadRequest{
 		Runtime: runtimeName,
 		ModelId: modelID,
 	})
@@ -1512,7 +1515,7 @@ func (c *Client) CancelRuntimeModelDownload(ctx context.Context, runtimeName, mo
 }
 
 func (c *Client) DeleteRuntimeModel(ctx context.Context, runtimeName, modelID string) error {
-	resp, err := c.agent.DeleteRuntimeModel(ctx, &proto.DeleteRuntimeModelRequest{
+	resp, err := c.readAgent().DeleteRuntimeModel(ctx, &proto.DeleteRuntimeModelRequest{
 		Runtime: runtimeName,
 		ModelId: modelID,
 	})
@@ -1526,7 +1529,7 @@ func (c *Client) DeleteRuntimeModel(ctx context.Context, runtimeName, modelID st
 }
 
 func (c *Client) StreamRuntimeLogs(ctx context.Context, tail int, source string) (<-chan RuntimeLogMsg, error) {
-	stream, err := c.agent.StreamRuntimeLogs(ctx, &proto.StreamRuntimeLogsRequest{
+	stream, err := c.readAgent().StreamRuntimeLogs(ctx, &proto.StreamRuntimeLogsRequest{
 		Tail:   int32(tail),
 		Source: source,
 	})
@@ -1606,13 +1609,14 @@ func (c *Client) SubscribeEvents(ctx context.Context) (<-chan AgentEvent, error)
 	// errors during the drain loop route through the reconnect path.
 	c.connMu.Lock()
 	agent := c.agent
+	failedConn := c.conn
 	c.connMu.Unlock()
 	stream, err := agent.SubscribeEvents(ctx, &proto.SubscribeEventsRequest{})
 	if err != nil {
 		return nil, err
 	}
 	out := make(chan AgentEvent, 8)
-	go c.drainSubscribeEvents(ctx, stream, out)
+	go c.drainSubscribeEvents(ctx, stream, out, failedConn)
 	return out, nil
 }
 
@@ -1622,8 +1626,14 @@ func (c *Client) SubscribeEvents(ctx context.Context) (<-chan AgentEvent, error)
 // re-opens the SubscribeEvents stream. Only permanent failures (context
 // cancelled, terminal ConnStateFailed, or a non-Unavailable RPC error)
 // close the channel.
-func (c *Client) drainSubscribeEvents(ctx context.Context, stream proto.Agent_SubscribeEventsClient, out chan<- AgentEvent) {
+func (c *Client) drainSubscribeEvents(ctx context.Context, stream proto.Agent_SubscribeEventsClient, out chan<- AgentEvent, failedConn *grpcConn) {
 	defer close(out)
+	recoverTransport := func() error {
+		if c.pinned != nil {
+			return c.reconnectPinnedTransport(ctx, failedConn)
+		}
+		return c.reconnect(ctx)
+	}
 	for {
 		if stream == nil {
 			// Re-open after a reconnect. If reconnect ultimately
@@ -1634,12 +1644,13 @@ func (c *Client) drainSubscribeEvents(ctx context.Context, stream proto.Agent_Su
 			}
 			c.connMu.Lock()
 			agent := c.agent
+			failedConn = c.conn
 			c.connMu.Unlock()
 			s, err := agent.SubscribeEvents(ctx, &proto.SubscribeEventsRequest{})
 			if err != nil {
 				if isUnavailable(err) {
 					// Still bad — trigger a reconnect and try again.
-					if rErr := c.reconnect(ctx); rErr != nil {
+					if rErr := recoverTransport(); rErr != nil {
 						out <- AgentEvent{Err: rErr}
 						return
 					}
@@ -1662,7 +1673,7 @@ func (c *Client) drainSubscribeEvents(ctx context.Context, stream proto.Agent_Su
 				// Server death mid-stream. Ask the reconnector to
 				// bring us back and loop to re-open the stream.
 				stream = nil
-				if rErr := c.reconnect(ctx); rErr != nil {
+				if rErr := recoverTransport(); rErr != nil {
 					out <- AgentEvent{Err: rErr}
 					return
 				}
@@ -1755,7 +1766,7 @@ func (c *Client) ClearCompactedContext(ctx context.Context, conversationID strin
 }
 
 func (c *Client) regenContextStream(ctx context.Context, req *proto.RegenerateContextRequest) (<-chan RegenProgress, error) {
-	stream, err := c.agent.RegenerateContext(ctx, req)
+	stream, err := c.readAgent().RegenerateContext(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -1794,7 +1805,7 @@ func (c *Client) regenContextStream(ctx context.Context, req *proto.RegenerateCo
 // THAT runtime — used by the settings-page gate to check whether a switch
 // is safe before dispatching UpdateConfig.
 func (c *Client) GetOpenRuntimeStatus(ctx context.Context, runtime string) (*OpenRuntimeStatus, error) {
-	resp, err := c.agent.GetOpenRuntimeStatus(ctx, &proto.GetOpenRuntimeStatusRequest{Runtime: runtime})
+	resp, err := c.readAgent().GetOpenRuntimeStatus(ctx, &proto.GetOpenRuntimeStatusRequest{Runtime: runtime})
 	if err != nil {
 		return nil, err
 	}
@@ -1816,7 +1827,7 @@ type CatalogRefreshResult struct {
 // (typically the CLI dashboard's "R" refresh key) can update their
 // timestamp display immediately on return.
 func (c *Client) RefreshOnlineCatalog(ctx context.Context) CatalogRefreshResult {
-	resp, err := c.agent.RefreshOnlineCatalog(ctx, &proto.RefreshOnlineCatalogRequest{})
+	resp, err := c.readAgent().RefreshOnlineCatalog(ctx, &proto.RefreshOnlineCatalogRequest{})
 	if err != nil {
 		return CatalogRefreshResult{Err: err}
 	}
@@ -1845,7 +1856,7 @@ type InstalledOpenModel struct {
 // ListModels returns the active open runtime engine's installed
 // models. For the ollama runtime this is the daemon's /api/tags list.
 func (c *Client) ListModels(ctx context.Context) ([]InstalledOpenModel, error) {
-	resp, err := c.agent.ListModels(ctx, &proto.ListModelsRequest{})
+	resp, err := c.readAgent().ListModels(ctx, &proto.ListModelsRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -1879,7 +1890,7 @@ type ModelRAMEstimate struct {
 // failures come back in Err with SystemRAMBytes still populated;
 // transport failures also land in Err.
 func (c *Client) GetModelRAMEstimate(ctx context.Context, ref CatalogRef, runtime, modelID string) ModelRAMEstimate {
-	resp, err := c.agent.GetModelRAMEstimate(ctx, &proto.GetModelRAMEstimateRequest{
+	resp, err := c.readAgent().GetModelRAMEstimate(ctx, &proto.GetModelRAMEstimateRequest{
 		CatalogId:     ref.ID,
 		CatalogSource: ref.Source,
 		Runtime:       runtime,
@@ -1906,7 +1917,7 @@ func (c *Client) GetModelRAMEstimate(ctx context.Context, ref CatalogRef, runtim
 // after the terminal Done=true frame (or after a stream error). Cancelling
 // ctx kills the install subprocess server-side.
 func (c *Client) InstallOpenRuntime(ctx context.Context, runtime string) (<-chan InstallProgress, error) {
-	stream, err := c.agent.InstallOpenRuntime(ctx, &proto.InstallOpenRuntimeRequest{Runtime: runtime})
+	stream, err := c.readAgent().InstallOpenRuntime(ctx, &proto.InstallOpenRuntimeRequest{Runtime: runtime})
 	if err != nil {
 		return nil, err
 	}
@@ -2243,7 +2254,10 @@ func (c *Client) StreamChat(ctx context.Context, conversationID, input, workDir 
 }
 func (c *Client) streamChat(ctx context.Context, conversationID, input, workDir string, recovery bool, images ...InlineImage) (<-chan StreamMsg, error) {
 	local := c.beginLocalRequest(conversationID)
-	stream, err := c.agent.StreamProcessRequest(ctx, &proto.ProcessRequestRequest{
+	c.connMu.Lock()
+	agent, failedConn := c.agent, c.conn
+	c.connMu.Unlock()
+	stream, err := agent.StreamProcessRequest(ctx, &proto.ProcessRequestRequest{
 		SupportsAuthRecovery: recovery,
 		DebugMode:            debugAdvertisement(ctx),
 		Input:                input,
@@ -2253,7 +2267,7 @@ func (c *Client) streamChat(ctx context.Context, conversationID, input, workDir 
 	})
 	if err != nil {
 		c.resolveLocalRequest(local, nil)
-		return nil, fmt.Errorf("stream open: %w", err)
+		return nil, fmt.Errorf("stream open: %w", c.recoverChatTransport(ctx, failedConn, err))
 	}
 
 	out := make(chan StreamMsg, 16)
@@ -2266,7 +2280,10 @@ func (c *Client) streamChat(ctx context.Context, conversationID, input, workDir 
 				return
 			}
 			if err != nil {
-				out <- StreamMsg{Type: TypeError, Err: err}
+				select {
+				case out <- StreamMsg{Type: TypeError, Err: c.recoverChatTransport(ctx, failedConn, err)}:
+				case <-ctx.Done():
+				}
 				return
 			}
 			c.resolveLocalRequest(local, msg)
@@ -2317,7 +2334,7 @@ func taskNodeFromProto(n *proto.TaskNode) *TaskNode {
 
 // SetPermissionMode changes the agent's session permission mode.
 func (c *Client) SetPermissionMode(ctx context.Context, mode string) error {
-	res, err := c.agent.SetPermissionMode(ctx, &proto.SetPermissionModeRequest{Mode: mode})
+	res, err := c.readAgent().SetPermissionMode(ctx, &proto.SetPermissionModeRequest{Mode: mode})
 	if err != nil {
 		return err
 	}
@@ -2329,7 +2346,7 @@ func (c *Client) SetPermissionMode(ctx context.Context, mode string) error {
 
 // GetPermissionMode reads the agent's current session permission mode.
 func (c *Client) GetPermissionMode(ctx context.Context) (string, error) {
-	res, err := c.agent.GetPermissionMode(ctx, &proto.GetPermissionModeRequest{})
+	res, err := c.readAgent().GetPermissionMode(ctx, &proto.GetPermissionModeRequest{})
 	if err != nil {
 		return "", err
 	}
@@ -2342,7 +2359,7 @@ func (c *Client) GetPermissionMode(ctx context.Context) (string, error) {
 // SetPermissionMode. conversationID scopes the switch so planning mode is
 // per-conversation and never leaks to another attached client.
 func (c *Client) SetSessionProfile(ctx context.Context, conversationID, name string) error {
-	res, err := c.agent.SetSessionProfile(ctx, &proto.SetSessionProfileRequest{Name: name, ConversationId: conversationID})
+	res, err := c.readAgent().SetSessionProfile(ctx, &proto.SetSessionProfileRequest{Name: name, ConversationId: conversationID})
 	if err != nil {
 		return err
 	}
@@ -2355,7 +2372,7 @@ func (c *Client) SetSessionProfile(ctx context.Context, conversationID, name str
 // GetSessionProfile reads the active profile name and the registered names for
 // one conversation.
 func (c *Client) GetSessionProfile(ctx context.Context, conversationID string) (active string, available []string, err error) {
-	res, err := c.agent.GetSessionProfile(ctx, &proto.GetSessionProfileRequest{ConversationId: conversationID})
+	res, err := c.readAgent().GetSessionProfile(ctx, &proto.GetSessionProfileRequest{ConversationId: conversationID})
 	if err != nil {
 		return "", nil, err
 	}
@@ -2365,7 +2382,7 @@ func (c *Client) GetSessionProfile(ctx context.Context, conversationID string) (
 // AllowToolCall approves a paused tool call awaiting permission. conversationID
 // scopes the reply so it reaches the waiter in the right conversation.
 func (c *Client) AllowToolCall(ctx context.Context, conversationID, toolUseID string) error {
-	resp, err := c.agent.AllowToolCall(ctx, &proto.AllowToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID})
+	resp, err := c.readAgent().AllowToolCall(ctx, &proto.AllowToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID})
 	if err == nil && !resp.GetOk() {
 		return fmt.Errorf("permission decision was not accepted")
 	}
@@ -2375,7 +2392,7 @@ func (c *Client) AllowToolCall(ctx context.Context, conversationID, toolUseID st
 // DenyToolCall rejects a paused tool call awaiting permission. conversationID
 // scopes the reply so it reaches the waiter in the right conversation.
 func (c *Client) DenyToolCall(ctx context.Context, conversationID, toolUseID string) error {
-	resp, err := c.agent.DenyToolCall(ctx, &proto.DenyToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID})
+	resp, err := c.readAgent().DenyToolCall(ctx, &proto.DenyToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID})
 	if err == nil && !resp.GetOk() {
 		return fmt.Errorf("permission decision was not accepted")
 	}
@@ -2386,7 +2403,7 @@ func (c *Client) DenyToolCall(ctx context.Context, conversationID, toolUseID str
 // this" redirect: the server records message as the tool_result and continues
 // the same turn so the model responds to it inline (no fresh turn).
 func (c *Client) DenyToolCallWithMessage(ctx context.Context, conversationID, toolUseID, message string) error {
-	resp, err := c.agent.DenyToolCall(ctx, &proto.DenyToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID, Message: message})
+	resp, err := c.readAgent().DenyToolCall(ctx, &proto.DenyToolCallRequest{ToolUseId: toolUseID, ConversationId: conversationID, Message: message})
 	if err == nil && !resp.GetOk() {
 		return fmt.Errorf("permission decision was not accepted")
 	}
@@ -2399,7 +2416,7 @@ func (c *Client) DenyToolCallWithMessage(ctx context.Context, conversationID, to
 // match the outstanding offer or the server rejects it (empty newID, non-nil
 // error).
 func (c *Client) AcceptRollover(ctx context.Context, conversationID, offerID string) (string, error) {
-	resp, err := c.agent.AcceptRollover(ctx, &proto.AcceptRolloverRequest{OfferId: offerID, ConversationId: conversationID})
+	resp, err := c.readAgent().AcceptRollover(ctx, &proto.AcceptRolloverRequest{OfferId: offerID, ConversationId: conversationID})
 	if err != nil {
 		return "", err
 	}
@@ -2412,7 +2429,7 @@ func (c *Client) AcceptRollover(ctx context.Context, conversationID, offerID str
 // DeclineRollover dismisses a RolloverOffered event. The agent re-arms the offer
 // after further growth (hysteresis); no new conversation is created.
 func (c *Client) DeclineRollover(ctx context.Context, conversationID, offerID string) error {
-	_, err := c.agent.DeclineRollover(ctx, &proto.DeclineRolloverRequest{OfferId: offerID, ConversationId: conversationID})
+	_, err := c.readAgent().DeclineRollover(ctx, &proto.DeclineRolloverRequest{OfferId: offerID, ConversationId: conversationID})
 	return err
 }
 
@@ -2427,7 +2444,7 @@ type ProviderCaps struct {
 
 // GetProviderCapabilities reports what the active provider supports.
 func (c *Client) GetProviderCapabilities(ctx context.Context) (ProviderCaps, error) {
-	res, err := c.agent.GetProviderCapabilities(ctx, &proto.GetProviderCapabilitiesRequest{})
+	res, err := c.readAgent().GetProviderCapabilities(ctx, &proto.GetProviderCapabilitiesRequest{})
 	if err != nil {
 		return ProviderCaps{}, err
 	}
@@ -2455,7 +2472,7 @@ type McpServer struct {
 
 // ListMcpServers returns a snapshot of all hosted MCP servers.
 func (c *Client) ListMcpServers(ctx context.Context) ([]McpServer, error) {
-	resp, err := c.agent.ListMcpServers(ctx, &proto.ListMcpServersRequest{})
+	resp, err := c.readAgent().ListMcpServers(ctx, &proto.ListMcpServersRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -2470,7 +2487,7 @@ func (c *Client) ListMcpServers(ctx context.Context) ([]McpServer, error) {
 
 // AddMcpServer connects a new MCP server by name and persists it to mcp.yaml.
 func (c *Client) AddMcpServer(ctx context.Context, name, command string, args []string, env map[string]string) error {
-	resp, err := c.agent.AddMcpServer(ctx, &proto.AddMcpServerRequest{
+	resp, err := c.readAgent().AddMcpServer(ctx, &proto.AddMcpServerRequest{
 		Name: name, Command: command, Args: args, Env: env})
 	if err != nil {
 		return err
@@ -2483,7 +2500,7 @@ func (c *Client) AddMcpServer(ctx context.Context, name, command string, args []
 
 // RemoveMcpServer stops a hosted MCP server and removes it from mcp.yaml.
 func (c *Client) RemoveMcpServer(ctx context.Context, name string) error {
-	resp, err := c.agent.RemoveMcpServer(ctx, &proto.RemoveMcpServerRequest{Name: name})
+	resp, err := c.readAgent().RemoveMcpServer(ctx, &proto.RemoveMcpServerRequest{Name: name})
 	if err != nil {
 		return err
 	}
@@ -2495,7 +2512,7 @@ func (c *Client) RemoveMcpServer(ctx context.Context, name string) error {
 
 // RestartMcpServer tears down and reconnects a hosted MCP server.
 func (c *Client) RestartMcpServer(ctx context.Context, name string) error {
-	resp, err := c.agent.RestartMcpServer(ctx, &proto.RestartMcpServerRequest{Name: name})
+	resp, err := c.readAgent().RestartMcpServer(ctx, &proto.RestartMcpServerRequest{Name: name})
 	if err != nil {
 		return err
 	}
@@ -2522,7 +2539,7 @@ type CloudModelInfo struct {
 // human-readable reason so the caller can render a curated fallback list
 // and surface why the live fetch didn't work.
 func (c *Client) ListCloudProfileModels(ctx context.Context, profileName string) ([]CloudModelInfo, string, error) {
-	resp, err := c.agent.ListCloudProfileModels(ctx, &proto.ListCloudProfileModelsRequest{ProfileName: profileName})
+	resp, err := c.readAgent().ListCloudProfileModels(ctx, &proto.ListCloudProfileModelsRequest{ProfileName: profileName})
 	if err != nil {
 		return nil, "", err
 	}
@@ -2559,7 +2576,7 @@ type CloudProfileInfo struct {
 // GetCloudProfiles returns all configured cloud profiles and the name of the
 // currently active profile.
 func (c *Client) GetCloudProfiles(ctx context.Context) ([]CloudProfileInfo, string, error) {
-	resp, err := c.agent.GetCloudProfiles(ctx, &proto.GetCloudProfilesRequest{})
+	resp, err := c.readAgent().GetCloudProfiles(ctx, &proto.GetCloudProfilesRequest{})
 	if err != nil {
 		return nil, "", err
 	}
@@ -2572,7 +2589,7 @@ func (c *Client) GetCloudProfiles(ctx context.Context) ([]CloudProfileInfo, stri
 
 // SetActiveCloudProfile switches the active cloud profile to the named one.
 func (c *Client) SetActiveCloudProfile(ctx context.Context, name string) error {
-	resp, err := c.agent.SetActiveCloudProfile(ctx, &proto.SetActiveCloudProfileRequest{Name: name})
+	resp, err := c.readAgent().SetActiveCloudProfile(ctx, &proto.SetActiveCloudProfileRequest{Name: name})
 	if err != nil {
 		return err
 	}
@@ -2584,7 +2601,7 @@ func (c *Client) SetActiveCloudProfile(ctx context.Context, name string) error {
 
 // SetCloudProfileKey stores an API key for the named cloud profile.
 func (c *Client) SetCloudProfileKey(ctx context.Context, name, key string) error {
-	resp, err := c.agent.SetCloudProfileKey(ctx, &proto.SetCloudProfileKeyRequest{Name: name, ApiKey: key})
+	resp, err := c.readAgent().SetCloudProfileKey(ctx, &proto.SetCloudProfileKeyRequest{Name: name, ApiKey: key})
 	if err != nil {
 		return err
 	}
@@ -2601,7 +2618,7 @@ func (c *Client) UpsertCloudProfile(ctx context.Context, p CloudProfileInfo) err
 }
 
 func (c *Client) SaveCloudProfile(ctx context.Context, p CloudProfileInfo) (string, error) {
-	resp, err := c.agent.UpsertCloudProfile(ctx, &proto.UpsertCloudProfileRequest{
+	resp, err := c.readAgent().UpsertCloudProfile(ctx, &proto.UpsertCloudProfileRequest{
 		Name: p.Name, Flavor: p.Flavor, Backend: p.Backend, BaseUrl: p.BaseURL, Route: p.Route, CreateOnly: p.CreateOnly,
 		ModelChoices: choicesToProto(p.Choices), Structure: profileStructureToProto(p), Provider: nonemptyProfileField(p.Provider), Region: nonemptyProfileField(p.Region), AwsProfile: nonemptyProfileField(p.AWSProfile),
 	})
@@ -2616,7 +2633,7 @@ func (c *Client) SaveCloudProfile(ctx context.Context, p CloudProfileInfo) (stri
 
 // RemoveCloudProfile deletes a cloud profile and its keychain key.
 func (c *Client) RemoveCloudProfile(ctx context.Context, name string) error {
-	resp, err := c.agent.RemoveCloudProfile(ctx, &proto.RemoveCloudProfileRequest{Name: name})
+	resp, err := c.readAgent().RemoveCloudProfile(ctx, &proto.RemoveCloudProfileRequest{Name: name})
 	if err != nil {
 		return err
 	}
@@ -2629,7 +2646,7 @@ func (c *Client) RemoveCloudProfile(ctx context.Context, name string) error {
 // AllowToolCallPersist approves a paused tool call and, when persist is true,
 // asks the agent to allowlist it for silent future runs.
 func (c *Client) AllowToolCallPersist(ctx context.Context, conversationID, toolUseID string, persist bool) error {
-	resp, err := c.agent.AllowToolCall(ctx, &proto.AllowToolCallRequest{ConversationId: conversationID, ToolUseId: toolUseID, Persist: persist})
+	resp, err := c.readAgent().AllowToolCall(ctx, &proto.AllowToolCallRequest{ConversationId: conversationID, ToolUseId: toolUseID, Persist: persist})
 	if err == nil && !resp.GetOk() {
 		return fmt.Errorf("permission decision was not accepted")
 	}
@@ -2679,7 +2696,7 @@ type ChatGPTLoginMsg struct {
 // a channel of frames. The caller shows the first frame's code + URL, then
 // waits for the terminal (Done) frame. Cancel ctx to abort the sign-in.
 func (c *Client) StartChatGPTLogin(ctx context.Context, profileName, model string, setActive bool, createOnly ...bool) (<-chan ChatGPTLoginMsg, error) {
-	stream, err := c.agent.StartChatGPTLogin(ctx, &proto.StartChatGPTLoginRequest{
+	stream, err := c.readAgent().StartChatGPTLogin(ctx, &proto.StartChatGPTLoginRequest{
 		ProfileName: profileName,
 		Model:       model,
 		SetActive:   setActive,
@@ -2736,7 +2753,7 @@ type ClaudeLoginMsg struct {
 // browser, then waits for the terminal (Done) frame. Cancel ctx to abort the
 // sign-in.
 func (c *Client) StartClaudeLogin(ctx context.Context, profileName, model string, setActive bool, createOnly ...bool) (<-chan ClaudeLoginMsg, error) {
-	stream, err := c.agent.StartClaudeLogin(ctx, &proto.StartClaudeLoginRequest{
+	stream, err := c.readAgent().StartClaudeLogin(ctx, &proto.StartClaudeLoginRequest{
 		ProfileName: profileName,
 		Model:       model,
 		SetActive:   setActive,
@@ -2776,7 +2793,7 @@ func (c *Client) StartClaudeLogin(ctx context.Context, profileName, model string
 // then delivers its terminal frame). A rejected paste returns an error whose
 // message is fit to show the user; the sign-in keeps waiting for another try.
 func (c *Client) SubmitClaudeLoginCode(ctx context.Context, loginID, code string) error {
-	resp, err := c.agent.SubmitClaudeLoginCode(ctx, &proto.SubmitClaudeLoginCodeRequest{LoginId: loginID, Code: code})
+	resp, err := c.readAgent().SubmitClaudeLoginCode(ctx, &proto.SubmitClaudeLoginCodeRequest{LoginId: loginID, Code: code})
 	if err != nil {
 		return err
 	}

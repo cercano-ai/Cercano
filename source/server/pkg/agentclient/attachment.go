@@ -65,6 +65,7 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 	request := &proto.AttachConversationRequest{ConversationId: parent}
 	c.connMu.Lock()
 	agent := c.agent
+	failedConn := c.conn
 	c.connMu.Unlock()
 	firstCtx := ctx
 	if len(firstMetadata) != 0 {
@@ -73,6 +74,9 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 	}
 	stream, err := agent.AttachConversation(firstCtx, request)
 	if err != nil {
+		if c.pinned != nil && isUnavailable(err) {
+			err = c.recoverChatTransport(ctx, failedConn, err)
+		}
 		cancel()
 		return nil, err
 	}
@@ -86,6 +90,9 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 				// Read its status before canceling so structured conflict details
 				// survive the real HTTP/2 boundary and can offer explicit takeover.
 				_, headerErr = stream.Recv()
+			}
+			if c.pinned != nil && isUnavailable(headerErr) {
+				headerErr = c.recoverChatTransport(ctx, failedConn, headerErr)
 			}
 			cancel()
 			if headerErr != nil {
@@ -113,6 +120,7 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 			if stream == nil {
 				c.connMu.Lock()
 				agent := c.agent
+				failedConn = c.conn
 				c.connMu.Unlock()
 				stream, err = agent.AttachConversation(ctx, request)
 				if err == nil && c.pinned != nil {
@@ -135,6 +143,12 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 					return
 				}
 				if isUnavailable(err) || errors.Is(err, io.EOF) {
+					if c.pinned != nil && isUnavailable(err) {
+						if recoveryErr := c.reconnectPinnedTransport(ctx, failedConn); recoveryErr != nil {
+							send(ConversationUpdate{Err: recoveryErr})
+							return
+						}
+					}
 					stream = nil
 					err = nil
 					timer := time.NewTimer(100 * time.Millisecond)

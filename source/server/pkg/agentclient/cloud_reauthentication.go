@@ -21,7 +21,7 @@ type CloudLoginMsg struct {
 // servers surface Unimplemented rather than risking a configuration rewrite.
 func (c *Client) ReauthenticateCloud(ctx context.Context, profile, attemptID string) (<-chan CloudLoginMsg, error) {
 	rpcCtx, cancel := context.WithCancel(ctx)
-	stream, err := c.agent.ReauthenticateCloud(rpcCtx, &proto.CloudReauthenticationRequest{ProfileName: profile, AttemptId: attemptID})
+	stream, err := c.readAgent().ReauthenticateCloud(rpcCtx, &proto.CloudReauthenticationRequest{ProfileName: profile, AttemptId: attemptID})
 	if err != nil {
 		cancel()
 		return nil, err

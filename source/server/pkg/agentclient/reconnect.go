@@ -306,7 +306,7 @@ func (c *Client) watchConn(ctx context.Context) {
 // the only path that emits ConnStateFailed.
 func (c *Client) reconnect(ctx context.Context) error {
 	if c.pinned != nil {
-		return c.ReconnectPinnedSession(ctx)
+		return c.reconnectPinnedTransport(ctx, c.readConn())
 	}
 	if err := validateCredentialEnvironment(); err != nil {
 		return err
@@ -420,4 +420,11 @@ func (c *Client) launchReplacement(ctx context.Context, launch func() (string, b
 		return "", false, err
 	}
 	return launch()
+}
+
+// readAgent snapshots the handle while a validated reconnect may replace it.
+func (c *Client) readAgent() proto.AgentClient {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	return c.agent
 }

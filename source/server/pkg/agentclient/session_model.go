@@ -36,7 +36,7 @@ type SessionModelStatus struct {
 }
 
 func (c *Client) SessionModel(ctx context.Context, conversationID, workDir, action, profile, model string) (SessionModelStatus, error) {
-	response, err := c.agent.SessionModel(ctx, &proto.SessionModelRequest{ConversationId: conversationID, WorkDir: workDir, Action: action, Profile: profile, Model: model})
+	response, err := c.readAgent().SessionModel(ctx, &proto.SessionModelRequest{ConversationId: conversationID, WorkDir: workDir, Action: action, Profile: profile, Model: model})
 	if err != nil {
 		return SessionModelStatus{}, err
 	}

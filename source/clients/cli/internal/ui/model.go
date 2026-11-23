@@ -2808,7 +2808,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			// config, tools, permission mode, vision caps, runtime
 			// status — could be stale. Re-fetch the lot and tell the
 			// user the link is back.
-			m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "✓ agent reconnected"})
+			m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "✓ agent reconnected. No message was resent; inspect the conversation before sending again if delivery was interrupted."})
 			// A tool-permission gate that was up during the restart is now
 			// stale: the paused tool call and its blocked waiter died with the
 			// old process, so answering it can never resolve anything. Mark it
@@ -2832,9 +2832,12 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			return m, tea.Batch(msg.next, fetchConfigCmd(m.agent), fetchToolsCmd(m.agent), fetchPermissionModeCmd(m.agent), fetchOpenRuntimeStatusCmd(m.agent))
 		}
 		if msg.state == agentclient.ConnStateFailed {
-			// Only reachable when the client itself is shutting down
-			// mid-recovery — the SDK otherwise retries indefinitely.
-			m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "✕ agent connection closed — reconnect abandoned. Restart cercano to recover."})
+			// Pinned recovery is bounded and can refuse a changed host or owner.
+			notice := "✕ agent connection recovery stopped. No message was resent; inspect the conversation before sending again."
+			if msg.errMsg != "" {
+				notice += " " + msg.errMsg
+			}
+			m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: notice})
 			m.refreshViewport()
 		}
 		return m, msg.next

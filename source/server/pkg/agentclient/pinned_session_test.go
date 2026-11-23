@@ -12,10 +12,16 @@ import (
 
 	"cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type pinnedFake struct {
+	credentialsEnabled bool
+	validationStarted  chan struct{}
+	validationRelease  chan struct{}
 	proto.UnimplementedAgentServer
 	state                        atomic.Int32
 	identities, checks, requests atomic.Int32
@@ -29,7 +35,15 @@ func (f *pinnedFake) GetDevelopmentHostIdentity(context.Context, *proto.GetDevel
 	return &proto.GetDevelopmentHostIdentityResponse{HostInstance: f.host, Build: "build", Contract: "contract", SchemaVersion: 2}, nil
 }
 func (f *pinnedFake) CheckRetainedSession(ctx context.Context, r *proto.CheckRetainedSessionRequest) (*proto.CheckRetainedSessionResponse, error) {
-	f.checks.Add(1)
+	n := f.checks.Add(1)
+	if n > 1 && f.validationStarted != nil {
+		close(f.validationStarted)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-f.validationRelease:
+		}
+	}
 	md, _ := metadata.FromIncomingContext(ctx)
 	ids := md.Get(PinnedTerminalMetadata)
 	if len(ids) != 1 || ids[0] == "" {
@@ -190,6 +204,173 @@ func TestPinnedTerminalIdentityLifetime(t *testing.T) {
 	}
 }
 
-func (*pinnedFake) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
-	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+func (f *pinnedFake) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: !f.credentialsEnabled}, nil
+}
+
+func (f *pinnedFake) StreamProcessRequest(_ *proto.ProcessRequestRequest, stream grpc.ServerStreamingServer[proto.StreamProcessResponse]) error {
+	f.requests.Add(1)
+	return status.Error(codes.Unavailable, "transport lost after submission")
+}
+func TestPinnedChatAutomaticallyRevalidatesWithoutResend(t *testing.T) {
+	f := &pinnedFake{host: "A"}
+	f.state.Store(1)
+	_, addr := pinnedHost(t, "127.0.0.1:0", f)
+	c, err := DialPinnedSession(context.Background(), pinAt(addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	out, err := c.StreamChatWithRecovery(context.Background(), "conversation", "once", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range out {
+	}
+	if f.checks.Load() != 2 {
+		t.Fatalf("fresh validation count = %d, want 2", f.checks.Load())
+	}
+	if f.requests.Load() != 1 {
+		t.Fatalf("request replayed: %d", f.requests.Load())
+	}
+}
+
+func (f *pinnedFake) AttachConversation(_ *proto.AttachConversationRequest, stream grpc.ServerStreamingServer[proto.StreamProcessResponse]) error {
+	if err := stream.SendHeader(metadata.Pairs("cercano-terminal-attached", "true")); err != nil {
+		return err
+	}
+	if err := stream.Send(&proto.StreamProcessResponse{TurnEpoch: "turn", TurnGeneration: 1, EventSequence: 1}); err != nil {
+		return err
+	}
+	<-stream.Context().Done()
+	return stream.Context().Err()
+}
+
+func TestPinnedAttachmentTransportDrop(t *testing.T) {
+	for _, host := range []string{"A", "B", "stale", "credentials"} {
+		t.Run(host, func(t *testing.T) {
+			if host == "credentials" {
+				t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+			}
+			f := &pinnedFake{host: "A"}
+			f.state.Store(1)
+			s, addr := pinnedHost(t, "127.0.0.1:0", f)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			c, err := DialPinnedSession(ctx, pinAt(addr))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			updates, err := c.AttachConversation(ctx, "conversation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-updates
+			s.Stop()
+			replacement := &pinnedFake{host: host}
+			replacement.state.Store(1)
+			if host == "stale" {
+				replacement.host = "A"
+				replacement.state.Store(int32(proto.RetainedSessionState_RETAINED_SESSION_STATE_STALE))
+			}
+			if host == "credentials" {
+				replacement.host = "A"
+				replacement.credentialsEnabled = true
+			}
+			pinnedHost(t, addr, replacement)
+			if host != "A" {
+				select {
+				case u := <-updates:
+					if !errors.Is(u.Err, ErrPinnedSession) && !(host == "credentials" && errors.Is(u.Err, ErrCredentialIsolation)) {
+						t.Fatalf("refusal: %v", u.Err)
+					}
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+				return
+			}
+			for replacement.checks.Load() == 0 || c.State() != ConnStateConnected {
+				select {
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
+			if _, err := c.readAgent().ResetSetup(ctx, &proto.ResetSetupRequest{}); err != nil {
+				t.Fatalf("subsequent safe RPC: %v", err)
+			}
+			if c.readConn().GetState() != connectivity.Ready {
+				t.Fatal("not ready")
+			}
+		})
+	}
+}
+
+func TestPinnedConcurrentRecoveryAndCancellation(t *testing.T) {
+	f := &pinnedFake{host: "A"}
+	f.state.Store(1)
+	_, addr := pinnedHost(t, "127.0.0.1:0", f)
+	c, err := DialPinnedSession(context.Background(), pinAt(addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	old := c.readConn()
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := c.reconnectPinnedTransport(context.Background(), old); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if f.checks.Load() != 2 {
+		t.Fatalf("duplicate recovery: %d", f.checks.Load())
+	}
+	c.pinnedGate <- struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := c.ReconnectPinnedSession(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation: %v", err)
+	}
+	<-c.pinnedGate
+	c.Close()
+	if err := c.ReconnectPinnedSession(context.Background()); !errors.Is(err, errClientClosed) {
+		t.Fatalf("close: %v", err)
+	}
+}
+
+func TestPinnedCloseDuringValidationCannotInstall(t *testing.T) {
+	f := &pinnedFake{host: "A", validationStarted: make(chan struct{}), validationRelease: make(chan struct{})}
+	f.state.Store(1)
+	_, addr := pinnedHost(t, "127.0.0.1:0", f)
+	c, err := DialPinnedSession(context.Background(), pinAt(addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := c.readConn()
+	done := make(chan error, 1)
+	go func() { done <- c.reconnectPinnedTransport(context.Background(), old) }()
+	select {
+	case <-f.validationStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("validation not started")
+	}
+	c.Close()
+	close(f.validationRelease)
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("installed after close")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("close did not cancel recovery")
+	}
+	if c.readConn() != old || c.readConn().GetState() != connectivity.Shutdown {
+		t.Fatal("closed client replaced")
+	}
 }

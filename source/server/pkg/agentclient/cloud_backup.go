@@ -11,7 +11,7 @@ import (
 // active profile's provider fails; an empty name clears the backup. Mirrors
 // SetActiveCloudProfile's ok/error contract.
 func (c *Client) SetBackupCloudProfile(ctx context.Context, name string) error {
-	resp, err := c.agent.SetBackupCloudProfile(ctx, &proto.SetBackupCloudProfileRequest{Name: name})
+	resp, err := c.readAgent().SetBackupCloudProfile(ctx, &proto.SetBackupCloudProfileRequest{Name: name})
 	if err != nil {
 		return err
 	}

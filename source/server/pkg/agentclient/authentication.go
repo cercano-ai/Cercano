@@ -12,7 +12,7 @@ type AuthenticationRequired struct {
 }
 
 func (c *Client) ResolveAuthentication(ctx context.Context, conversation, id, decision string) error {
-	_, err := c.agent.ResolveAuthentication(ctx, &proto.AuthenticationDecisionRequest{ConversationId: conversation, RequestId: id, Decision: decision})
+	_, err := c.readAgent().ResolveAuthentication(ctx, &proto.AuthenticationDecisionRequest{ConversationId: conversation, RequestId: id, Decision: decision})
 	return err
 }
 

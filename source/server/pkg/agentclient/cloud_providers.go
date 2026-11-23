@@ -38,7 +38,7 @@ type CloudProvidersView struct {
 // already grouped under their provider (primary first). The agent owns the
 // grouping; callers render this view directly.
 func (c *Client) GetCloudProviders(ctx context.Context) (CloudProvidersView, error) {
-	resp, err := c.agent.GetCloudProviders(ctx, &proto.GetCloudProvidersRequest{})
+	resp, err := c.readAgent().GetCloudProviders(ctx, &proto.GetCloudProvidersRequest{})
 	if err != nil {
 		return CloudProvidersView{}, err
 	}

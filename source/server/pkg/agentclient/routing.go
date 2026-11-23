@@ -108,7 +108,7 @@ func assignmentsFromProto(a *proto.RoutingAssignments) *RoutingAssignments {
 // UpdateRoutingAssignments returns a nonfatal availability warning separately
 // from validation/transport failure. A warning means the draft was saved.
 func (c *Client) UpdateRoutingAssignments(ctx context.Context, a *RoutingAssignments) (string, error) {
-	resp, err := c.agent.UpdateRoutingAssignments(ctx, &proto.UpdateRoutingAssignmentsRequest{Assignments: assignmentsToProto(a)})
+	resp, err := c.readAgent().UpdateRoutingAssignments(ctx, &proto.UpdateRoutingAssignmentsRequest{Assignments: assignmentsToProto(a)})
 	if err != nil {
 		return "", err
 	}

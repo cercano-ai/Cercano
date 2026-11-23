@@ -84,13 +84,67 @@ func (c *Client) ReconnectPinnedSession(ctx context.Context) error {
 	if c.pinned == nil {
 		return fmt.Errorf("%w: not a pinned client", ErrPinnedSession)
 	}
-	c.reconnectMu.Lock()
-	defer c.reconnectMu.Unlock()
+	return c.reconnectPinnedTransport(ctx, nil)
+}
+
+// A connection identity fences delayed failures from an already replaced stream.
+// Explicit reconnect passes nil and always revalidates.
+func (c *Client) reconnectPinnedTransport(ctx context.Context, failed *grpcConn) (result error) {
 	select {
 	case <-c.stopWatch:
 		return errClientClosed
 	default:
 	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	go func() {
+		select {
+		case <-c.stopWatch:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	c.connMu.Lock()
+	if c.pinnedGate == nil {
+		c.pinnedGate = make(chan struct{}, 1)
+	}
+	generation := c.pinnedRecoveryGeneration
+	gate := c.pinnedGate
+	c.connMu.Unlock()
+	select {
+	case gate <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.stopWatch:
+		return errClientClosed
+	}
+	defer func() { <-gate }()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case <-c.stopWatch:
+		return errClientClosed
+	default:
+	}
+	c.connMu.Lock()
+	if failed != nil && c.conn != failed {
+		c.connMu.Unlock()
+		return nil
+	}
+	if failed != nil && generation != c.pinnedRecoveryGeneration {
+		err := c.pinnedRecoveryErr
+		c.connMu.Unlock()
+		return err
+	}
+	c.connMu.Unlock()
+	defer func() {
+		c.connMu.Lock()
+		c.pinnedRecoveryGeneration++
+		c.pinnedRecoveryErr = result
+		c.connMu.Unlock()
+	}()
+	c.setState(ConnStateReconnecting, 1, nil)
 	if old := c.readConn(); old != nil {
 		_ = old.Close()
 	}
@@ -99,15 +153,34 @@ func (c *Client) ReconnectPinnedSession(ctx context.Context) error {
 		c.setState(ConnStateFailed, 1, err)
 		return err
 	}
+	c.connMu.Lock()
 	select {
 	case <-c.stopWatch:
+		c.connMu.Unlock()
 		_ = fresh.Close()
 		return errClientClosed
 	default:
 	}
-	c.writeConn(fresh.conn, fresh.agent)
+	if err := ctx.Err(); err != nil {
+		c.connMu.Unlock()
+		_ = fresh.Close()
+		return err
+	}
+	c.conn, c.agent = fresh.conn, fresh.agent
+	c.connMu.Unlock()
 	c.setState(ConnStateConnected, 1, nil)
 	return nil
+}
+
+// Never replay chat: even an error opening a server stream can follow delivery.
+func (c *Client) recoverChatTransport(ctx context.Context, failed *grpcConn, cause error) error {
+	if c.pinned == nil || !isUnavailable(cause) {
+		return cause
+	}
+	if err := c.reconnectPinnedTransport(ctx, failed); err != nil {
+		return fmt.Errorf("connection recovery failed; message delivery unknown; not resent (inspect conversation before sending again): %w", err)
+	}
+	return fmt.Errorf("connection restored; message delivery unknown; not resent (inspect conversation before sending again): %w", cause)
 }
 
 func validatePinnedSession(ctx context.Context, agent proto.AgentClient, p PinnedSessionIntent) error {
