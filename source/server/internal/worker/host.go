@@ -681,18 +681,9 @@ func (w *workerRunner) RunTurn(
 	var callbacks sync.WaitGroup
 	callbackCtx, cancelCallbacks := context.WithCancel(ctx)
 	ctx = callbackCtx
-	var callbackErrMu sync.Mutex
-	var callbackErr error
 	defer func() {
 		cancelCallbacks()
 		callbacks.Wait()
-		if authority != nil {
-			callbackErrMu.Lock()
-			if callbackErr != nil {
-				turnErr = errors.Join(turnErr, &CallbackCleanupError{Err: callbackErr})
-			}
-			callbackErrMu.Unlock()
-		}
 	}()
 	spawnCallback := func(f func()) { callbacks.Add(1); go func() { defer callbacks.Done(); f() }() }
 
@@ -795,13 +786,10 @@ func (w *workerRunner) RunTurn(
 	safeSend := func(msg *proto.HostToWorker) error {
 		sendMu.Lock()
 		defer sendMu.Unlock()
-		err := stream.Send(msg)
-		if err != nil && authority != nil {
-			callbackErrMu.Lock()
-			callbackErr = errors.Join(callbackErr, err)
-			callbackErrMu.Unlock()
-		}
-		return err
+		// A failed response delivery is not evidence of an uncertain durable
+		// mutation. Callbacks are joined above; persistence services report
+		// write failures through the authority context independently of Send.
+		return stream.Send(msg)
 	}
 
 	// ── 7. Drain loop ─────────────────────────────────────────────────────

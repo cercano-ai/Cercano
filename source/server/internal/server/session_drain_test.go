@@ -80,6 +80,10 @@ func TestSessionCloseBusyDrain(t *testing.T) {
 		if _, err = next.Retain(t.Context(), o.Conversation); err == nil {
 			t.Fatal("ownership transferred early")
 		}
+		durable, err := conversation.ReadOwnership(t.Context(), next.coexistence.store, o.Conversation)
+		if err != nil || durable.State != "owned" || durable.Owner != o.Host || durable.Epoch != o.Epoch {
+			t.Fatalf("draining generation lost exact durable owner: %+v %v", durable, err)
+		}
 		if err = s.RetireCoexistence(t.Context()); !errors.Is(err, broker.ErrAdmissionBusy) {
 			t.Fatalf("retirement before drain: %v", err)
 		}
@@ -104,9 +108,30 @@ func TestSessionCloseBusyDrain(t *testing.T) {
 		if err != nil || len(retained) != 0 {
 			t.Fatalf("retained after drain: %v %v", retained, err)
 		}
-		if _, err = next.Retain(t.Context(), o.Conversation); err != nil {
+		fresh, err := next.Retain(t.Context(), o.Conversation)
+		if err != nil {
 			t.Fatalf("durable owner not released: %v", err)
 		}
+		if fresh.Host == o.Host || fresh.Epoch == o.Epoch {
+			t.Fatalf("rebuild reused old generation ownership: old=%+v new=%+v", o, fresh)
+		}
+		durable, err = conversation.ReadOwnership(t.Context(), s.coexistence.store, o.Conversation)
+		if err != nil || durable.State != "owned" || durable.Owner != fresh.Host || durable.Epoch != fresh.Epoch {
+			t.Fatalf("new generation lacks exact durable ownership: %+v %v", durable, err)
+		}
+		if stale, err := s.AttachRetained(o); err == nil {
+			stale.Detach()
+			t.Fatal("old host rebound stale owner after reopen")
+		}
+		if stale, err := next.AttachRetained(o); err == nil {
+			stale.Detach()
+			t.Fatal("new host accepted old owner after reopen")
+		}
+		attached, err := next.AttachRetained(fresh)
+		if err != nil {
+			t.Fatalf("new owner cannot attach: %v", err)
+		}
+		attached.Detach()
 		if err = s.RetireCoexistence(t.Context()); err != nil {
 			t.Fatalf("retire drained host: %v", err)
 		}
