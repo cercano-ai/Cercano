@@ -30,6 +30,14 @@ bin="${1:?usage: codesign-if-available.sh <binary> | --resolve-identity}"
 resolve=false
 [[ "$bin" == "--resolve-identity" ]] && resolve=true
 
+# Identity discovery needs the macOS `security` tool. Without it (Linux, other
+# platforms) there are no identities to find, so signing stays a no-op instead
+# of failing the build under `set -e`.
+find_identities() {
+    command -v security >/dev/null 2>&1 || return 0
+    security find-identity -v -p codesigning 2>/dev/null
+}
+
 id="${CERCANO_CODESIGN_ID:-}"
 [[ "$id" == "none" ]] && exit 0
 if $resolve; then
@@ -39,7 +47,7 @@ if $resolve; then
         printf '%s\n' "$id"
         exit 0
     fi
-    identities=$(security find-identity -v -p codesigning 2>/dev/null)
+    identities=$(find_identities)
     resolved=$(printf '%s\n' "$identities" | awk -v requested="$id" '
         /"/ {
             name=$0; sub(/^[^"]*"/, "", name); sub(/".*$/, "", name)
@@ -53,7 +61,7 @@ if $resolve; then
     exit 0
 fi
 if [[ -z "$id" ]]; then
-    id=$(security find-identity -v -p codesigning 2>/dev/null \
+    id=$(find_identities \
         | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
 fi
 [[ -z "$id" ]] && exit 0
