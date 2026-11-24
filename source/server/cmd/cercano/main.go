@@ -2081,13 +2081,21 @@ func runStats() {
 	}
 	defer store.Close()
 
-	stats, err := store.GetStats(context.Background())
+	// Report attempt accounting, the same population as the Token Metrics page.
+	// The legacy events table records one summary per turn and undercounts tool loops.
+	report, err := store.UsageReport(context.Background(), time.Now())
+	if errors.Is(err, telemetry.ErrNoAccounting) {
+		fmt.Println("Cercano usage: " + err.Error())
+		return
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to query stats: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Print(telemetry.FormatStatsASCII(stats))
+	// Host-submitted cloud usage still lives in the legacy table; show it separately.
+	legacy, _ := store.GetStats(context.Background())
+	fmt.Print(telemetry.FormatUsageReport(report, legacy))
 }
 
 // generateSessionID returns a UUID v4 string for identifying an MCP session.
@@ -2245,9 +2253,9 @@ func runMCPMode(cfg config.Config, externalGRPC string, admission productionStar
 		defer telemetryStore.Close()
 
 		// Log cumulative stats on startup
-		if stats, err := telemetryStore.GetStats(context.Background()); err == nil && stats.TotalRequests > 0 {
-			totalLocal := stats.TotalInputTokens + stats.TotalOutputTokens
-			fmt.Fprintf(os.Stderr, "Telemetry: %d requests, %d local tokens processed\n", stats.TotalRequests, totalLocal)
+		if report, err := telemetryStore.UsageReport(context.Background(), time.Now()); err == nil && report.GetTotals().GetRecords() > 0 {
+			t := report.GetTotals()
+			fmt.Fprintf(os.Stderr, "Telemetry: %d model calls, %d tokens reported\n", t.GetRecords(), t.GetInput().GetTokens()+t.GetOutput().GetTokens())
 		}
 	}
 
