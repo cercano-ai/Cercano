@@ -4,7 +4,7 @@
 
 Linux remains experimental and unsupported. The approved future apt host is the
 separate `cercano-ai/packages` repository, with Pages serving
-`https://cercano-ai.github.io/packages/apt/`. The public package maintainer is
+`https://cercano-ai.github.io/packages/`. The public package maintainer is
 `cercano maintainers <maintainers@cercloud.ai>`.
 
 **Publication is not configured or enabled by this integration.** No Pages job,
@@ -114,12 +114,12 @@ Only after Pages and key custody are separately provisioned and accepted:
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://cercano-ai.github.io/packages/apt/cercano.gpg -o cercano.gpg
+  https://cercano-ai.github.io/packages/cercano.gpg -o cercano.gpg
 # STOP: independently compare the public primary fingerprint with the
 # maintainer-published, separately authenticated fingerprint before install.
 gpg --show-keys --with-fingerprint cercano.gpg
 sudo install -m 0644 cercano.gpg /etc/apt/keyrings/cercano.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/cercano.gpg] https://cercano-ai.github.io/packages/apt/ stable main' \
+echo 'deb [signed-by=/etc/apt/keyrings/cercano.gpg] https://cercano-ai.github.io/packages/ stable main' \
   | sudo tee /etc/apt/sources.list.d/cercano.list
 sudo apt update
 sudo apt install cercano
