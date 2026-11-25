@@ -64,6 +64,11 @@ func (closeProbePeer) RunTurn(stream pb.Worker_RunTurnServer) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "callback response: %v\n", response)
+	if mode := os.Getenv("CERCANO_CLOSE_PROBE_MODE"); mode == "blocked-completed" {
+		return stream.Send(&pb.WorkerToHost{Msg: &pb.WorkerToHost_Done{Done: &pb.TurnDone{FinalText: "fixture completion"}}})
+	} else if mode == "blocked-execution-failure" {
+		return status.Error(codes.Internal, "injected worker execution failure")
+	}
 	root := os.Getenv("CERCANO_CLOSE_PROBE_ROOT")
 	if err := os.WriteFile(filepath.Join(root, "callback-returned"), []byte(response.String()), 0600); err != nil {
 		return err
@@ -106,7 +111,7 @@ func init() {
 // Each case runs in a disposable independent host process. A parent watchdog
 // bounds even a broken synchronous Shutdown/join (the regression under probe).
 func TestProcessCloseInstalledCallbacks(t *testing.T) {
-	for _, mode := range []string{"success", "write-failure", "update-success", "update-write-failure", "blocked-success", "route-success", "route-write-failure"} {
+	for _, mode := range []string{"success", "write-failure", "update-success", "update-write-failure", "blocked-success", "blocked-completed", "blocked-execution-failure", "route-success", "route-write-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			exe, err := os.Executable()
@@ -161,7 +166,7 @@ func TestProcessCloseHostProbe(t *testing.T) {
 	t.Setenv("CERCANO_CLOSE_PROBE_WORKER", "1")
 	s.SetPermissions(agent.NewStaticPermissionStore(agent.ModeBypass), nil)
 	entered, unblock := make(chan struct{}), make(chan struct{})
-	blocked := os.Getenv("CERCANO_CLOSE_PROBE_MODE") == "blocked-success"
+	blocked := strings.HasPrefix(os.Getenv("CERCANO_CLOSE_PROBE_MODE"), "blocked-")
 	if blocked {
 		s.persistSvc = closeProbePersistence{Service: s.persistSvc, store: closeProbeBlockedStore{Store: s.persistSvc.Store(), entered: entered, unblock: unblock}}
 	}
@@ -277,7 +282,10 @@ func TestProcessCloseHostProbe(t *testing.T) {
 	if err == nil {
 		t.Fatal("acquired before drain")
 	}
-	if blocked {
+	if blocked && mode != "blocked-success" {
+		close(unblock)
+	}
+	if mode == "blocked-success" {
 		// Model a canceled active turn after terminal close. The deliberately
 		// context-ignoring store operation must retain authority beyond retirement.
 		budget, stop := context.WithTimeout(ctx, 5*time.Second) // production 4s + scheduler/reap slack
@@ -307,6 +315,12 @@ func TestProcessCloseHostProbe(t *testing.T) {
 	select {
 	case err := <-done:
 		t.Logf("worker outcome: %v", err)
+		if mode == "blocked-completed" && err != nil {
+			t.Fatalf("completed turn: %v", err)
+		}
+		if mode == "blocked-execution-failure" && (err == nil || !strings.Contains(err.Error(), "injected worker execution failure")) {
+			t.Fatalf("execution failure missing: %v", err)
+		}
 	case <-ctx.Done():
 		t.Fatal("worker completion join exceeded deadline")
 	}
@@ -337,6 +351,10 @@ func TestProcessCloseHostProbe(t *testing.T) {
 			t.Fatalf("mutation failure lost original authority after Wait: %+v", row)
 		}
 	} else {
+		snap := s.coexistence.admission.Snapshot(owner)
+		if snap.UnresolvedWork != 0 || snap.UnresolvedHostWork != 0 {
+			t.Fatalf("clean callback retained uncertainty: %+v", snap)
+		}
 		db, err := sql.Open("sqlite", s.coexistence.options.StorePath)
 		must(err)
 		defer db.Close()
@@ -409,10 +427,14 @@ func TestProcessResumeProbe(t *testing.T) {
 	}
 	defer s.CloseCoexistenceStore()
 	defer s.Shutdown()
-	owner, err := s.Retain(ctx, "parent")
-	if err != nil {
-		t.Fatal(err)
+	// Resume the durably released conversation through lifecycle policy, rather
+	// than pre-acquiring ownership and thereby bypassing recovery selection.
+	s.coexistence.options.ControlAuthorize = func(context.Context) error { return nil } // disposable helper only
+	resumed, err := s.LifecycleResume(reproLoopbackContext(), &pb.LifecycleControlRequest{Target: s.coexistence.controlIdentity(), Owner: &pb.LifecycleOwner{Conversation: "parent"}})
+	if err != nil || resumed.GetConfirmationRequired() || resumed.GetOwner() == nil {
+		t.Fatalf("clean resume unexpectedly needs recovery: %v %v", resumed, err)
 	}
+	owner := controlOwner(&pb.LifecycleControlRequest{Owner: resumed.Owner})
 	if owner.Host != "replacement" || owner.Epoch == "" || owner.Epoch == os.Getenv("CERCANO_RESUME_PROBE_OLD") {
 		t.Fatalf("replacement owner: %+v", owner)
 	}
