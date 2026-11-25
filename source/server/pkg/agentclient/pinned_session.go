@@ -310,17 +310,17 @@ func ConnectionFailureMessage(err error) string {
 		return "Authentication failed. Check credentials before reconnecting."
 	case codes.PermissionDenied:
 		return "Access refused. Check authorization before reconnecting."
-	case codes.Unavailable, codes.DeadlineExceeded:
-		return "Agent unreachable. Send again when the host is available; inspect the conversation first if an earlier request was interrupted."
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "Agent unreachable. Send again when the host is available; inspect the conversation first if an earlier request was interrupted."
 	}
 	if errors.Is(err, ErrPinnedSession) {
 		return "Session binding is no longer valid. Explicitly reopen/resume the conversation."
 	}
 	if errors.Is(err, ErrCredentialIsolation) {
 		return "Connection refused by credential isolation policy. Check host configuration before reconnecting."
+	}
+	// Refusal markers outrank an accompanying transport timeout/unavailability,
+	// matching the demand-retry policy without changing the diagnostic error.
+	if status.Code(err) == codes.Unavailable || status.Code(err) == codes.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded) {
+		return "Agent unreachable. Send again when the host is available; inspect the conversation first if an earlier request was interrupted."
 	}
 	return "Connection recovery stopped. Check connection diagnostics before reconnecting."
 }

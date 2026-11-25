@@ -5,6 +5,49 @@ below was reproduced and repaired in the same worktree, preserving all six
 modified tracked and three untracked candidate files. Not landed, pushed or
 installed. Historical review findings follow the repair verification.
 
+## Narrow nested-refusal review repair (2026-11-24)
+
+Base: `0442f21cf45366309d23777597d897bc20ee841a`. Permanent tests were
+added and run before the production edit (test checkpoint `935e224f3829`).
+No historical temporary overlay was assumed or reused.
+
+Exact probe: `fmt.Errorf("recovery: %w", fmt.Errorf("%w: validation: %w",
+ErrCredentialIsolation, cause))`, where cause is RPC DeadlineExceeded,
+RPC Unavailable, or context.DeadlineExceeded. All three were red: retry policy
+refused them but display classification said “Agent unreachable. Send again”.
+The same table reproduced nine red credential/retired/stale combinations;
+authentication and permission rows preserved their specific messages. The
+rendered Model.Update probe was also red for all three credential causes.
+
+Fix: move generic reachability classification after auth/permission and
+credential/session refusal classification in ConnectionFailureMessage only.
+No recovery, retry, wrapping, or connection policy changes. The nested table
+checks refusal retry policy, guidance, errors.Is for both causes, and errors.As
+for actual retired/stale SessionCheckError values (stale models epoch refusal).
+Transient-only controls still offer Send again. UI coverage drives Failed
+connection status and a generation-matched chatStreamMsg failed-send through
+Model.Update, checks the rendered persistent status/transcript, and excludes
+“Send again”. The pre-existing generic failed-state chip and interrupted-request
+inspection caveat are unchanged. The UI probe was adjusted to use the actual
+main-chat stream envelope and a wide viewport to avoid line-wrap assertions.
+
+Passed in this repair run:
+
+```sh
+go -C source/server test ./pkg/agentclient -run TestConnectionFailure -count=1
+go -C source/clients/cli test ./internal/ui -run TestConnRecovery_NestedCredentialRefusalRendered -count=1
+go -C source/server test -race ./pkg/agentclient -run 'TestPinned|TestConnectionFailure' -count=5 -timeout=300s
+go -C source/clients/cli test -race ./internal/ui -run 'TestPinned|TestMainDriverPinned|TestConnRecovery' -count=5 -timeout=300s
+go -C source/server test ./pkg/agentclient -count=1 -timeout=180s
+go -C source/clients/cli test ./... -count=1 -timeout=180s
+go -C source/server test ./internal/server ./cmd/cercano -count=1 -timeout=180s
+git diff --check
+```
+
+No landing, push, install, live-host/configuration/database mutation, or full
+server-suite qualification. Ready for independent narrow re-review; historical
+verification below describes earlier work, not additional runs in this repair.
+
 ## Repair verification (2026-11-24)
 
 Before editing, the exact retained `demand-overlay.json` probe below failed with
