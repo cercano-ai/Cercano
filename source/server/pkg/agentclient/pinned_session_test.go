@@ -32,6 +32,7 @@ type pinnedFake struct {
 	repairFails        bool
 	afterFinalCode     codes.Code
 	credentialsEnabled bool
+	validationCode     codes.Code
 	validationStarted  chan struct{}
 	validationRelease  chan struct{}
 	proto.UnimplementedAgentServer
@@ -58,6 +59,9 @@ func (f *pinnedFake) CheckRetainedSession(ctx context.Context, r *proto.CheckRet
 			return nil, ctx.Err()
 		case <-f.validationRelease:
 		}
+	}
+	if n > 1 && f.validationCode != codes.OK {
+		return nil, status.Error(f.validationCode, "validation refused")
 	}
 	md, _ := metadata.FromIncomingContext(ctx)
 	ids := md.Get(PinnedTerminalMetadata)

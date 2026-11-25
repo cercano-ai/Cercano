@@ -96,8 +96,11 @@ type connStateChangedMsg struct {
 // one message per state transition, with next re-arming the drain.
 // When the channel closes (Client.Close) the drain stops.
 func subscribeConnStateCmd(ag *agentclient.Client) tea.Cmd {
+	if ag == nil {
+		return func() tea.Msg { return nil }
+	}
+	ch, _ := ag.ConnStateChanges()
 	return func() tea.Msg {
-		ch, _ := ag.ConnStateChanges()
 		var wait tea.Cmd
 		wait = func() tea.Msg {
 			ev, ok := <-ch
@@ -111,7 +114,7 @@ func subscribeConnStateCmd(ag *agentclient.Client) tea.Cmd {
 				next:         wait,
 			}
 			if ev.Err != nil {
-				msg.errMsg = ev.Err.Error()
+				msg.errMsg = agentclient.ConnectionFailureMessage(ev.Err)
 			}
 			return msg
 		}

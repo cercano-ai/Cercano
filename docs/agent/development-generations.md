@@ -31,6 +31,41 @@ native credentials. The default `~/.config/cercano` instead uses ordinary config
 and history in place. See [build and wrapper generation](self-dev.md#layout--build)
 for separate module builds, build-only publication, and no-clobber installation.
 
+## Pinned transport recovery (candidate branch)
+
+The reviewed lifecycle changes already on `main` (including `4f0d8809d8d`)
+validate ordinary pinned reconnects against the same host, conversation and
+ownership epoch. This is **not generation migration**: publishing a newer build
+never authorizes discovery, acquisition or launch during transport recovery.
+Fresh credential-policy attestation and contract/schema/owner checks remain
+mandatory. Stale or retired bindings require explicit reopen/resume.
+
+The `fix/pinned-disconnect-observation` candidate adds independent idle transport
+observation, so recovery no longer depends on an event subscription or chat RPC.
+The watcher shares the existing bounded, serialized fresh-transport recovery gate;
+it does not dial through the ordinary auto-launch watcher. One failed transport
+gets one automatic attempt. After a transient failure, a later user send may
+start one new bounded validation attempt **before** sending that new request.
+Ongoing task/event subscriptions and the idle watcher cannot retry the cached
+failure. Concurrent callers waiting on an attempt share its result. Authentication,
+authorization, credential-isolation and lifecycle refusals are not demand-retried.
+Close stops and joins observation; late validation cannot install a connection.
+TCP readiness alone is never sufficient to report Connected.
+
+The candidate UI announces an idle or streaming outage, keeps an unreachable
+status visible after failure, and distinguishes delivery uncertainty from transport
+recovery. Connection notices classify authentication, policy, unreachable and
+reopen-required errors while underlying diagnostic errors remain available.
+No request is automatically resent, including a stream interrupted after an
+intermediate final response. Inspect the conversation before submitting again.
+The reachable recovery action after a transient outage is the existing send action,
+not a new reconnect command. Failed pre-send validation reports that the request
+was not sent; interrupted RPCs retain the uncertain-outcome warning and are never
+replayed or queued for later delivery. Recovery never launches a stopped host or
+moves ownership. This candidate is not landed or installed.
+See [candidate verification](pinned-disconnect-verification.md) for reproduction,
+repair verification and limits.
+
 ## Automatic first-launch preparation
 
 Prerequisites: Python 3.9+, the supported native Go build toolchain, and on macOS working ad-hoc codesigning. Use canonical absolute paths without symlink aliases. The state parent must already exist, be owned by you, and not writable by others.

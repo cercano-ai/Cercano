@@ -2753,6 +2753,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 		// as lost and rehydrate the input with the user's prompt so
 		// they can re-send with one keystroke.
 		prev := m.connState
+		wasStreaming := m.streaming
 		m.connState = msg.state
 		m.connAttempt = msg.attempt
 		m.connFailErrMsg = msg.errMsg
@@ -2792,7 +2793,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 				m.refreshViewport()
 			} else if m.streaming && m.lastSubmittedPrompt != "" {
 				m.input.SetValue(m.lastSubmittedPrompt)
-				body := "⚠ agent disconnected mid-turn — prompt restored to the input; press Enter to re-submit once the agent is back."
+				body := "⚠ agent disconnected mid-turn — delivery outcome unknown; nothing was resent. Inspect the conversation before sending again. Prompt restored to the input."
 				if msg.crashSummary != "" {
 					body += "\n  cause: " + msg.crashSummary + " (full trace in ~/.config/cercano/crash.log)"
 				}
@@ -2804,8 +2805,12 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 				}
 				m.refreshViewport()
 			}
+			if !wasStreaming {
+				m.mainChat().AppendEntry(&Entry{Role: RoleSystem, Content: "⚠ agent disconnected — validating a fresh connection. No message was resent."})
+				m.refreshViewport()
+			}
 		}
-		if msg.state == agentclient.ConnStateConnected && prev == agentclient.ConnStateReconnecting {
+		if msg.state == agentclient.ConnStateConnected && prev != agentclient.ConnStateConnected {
 			// Recovery. The server on the other end may be a freshly
 			// spawned replacement, so every startup-fetched snapshot —
 			// config, tools, permission mode, vision caps, runtime
@@ -2834,7 +2839,7 @@ func (m Model) Update(msg tea.Msg) (nextModel tea.Model, nextCmd tea.Cmd) {
 			m.refreshViewport()
 			return m, tea.Batch(msg.next, fetchConfigCmd(m.agent), fetchToolsCmd(m.agent), fetchPermissionModeCmd(m.agent), fetchOpenRuntimeStatusCmd(m.agent))
 		}
-		if msg.state == agentclient.ConnStateFailed {
+		if msg.state == agentclient.ConnStateFailed && prev != agentclient.ConnStateFailed {
 			// Pinned recovery is bounded and can refuse a changed host or owner.
 			notice := "✕ agent connection recovery stopped. No message was resent; inspect the conversation before sending again."
 			if msg.errMsg != "" {

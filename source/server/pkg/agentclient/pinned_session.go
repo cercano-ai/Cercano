@@ -12,7 +12,10 @@ import (
 	"cercano/source/server/pkg/devhostauth"
 	"cercano/source/server/pkg/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 // PinnedSessionIntent names an existing retained session. It is never permission
@@ -60,7 +63,47 @@ func DialPinnedSession(ctx context.Context, intent PinnedSessionIntent) (*Client
 		return nil, err
 	}
 	c.addr, c.pinned, c.stopWatch = intent.Endpoint, &intent, make(chan struct{})
+	c.pinnedWatchDone = make(chan struct{})
+	go c.watchPinnedTransport()
 	return c, nil
+}
+
+// watchPinnedTransport observes only; it never asks gRPC to reconnect an
+// unvalidated transport. Each lost transport gets one bounded recovery through
+// the same gate used by RPCs. Failed recovery waits for explicit user action.
+func (c *Client) watchPinnedTransport() {
+	defer close(c.pinnedWatchDone)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-c.stopWatch:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	var observed *grpcConn
+	for ctx.Err() == nil {
+		conn := c.readConn()
+		if conn == nil || conn == observed {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+			continue
+		}
+		state := conn.GetState()
+		if state == connectivity.Ready {
+			conn.WaitForStateChange(ctx, state)
+			continue
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		observed = conn
+		_ = c.reconnectPinnedTransport(ctx, conn)
+	}
 }
 
 // DialAuthenticatedPinnedSession loads a private per-host token once, before
@@ -89,7 +132,13 @@ func (c *Client) ReconnectPinnedSession(ctx context.Context) error {
 
 // A connection identity fences delayed failures from an already replaced stream.
 // Explicit reconnect passes nil and always revalidates.
-func (c *Client) reconnectPinnedTransport(ctx context.Context, failed *grpcConn) (result error) {
+func (c *Client) reconnectPinnedTransport(ctx context.Context, failed *grpcConn) error {
+	return c.recoverPinnedTransport(ctx, failed, false)
+}
+
+// Only a new user submission may retry a completed transient failure. Observers
+// retain its cached result; callers already waiting share the same generation.
+func (c *Client) recoverPinnedTransport(ctx context.Context, failed *grpcConn, demand bool) (result error) {
 	select {
 	case <-c.stopWatch:
 		return errClientClosed
@@ -132,7 +181,7 @@ func (c *Client) reconnectPinnedTransport(ctx context.Context, failed *grpcConn)
 		c.connMu.Unlock()
 		return nil
 	}
-	if failed != nil && generation != c.pinnedRecoveryGeneration {
+	if failed != nil && (generation != c.pinnedRecoveryGeneration || (c.pinnedRecoveryErr != nil && (!demand || !transientPinnedFailure(c.pinnedRecoveryErr)))) {
 		err := c.pinnedRecoveryErr
 		c.connMu.Unlock()
 		return err
@@ -170,6 +219,35 @@ func (c *Client) reconnectPinnedTransport(ctx context.Context, failed *grpcConn)
 	c.connMu.Unlock()
 	c.setState(ConnStateConnected, 1, nil)
 	return nil
+}
+
+func transientPinnedFailure(err error) bool {
+	// Lifecycle, credential and policy refusals are never demand-retried.
+	var refusal *SessionCheckError
+	if errors.As(err, &refusal) || errors.Is(err, ErrCredentialIsolation) {
+		return false
+	}
+	switch status.Code(err) {
+	case codes.Unauthenticated, codes.PermissionDenied:
+		return false
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+// preparePinnedDemand runs before a Chat RPC is created, never as a replay.
+func (c *Client) preparePinnedDemand(ctx context.Context) error {
+	if c.pinned == nil {
+		return nil
+	}
+	c.connMu.Lock()
+	conn, previous := c.conn, c.pinnedRecoveryErr
+	c.connMu.Unlock()
+	if previous == nil && conn != nil && conn.GetState() == connectivity.Ready {
+		return nil
+	}
+	return c.recoverPinnedTransport(ctx, conn, true)
 }
 
 // Never replay chat: even an error opening a server stream can follow delivery.
@@ -222,4 +300,27 @@ func pinnedMetadataOptions(p PinnedSessionIntent) []grpc.DialOption {
 			return stream(bind(ctx), desc, cc, method, opts...)
 		}),
 	}
+}
+
+// ConnectionFailureMessage classifies display text without replacing the original
+// error. Callers retain status codes and errors.Is identity for diagnostics.
+func ConnectionFailureMessage(err error) string {
+	switch status.Code(err) {
+	case codes.Unauthenticated:
+		return "Authentication failed. Check credentials before reconnecting."
+	case codes.PermissionDenied:
+		return "Access refused. Check authorization before reconnecting."
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return "Agent unreachable. Send again when the host is available; inspect the conversation first if an earlier request was interrupted."
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "Agent unreachable. Send again when the host is available; inspect the conversation first if an earlier request was interrupted."
+	}
+	if errors.Is(err, ErrPinnedSession) {
+		return "Session binding is no longer valid. Explicitly reopen/resume the conversation."
+	}
+	if errors.Is(err, ErrCredentialIsolation) {
+		return "Connection refused by credential isolation policy. Check host configuration before reconnecting."
+	}
+	return "Connection recovery stopped. Check connection diagnostics before reconnecting."
 }

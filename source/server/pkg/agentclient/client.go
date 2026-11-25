@@ -66,10 +66,11 @@ type Client struct {
 	pinned      *PinnedSessionIntent
 
 	// Connection-state observation (see reconnect.go).
-	stateMu     sync.Mutex
-	state       ConnState
-	stateBroker *stateBroker
-	stopWatch   chan struct{} // closed by Close() to stop watchConn
+	stateMu         sync.Mutex
+	state           ConnState
+	stateBroker     *stateBroker
+	pinnedWatchDone chan struct{}
+	stopWatch       chan struct{} // closed by Close() to stop watchConn
 	// reconnectMu single-flights recovery: watchConn and the
 	// SubscribeEvents drain loop can both detect a dead transport and
 	// call reconnect() concurrently; without this they'd run competing
@@ -184,7 +185,10 @@ func connectIntent(ctx context.Context, addr string, timeout time.Duration, pin 
 		policy, err := agent.GetCredentialPolicy(dialCtx, &proto.GetCredentialPolicyRequest{})
 		if err != nil || !policy.GetCredentialsDisabled() {
 			_ = conn.Close()
-			return nil, fmt.Errorf("%w: agent did not attest disabled credentials (%v)", ErrCredentialIsolation, err)
+			if err != nil {
+				return nil, fmt.Errorf("%w: agent did not attest disabled credentials: %w", ErrCredentialIsolation, err)
+			}
+			return nil, fmt.Errorf("%w: agent did not attest disabled credentials", ErrCredentialIsolation)
 		}
 	}
 	if pin != nil {
@@ -309,7 +313,11 @@ func (c *Client) Close() error {
 		}
 	}
 	conn := c.conn
+	done := c.pinnedWatchDone
 	c.connMu.Unlock()
+	if done != nil {
+		<-done
+	}
 	if conn == nil {
 		return nil
 	}
@@ -2253,6 +2261,9 @@ func (c *Client) StreamChat(ctx context.Context, conversationID, input, workDir 
 	return c.streamChat(ctx, conversationID, input, workDir, false, images...)
 }
 func (c *Client) streamChat(ctx context.Context, conversationID, input, workDir string, recovery bool, images ...InlineImage) (<-chan StreamMsg, error) {
+	if err := c.preparePinnedDemand(ctx); err != nil {
+		return nil, fmt.Errorf("request not sent; %s: %w", ConnectionFailureMessage(err), err)
+	}
 	local := c.beginLocalRequest(conversationID)
 	c.connMu.Lock()
 	agent, failedConn := c.agent, c.conn
