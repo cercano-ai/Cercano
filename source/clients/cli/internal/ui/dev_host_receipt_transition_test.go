@@ -22,6 +22,12 @@ type receiptTransitionHost struct {
 	stale                atomic.Bool
 }
 
+// This in-memory lifecycle fixture has no credential store or provider access;
+// credentials are disabled regardless of the client process environment.
+func (*receiptTransitionHost) GetCredentialPolicy(context.Context, *pb.GetCredentialPolicyRequest) (*pb.GetCredentialPolicyResponse, error) {
+	return &pb.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}
+
 func (h *receiptTransitionHost) LifecycleAcquire(_ context.Context, r *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
 	if r.LaunchAction == "deliver" {
 		n := h.deliveries.Add(1)
@@ -72,6 +78,16 @@ func assertNoLaunchReceipt(t *testing.T, s DevHostSelection) {
 		t.Fatalf("initial receipt survived: %+v", s)
 	}
 }
+func TestLaunchReceiptFixtureCredentialIsolation(t *testing.T) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
+	s, _ := receiptTransitionSelection(t)
+	c, err := s.Dial(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+}
+
 func TestLaunchReceiptReusedForOtherConversation(t *testing.T) {
 	for _, action := range []string{"clear", "resume"} {
 		t.Run(action, func(t *testing.T) {
