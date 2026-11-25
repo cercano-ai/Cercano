@@ -1,6 +1,6 @@
 # Real completion / ordinary close characterization
 
-Test-only investigation, 2026-11-25. No production correction or incident-origin claim.
+Historical test-only investigation, 2026-11-25 (baseline `4d000f74876629503edb3e4f28b74e691d82c5fa`). The characterization below is preserved as historical evidence, not current expected behavior. See the approved correction below.
 
 `TestRealCompletionOrdinaryClose` launches a real prepared task with scoped dispatch,
 commits its terminal result, and lets `notifyOwnedTaskChange` automatically run the
@@ -80,3 +80,57 @@ matrix was added because the first real completion producer reproduces the issue
 No full-suite/build claim; no live homes, stores or external providers used.
 
 A destination-fixture draft initially failed compilation (incorrect constructor API); corrected to `NewCoexistenceServer` before the final repeated/race runs above.
+
+
+## Approved correction and regression (2026-11-25)
+
+User-approved policy: an ordinary failed automatic followup must allow normal
+close/reopen. Keep `notification_pending=true` and `wake_claimed=true` unchanged;
+resume must not retry it. A later human-driven turn can handle and acknowledge it
+once under the current owner. Ending an attempt is not acknowledgement. Genuine
+mutation uncertainty and unknown teardown continue to fence ownership.
+
+The completion scheduler no longer converts a joined inference error or returned
+cancellation into a persistence failure. The retained callback still spans runner
+join, synchronous callbacks, and acknowledgement. Claim and human-boundary ack
+errors now explicitly report write failure, independently of execution errors.
+Direct setup mutation failures report through a host callback on runner.Request
+(JSON-excluded to preserve the worker wire boundary); worker-host setup reports
+locally. Runner panic reports unknown teardown; unexpected subscriber closure waits
+for the producer before releasing authority. Existing transcript/output persistence,
+session-model, worker ledger/evidence and descendant cleanup paths retain their
+write-failure reporting and join fences. No reset/requeue API or resume retry was
+introduced; prepared_reload's claimed-notification filter is unchanged.
+
+Regression extends the original real prepared-task/scripted-provider fixture:
+ordinary error/cancellation transfer to B, stale-owner ack rejection, repeated
+resume without inference, retained pending/claimed flags, failed human handling
+without a fence, then successful handling with one SQLite-audited acknowledgement.
+Negative controls include cancellation plus write failure and real SQLite trigger
+failures at setup, output and notification acknowledgement. These remain fenced.
+The setup failure correctly persists no completion input/output. Existing callback
+join and descendant tests remain in the race-enabled group.
+
+Verification in this continuation (from source/server):
+
+- Re-ran desired error/cancellation assertions with baseline task_completion.go
+  temporarily restored: `go test ./internal/server -run
+  '^TestRealCompletionOrdinaryClose$/(error|canceled)$' -count=1` — RED, both retain
+  UnresolvedWork=1 at assertion line 194. Restored fixed file immediately. This
+  reconfirms the earlier tests-first red evidence; it is not a new tests-first claim.
+- `go test ./internal/server -run '^TestRealCompletionOrdinaryClose$' -count=20`
+  — PASS (7.087s).
+- `go test -race ./internal/server -run
+  'Test(RealCompletionOrdinaryClose|PreparedOwnedCompletion|PreparedDispatch|PreparedForeground|ForcedCutoverCancelsScopedDispatch|Incident)' -count=3`
+  — PASS (27.097s).
+- `go test ./internal/server ./internal/broker ./internal/conversation
+  ./internal/hostsvc/persistence ./internal/runner ./internal/taskrun
+  ./internal/worker ./cmd/cercano` — PASS.
+- `go build -o /tmp/cercano-incident-review ./cmd/cercano/` — PASS.
+
+Limits: deterministic temporary SQLite and in-process provider coverage, not live
+transport cancellation or a worker-process end-to-end reproduction. Synthetic
+write-failure controls supplement (do not replace) SQLite mutation failures.
+This does not establish the historic three-ticket incident origin. Independent
+review is required before landing/pushing, especially callback completeness,
+producer join, worker/request serialization and stale-owner fencing.

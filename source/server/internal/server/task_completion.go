@@ -182,21 +182,15 @@ func (s *Server) tryTaskCompletionWake(parentCtx context.Context, parent string)
 	if !stream.succeeded && ctx.Value(ownedCompletionKey{}) == nil {
 		s.turnBroker.Publish(parent, gen, runnersvc.Event{Kind: runnersvc.EventDone, Result: runnersvc.Result{Notice: "Automatic follow-up did not finish; task results remain available."}})
 	}
+	// RunTurn and its callbacks have joined. Execution failure (including returned
+	// cancellation) is not evidence of an uncertain mutation. Mutation and cleanup
+	// boundaries independently report failures through the retained context.
+	// Leave both durable flags untouched for a later human-driven boundary.
 	if err != nil {
-		if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
-			if !(ctx.Err() != nil && s.forcedCutover(w.owner)) {
-				w.fail(err)
-			}
-		}
 		log.Printf("task completion turn %s: %v", parent, err)
 		return
 	}
 	if !stream.succeeded || ctx.Err() != nil || !s.turnIsCurrent(parent, gen) {
-		if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
-			if !(ctx.Err() != nil && s.forcedCutover(w.owner)) {
-				w.fail(broker.ErrAdmissionBusy)
-			}
-		}
 		return
 	}
 	for _, notice := range notices {
@@ -234,6 +228,7 @@ func claimCompletionBatch(ctx context.Context, store conversation.TaskStore, par
 		if !task.WakeClaimed {
 			claimed, err := store.ClaimTaskWake(ctx, parent, task.ID)
 			if err != nil {
+				persistsvc.ReportWriteFailure(ctx, err)
 				if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
 					w.fail(err)
 					return "", nil
@@ -288,6 +283,7 @@ func (s *Server) handleCompletionBatch(ctx context.Context, parent string, batch
 	}
 	for _, notice := range batch {
 		if err := store.HandleTaskNotification(ctx, parent, notice.TaskID); err != nil {
+			persistsvc.ReportWriteFailure(ctx, err)
 			if w, _ := ctx.Value(ownedCompletionKey{}).(*ownedCompletionWake); w != nil {
 				w.fail(err)
 			}

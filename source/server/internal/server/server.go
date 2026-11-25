@@ -4176,6 +4176,7 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 		if req.GetSupportsAuthRecovery() {
 			runReq.AuthRecovery = s.authenticationRequester(convID, sink)
 		}
+		runReq.ReportWriteFailure = func(err error) { persistsvc.ReportWriteFailure(ctx, err) }
 		doneCh := make(chan turnResult, 1)
 
 		// Run the turn concurrently so the main goroutine can drain the broker
@@ -4191,6 +4192,7 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
+					persistsvc.ReportWriteFailure(ctx, fmt.Errorf("runner teardown unknown after panic: %v", r))
 					log.Printf("panic recovered in StreamProcessRequest: %v\n%s", r, debug.Stack())
 					doneCh <- turnResult{err: grpcstatus.Errorf(codes.Internal, "internal server error")}
 				}
@@ -4212,6 +4214,7 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 					model = s.providerSvc.PrimaryModel()
 				}
 				if err := s.agent.PersistentStore().EnsureConversation(ctx, convID, runReq.WorkDir, model); err != nil {
+					persistsvc.ReportWriteFailure(ctx, err)
 					fmt.Fprintf(os.Stderr, "[server] worker EnsureConversation(%s) failed: %v\n", convID, err)
 				}
 			}
@@ -4240,6 +4243,7 @@ func (s *Server) streamConversationTurn(req *proto.ProcessRequestRequest, stream
 				if !ok {
 					// ch closed by detach (deferred) — should not happen here because
 					// detach runs after this loop, but handle defensively.
+					tr = <-doneCh // Never release authority before the producer joins.
 					draining = true
 				} else {
 					workMonitor.Observe(ev) // autonomous-continuation work evidence

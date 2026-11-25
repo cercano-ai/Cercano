@@ -145,3 +145,16 @@ The approval audit reproduced an unsafe UI recovery assumption: a background app
 Updated runtime steering/Git protocol text and agent/CLI guides so public dispatch receipts are not mistaken for final results. Internal synchronous dispatch-service consumers remain unchanged. Unbound external MCP clients continue to fail closed, as approved; no host-wide authorization fallback was introduced.
 
 The full evidence table and precise test limitations are in acceptance.md. Broad affected server suites pass with the race detector, the full CLI UI suite passes with the race detector, both modules build, command tests pass, and protobuf regeneration is byte-identical. No paid inference or manual production terminal smoke test was used. All plan tasks are reconciled to this evidence; all work remains unpushed in the implementation worktree.
+
+
+## Ordinary failed completion followup ownership policy (2026-11-25)
+
+Approved narrow correction: after execution and callbacks join, an ordinary model
+error or returned cancellation is not persistence uncertainty. Normal close/reopen
+is allowed while notification_pending and wake_claimed both remain true. Resume
+does not retry claimed work; a later human-driven boundary acknowledges only after
+successful handling under the current owner. Failed mutations and unknown teardown
+remain ownership fences even when cancellation also occurs. No reset/requeue API.
+Regression and historical characterization, commands, and limits are recorded in
+`docs/real-completion-close-investigation.md`; the historic incident ticket origin
+remains unproven. Await independent review before landing/pushing.

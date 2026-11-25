@@ -51,6 +51,9 @@ type ToolSvc interface {
 // assembles history itself (so it works across a process boundary; see the
 // plan's load-bearing decision).
 type Request struct {
+	// ReportWriteFailure reports in-process setup mutations that bypass PersistFunc.
+	// Worker requests have no local store; the host reports their setup failures.
+	ReportWriteFailure func(error) `json:"-"`
 	// ChatRoute is a per-turn snapshot; changes made by tools apply next turn.
 	// Under enterprise managed routing it is validated as an explicit session
 	// choice (profile+model identity) and honored only if policy permits.

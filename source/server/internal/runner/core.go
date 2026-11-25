@@ -473,6 +473,9 @@ func (c *Core) RunTurn(
 			if err := c.d.Agent.PersistentStore().EnsureConversation(
 				ctx, req.ConversationID, req.WorkDir, selectedModel,
 			); err != nil {
+				if req.ReportWriteFailure != nil {
+					req.ReportWriteFailure(err)
+				}
 				fmt.Fprintf(os.Stderr, "[tool-loop] EnsureConversation(%s) failed: %v\n", req.ConversationID, err)
 				persistEnabled = false
 				// Surface the failure so the user knows the turn won't appear in /resume

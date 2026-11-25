@@ -2,13 +2,18 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"cercano/source/server/internal/agent"
 	"cercano/source/server/internal/agenttools"
 	"cercano/source/server/internal/broker"
+	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/dispatch"
 	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/internal/inference"
@@ -39,6 +44,9 @@ func (p *realCompletionCloseProvider) StreamChat(ctx context.Context, req llm.Ch
 	switch p.outcome {
 	case "error":
 		return nil, errors.New("fixture inference execution error")
+	case "canceled-write-failure":
+		persistsvc.ReportWriteFailure(ctx, errors.New("fixture persistence failure"))
+		return nil, context.Canceled
 	case "canceled":
 		return nil, context.Canceled
 	case "write-failure":
@@ -47,11 +55,12 @@ func (p *realCompletionCloseProvider) StreamChat(ctx context.Context, req llm.Ch
 	return p.scriptedProvider.StreamChat(ctx, req)
 }
 
-// Characterization of a real taskrun terminal write and automatic owned wake.
+// Regression from the historic characterization: joined inference failure is not a failed write.
 // No test code advances or fails tickets; the barrier is inside inference.
 func TestRealCompletionOrdinaryClose(t *testing.T) {
-	for _, outcome := range []string{"success", "error", "canceled", "write-failure"} {
+	for _, outcome := range []string{"success", "error", "canceled", "write-failure", "canceled-write-failure", "ack-write-failure", "output-write-failure", "ensure-write-failure"} {
 		t.Run(outcome, func(t *testing.T) {
+			uncertain := outcome == "ensure-write-failure" || outcome == "write-failure" || outcome == "canceled-write-failure" || outcome == "ack-write-failure" || outcome == "output-write-failure"
 			s, owned, owner, tasks := preparedWakeFixtureWithConfig(t, config.Config{OpenRuntime: "synthetic", CloudModel: "fixture"})
 			// Remove the helper's unrelated pending notification using the durable API.
 			if err := tasks.HandleTaskNotification(owned, owner.Conversation, "one"); err != nil {
@@ -71,7 +80,16 @@ func TestRealCompletionOrdinaryClose(t *testing.T) {
 			child := &scriptedProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{{{Type: llm.BlockText, Text: "child persisted"}}}}
 			s.taskManager.Close(context.Background())
 			m, err := taskrun.NewPreparedOwnedCompletion(tasks, func(ctx context.Context, spec dispatch.Spec) (dispatch.Result, error) {
-				return s.runAgenticDispatch(ctx, spec, inference.Selection{Provider: child}, "fixture")
+				result, err := s.runAgenticDispatch(ctx, spec, inference.Selection{Provider: child}, "fixture")
+				if err == nil && outcome == "ensure-write-failure" {
+					db, openErr := sql.Open("sqlite", s.coexistence.options.StorePath)
+					if openErr != nil {
+						return result, openErr
+					}
+					defer db.Close()
+					_, err = db.Exec(fmt.Sprintf("CREATE TRIGGER ensure_failure BEFORE INSERT ON conversations WHEN NEW.id = '%s' BEGIN SELECT RAISE(ABORT, 'real ensure failure'); END", owner.Conversation))
+				}
+				return result, err
 			}, s.notifyOwnedTaskChange, s.coexistence.admission, s.resolvePreparedTaskOwner)
 			if err != nil {
 				t.Fatal(err)
@@ -112,6 +130,20 @@ func TestRealCompletionOrdinaryClose(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if outcome == "ack-write-failure" || outcome == "output-write-failure" {
+				db, err := sql.Open("sqlite", s.coexistence.options.StorePath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				table, operation, when := "delegated_tasks", "UPDATE", "WHEN NEW.notification_pending = 0"
+				if outcome == "output-write-failure" {
+					table, operation, when = "turns", "INSERT", "WHEN NEW.role = 'assistant'"
+				}
+				if _, err := db.Exec(fmt.Sprintf("CREATE TRIGGER completion_failure BEFORE %s ON %s %s BEGIN SELECT RAISE(ABORT, 'real completion mutation failure'); END", operation, table, when)); err != nil {
+					t.Fatal(err)
+				}
+			}
 			close(p.proceed)
 			released = true
 			joined := make(chan struct{})
@@ -130,19 +162,23 @@ func TestRealCompletionOrdinaryClose(t *testing.T) {
 				t.Fatalf("closure: %+v", after)
 			}
 			latest := s.latestCompletionTurn(owner.Conversation)
-			if outcome == "success" || outcome == "write-failure" {
+			if outcome == "success" || outcome == "write-failure" || outcome == "ack-write-failure" {
 				if latest.Content != "followup persisted" {
 					t.Fatalf("missing output: %+v", latest)
+				}
+			} else if outcome == "ensure-write-failure" {
+				if latest.Content != "" {
+					t.Fatalf("setup failure unexpectedly persisted: %+v", latest)
 				}
 			} else if latest.Role != "system" {
 				t.Fatalf("unexpected output: %+v", latest)
 			}
 			wf := persistsvc.WriteFailure(runctx)
 			t.Logf("outcome=%s WriteFailure=%v pending=%+v snapshot=%+v latest=%+v", outcome, wf, pending, after, s.latestCompletionTurn(owner.Conversation))
-			if outcome == "write-failure" && wf == nil {
+			if uncertain && wf == nil {
 				t.Fatal("missing write failure control")
 			}
-			if outcome != "write-failure" && wf != nil {
+			if !uncertain && wf != nil {
 				t.Fatalf("unexpected SQL/write failure: %v", wf)
 			}
 			if outcome == "success" {
@@ -150,28 +186,107 @@ func TestRealCompletionOrdinaryClose(t *testing.T) {
 					t.Fatalf("success retained: %+v %+v", pending, after)
 				}
 			} else {
-				if len(pending) != 1 || !pending[0].WakeClaimed || after.UnresolvedWork != 1 || after.Work[broker.PersistenceWork] != 1 {
-					t.Fatalf("failure characterization changed: %+v %+v", pending, after)
+				wantUnresolved := 0
+				if uncertain {
+					wantUnresolved = 1
+				}
+				if len(pending) != 1 || !pending[0].WakeClaimed || after.UnresolvedWork != wantUnresolved || after.Work[broker.PersistenceWork] != wantUnresolved {
+					t.Fatalf("pending state or uncertainty accounting: %+v %+v", pending, after)
 				}
 			}
 			_, sourceEndpoint := serveCutoverFixture(t, s)
 			options := s.coexistence.options
 			options.Host = "B"
-			b, err := NewCoexistenceServer(ctx, options)
+			dir := t.TempDir()
+			b, err := NewPreparedDurableServer(ctx, PreparedServerOptions{
+				Coexistence: options, Config: config.Config{OpenRuntime: "synthetic", CloudModel: "fixture"},
+				ConfigPath: filepath.Join(dir, "never-read"), RoutingPath: filepath.Join(dir, "routing"), FailurePath: filepath.Join(dir, "failures"),
+				Agent: func(st conversation.Store) (*agent.Agent, error) {
+					return agent.NewAgent(nil, nil, agent.WithPersistentStore(st)), nil
+				},
+			}, nil, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer b.Shutdown()
+			b.SetPermissions(agent.NewStaticPermissionStore(agent.ModeBypass), nil)
+			if err := b.ConfigurePreparedWorker(preparedWorkerPolicy(t)); err != nil {
+				t.Fatal(err)
+			}
+			b.SetToolRegistry(reg)
+			b.workerRunner = nil
+			nextProvider := &scriptedProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{{{Type: llm.BlockText, Text: "human response"}}}}
+			b.SetCloudLLMProvider(nextProvider)
 			bc, endpoint := serveCutoverFixture(t, b)
 			setResumeSource(b, s, sourceEndpoint)
 			r := resumeRequest(b, endpoint)
 			r.Owner.Conversation = owner.Conversation
 			res, re := bc.LifecycleResume(ctx, r)
 			t.Logf("ordinary resume=%+v error=%v source=%+v", res, re, s.coexistence.admission.Snapshot(owner))
-			if outcome == "success" {
+			if !uncertain {
 				if re != nil {
 					t.Fatal(re)
 				}
+				newOwner := ownerOf(b.coexistence.owners[owner.Conversation])
+				if newOwner == owner {
+					t.Fatal("owner epoch did not change")
+				}
+				if err := tasks.HandleTaskNotification(owned, owner.Conversation, task.ID); err == nil {
+					t.Fatal("old owner acknowledged after transfer")
+				}
+				// Resume is idempotent and must not schedule the claimed notification.
+				for i := 0; i < 3; i++ {
+					if _, err := bc.LifecycleResume(ctx, r); err != nil {
+						t.Fatal(err)
+					}
+				}
+				b.taskWakeWG.Wait()
+				if nextProvider.calls != 0 {
+					t.Fatalf("resume ran inference: %d", nextProvider.calls)
+				}
+				currentTasks := b.persistSvc.Store().(conversation.TaskStore)
+				if outcome != "success" {
+					pending, err := currentTasks.PendingTasks(ctx, owner.Conversation)
+					if err != nil || len(pending) != 1 || !pending[0].WakeClaimed {
+						t.Fatalf("resume changed pending state: %+v %v", pending, err)
+					}
+					// First human turn succeeds, but its notification followup fails at the real
+					// provider (script exhausted). No mutation uncertainty may fence this owner.
+					req := &pb.ProcessRequestRequest{ConversationId: owner.Conversation, Input: "check the result"}
+					_ = b.StreamProcessRequest(req, newCollectingStream(foregroundBinding(ctx, newOwner)))
+					pending, err = currentTasks.PendingTasks(ctx, owner.Conversation)
+					if err != nil || len(pending) != 1 || !pending[0].WakeClaimed {
+						t.Fatalf("failed human handling lost evidence: %+v %v", pending, err)
+					}
+					if snap := b.coexistence.admission.Snapshot(newOwner); snap.UnresolvedWork != 0 {
+						t.Fatalf("human inference failure fenced ownership: %+v", snap)
+					}
+					db, err := sql.Open("sqlite", options.StorePath)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer db.Close()
+					if _, err := db.Exec(`CREATE TABLE ack_audit (task TEXT); CREATE TRIGGER count_ack AFTER UPDATE ON delegated_tasks WHEN OLD.notification_pending = 1 AND NEW.notification_pending = 0 BEGIN INSERT INTO ack_audit VALUES (NEW.id); END`); err != nil {
+						t.Fatal(err)
+					}
+					handled := &scriptedProvider{caps: inference.Capabilities{SupportsTools: true}, scripts: [][]llm.Block{{{Type: llm.BlockText, Text: "human again"}}, {{Type: llm.BlockText, Text: "handled pending child"}}}}
+					b.SetCloudLLMProvider(handled)
+					if err := b.StreamProcessRequest(req, newCollectingStream(foregroundBinding(ctx, newOwner))); err != nil {
+						t.Fatal(err)
+					}
+					if handled.calls != 2 || !strings.Contains(fmt.Sprint(handled.seen[1]), task.ID) {
+						t.Fatalf("human boundary did not observe child result: %+v", handled.seen)
+					}
+					pending, err = currentTasks.PendingTasks(ctx, owner.Conversation)
+					if err != nil || len(pending) != 0 {
+						t.Fatalf("not acknowledged: %+v %v", pending, err)
+					}
+					var count int
+					if err := db.QueryRow(`SELECT count(*) FROM ack_audit`).Scan(&count); err != nil || count != 1 {
+						t.Fatalf("ack count=%d err=%v", count, err)
+					}
+				}
+
 			} else if re == nil {
 				t.Fatal("unexpected resume")
 			}
