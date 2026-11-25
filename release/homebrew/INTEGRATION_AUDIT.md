@@ -56,6 +56,12 @@ contract: 6 tests. No full Go suite is needed for this Python/workflow/docs scop
 These checks cover closed gates, same-version immutability, same-run artifact
 contracts, coordinated contention/reconciliation and controlled local Git
 integration; they do not replace pending native/human release acceptance.
+The explicit pre-land gate reran all four suites successfully, checked
+`git diff --check`, verified both booleans False, and confirmed no baseline diff
+for `release/homebrew/templates` or `.github/workflows/package-chocolatey.yml`.
+Independent review was attempted twice; the review service returned
+`unknown or stale ownership or ticket` both times. No independent review verdict
+was obtained; local inspection and automated tests are not represented as one.
 
 ## Retained workspaces
 

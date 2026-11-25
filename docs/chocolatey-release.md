@@ -4,7 +4,7 @@ See the authoritative [release runbook](releases.md) before selecting a source,
 tagging or dispatching. **Integrated publication is currently blocked:** its
 `publish=true` mode is stopped by the required acceptance preflight before
 builds or public mutations. Tap-only recovery shares the closed acceptance gate.
-that mode as a Chocolatey route or as a test of readiness.
+Do not use publication mode as a Chocolatey route or as a test of readiness.
 
 Operator guide for the manual [standalone packaging workflow](../.github/workflows/package-chocolatey.yml)
 and [integrated release workflow](../.github/workflows/release-macos.yml).
