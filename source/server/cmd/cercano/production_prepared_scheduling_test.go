@@ -12,6 +12,7 @@ import (
 	"cercano/source/server/internal/broker"
 	"cercano/source/server/internal/conversation"
 	"cercano/source/server/internal/engine"
+	persistsvc "cercano/source/server/internal/hostsvc/persistence"
 	"cercano/source/server/internal/inference"
 	"cercano/source/server/internal/loopcompact"
 	"cercano/source/server/internal/secrets"
@@ -53,6 +54,7 @@ func testProductionPreparedSchedulingOwnership(t *testing.T, producer string, ac
 	var hosts []*server.Server
 	var starts []chan struct{}
 	var unblocks []func()
+	var providerContexts []chan context.Context
 	debounce := time.Hour
 	if active {
 		debounce = time.Millisecond
@@ -70,7 +72,13 @@ func testProductionPreparedSchedulingOwnership(t *testing.T, producer string, ac
 		t.Cleanup(unblock)
 		starts = append(starts, entered)
 		unblocks = append(unblocks, unblock)
-		call := func(c context.Context) error { once.Do(func() { close(entered) }); <-resume; return c.Err() }
+		observed := make(chan context.Context, 1)
+		providerContexts = append(providerContexts, observed)
+		call := func(c context.Context) error {
+			once.Do(func() { observed <- c; close(entered) })
+			<-resume
+			return c.Err()
+		}
 		s, err := newProductionPreparedServer(ctx, server.PreparedServerOptions{
 			Config: cfg, Secrets: secrets.NewMemory(), ConfigPath: filepath.Join(dir, host+".yaml"), RoutingPath: filepath.Join(dir, host+".routing"), FailurePath: filepath.Join(dir, host+".failures"),
 			Coexistence: server.CoexistenceOptions{StorePath: path, Host: host, Build: "fixture", CloseParticipation: func(context.Context) error { return nil }, Contract: conversation.DevelopmentCoexistenceDeclaration()},
@@ -157,15 +165,32 @@ func testProductionPreparedSchedulingOwnership(t *testing.T, producer string, ac
 		case <-time.After(5 * time.Second):
 			t.Fatal("join did not drain")
 		}
-		err = s.ReleaseRetained(ctx, owner, nil)
-		if active && producer != "recap" {
-			// Failed/cancelled production execution remains unresolved; joining
-			// callbacks is not permission to erase its persistence obligation.
-			if !errors.Is(err, broker.ErrAdmissionBusy) {
-				t.Fatalf("cancelled work lost closure protection: %v", err)
+		if active {
+			providerCtx := <-providerContexts[i]
+			if !errors.Is(providerCtx.Err(), context.Canceled) || persistsvc.WriteFailure(providerCtx) != nil {
+				t.Fatalf("joined inference outcome: cancellation=%v write=%v", providerCtx.Err(), persistsvc.WriteFailure(providerCtx))
 			}
-		} else if err != nil {
-			t.Fatalf("pending timer did not drain: %v", err)
+		}
+		if err := persistsvc.WriteFailure(owned); err != nil {
+			t.Fatalf("foreground write failure: %v", err)
+		}
+		// Both producers fail in inference, before writeback. Release checks all
+		// tickets (including unresolved persistence), not merely callback return.
+		if err := s.ReleaseRetained(ctx, owner, nil); err != nil {
+			t.Fatalf("joined inference-only work did not release: %v", err)
+		}
+		// A different real prepared host must acquire durable ownership with a
+		// fresh epoch; local admission closure alone is insufficient evidence.
+		destination := hosts[1-i]
+		next, err := destination.Retain(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if next.Epoch == owner.Epoch || next.Host == owner.Host {
+			t.Fatalf("ownership did not advance: old=%+v next=%+v", owner, next)
+		}
+		if err := destination.ReleaseRetained(ctx, next, nil); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

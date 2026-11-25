@@ -69,3 +69,105 @@ injects only the death verifier to avoid inspecting ambient processes; it does
 not qualify the Darwin kernel process enumerator end-to-end. Full repository
 suites and real model execution were not run. This checkpoint is for independent
 review, not landing.
+
+## Combined integration final gates — 2026-11-25 (awaiting rereview)
+
+Validated production tree: `e4f132d3e009b627e11ed4610947436cb961785f`,
+`fix/reviewed-integration-20261125`. This follow-up changes only the two
+production-scheduling tests, the ACP protocol fixture, and this document.
+**Not landed or pushed; independent final test-diff review is still required.**
+The older “full repository suites ... were not run” statement above describes
+that historical checkpoint. Full server and CLI module normal suites now pass;
+this does not qualify every repository platform or full native application use.
+
+### Reproduced failures and bounded correction
+
+Original integration tests reproduced both old cancellation expectations:
+`production_prepared_scheduling_test.go:165` (“cancelled work lost closure
+protection: <nil>”) and `production_scheduling_test.go:280` (“cancelled write
+lost blocker: <nil>”). An exact original-file Go overlay reproduced these again
+without reverting the working files. Compaction now distinguishes a proven
+inference-only error from persistence failure: `Advance` must return the
+summarizer error before `SaveCompaction`, and the write-outcome observer must
+remain clean. Partial progress, uncertain commits and reported write failures
+are not made releasable by these test changes. No production safety defect was
+found in the exercised paths; no production code changed.
+
+The common-factory fixture now counts attempted recap/compaction writes (zero
+on inference cancellation), checks clean `WriteFailure`, joins both generators,
+and asserts no remaining local/host tickets or unresolved work before closure.
+The real prepared-server constructor fixture holds the provider until explicitly
+unblocked, verifies join cannot finish early, checks cancellation and clean write
+outcomes, then releases and reacquires from the other prepared host with a new
+epoch. This is durable ownership reacquisition, not a new model turn or UI resume.
+The constructor fixture uses the exact validated store and production scheduling
+binding, unlike the common-factory fixture's manually supplied admission bridge.
+Neither focused fixture itself runs the complete `RunPrepared` entrypoint.
+Full module tests additionally include `TestInstalledProductionColdHost`; these
+are distinct layers, not one combined native cancellation/resume journey.
+
+Existing `TestCompactionInferenceAndSQLiteOutcomes` remains unchanged and passed
+20 race repetitions, including actual SQLite abort, ownership refusal, uncertain
+commit and cancellation with a reported write failure. Those cases preserve
+fencing; no blanket cancellation exemption or negative-test removal was made.
+
+ACP reproduced on the clean detached disposable baseline worktree at
+`cbd16185c270e6c46f9d5f4669c8aa2a38521fc9`: both allow/cancel failed at
+`agentclient_test.go:87` because `GetCredentialPolicy` was unimplemented under
+`CERCANO_DISABLE_CREDENTIALS=1`. This is preexisting, not caused by the combined
+fixes. The in-memory protocol mock has no credential store or secret access;
+it now honestly returns `CredentialsDisabled: true`, and its test explicitly
+requires isolation. Production validation and existing policy-negative tests
+are unchanged (included in the passing full server suite).
+
+### Commands and results
+
+Artifacts are local under `/tmp/cercano-final-gates.DwvdA8` (`R` below).
+HOME and XDG config/data/cache/state and TMPDIR point beneath R; credentials
+are disabled and GOTELEMETRY=off. GOPATH/GOMODCACHE/GOCACHE retain the existing
+Go tool caches, resolved before HOME changes. This is runtime directory
+isolation, not a claim of a fully allowlisted outer environment. The installed
+cold-host subprocess fixture applies its own environment allowlist. All final
+commands below used an outer 900-second limit.
+
+From `source/server`, with
+`F='TestProduction(PreparedSchedulingOwnership|SchedulingCommonFactory)|TestGRPCAdapterPermissionAndCancel'`:
+
+```sh
+go test -overlay "$R/original-overlay.json" ./cmd/cercano ./internal/acp -run "$F" -count=1 -timeout=60s
+# Expected exit 1: exact original three test files from integration HEAD.
+go test ./cmd/cercano ./internal/acp -run "$F" -count=20 -timeout=300s
+go test -race ./cmd/cercano ./internal/acp -run "$F" -count=20 -timeout=300s
+go test -race ./internal/hostsvc/persistence -run '^TestCompactionInferenceAndSQLiteOutcomes$' -count=20 -timeout=300s
+go test ./... -count=1 -timeout=300s
+go build -o "$R/cercano-server" ./cmd/cercano
+```
+
+All non-overlay commands exit 0. Normal focused: 10.580s / 0.391s;
+race focused: 90.700s / 1.463s; persistence negative/positive race matrix:
+54.910s. Full server outer elapsed: 1m43.899s, exit 0. Build exit 0.
+Earlier full server attempt failed only when the installed fixture's offline
+build lacked cached modules (`GOPROXY=off`); final run used the populated cache
+without changing that fixture or weakening credential isolation.
+
+From the detached baseline's `source/server`, same credentials-disabled runtime
+isolation: `go test ./internal/acp -run '^TestGRPCAdapterPermissionAndCancel$'
+-count=1 -timeout=60s` exits 1 with both missing-policy failures (`acp-base.log`).
+
+From `source/clients/cli`:
+
+```sh
+go test ./... -count=1 -timeout=300s
+go build -o "$R/cercano-cli" .
+```
+
+Both exit 0; full CLI outer elapsed 9.739s. Logs: `red-reproduced.log`,
+`repeat.log`, `race.log`, `negative-race.log`, `server-full-cached.log`,
+`cli-full.log`, `server-build.log`, `cli-build.log`. Builds are temporary.
+No full repository race suite, real model/secret access, PTY/full native UI,
+Darwin process-enumerator acceptance, or external-effect cancellation guarantee
+is claimed. Historical recovery and process-fixture limitations above remain.
+Source worktrees and the dirty root were not modified; no live host state was
+used. Review should specifically check inference-vs-write classification,
+join/ticket assertions, durable new-epoch acquisition, and fixture-only policy
+attestation before any landing decision.

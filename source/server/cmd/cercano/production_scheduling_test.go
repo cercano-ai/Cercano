@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,6 +40,22 @@ func (s *schedulingProvider) Chat(ctx context.Context, _ inference.Call) (infere
 		return inference.Result{}, err
 	}
 	return inference.Result{Blocks: []llm.Block{{Type: llm.BlockText, Text: "GOAL: fixture summary\nSTATE: completed fixture"}}}, nil
+}
+
+// Observe attempted generator writes, including writes that return an error.
+// Seeding and the independent SQLite writer deliberately use the unwrapped store.
+type schedulingWriteProbe struct {
+	conversation.Store
+	writes atomic.Int32
+}
+
+func (s *schedulingWriteProbe) SaveCompaction(ctx context.Context, c conversation.Compaction) error {
+	s.writes.Add(1)
+	return s.Store.SaveCompaction(ctx, c)
+}
+func (s *schedulingWriteProbe) UpdateRecap(ctx context.Context, id, recap string) error {
+	s.writes.Add(1)
+	return s.Store.UpdateRecap(ctx, id, recap)
 }
 
 // These are constructor/bridge tests, not a second production application.
@@ -118,6 +135,7 @@ func TestProductionSchedulingCommonFactory(t *testing.T) {
 					owned = context.WithValue(owned, key{}, "exact incoming context")
 					entered, resume, callback, finish := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 					var once, callbackOnce, resumeOnce, finishOnce sync.Once
+					var providerCtx context.Context
 					unblock := func() { resumeOnce.Do(func() { close(resume) }); finishOnce.Do(func() { close(finish) }) }
 					defer unblock()
 					call := func(c context.Context) error {
@@ -129,6 +147,7 @@ func TestProductionSchedulingCommonFactory(t *testing.T) {
 						}
 						attempt := usage.StartAttempt(c, "memory", "fixture")
 						once.Do(func() {
+							providerCtx = c
 							close(entered)
 							select {
 							case <-resume:
@@ -159,13 +178,14 @@ func TestProductionSchedulingCommonFactory(t *testing.T) {
 						}
 						return true
 					}
+					probe := &schedulingWriteProbe{Store: st}
 					var p productionScheduling
 					if prepared {
 						// Compile/use the exact opt-in seam; it must consume the supplied store.
 						options := server.PreparedServerOptions{Scheduling: preparedProductionScheduling(deps, opts)}
-						p.recap, p.compaction = options.Scheduling(st)
+						p.recap, p.compaction = options.Scheduling(probe)
 					} else {
-						p = composeProductionScheduling(st, deps, opts)
+						p = composeProductionScheduling(probe, deps, opts)
 					}
 					defer func() {
 						unblock()
@@ -274,14 +294,19 @@ func TestProductionSchedulingCommonFactory(t *testing.T) {
 					case <-ctx.Done():
 						t.Fatal(ctx.Err())
 					}
+					if err := persistsvc.WriteFailure(providerCtx); err != nil {
+						t.Fatalf("provider write outcome: %v", err)
+					}
+					if shutdown && probe.writes.Load() != 0 {
+						t.Fatalf("inference cancellation attempted %d writes", probe.writes.Load())
+					}
 					if prepared {
-						_, err := admission.CloseOwner(owner, nil)
-						if shutdown && producer != "recap" && !errors.Is(err, broker.ErrAdmissionBusy) {
-							t.Fatalf("cancelled write lost blocker: %v", err)
+						snap := admission.Snapshot(owner)
+						if snap.UnresolvedWork != 0 || snap.UnresolvedHostWork != 0 || len(snap.Work) != 0 || len(snap.HostWork) != 0 {
+							t.Fatalf("joined work remains: %+v", snap)
 						}
-						// Mock recap cancellation occurs in inference, before any write.
-						if (!shutdown || producer == "recap") && err != nil {
-							t.Fatal(err)
+						if _, err := admission.CloseOwner(owner, nil); err != nil {
+							t.Fatalf("joined inference-only work did not release: %v", err)
 						}
 					}
 					if !shutdown && producer == "recap" {

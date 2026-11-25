@@ -23,6 +23,12 @@ type grpcBackend struct {
 	cancelled chan string
 }
 
+// This in-memory protocol fixture has no credential store or secret access.
+// Attest that property rather than bypassing DialExisting's isolation check.
+func (*grpcBackend) GetCredentialPolicy(context.Context, *proto.GetCredentialPolicyRequest) (*proto.GetCredentialPolicyResponse, error) {
+	return &proto.GetCredentialPolicyResponse{CredentialsDisabled: true}, nil
+}
+
 func (s *grpcBackend) AttachConversation(req *proto.AttachConversationRequest, stream proto.Agent_AttachConversationServer) error {
 	s.attached <- req.ConversationId
 	<-stream.Context().Done()
@@ -71,6 +77,7 @@ func TestGRPCBackendAcknowledgesPermissionDecisions(t *testing.T) {
 }
 
 func TestGRPCAdapterPermissionAndCancel(t *testing.T) {
+	t.Setenv("CERCANO_DISABLE_CREDENTIALS", "1")
 	for _, cancel := range []bool{false, true} {
 		t.Run(map[bool]string{false: "allow", true: "cancel"}[cancel], func(t *testing.T) {
 			service := &grpcBackend{requests: make(chan *proto.ProcessRequestRequest, 2), decisions: make(chan decision, 2), approved: make(chan bool, 1), attached: make(chan string, 2), cancelled: make(chan string, 2)}
