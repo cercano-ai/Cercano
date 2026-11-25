@@ -1,0 +1,37 @@
+{
+  "archive_sha256": "18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0",
+  "files": [
+    {
+      "action": "update",
+      "after_sha256": "2d076fc9d3a25e3fcb017e0180a17eea69d0e15686b778e5431c573ed843a741",
+      "before_sha256": "50f68b11106b7ca865bd931a0e945fc454c4275283d9e93ade230c2f548be5be",
+      "content": "# Non-publishing package-definition fixture; runtime/migration acceptance pending.\nclass Cercano < Formula\n  desc \"Cercano CLI and agent convenience dependencies\"\n  homepage \"https://github.com/cercano-ai/Cercano\"\n  url \"https://github.com/cercano-ai/Cercano/releases/download/v0.27.0/cercano-0.27.0-darwin-arm64.tar.gz\"\n  version \"0.27.0\"\n  sha256 \"18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0\"\n  license \"MIT\"\n\n  depends_on macos: :monterey\n  depends_on arch: :arm64\n\n  # Coordinated release set, not an atomic upgrade or an exact-version lock.\n  depends_on \"cercano-agent\"\n  depends_on \"cercano-cli\"\n\n  def install\n    # Keep the keg nonempty without owning commands or runtime resources.\n    pkgshare.install \"README.txt\"\n  end\n\n  def caveats\n    <<~EOS\n      Package-definition fixture only; not release-ready.\n      Agent owns cercano; client owns cercano-cli. No bundled llama runtime.\n      Old-monolith migration and partial upgrades require native acceptance.\n      Installation does not start, stop, or restart an agent.\n    EOS\n  end\n\n  test do\n    assert_predicate Formula[\"cercano-agent\"].opt_bin/\"cercano\", :executable?\n    assert_predicate Formula[\"cercano-cli\"].opt_bin/\"cercano-cli\", :executable?\n  end\nend\n",
+      "path": "Formula/cercano.rb"
+    },
+    {
+      "action": "update",
+      "after_sha256": "86387592093053143e41110089888880b5d4d8e5ff5600e6174f183a2f712e16",
+      "before_sha256": null,
+      "content": "# Non-publishing package-definition fixture; runtime/migration acceptance pending.\nclass CercanoAgent < Formula\n  desc \"Cercano agent (incomplete runtime fixture)\"\n  homepage \"https://github.com/cercano-ai/Cercano\"\n  url \"https://github.com/cercano-ai/Cercano/releases/download/v0.27.0/cercano-0.27.0-darwin-arm64.tar.gz\"\n  version \"0.27.0\"\n  sha256 \"18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0\"\n  license \"MIT\"\n\n  depends_on macos: :monterey\n  depends_on arch: :arm64\n\n  def install\n    bin.install \"bin/cercano\"\n  end\n\n  def caveats\n    <<~EOS\n      Package-definition fixture only; not release-ready.\n      No bundled llama/model runtime; full runtime acceptance remains blocked.\n      Installation does not start, stop, or restart an agent.\n      Old-monolith migration requires isolated native acceptance before publication.\n    EOS\n  end\n\n  test do\n    assert_match \"cercano v#{version}\", shell_output(\"#{bin}/cercano --version\")\n  end\nend\n",
+      "path": "Formula/cercano-agent.rb"
+    },
+    {
+      "action": "update",
+      "after_sha256": "5fd3dc1b1192336a4ea62b6202f53661cfe115080f2aad9195f072d06b7f8a0c",
+      "before_sha256": null,
+      "content": "# Non-publishing package-definition fixture; runtime/migration acceptance pending.\nclass CercanoCli < Formula\n  desc \"Cercano remote-capable command-line client\"\n  homepage \"https://github.com/cercano-ai/Cercano\"\n  url \"https://github.com/cercano-ai/Cercano/releases/download/v0.27.0/cercano-0.27.0-darwin-arm64.tar.gz\"\n  version \"0.27.0\"\n  sha256 \"18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0\"\n  license \"MIT\"\n\n  depends_on macos: :monterey\n  depends_on arch: :arm64\n\n  def install\n    bin.install \"bin/cercano-cli\"\n  end\n\n  def caveats\n    <<~EOS\n      Package-definition fixture only; not release-ready.\n      No bundled llama/model runtime; full runtime acceptance remains blocked.\n      Installation does not start, stop, or restart an agent.\n      Old-monolith migration requires isolated native acceptance before publication.\n    EOS\n  end\n\n  test do\n    assert_match \"cercano-cli v#{version}\", shell_output(\"#{bin}/cercano-cli --version\")\n  end\nend\n",
+      "path": "Formula/cercano-cli.rb"
+    }
+  ],
+  "migration_policy": "explicit-operator-only; no automatic unlink/overwrite/remove",
+  "requirements": [
+    "Review all three formulas as one set; dependencies must be available together.",
+    "Future authorized publication must use one commit and a compare-and-swap of the reviewed base; never sequential Contents API writes.",
+    "Revalidate all inputs and tap base at application time; this plan grants no publication authority.",
+    "Complete applicable historical-monolith rehearsal, human/runtime and signed-package acceptance."
+  ],
+  "schema": 1,
+  "status": "review-only-publication-blocked",
+  "tap_base_sha": "caffd060597d6ca9706c9fa4db0c7c042722d7ef",
+  "version": "0.27.0"
+}

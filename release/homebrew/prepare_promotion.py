@@ -9,10 +9,25 @@ import sys
 import tarfile
 
 import render_formula as renderer
-from update_tap import Failure, decision, require
-from promote_to_tap import PromotionError
+from update_tap import Failure, require
+from promote_to_tap import PromotionError, read_formula_fields
 
 NAMES = ('cercano.rb', 'cercano-agent.rb', 'cercano-cli.rb')
+
+
+def decision(existing, desired, version, digest):
+    """Offline per-file comparison; not the coordinated publication decision."""
+    if existing is None:
+        return 'update'
+    fields = read_formula_fields(existing)
+    old = tuple(map(int, renderer.parse_version(fields['version']).split('.')))
+    new = tuple(map(int, version.split('.')))
+    require(old <= new, 'Tap already has a newer version; refusing downgrade')
+    if old == new:
+        require(fields['sha256'] == digest, 'Same version has different checksum; refusing replacement')
+        require(existing == desired, 'Same version has different formula; refusing replacement')
+        return 'unchanged'
+    return 'update'
 
 
 def sha(content):

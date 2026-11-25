@@ -1,0 +1,19 @@
+{
+  "after_sha256": {
+    "Formula/cercano-agent.rb": "86387592093053143e41110089888880b5d4d8e5ff5600e6174f183a2f712e16",
+    "Formula/cercano-cli.rb": "5fd3dc1b1192336a4ea62b6202f53661cfe115080f2aad9195f072d06b7f8a0c",
+    "Formula/cercano.rb": "2d076fc9d3a25e3fcb017e0180a17eea69d0e15686b778e5431c573ed843a741"
+  },
+  "before_sha256": {
+    "Formula/cercano-agent.rb": null,
+    "Formula/cercano-cli.rb": null,
+    "Formula/cercano.rb": "50f68b11106b7ca865bd931a0e945fc454c4275283d9e93ade230c2f548be5be"
+  },
+  "credential_transport": "existing gh credential; canonical tap write permission verified",
+  "head": "caffd060597d6ca9706c9fa4db0c7c042722d7ef",
+  "parents": [
+    "601b6679f4fb726cd8e8d73b7b0ddb2abd01a507"
+  ],
+  "public_archive_sha256": "18c68ccc69662da6d18b8017a3eba7eaebc67e057065b90bb66deba2838d2aa0",
+  "public_archive_size": 45728133
+}
