@@ -1,5 +1,11 @@
 # Gated Chocolatey CI publishing
 
+See the authoritative [release runbook](releases.md) before selecting a source,
+tagging or dispatching. **Integrated publication is currently blocked:** its
+`publish=true` mode is stopped by the required acceptance preflight before
+builds or public mutations. Tap-only recovery shares the closed acceptance gate.
+that mode as a Chocolatey route or as a test of readiness.
+
 Operator guide for the manual [standalone packaging workflow](../.github/workflows/package-chocolatey.yml)
 and [integrated release workflow](../.github/workflows/release-macos.yml).
 Windows remains experimental and unsigned. See [installation and package status](installation-windows.md)
@@ -14,9 +20,9 @@ availability. This guide does not establish current moderation status.
 
 Before opting into publication:
 
-1. In repository **Settings → Secrets and variables → Actions**, add repository
-   secret **`CHOCOLATEY_API_KEY`** for an authorized Chocolatey community-feed
-   account. Never put the key into inputs, command arguments, logs or files.
+1. Configure **`CHOCOLATEY_API_KEY`** for an authorized Chocolatey community-feed
+   account through approved GitHub secret management, preferably scoped to the
+   protected `release` environment. Never put the key into inputs, command arguments, logs or files.
 2. In **Settings → Environments**, configure **`release`** with required reviewers
    and deployment branch/tag restrictions for trusted workflow refs. Do not rely
    on automatic environment creation as an approval gate. Protect those refs:
@@ -25,7 +31,8 @@ Before opting into publication:
 3. Review the selected workflow commit, requested version, native test results
    and inspected artifacts before approving the `publish-chocolatey` job.
    The integrated workflow also needs the signing/notarization and Homebrew
-   configuration described in [the macOS release guide](macos-release-build.md).
+   configuration described in [the macOS release guide](macos-release-build.md),
+   plus resolution of the current publication blockers.
 
 Both workflows are `workflow_dispatch` only and default **`publish=false`**.
 Packing jobs have no Chocolatey credentials and no `release` environment. Only
@@ -85,9 +92,8 @@ gh workflow run package-chocolatey.yml --ref "$WORKFLOW_REF" \
 # Integrated release: tag v$VERSION must already exist; all platforms build.
 gh workflow run release-macos.yml --ref "$WORKFLOW_REF" \
   -f version="$VERSION" -f publish=false
-# For a NEW full release only: opts into all publication channels.
-gh workflow run release-macos.yml --ref "$WORKFLOW_REF" \
-  -f version="$VERSION" -f publish=true
+# No integrated publish=true command: current tap refusal makes full publication
+# unsafe. See releases.md for the blocked publication contract.
 ```
 
 Choose one route, not both publishers for the same package version. In the Actions
@@ -103,8 +109,9 @@ and notarizes macOS and therefore still requires its signing-environment approva
 it writes neither a GitHub Release nor a tap update. A later dispatch builds and
 packs again; it does not promote a previous run's artifacts. With `publish=true`,
 integrated Chocolatey submission waits for the main build/publication job and the
-Windows job to succeed (the main job itself waits for Windows and Linux). A tap
-failure can therefore prevent Chocolatey submission even after release upload.
+Windows job to succeed (the main job itself waits for Windows and Linux). The current closed publication preflight stops the pipeline before builds or
+public mutations; later tap failure after future acceptance would still skip
+integrated Chocolatey.
 
 ## Checksums, artifacts and review
 

@@ -1,5 +1,10 @@
 # Homebrew split package definitions
 
+Operators: follow the authoritative [release runbook](../../docs/releases.md).
+**Before tagging/dispatching:** integrated `publish=true` can upload GitHub
+assets, then fail the disabled tap updater and skip Chocolatey. Tap-only
+recovery is disabled too; this is not an operational full-release pipeline.
+
 ## Published status and installation
 
 The v0.27.0 split was published to the official `cercano-ai/cercano` tap in
@@ -316,5 +321,4 @@ remain separately authorized release gates.
   compatibility. No bundled llama closure or external cleanup safety is supplied.
 * Final signed/notarized-package clean-Mac smoke and supported platform/trust
   qualification. Then separately authorized public asset/provenance integration
-  and publication review; the live/local promotion guards remain unconditional
-  until acceptance.
+  and publication review; the live/local promotion acceptance gates remain closed.

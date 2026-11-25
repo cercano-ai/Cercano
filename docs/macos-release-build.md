@@ -1,7 +1,12 @@
 # macOS release build
 
+For the authoritative operator sequence, see the [release runbook](releases.md).
+**Full publication is blocked:** a required publication preflight checks the
+closed acceptance gate before all builds, signing and public mutations.
+Read the runbook STOP gate; tap-only recovery remains acceptance-gated.
+
 `scripts/build-macos-release.sh` produces the signed Apple Silicon release
-archive that the Homebrew formula refers to. It builds both binaries from one
+archive shared by the three Homebrew formula definitions. It builds both binaries from one
 tag-derived version, verifies them, signs them through
 `scripts/sign-macos-release.sh`, and packages exactly the layout
 `release/homebrew/render_formula.py` accepts:
@@ -12,6 +17,7 @@ cercano-<version>-darwin-arm64/
   bin/cercano-cli
   LICENSE
   README.txt
+  runtime-inventory.json
 ```
 
 ## Usage
@@ -56,12 +62,15 @@ touch the tap, and it bundles no models, runtimes, or credentials.
 ## Verifying a finished archive
 
 `scripts/verify-macos-release.py` inspects an archive the way a consumer
-receives it, rather than trusting the machine that produced it:
+receives it, rather than trusting the machine that produced it. Set
+`EXPECTED_SHA256` from the trusted build record and `NOTARIZATION_EVIDENCE_DIR`
+to the accepted evidence directory before running:
 
 ```bash
 python3 scripts/verify-macos-release.py dist/cercano-1.2.3-darwin-arm64.tar.gz \
     --version 1.2.3 \
-    --sha256 <expected-64-hex-digest>
+    --sha256 "$EXPECTED_SHA256" \
+    --notarization-evidence "$NOTARIZATION_EVIDENCE_DIR"
 ```
 
 It checks the archive layout, the SHA-256 digest, arm64-only architecture, the
@@ -100,53 +109,35 @@ The host OS is independent of the archive's macOS **12.0** deployment floor:
 `build-macos-release.sh` still pins that floor in the environment and CGO flags
 and builds/verifies `darwin-arm64` binaries.
 
-**Existing-tag runner recovery:** rerunning an old run or dispatching its old
-tag uses the old workflow, not a runner fix on another branch. In particular,
-`v0.27.0` contains the unsupported `macos-14` runner. Dispatch this corrected
-workflow from a reviewed recovery branch with `version=0.27.0` and
-`publish=false` to build the unchanged tag without moving it. Every platform
-validates the version before deriving an explicit `refs/tags/v<version>`
-checkout, then verifies that HEAD is that tag's commit. Logs identify both the
-source commit and the workflow ref/commit. All build scripts, tests, workflow
-fixtures read by those tests, and publication/tap tooling come from the tag;
-the executing workflow and separately pinned Chocolatey packaging/publishing
-tools come from the selected workflow revision. Thus the old source's
-runner assertions still read its own matching workflow fixture. Never move the
-tag, bypass validation, or set `CERCANO_ALLOW_UNTAGGED` for recovery. Protected
-environment approval is still required for signing, even with `publish=false`.
+### Workflow behavior and provenance
 
-`.github/workflows/release-macos.yml` is a **single-run release**. Dispatch it
-from a trusted, reviewed workflow ref, with the stable version without `v`.
-The release source is always the exact commit tagged `v<version>`.
-Explicitly enable **publish** for a release (default **false**). This also opts
-into protected Chocolatey submission; see the [Chocolatey operator guide](chocolatey-release.md).
-No prior rehearsal run or second dispatch is required.
+See the [release runbook](releases.md#5-workflow-ref-source-and-tooling-provenance)
+for exact source selection, tag immutability, dispatch and approval requirements.
+The workflow is manual-only and defaults to `publish=false`. Every platform
+checks out the explicit version tag and verifies HEAD matches its commit. The
+selected workflow ref supplies the executing workflow; build code, tests,
+workflow fixtures and Homebrew tooling remain tag-bound. Chocolatey tools are
+separately pinned to `github.workflow_sha`.
 
-1. The secret-free Windows and Linux jobs build and smoke-test their archives.
-2. Once both succeed, approve the protected `release` environment **once**.
-   This approval authorizes signing **and publication**, not just a rehearsal.
-3. The protected Apple Silicon job runs its test gate, builds/signs once,
-   notarizes, verifies the finished archive, renders the formula, and destroys
-   its temporary signing keychain. It retains the verified artifacts.
-4. In that same job, publication automatically downloads this run's three
-   artifacts, checks their SHA-256 digests against the recorded build outputs,
-   refuses existing release assets, and publishes those exact bytes. It does
-   not rebuild. The tap update follows successful publication, using the same
-   archive digest and environment-protected tap token. The separate Chocolatey
-   publisher then downloads this run's inspected packages;
-   its own `release` environment gate is subject to configured protection rules.
+A new dispatch from a reviewed ref can select a corrected runner for an unchanged
+old source tag; rerunning an old run does not adopt newer workflow changes.
+This does not enable newer tag-bound publication tools or justify rebuilding
+published artifacts. Never move the tag or use `CERCANO_ALLOW_UNTAGGED` in CI.
 
-**Optional dry run:** set `publish=false` (uncheck publish). All builds,
-signing, notarization, verification and artifact retention still run, but no
-release, tap or Chocolatey submission is written. This is not a prerequisite
-for a release. A later new dispatch is a new build, not promotion of a previous dry run's artifacts.
+After publication preflight, Windows/Linux build first without secrets. The protected macOS job then runs its
+test gate, builds/signs once, notarizes, verifies and renders all three formulas.
+It destroys its temporary keychain and retains artifacts for 14 days. A build-only
+run still needs signing approval. Publication-enabled runs download this run's
+platform artifacts, verify their recorded digests and upload immutable GitHub
+assets before invoking the coordinated tap updater. This sequence is reachable
+only after future acceptance; GitHub and tap updates are not one transaction.
+Integrated Chocolatey depends on this job succeeding.
+The separate Chocolatey publisher has its own protected deployment gate.
 
-**Manual-only:** no push, tag or pull-request trigger exists. The selected
-workflow ref may differ from the tagged source; validation rejects any source
-checkout that does not match the tag. Creating/pushing the tag and configuring
-the protected environment are separate operator actions. Review both refs before
-approving; keep required reviewers and environment deployment restrictions.
-The removed automatic, unsigned `release.yml` must not be restored.
+There is no prior-rehearsal promotion input. A later dispatch is a new build, not
+promotion of earlier artifacts. Do not rerun the consolidated job to repair
+publication. Existing-tag recovery and full publication require the runbook's
+channel-specific review and current blocker resolution.
 
 ### Required configuration
 
@@ -226,50 +217,18 @@ None of these prove that a real toolchain, a real Developer ID signature, real
 notarization, or an actual Actions run succeeds; those need the real build, a
 networked notarization, and optionally a clean-Mac rehearsal.
 
-## Homebrew coordinated preparation — publication blocked
+## Homebrew publication and recovery are disabled
 
-Publication-enabled runs finish with **Publish verified formula to tap** in
-the same protected job, only after publication succeeds; dry runs (`publish=false`)
-never write to the tap. The native/runtime acceptance code gate is still closed
-(`release/homebrew/formula_set.py`); do not dispatch either workflow yet. Once
-accepted, one commit updates `Formula/cercano-agent.rb`, `Formula/cercano-cli.rb`
-and dependency-only `Formula/cercano.rb` on
-`cercano-ai/homebrew-cercano`'s `main`, with no pull request or approval prompt.
-
-Before writing, the updater checks the CI archive and regenerated formula,
-then downloads the publicly published macOS archive and its checksum sidecar.
-Both must match the digest recorded by the build. Nothing is extracted or run.
-An identical complete formula set is a successful no-op. A newer version, or a
-same-version change of digest/formula, is refused. Concurrent edits use the
-Git Data API's non-force branch advancement; a conflict causes up to three fresh
-head/tree/set validations, never a force update. One tree and commit contain all
-three formulas; unrelated tap files are preserved. Ambiguous ref responses are
-reconciled by rereading the exact complete set, not blind mutation retries.
-Recovery requires all three formulas from the original reviewed artifact; legacy
-single-formula artifacts cannot publish the split. See `release/homebrew/README.md`
-for the supported explicit manual monolith migration and local private-index
-review-commit preparation. Neither implies crash-atomic package installation.
-
-Use the [Homebrew preparation guide](../release/homebrew/README.md) to validate
-all three rendered formulas against the local archive and produce a read-only
-review plan from a private tap snapshot. This does not update a checkout or tap,
-create commits, download release assets, or grant release approval. Missing old
-single-formula artifacts cannot be promoted by bypassing sibling validation.
-
-The approved migration policy is **explicit one-time operator migration**, not
-automatic unlink, overwrite or removal. Its instructions are for a separately
-authorized disposable rehearsal only. Historical tap distribution is established
-(official v0.25.2 monolith; personal v0.20.3); installed-user applicability, real
-migration/failure recovery, native changed-source A/B behavior, real local
-inference after idle/restart with unchanged external runtime paths, human
-acceptance, and final signed/notarized-package smoke remain gates. Existing
-same-source synthetic native evidence does not satisfy them; see the
-[human acceptance handoff](../efforts/macos-native-validation-closeout/human-acceptance.md).
-
-Future separately authorized live promotion must review the entire set, make all
-three dependency definitions available in one commit, and compare-and-swap the
-reviewed tap base without force updates. It must preserve downgrade, same-version
-drift, published-asset checksum/provenance, and least-privilege transport guards.
-There is no enabled implementation of that transaction in this slice; the old
-single-file API helpers are not a safe fallback. Do not provision credentials,
-retry recovery dispatch, or remove guards to work around this boundary.
+The renderer creates `cercano.rb`, `cercano-agent.rb` and `cercano-cli.rb` as a
+coordinated set. The workflow retains all three; this does not publish them.
+`release/homebrew/update_tap.py` and local promotion share the closed
+`formula_set.PUBLICATION_ACCEPTED = False` gate before credentials/network access.
+The main workflow checks acceptance before builds or public mutations. Tap-only
+recovery uses the original complete three-formula artifact and immutable
+provenance, but cannot bypass this gate. Neither route is currently enabled.
+See [publication mechanics](../release/homebrew/README.md#coordinated-publication-mechanics-acceptance-gate-remains-closed)
+and [partial failure handling](releases.md#7-partial-failure-and-recovery).
+A valid token cannot substitute for acceptance.
+Any future publication identity should be narrowly scoped to tap Contents
+read/write access, configured through approved secret management without
+bypassing branch protections. Keep GitHub assets and version tags immutable.
