@@ -21,7 +21,13 @@ type ScheduledWork struct {
 	Err    error // read only after Done closes
 }
 
-type ownedPass struct{ retry bool }
+type ownedPass struct {
+	retry bool
+	// Set only after Advance returns a summarizer error without reaching writeback.
+	inferenceOnlyFailure bool
+	// Registration refused before any execution or persistence callback.
+	executionRefused bool
+}
 type ownedPassKey struct{}
 type persistenceOutcomeKey struct{}
 
@@ -107,14 +113,15 @@ func (g *Generator) ScheduleOwned(parent context.Context, owner broker.Owner, be
 			// exists before either the store write or void usage callback can run.
 			pass := &ownedPass{}
 			err := g.runCompaction(context.WithValue(ctx, ownedPassKey{}, pass), owner.Conversation)
-			if outcome, ok := ctx.Value(persistenceOutcomeKey{}).(func() error); ok {
-				err = errors.Join(err, outcome())
-			}
+			writeErr := ownedPersistenceOutcome(ctx)
+			err = errors.Join(err, writeErr)
 			if err != nil {
 				work.Err = err
 				// An error may follow a partially successful write. Keep the blocker until
 				// an explicit reconciler establishes the durable outcome; never replay it.
-				_ = ticket.PersistenceFailed()
+				if (!pass.inferenceOnlyFailure && !pass.executionRefused) || writeErr != nil {
+					_ = ticket.PersistenceFailed()
+				}
 				return
 			}
 			if !pass.retry {

@@ -18,6 +18,7 @@ import (
 	"cercano/source/server/internal/compactor"
 	"cercano/source/server/internal/contextmeter"
 	"cercano/source/server/internal/conversation"
+	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/requestassembly"
 )
 
@@ -199,8 +200,14 @@ func (g *Generator) release(conversationID string) {
 func (g *Generator) runCompaction(ctx context.Context, conversationID string) error {
 	ctx, cancel := compaction.WithExecutionBudget(ctx)
 	defer cancel()
+	pass, _ := ctx.Value(ownedPassKey{}).(*ownedPass)
 	ctx, release, ok := g.startWork(ctx)
 	if !ok {
+		// Close can fence between ScheduleOwned's check and this registration.
+		// No store, inference, or usage callback has run in this pass.
+		if pass != nil {
+			pass.executionRefused = true
+		}
 		return context.Canceled
 	}
 	defer release()
@@ -271,8 +278,22 @@ func (g *Generator) runCompaction(ctx context.Context, conversationID string) er
 	taskRef := compaction.LatestUserMessage(agent.BuildLLMHistory(turns))
 	taskCtx := compaction.WithUserIntentHint(ctx, taskRef)
 
-	newState, changed, more, err := compactor.Advance(taskCtx, turns, state, g.summarize, g.cfg, g.tok)
+	// Advance may retain partial segment progress and return nil, in which case
+	// SaveCompaction below MUST still be treated as a durable operation. Only a
+	// returned summarizer error before that write is proven inference-only.
+	var summaryErr error
+	summarize := func(ctx context.Context, msgs []llm.Message) (compaction.StructuredSummary, error) {
+		summary, err := g.summarize(ctx, msgs)
+		summaryErr = err
+		return summary, err
+	}
+	newState, changed, more, err := compactor.Advance(taskCtx, turns, state, summarize, g.cfg, g.tok)
 	if err != nil {
+		if summaryErr != nil && errors.Is(err, summaryErr) {
+			if pass, ok := ctx.Value(ownedPassKey{}).(*ownedPass); ok {
+				pass.inferenceOnlyFailure = true
+			}
+		}
 		var deferral *compaction.DeferralError
 		if errors.As(err, &deferral) {
 			g.logf("[compaction] pass deferred %s after %s: %v\n", conversationID, time.Since(start).Round(time.Millisecond), err)

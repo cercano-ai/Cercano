@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -27,6 +28,8 @@ import (
 	"cercano/source/server/internal/recap"
 	"cercano/source/server/internal/runner"
 	"cercano/source/server/pkg/config"
+	pb "cercano/source/server/pkg/proto"
+	"google.golang.org/grpc/peer"
 )
 
 // Probe delegates every operation; it neither injects errors nor changes contexts.
@@ -71,6 +74,7 @@ type ancillaryBarrier struct {
 	enterOnce, cancelOnce, returnOnce    sync.Once
 	calls                                atomic.Int32
 	completed, writeFailures             atomic.Int32
+	providerError                        bool
 	expected                             int32
 	ctx                                  context.Context // published by entered
 }
@@ -94,6 +98,9 @@ func (b *ancillaryBarrier) call(ctx context.Context) error {
 		b.completed.Add(1)
 		b.returnOnce.Do(func() { close(b.returned) })
 	}()
+	if b.providerError {
+		return errors.New("provider failed after cancellation")
+	}
 	return ctx.Err()
 }
 func ancillaryWait(t *testing.T, ch <-chan struct{}) {
@@ -107,8 +114,7 @@ func ancillaryWait(t *testing.T, ch <-chan struct{}) {
 
 // Real Core post-turn scheduling, real retained admission, real inference
 // callbacks and real store. No workerTurnDone or synthetic PersistenceFailed.
-// This CHARACTERIZES conservative producer error accounting; it does not bless it.
-// Set CERCANO_ANCILLARY_EXPECT_CLEAN=1 only for the documented red proof.
+// Joined inference-only cancellation must not manufacture persistence uncertainty.
 func TestPreparedAncillaryCancellationEvidence(t *testing.T) {
 	if os.Getenv("CERCANO_ANCILLARY_CHILD") != "1" {
 		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
@@ -123,10 +129,12 @@ func TestPreparedAncillaryCancellationEvidence(t *testing.T) {
 		return
 	}
 
-	for _, mode := range []string{"recap", "compaction", "both"} {
+	for _, mode := range []string{"recap", "compaction", "both", "both-provider-error"} {
 		t.Run(mode, func(t *testing.T) {
 			// Agent and Core each admit recap; wait for both inference calls, not just one.
 			rbar, cbar := newAncillaryBarrier(2), newAncillaryBarrier(1)
+			rbar.providerError = mode == "both-provider-error"
+			cbar.providerError = rbar.providerError
 			defer rbar.unblock()
 			defer cbar.unblock()
 			s, ctx, owner, tasks := preparedWakeFixtureWithConfig(t, config.Config{OpenRuntime: "synthetic", LocusMode: "local"}, func(st conversation.Store) (*recap.Generator, *compactiongen.Generator) {
@@ -220,47 +228,94 @@ func TestPreparedAncillaryCancellationEvidence(t *testing.T) {
 				}
 			}
 			after := snapshot("providers-returned/close-joined")
-			if os.Getenv("CERCANO_ANCILLARY_EXPECT_CLEAN") == "1" && after.UnresolvedWork != 0 {
-				t.Errorf("desired clean inference cancellation: unresolved=%d", after.UnresolvedWork)
+			if after.UnresolvedWork != 0 || len(after.Work) != 0 {
+				t.Fatalf("joined inference cancellation left work: %+v", after)
 			}
-			// Multiple real post-turn admissions can overlap. Do not infer origin
-			// from the count: preserve the evidence and require every remaining
-			// ticket to be explicitly unresolved (not an unjoined producer).
-			if (mode != "recap" && after.UnresolvedWork < 1) || (mode == "recap" && after.UnresolvedWork != 0) || after.Work[broker.PersistenceWork] != after.UnresolvedWork || after.UnresolvedWork > before.Work[broker.PersistenceWork]+before.Work[broker.CallbackWork] {
-				t.Fatalf("unexpected joined accounting: before=%+v after=%+v", before, after)
-			}
-			releaseErr := s.ReleaseRetained(ctx, owner, nil)
-			if after.UnresolvedWork == 0 {
-				if releaseErr != nil {
-					t.Fatal(releaseErr)
-				}
-			} else if !errors.Is(releaseErr, broker.ErrAdmissionBusy) {
-				t.Fatalf("uncertainty allowed release: %v", releaseErr)
+			if err := s.ReleaseRetained(ctx, owner, nil); err != nil {
+				t.Fatal(err)
 			}
 			state, e := conversation.ReadOwnership(ctx, s.coexistence.store, "parent")
-			if e != nil || (state.State == "released") != (after.UnresolvedWork == 0) {
-				t.Fatalf("blocked durable state=%+v err=%v", state, e)
+			if e != nil || state.State != "released" {
+				t.Fatalf("durable release=%+v err=%v", state, e)
+			}
+			opts := s.coexistence.options
+			opts.Host, opts.Build = "B", "B"
+			opts.ControlAuthorize = func(context.Context) error { return nil }
+			next, err := NewCoexistenceServer(t.Context(), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer next.CloseCoexistenceStore()
+			resumeCtx := peer.NewContext(t.Context(), &peer.Peer{Addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}})
+			response, err := next.LifecycleResume(resumeCtx, &pb.LifecycleControlRequest{Target: next.coexistence.controlIdentity(), Owner: &pb.LifecycleOwner{Conversation: "parent"}})
+			if err != nil || !response.GetReady() || response.GetConfirmationRequired() {
+				t.Fatalf("ordinary resume: %v %v", response, err)
+			}
+			resumed := controlOwner(&pb.LifecycleControlRequest{Owner: response.Owner})
+			if resumed.Epoch == owner.Epoch {
+				t.Fatal("epoch reused")
+			}
+			if err := next.ReleaseRetained(t.Context(), resumed, nil); err != nil {
+				t.Fatal(err)
 			}
 
-			if after.UnresolvedWork == 0 {
-				opts := s.coexistence.options
-				opts.Host, opts.Build = "B", "B"
-				next, err := NewCoexistenceServer(t.Context(), opts)
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer next.CloseCoexistenceStore()
-				resumed, err := next.Retain(t.Context(), "parent")
-				if err != nil {
-					t.Fatalf("ordinary new-host retain without recovery: %v", err)
-				}
-				if resumed.Epoch == owner.Epoch {
-					t.Fatal("epoch reused")
-				}
-				if err := next.ReleaseRetained(t.Context(), resumed, nil); err != nil {
-					t.Fatal(err)
-				}
-			}
 		})
+	}
+}
+
+// Three combined cancellations in one owner tenure; counts are not a mapping
+// to the three historical unresolved tickets. Main-turn coverage is above.
+func TestPreparedAncillaryThreeCombinedCancellations(t *testing.T) {
+	var rbar, cbar *ancillaryBarrier
+	s, ctx, owner, tasks := preparedWakeFixtureWithConfig(t, config.Config{OpenRuntime: "synthetic", LocusMode: "local"}, func(st conversation.Store) (*recap.Generator, *compactiongen.Generator) {
+		r := recap.New(st, func(ctx context.Context, _ string) (string, error) { return "", rbar.call(ctx) }, 0, 10)
+		c := compactiongen.New(st, func(ctx context.Context, _ []llm.Message) (compaction.StructuredSummary, error) {
+			return compaction.StructuredSummary{}, cbar.call(ctx)
+		}, compactor.Config{ActivationFloorTokens: 100, SegmentTokens: 1000, VerbatimRecent: 2}, contextmeter.Default(), time.Millisecond)
+		c.SetEnabled(true)
+		return r, c
+	})
+	if err := tasks.HandleTaskNotification(ctx, "parent", "one"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 12; i++ {
+		if err := s.persistSvc.Store().Append(ctx, conversation.Turn{ID: fmt.Sprint(i), ConversationID: "parent", Role: "user", Content: strings.Repeat("context evidence ", 500), CreatedAt: time.Now().Add(time.Duration(i-20) * time.Second)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 3 {
+		rbar, cbar = newAncillaryBarrier(1), newAncillaryBarrier(1)
+		defer rbar.unblock()
+		defer cbar.unblock()
+		runctx, cancel := context.WithCancel(ctx)
+		r, err := persistsvc.ScheduleOwnedRecap(runctx, s.preparedScheduling.recap, owner, s.BeginRetainedWork)
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		c, err := persistsvc.ScheduleOwnedCompaction(runctx, s.preparedScheduling.compaction, owner, s.BeginRetainedWork)
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		ancillaryWait(t, rbar.entered)
+		ancillaryWait(t, cbar.entered)
+		cancel()
+		ancillaryWait(t, rbar.canceled)
+		ancillaryWait(t, cbar.canceled)
+		if _, err := s.coexistence.admission.CloseOwner(owner, nil); !errors.Is(err, broker.ErrAdmissionBusy) {
+			t.Fatalf("unjoined callback released: %v", err)
+		}
+		rbar.unblock()
+		cbar.unblock()
+		ancillaryWait(t, r.Done)
+		ancillaryWait(t, c.Done)
+		if snap := s.coexistence.admission.Snapshot(owner); snap.UnresolvedWork != 0 || len(snap.Work) != 0 {
+			t.Fatalf("accumulated work: %+v", snap)
+		}
+	}
+	s.preparedScheduling.close()
+	if err := s.ReleaseRetained(ctx, owner, nil); err != nil {
+		t.Fatal(err)
 	}
 }

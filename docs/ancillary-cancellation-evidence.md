@@ -1,4 +1,109 @@
-# Prepared ancillary cancellation evidence
+# Joined ancillary inference cancellation accounting
+
+## Fix and scope (2026-11-25)
+
+On `test/ancillary-cancel-evidence`, original repro preserved at
+`b0cb4d360ada6c13297920180f69a9f5829e33f6`. The characterization below is
+historical, not the current expected behavior. Clean joined cancellation is now
+the default regression expectation; the opt-in environment switch is removed.
+
+`compactiongen.runCompaction` records per-pass provenance only when `Advance`
+returns the actual summarizer error before reaching `SaveCompaction`.
+`ScheduleOwned` retains the execution error but does not mark this proven
+inference-only failure as persistence uncertainty when the independent write
+observer is nil. This includes provider errors, not merely context cancellation.
+The persistence bridge still independently fences reported write failures.
+Repeated verification also exposed a close/registration race: a bounded retry can
+pass the scheduler fence check, then have `startWork` refuse registration after
+Close fences the generator. That pass has executed no store, inference, or usage
+callback. It is separately tagged `executionRefused`, and only clears if the
+independent write observer is nil. This is not an exemption for canceled reads,
+unjoined callbacks, or uncertain writes. A deterministic refused-registration
+unit test checks that no read/inference/save occurs. The final focused 20 normal
+and 20 race repetitions passed after this correction; earlier intermittent
+server failures are superseded by these runs, not dismissed as flakes.
+No accounting reset, replay policy, summary clear, or live-state change is made.
+
+## Mutation/reporting audit
+
+- `GetTurns` and `GetCompaction` errors still fence, even with a nil observer.
+  This deliberately does not relax all safe/no-write validation failures.
+- `Advance` operates on local derived state. Empty-summary validation errors are
+  not tagged as provider failures. If later segments fail after partial progress,
+  `Advance` can return changed state without an error: writeback still runs and
+  its result is never classified inference-only.
+- `SaveCompaction` errors fence directly, without requiring `ReportWriteFailure`.
+  SQLite abort, missing ownership, and simulated lost acknowledgement after a real
+  committed write are covered. Successful commits from earlier bounded passes
+  remain durable; provenance is fresh for each pass.
+- After successful save, `recordUsage` can write context usage. The production
+  `recordCompactionContextUsage` reports `SaveContextUsage` errors; both the
+  observer and bridge fence. Inference cancellation plus an independent genuine
+  context-usage ownership refusal also fences. Callback panics remain fenced.
+- Elision-only execution has no inference exemption. Production elision changes
+  an in-memory floor, then usage writeback uses the same observer. Its existing
+  ignored optional read errors are not reclassified by this patch.
+- Production `loopcompact.BuildSummarizer` performs routing/inference, in-memory
+  summary usage accounting, and dispatch telemetry; it does not save compaction
+  or context usage. Attempt accounting remains its separate existing lane.
+  Custom summarizers must report independent durable write failures; this patch
+  cannot discover errors silently swallowed inside arbitrary injected callbacks.
+- `Regenerate`/`Clear` and their explicit mutation semantics are unchanged.
+  Cancellation does not complete admission while any provider/callback remains
+  unjoined; worker transport/lost-response accounting is unchanged.
+
+## Regression coverage and verification
+
+All stores/configs are disposable. The Core main-turn probe completes successfully
+while recap/compaction are blocked, cancels and joins callbacks, requires zero
+remaining work, durably releases ownership, and performs ordinary `LifecycleResume`
+on a new host with a fresh epoch and no confirmation/terminate offer. Modes cover
+recap, compaction, both, and combined explicit provider errors after cancellation.
+A separate bridge test performs three combined cancellations under one owner;
+this is not three full main turns and does not identify historical ticket IDs.
+SQLite controls verify no write attempt and retention of the prior summary for
+inference failures, successful writeback, and unresolved real/uncertain failures.
+
+Before-fix source and original probe were temporarily restored from HEAD and run:
+
+```sh
+CERCANO_ANCILLARY_EXPECT_CLEAN=1 go test ./internal/server \
+  -run '^TestPreparedAncillaryCancellationEvidence$' -count=1
+```
+
+Expected exit 1: compaction and both each reported `unresolved=1`; recap passed.
+Working files were restored immediately afterward. Post-fix commands, from
+`source/server`, all passed:
+
+```sh
+PAT='TestPreparedAncillary|TestPreparedDispatchJoinsChildFinalCallback|TestPreparedWorkerRealMutationLostResponse|TestOwned|TestCompactionInferenceAndSQLiteOutcomes'
+go test ./internal/compactiongen ./internal/hostsvc/persistence ./internal/server -run "$PAT" -count=20
+go test -race ./internal/compactiongen ./internal/hostsvc/persistence ./internal/server -run "$PAT" -count=20
+go test ./internal/compactiongen ./internal/hostsvc/persistence ./internal/server ./internal/compactor ./internal/broker -count=1
+go build -o /tmp/cercano-ancillary-verification ./cmd/cercano/
+# After strengthening the prior-summary assertion:
+go test ./internal/hostsvc/persistence -run TestCompactionInferenceAndSQLiteOutcomes -count=20
+go test -race ./internal/hostsvc/persistence -run TestCompactionInferenceAndSQLiteOutcomes -count=20
+```
+
+## Limits and historical interpretation
+
+Full computer-use worker/RunPrepared transport and shutdown attachments are not
+covered by the new main-turn probe. Neighboring lost-response and final-callback
+regressions passed, but they do not establish full transport equivalence. Commit
+uncertainty is a simulated lost acknowledgement after an actual SQLite commit,
+not a filesystem crash. Full repository suite was not run; relevant full packages
+and the server build passed. No live operations, landing, or pushing. Independent
+review remains required.
+
+The supplied historical account places canceled compactions at **22:07:02,
+22:18:32, and 22:30:06** during old-host tenure, with three unresolved persistence
+tickets later. This mechanism and repeated test make that explanation plausible,
+not proven: no live history was inspected and counts cannot map ticket identity.
+
+---
+
+# Historical characterization (before the fix)
 
 ## Scope and analytical expectation
 
