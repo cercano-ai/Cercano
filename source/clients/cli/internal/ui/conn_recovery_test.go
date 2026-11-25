@@ -1,6 +1,11 @@
 package ui
 
 import (
+	tea "charm.land/bubbletea/v2"
+	"context"
+	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"strings"
 	"testing"
 
@@ -116,5 +121,35 @@ func TestConnStateChip_SlowLaneCopy(t *testing.T) {
 	chip := m.renderConnStateChip()
 	if !strings.Contains(chip, "retrying every 10s") || !strings.Contains(chip, "attempt 7") {
 		t.Errorf("slow-lane chip should show the retry cadence and attempt, got %q", chip)
+	}
+}
+
+func TestConnRecovery_NestedCredentialRefusalRendered(t *testing.T) {
+	for _, cause := range []error{status.Error(codes.DeadlineExceeded, "timeout"), status.Error(codes.Unavailable, "offline"), context.DeadlineExceeded} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			err := fmt.Errorf("recovery: %w", fmt.Errorf("%w: policy RPC: %w", agentclient.ErrCredentialIsolation, cause))
+			m := New(nil, false)
+			m = send(t, m, tea.WindowSizeMsg{Width: 160, Height: 40})
+			m = send(t, m, connStateChangedMsg{state: agentclient.ConnStateFailed, errMsg: agentclient.ConnectionFailureMessage(err)})
+			assertRefusal := func() {
+				t.Helper()
+				text := strings.ToLower(m.View().Content)
+				if !strings.Contains(text, "credential isolation policy") || strings.Contains(text, "send again") || strings.Contains(text, "agent unreachable") {
+					t.Fatalf("rendered refusal: %s", text)
+				}
+			}
+			assertRefusal() // Persistent failed connection status.
+			m = send(t, m, chatErrorMsg{err: fmt.Errorf("request not sent: %w", err)})
+			assertRefusal() // Failed-send transcript plus persistent status.
+			found := false
+			for _, entry := range m.mainChat().Entries() {
+				if strings.Contains(entry.Content, "request not sent") {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("failed send was not rendered into transcript")
+			}
+		})
 	}
 }

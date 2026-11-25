@@ -237,3 +237,58 @@ func TestPinnedConcurrentFailedDemandSharesRefusal(t *testing.T) {
 		t.Fatalf("checks=%d requests=%d", f.checks.Load(), f.requests.Load())
 	}
 }
+
+// Refusals can carry a transport cause without becoming demand-retryable.
+func TestConnectionFailureNestedRefusalPrecedence(t *testing.T) {
+	refusals := []struct {
+		name string
+		err  error
+		text string
+	}{
+		{"credential", ErrCredentialIsolation, "credential isolation policy"},
+		{"authentication", status.Error(codes.Unauthenticated, "token"), "Authentication failed"},
+		{"permission", status.Error(codes.PermissionDenied, "policy"), "Access refused"},
+		{"retired", &SessionCheckError{proto.RetainedSessionState_RETAINED_SESSION_STATE_RETIRED}, "reopen/resume"},
+		{"stale_epoch", &SessionCheckError{proto.RetainedSessionState_RETAINED_SESSION_STATE_STALE}, "reopen/resume"},
+	}
+	causes := []struct {
+		name string
+		err  error
+	}{
+		{"rpc_deadline", status.Error(codes.DeadlineExceeded, "timeout")},
+		{"unavailable", status.Error(codes.Unavailable, "offline")},
+		{"context_deadline", context.DeadlineExceeded},
+	}
+	for _, refusal := range refusals {
+		for _, cause := range causes {
+			t.Run(refusal.name+"/"+cause.name, func(t *testing.T) {
+				err := fmt.Errorf("recovery: %w", fmt.Errorf("%w: validation: %w", refusal.err, cause.err))
+				if transientPinnedFailure(err) {
+					t.Fatal("refusal became retryable")
+				}
+				text := ConnectionFailureMessage(err)
+				if !strings.Contains(text, refusal.text) || strings.Contains(strings.ToLower(text), "send again") {
+					t.Errorf("refusal guidance = %q", text)
+				}
+				if !errors.Is(err, refusal.err) || !errors.Is(err, cause.err) {
+					t.Fatal("error identity lost")
+				}
+				var lifecycle *SessionCheckError
+				if errors.As(refusal.err, &lifecycle) {
+					var got *SessionCheckError
+					if !errors.As(err, &got) || got != lifecycle {
+						t.Fatal("lifecycle identity lost")
+					}
+				}
+			})
+		}
+	}
+	for _, cause := range causes {
+		t.Run("transient/"+cause.name, func(t *testing.T) {
+			err := fmt.Errorf("recovery: %w", cause.err)
+			if !transientPinnedFailure(err) || !strings.Contains(ConnectionFailureMessage(err), "Send again") {
+				t.Fatal("transient guidance/policy changed")
+			}
+		})
+	}
+}
