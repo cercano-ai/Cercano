@@ -66,6 +66,7 @@ type workerHandle struct {
 	reapDone chan struct{} // closed only after cmd.Wait, never merely after signalling
 	reapErr  error         // readable after reapDone closes
 
+	ownerPipe  *os.File // sole writer; never inherited by workers or other children
 	cmd        *exec.Cmd
 	conn       *grpc.ClientConn
 	socketPath string
@@ -84,6 +85,9 @@ func (h *workerHandle) Kill() {
 		return
 	}
 	h.killOnce.Do(func() {
+		if h.ownerPipe != nil {
+			_ = h.ownerPipe.Close()
+		}
 		if h.reapDone == nil {
 			h.reapDone = make(chan struct{})
 		}
@@ -154,10 +158,21 @@ func spawnWorkerWithPolicy(ctx context.Context, conversationID string, gen uint6
 	// bounds STARTUP via waitForSocket(ctx, …) below, so a hung spawn during this
 	// turn is still abortable (and the partial handle is Killed on that path).
 	cmd := workerCommandWithPolicy(bin, sockPath, policy)
+	ownerRead, ownerWrite, err := prepareOwnerPipe(cmd)
+	if err != nil {
+		pr.Close()
+		pw.Close()
+		if outputLog != nil {
+			outputLog.Close()
+		}
+		return nil, fmt.Errorf("worker owner pipe: %w", err)
+	}
+	defer ownerRead.Close()
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
 	if err := cmd.Start(); err != nil {
+		ownerWrite.Close()
 		_ = pw.Close()
 		_ = pr.Close()
 		if outputLog != nil {
@@ -165,7 +180,8 @@ func spawnWorkerWithPolicy(ctx context.Context, conversationID string, gen uint6
 		}
 		return nil, fmt.Errorf("worker spawn: start %s: %w", bin, err)
 	}
-	_ = pw.Close() // parent's copy; child inherits it
+	_ = ownerRead.Close() // host retains only the writer
+	_ = pw.Close()        // parent's copy; child inherits it
 
 	// Tee worker output to the log in the background.
 	if outputLog == nil {
@@ -185,6 +201,7 @@ func spawnWorkerWithPolicy(ctx context.Context, conversationID string, gen uint6
 	}
 
 	h := &workerHandle{
+		ownerPipe:  ownerWrite,
 		cmd:        cmd,
 		reapDone:   make(chan struct{}),
 		socketPath: sockPath,

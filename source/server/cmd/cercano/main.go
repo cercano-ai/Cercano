@@ -2314,6 +2314,11 @@ func parseWorkerArgs(args []string) (socket string, prepared bool, failureLog st
 // it; with per-conversation worker reuse the host drives many sequential
 // RunTurn streams over one connection to a warm worker.
 func runWorkerMode(args []string) {
+	bindOwner, err := worker.WatchOwnerLifetime()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "worker owner pipe: %v\n", err)
+		os.Exit(1)
+	}
 	worker.ObserveAcceptanceStartup()
 	socketPath, prepared, failureLog, routingLog, err := parseWorkerArgs(args)
 	if err != nil {
@@ -2339,6 +2344,7 @@ func runWorkerMode(args []string) {
 	if prepared {
 		ws = worker.NewPrepared(worker.WithFailureLogPath(failureLog), worker.WithRoutingLogPath(routingLog))
 	}
+	bindOwner(ws)
 	proto.RegisterWorkerServer(srv, ws)
 
 	log.Printf("[worker] serving on unix:%s", socketPath)
