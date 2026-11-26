@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the non-publishing three-package Linux set (deb, rpm, apk, archlinux) from a verified linux-x64 tarball.
+"""Render the non-publishing three-package Linux set (deb, rpm, apk, archlinux) from one verified Linux tarball.
 
 Output (a new directory; nothing outside it is touched):
 
@@ -14,9 +14,16 @@ Each component installs only its own executable: cercano-agent owns
 `cercano`, cercano-cli owns `cercano-cli`, and `cercano` owns no command.
 Build each package with `nfpm package -f <output>/<pkg>.yaml -p <format>`.
 
+--arch selects the tarball: amd64 (default) reads cercano-<v>-linux-x64,
+arm64 reads cercano-<v>-linux-arm64. The components get that architecture;
+`cercano` is architecture-independent. --without-convenience leaves `cercano`
+out, for every architecture but the one that builds it: the same package and
+version must have exactly one set of bytes in a repository, and two builders
+do not produce identical bytes for it.
+
 Trust boundary: checks the archive's SHA-256 against an independently trusted
 value before parsing it, the exact release layout, the runtime inventory, and
-an x86-64 ELF64 header on both executables. It does NOT verify signatures
+an ELF64 header for the selected architecture on both executables. It does NOT verify signatures
 (there are none) or the version the binaries report. It never downloads,
 installs, builds packages, executes archive contents or publishes.
 """
@@ -40,8 +47,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import runtime_inventory
 
 HERE = Path(__file__).resolve().parent
-PLATFORM = "linux-x64"
-ARCH = "amd64"  # nfpm's name; it maps this to x86_64 for rpm, apk and archlinux
+# Debian architecture names, as nfpm takes them; nfpm maps amd64 to x86_64 and
+# arm64 to aarch64 for rpm, apk and archlinux.
+ARCHES = tuple(runtime_inventory.LINUX_ARCHES)
 VERSION_PATTERN = re.compile(r"\A(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 SHA256_PATTERN = re.compile(r"\A[0-9a-fA-F]{64}\Z")
 MAINTAINER_PATTERN = re.compile(r"\A[^<>\n\"\\]+ <[^<>@\s\"\\]+@[^<>@\s\"\\]+>\Z")
@@ -82,8 +90,11 @@ CONVENIENCE_DESCRIPTION = [
 ]
 # Versioned dependency syntax per format, for the convenience package.
 DEPENDS_SYNTAX = {"deb": "{} (>= {})", "rpm": "{} >= {}", "apk": "{}>={}", "archlinux": "{}>={}"}
-# The builder's own layout, so a payload change cannot drift from this check.
-ARCHIVE_FILES = tuple(runtime_inventory.payload_modes(PLATFORM)) + (runtime_inventory.NAME,)
+
+
+def archive_files(platform):
+    """The builder's own layout, so a payload change cannot drift from this check."""
+    return tuple(runtime_inventory.payload_modes(platform)) + (runtime_inventory.NAME,)
 
 
 class ValidationError(Exception):
@@ -117,8 +128,9 @@ def hash_file(path):
     return digest.hexdigest()
 
 
-def require_x64_elf(name, data):
+def require_elf(name, data, arch):
     """The Linux release builder's rule (scripts/build-linux-release.py verify_elf)."""
+    _, expected_machine, machine, _ = runtime_inventory.LINUX_ARCHES[arch]
     if len(data) < 20 or data[:4] != b"\x7fELF":
         raise ValidationError(f"{name}: not a Linux ELF executable")
     if data[4] != 2:
@@ -126,15 +138,18 @@ def require_x64_elf(name, data):
     if data[5] != 1:
         raise ValidationError(f"{name}: expected little-endian ELF, got EI_DATA {data[5]}")
     e_type, e_machine = struct.unpack_from("<HH", data, 16)
-    if e_machine != 62:
-        raise ValidationError(f"{name}: expected x86-64 ELF (e_machine 62), got {e_machine}")
+    if e_machine != expected_machine:
+        raise ValidationError(
+            f"{name}: expected {machine} ELF (e_machine {expected_machine}), got {e_machine}")
     if e_type not in (2, 3):
         raise ValidationError(f"{name}: expected an ELF executable type, got e_type {e_type}")
 
 
-def read_archive(path, version):
+def read_archive(path, version, arch):
     """Return {relative path: bytes} for the exact release layout, no extraction to disk."""
-    top = f"cercano-{version}-{PLATFORM}"
+    platform = runtime_inventory.LINUX_ARCHES[arch][0]
+    expected_files = archive_files(platform)
+    top = f"cercano-{version}-{platform}"
     if path.name != f"{top}.tar.gz":
         raise ValidationError(f"archive must be named {top}.tar.gz, got {path.name}")
     files = {}
@@ -151,22 +166,22 @@ def read_archive(path, version):
                 if not name.startswith(top + "/"):
                     raise ValidationError(f"unexpected member: {item.name!r}")
                 relative = name[len(top) + 1:]
-                if relative not in ARCHIVE_FILES:
+                if relative not in expected_files:
                     raise ValidationError(f"unexpected member: {item.name!r}")
                 if relative in files:
                     raise ValidationError(f"duplicate member: {item.name}")
                 files[relative] = archive.extractfile(item).read()
     except (tarfile.TarError, OSError, EOFError) as error:
         raise ValidationError(f"not a readable .tar.gz archive: {path.name}: {error}") from error
-    missing = sorted(set(ARCHIVE_FILES) - set(files))
+    missing = sorted(set(expected_files) - set(files))
     if missing:
         raise ValidationError(f"archive is missing: {', '.join(missing)}")
     try:
-        runtime_inventory.validate_archive(path, top, version, PLATFORM)
+        runtime_inventory.validate_archive(path, top, version, platform)
     except ValueError as error:
         raise ValidationError(str(error)) from error
     for exe, _, _ in COMPONENTS.values():
-        require_x64_elf(exe, files[f"bin/{exe}"])
+        require_elf(exe, files[f"bin/{exe}"], arch)
     return files
 
 
@@ -244,11 +259,12 @@ def nfpm_config(package, arch, version, maintainer, summary, paragraphs, payload
     return "\n".join(lines)
 
 
-def stage(root, final, version, maintainer, date, files):
+def stage(root, final, version, maintainer, date, files, arch, convenience=True):
     """Write payloads and configs under `root`; config paths point at `final`."""
     common = {"VERSION": version, "MAINTAINER": maintainer, "DATE": date}
     packages = [(p, exe, summary, paragraphs, None) for p, (exe, summary, paragraphs) in COMPONENTS.items()]
-    packages.append((CONVENIENCE, None, CONVENIENCE_SUMMARY, CONVENIENCE_DESCRIPTION, list(COMPONENTS)))
+    if convenience:
+        packages.append((CONVENIENCE, None, CONVENIENCE_SUMMARY, CONVENIENCE_DESCRIPTION, list(COMPONENTS)))
     for package, exe, summary, paragraphs, depends in packages:
         payload = root / package
         entries = []
@@ -270,7 +286,7 @@ def stage(root, final, version, maintainer, date, files):
             ("lintian-overrides", f"/usr/share/lintian/overrides/{package}", 0o644, ("deb",)),
             ("LICENSE", f"/usr/share/licenses/{package}/LICENSE", 0o644, NON_DEB),
         ]
-        config = nfpm_config(package, ARCH if exe else "all", version, maintainer, summary,
+        config = nfpm_config(package, arch if exe else "all", version, maintainer, summary,
                              paragraphs, final / package, entries, depends)
         write(root / f"{package}.yaml", config, 0o644)
     for path in [root, *root.rglob("*")]:
@@ -285,8 +301,14 @@ def build(argv=None):
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--maintainer", required=True, help="package Maintainer field, 'Name <email>'")
     parser.add_argument("--output", required=True, help="new directory for the configs and payloads")
+    parser.add_argument("--arch", default="amd64",
+                        help=f"Debian architecture of the tarball: {', '.join(ARCHES)} (default amd64)")
+    parser.add_argument("--without-convenience", action="store_true",
+                        help="leave out the architecture-independent `cercano` package")
     args = parser.parse_args(argv)
 
+    if args.arch not in ARCHES:
+        raise ValidationError(f"arch must be one of {', '.join(ARCHES)}: {args.arch!r}")
     version = parse_version(args.version)
     expected = parse_digest(args.sha256)
     maintainer = parse_maintainer(args.maintainer)
@@ -303,7 +325,7 @@ def build(argv=None):
     actual = hash_file(archive)
     if actual != expected:
         raise ValidationError(f"archive sha256 mismatch: expected {expected}, got {actual}")
-    files = read_archive(archive, version)
+    files = read_archive(archive, version, args.arch)
 
     # Stage beside the output, then rename: a failure leaves no partial set.
     # SOURCE_DATE_EPOCH, when set, makes the changelog date reproducible; nfpm
@@ -317,7 +339,8 @@ def build(argv=None):
     date = time.strftime("%a, %d %b %Y %H:%M:%S +0000", moment)
     staging = Path(tempfile.mkdtemp(prefix=".cercano-linux-", dir=output.parent))
     try:
-        stage(staging, output.resolve(), version, maintainer, date, files)
+        stage(staging, output.resolve(), version, maintainer, date, files, args.arch,
+              convenience=not args.without_convenience)
         os.rename(staging, output)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)

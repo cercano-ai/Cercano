@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Build and package the experimental, UNSIGNED Linux x86_64 artifact.
+"""Build and package the experimental, UNSIGNED Linux artifact for one architecture.
 
-Produces, in the output directory:
+  build-linux-release.py <VERSION> <OUTPUT_DIR> [amd64|arm64]
 
-  cercano-<version>-linux-x64.tar.gz
-  cercano-<version>-linux-x64.tar.gz.sha256
+The architecture defaults to amd64. <platform> is linux-x64 for amd64 and
+linux-arm64 for arm64. Produces, in the output directory:
+
+  cercano-<version>-<platform>.tar.gz
+  cercano-<version>-<platform>.tar.gz.sha256
 
 Layout inside the tarball:
 
-  cercano-<version>-linux-x64/bin/cercano
-  cercano-<version>-linux-x64/bin/cercano-cli
-  cercano-<version>-linux-x64/LICENSE
-  cercano-<version>-linux-x64/README.txt
+  cercano-<version>-<platform>/bin/cercano
+  cercano-<version>-<platform>/bin/cercano-cli
+  cercano-<version>-<platform>/LICENSE
+  cercano-<version>-<platform>/README.txt
 
 This artifact is EXPLICITLY UNSIGNED. There is no Linux signing
 infrastructure yet; this is an experimental convenience artifact, not a
@@ -24,15 +27,18 @@ Secret Service through 99designs/keyring backed by godbus (pure Go), and no
 reachable dependency requires cgo, so no cross toolchain is needed. This was
 confirmed by cross-compiling both binaries for linux/amd64 with
 CGO_ENABLED=0 (ELF 64-bit LSB, x86-64, statically linked) before this script
-existed.
+existed, and for linux/arm64 the same way (ELF 64-bit LSB, ARM aarch64,
+statically linked).
 
 The script fails closed, and a refused or failed build leaves no archive
 behind:
 
 - Unstable or untagged versions (CERCANO_ALLOW_UNTAGGED=1 for local dry runs).
 - A v<version> tag that does not match HEAD.
+- An architecture other than amd64 or arm64.
 - A `go build` failure, or a produced binary that is not an ELF64
-  little-endian x86-64 executable with regular executable permissions.
+  little-endian executable for the requested architecture with regular
+  executable permissions.
 - An archive or checksum that already exists (no silent replacement).
 
 It never signs, notarizes, pushes, publishes or contacts GitHub.
@@ -59,7 +65,7 @@ STABLE_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)
 TAR_EPOCH = 0
 GZIP_EPOCH = 0
 
-README_TEMPLATE = """Cercano {version} for Linux x86_64 (EXPERIMENTAL, UNSIGNED)
+README_TEMPLATE = """Cercano {version} for Linux {machine} (EXPERIMENTAL, UNSIGNED)
 
 This is an experimental, unsigned Linux build of Cercano. It is NOT a
 supported Linux release. See docs/linux-artifact.md for the status of
@@ -101,12 +107,12 @@ def run_git(repo_root, *args):
     return result.stdout.strip()
 
 
-def build(module_dir, package, output, version):
+def build(module_dir, package, output, version, arch):
     env = dict(os.environ)
-    # Explicit platform flags: the artifact is linux/amd64 only, and the
+    # Explicit platform flags: one artifact per Linux architecture, and the
     # pure-Go dependency set means cgo is never needed for it.
     env["GOOS"] = "linux"
-    env["GOARCH"] = "amd64"
+    env["GOARCH"] = arch
     env["CGO_ENABLED"] = "0"
     result = subprocess.run(
         ["go", "build", "-trimpath", "-buildvcs=false",
@@ -120,8 +126,8 @@ def build(module_dir, package, output, version):
     print(f"Built {package} -> {output}")
 
 
-def verify_elf(binary: Path) -> None:
-    """Require an ELF64, little-endian, x86-64 executable header.
+def verify_elf(binary: Path, e_machine_expected: int, machine: str) -> None:
+    """Require an ELF64, little-endian executable header for the target machine.
 
     Go with CGO_ENABLED=0 produces a static ET_EXEC (or ET_DYN PIE) image;
     a truncated file, a script, or another architecture must fail here.
@@ -136,8 +142,9 @@ def verify_elf(binary: Path) -> None:
     if ei_data != 1:
         fail(f"{binary.name}: expected little-endian ELF, got EI_DATA {ei_data}")
     e_type, e_machine = struct.unpack_from("<HH", header, 16)
-    if e_machine != 0x3E:
-        fail(f"{binary.name}: expected x86-64 ELF (e_machine 62), got {e_machine}")
+    if e_machine != e_machine_expected:
+        fail(f"{binary.name}: expected {machine} ELF (e_machine {e_machine_expected}), "
+             f"got {e_machine}")
     if e_type not in (2, 3):  # ET_EXEC, ET_DYN
         fail(f"{binary.name}: expected an ELF executable type, got e_type {e_type}")
 
@@ -214,9 +221,13 @@ def verify_tar(archive, entries):
 
 
 def main():
-    if len(sys.argv) != 3:
-        fail("Usage: build-linux-release.py <VERSION> <OUTPUT_DIR>")
+    if len(sys.argv) not in (3, 4):
+        fail("Usage: build-linux-release.py <VERSION> <OUTPUT_DIR> [amd64|arm64]")
     version, output_dir_arg = sys.argv[1], sys.argv[2]
+    arch = sys.argv[3] if len(sys.argv) == 4 else "amd64"
+    if arch not in runtime_inventory.LINUX_ARCHES:
+        fail(f"Architecture must be one of {', '.join(runtime_inventory.LINUX_ARCHES)}: {arch}")
+    platform, e_machine, machine, uname = runtime_inventory.LINUX_ARCHES[arch]
 
     # Stable versions only, mirroring the macOS and Windows release scripts:
     # the archive name, the published checksum and the source tag must all agree.
@@ -242,7 +253,7 @@ def main():
     output_dir = Path(output_dir_arg)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_dir = output_dir.resolve()
-    name = f"cercano-{version}-linux-x64"
+    name = f"cercano-{version}-{platform}"
     final_archive = output_dir / f"{name}.tar.gz"
     checksum_file = output_dir / f"{name}.tar.gz.sha256"
     # Never silently replace an artifact someone may already have published.
@@ -257,19 +268,20 @@ def main():
 
         print("Building agent...")
         build(repo_root / "source" / "server", "./cmd/cercano",
-              stage_root / "bin" / "cercano", version)
+              stage_root / "bin" / "cercano", version, arch)
         print("Building terminal client...")
         build(repo_root / "source" / "clients" / "cli", ".",
-              stage_root / "bin" / "cercano-cli", version)
+              stage_root / "bin" / "cercano-cli", version, arch)
 
         # Verify both binaries before packaging either: a non-Linux binary,
         # another architecture or an empty output must fail here, not on a
         # user's machine.
         for exe in ("cercano", "cercano-cli"):
-            verify_elf(stage_root / "bin" / exe)
+            verify_elf(stage_root / "bin" / exe, e_machine, machine)
 
         shutil.copy2(repo_root / "LICENSE", stage_root / "LICENSE")
-        (stage_root / "README.txt").write_text(README_TEMPLATE.format(version=version))
+        (stage_root / "README.txt").write_text(
+            README_TEMPLATE.format(version=version, machine=uname))
 
         # Regular files, binaries executable, documents readable only.
         os.chmod(stage_root / "bin" / "cercano", 0o755)
@@ -289,14 +301,14 @@ def main():
             (f"{name}/bin/cercano", stage_root / "bin" / "cercano", 0o755),
             (f"{name}/bin/cercano-cli", stage_root / "bin" / "cercano-cli", 0o755),
         ]
-        runtime_inventory.produce(stage_root, version, "linux-x64",
-                                  runtime_inventory.payload_modes("linux-x64"))
+        runtime_inventory.produce(stage_root, version, platform,
+                                  runtime_inventory.payload_modes(platform))
         entries.append((f"{name}/{runtime_inventory.NAME}",
                         stage_root / runtime_inventory.NAME, 0o644))
         temp_archive = temp_dir / f"{name}.tar.gz"
         write_tar(temp_archive, entries)
         verify_tar(temp_archive, entries)
-        runtime_inventory.validate_archive(temp_archive, name, version, "linux-x64")
+        runtime_inventory.validate_archive(temp_archive, name, version, platform)
 
         shutil.move(str(temp_archive), str(final_archive))
         digest = hashlib.sha256(final_archive.read_bytes()).hexdigest()

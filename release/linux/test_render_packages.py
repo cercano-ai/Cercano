@@ -44,21 +44,23 @@ def default_files():
     }
 
 
-def write_archive(directory, files=None, extra=None, name=ARCHIVE_NAME, inventory=True):
+def write_archive(directory, files=None, extra=None, name=None, inventory=True, platform="linux-x64"):
     files = default_files() if files is None else files
+    top = f"cercano-{VERSION}-{platform}"
+    name = name or f"{top}.tar.gz"
     members = dict(files)
     if inventory:
         members[runtime_inventory.NAME] = (
-            runtime_inventory.encode(VERSION, "linux-x64", files), 0o644)
+            runtime_inventory.encode(VERSION, platform, files), 0o644)
     members.update(extra or {})
     path = Path(directory) / name
     with tarfile.open(path, "w:gz") as archive:
-        for directory_name in (TOP, f"{TOP}/bin"):
+        for directory_name in (top, f"{top}/bin"):
             info = tarfile.TarInfo(directory_name)
             info.type, info.mode = tarfile.DIRTYPE, 0o755
             archive.addfile(info)
         for relative, (data, mode) in members.items():
-            info = tarfile.TarInfo(f"{TOP}/{relative}")
+            info = tarfile.TarInfo(f"{top}/{relative}")
             info.size, info.mode = len(data), mode
             archive.addfile(info, io.BytesIO(data))
     return path, hashlib.sha256(path.read_bytes()).hexdigest()
@@ -74,10 +76,10 @@ class RenderPackagesTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def run_render(self, archive, digest, version=VERSION, maintainer=MAINTAINER, output=None):
+    def run_render(self, archive, digest, version=VERSION, maintainer=MAINTAINER, output=None, extra_args=()):
         return render_packages.build([
             "--version", version, "--archive", str(archive), "--sha256", digest,
-            "--maintainer", maintainer, "--output", str(output or self.output)])
+            "--maintainer", maintainer, "--output", str(output or self.output), *extra_args])
 
     def assert_rejected(self, archive, digest, message, **kwargs):
         with self.assertRaisesRegex(render_packages.ValidationError, message):
@@ -200,6 +202,58 @@ class RenderPackagesTest(unittest.TestCase):
             files["bin/cercano"] = (broken, 0o755)
             archive, digest = write_archive(self.dir, files=files)
             self.assert_rejected(archive, digest, message)
+
+    def arm64_archive(self, machine=183):
+        files = default_files()
+        files["bin/cercano"] = (fake_elf("agent", machine=machine), 0o755)
+        files["bin/cercano-cli"] = (fake_elf("cli", machine=machine), 0o755)
+        return write_archive(self.dir, files=files, platform="linux-arm64")
+
+    def test_renders_arm64_components(self):
+        archive, digest = self.arm64_archive()
+        self.run_render(archive, digest, extra_args=["--arch", "arm64"])
+        for package in render_packages.COMPONENTS:
+            config = self.config(package)
+            self.assertIn("arch: arm64\n", config)
+            self.assertNotIn("amd64", config)
+        self.assertIn("arch: all\n", self.config("cercano"))
+
+    def test_arm64_rejects_x86_64_elf_and_x64_archive(self):
+        archive, digest = self.arm64_archive(machine=62)
+        self.assert_rejected(archive, digest, r"expected AArch64 ELF \(e_machine 183\)",
+                             extra_args=["--arch", "arm64"])
+        archive, digest = write_archive(self.dir)
+        self.assert_rejected(archive, digest, "must be named", extra_args=["--arch", "arm64"])
+
+    def test_without_convenience_renders_only_components(self):
+        archive, digest = self.arm64_archive()
+        self.run_render(archive, digest, extra_args=["--arch", "arm64", "--without-convenience"])
+        self.assertEqual(sorted(p.name for p in self.output.iterdir()),
+                         sorted([*render_packages.COMPONENTS, *(f"{p}.yaml" for p in render_packages.COMPONENTS)]))
+
+    def test_rejects_unknown_arch(self):
+        archive, digest = write_archive(self.dir)
+        for arch in ("x86_64", "aarch64", "i386", ""):
+            with self.subTest(arch=arch):
+                self.assert_rejected(archive, digest, "arch must be one of amd64, arm64",
+                                     extra_args=["--arch", arch])
+
+    @unittest.skipUnless(shutil.which("nfpm"), "nfpm not on PATH")
+    def test_nfpm_builds_arm64_components(self):
+        archive, digest = self.arm64_archive()
+        self.run_render(archive, digest, extra_args=["--arch", "arm64", "--without-convenience"])
+        dist = self.dir / "dist"
+        dist.mkdir()
+        for package in render_packages.COMPONENTS:
+            for fmt in render_packages.FORMATS:
+                subprocess.run(["nfpm", "package", "-f", str(self.output / f"{package}.yaml"),
+                                "-p", fmt, "-t", str(dist)], check=True, capture_output=True)
+        self.assertEqual(sorted(p.name for p in dist.iterdir()), sorted([
+            f"cercano-agent_{VERSION}_arm64.deb", f"cercano-cli_{VERSION}_arm64.deb",
+            f"cercano-agent-{VERSION}-1.aarch64.rpm", f"cercano-cli-{VERSION}-1.aarch64.rpm",
+            f"cercano-agent_{VERSION}_aarch64.apk", f"cercano-cli_{VERSION}_aarch64.apk",
+            f"cercano-agent-{VERSION}-1-aarch64.pkg.tar.zst", f"cercano-cli-{VERSION}-1-aarch64.pkg.tar.zst",
+        ]))
 
     @unittest.skipUnless(shutil.which("nfpm"), "nfpm not on PATH")
     def test_nfpm_builds_every_format(self):

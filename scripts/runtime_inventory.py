@@ -14,6 +14,12 @@ import zipfile
 from pathlib import Path
 
 NAME = "runtime-inventory.json"
+PLATFORMS = ("darwin-arm64", "linux-x64", "linux-arm64", "windows-x64")
+# Debian architecture -> (archive platform, ELF e_machine, ELF machine name,
+# `uname -m` name). The Linux builder and the package renderer both read this,
+# so they cannot drift.
+LINUX_ARCHES = {"amd64": ("linux-x64", 62, "x86-64", "x86_64"),
+                "arm64": ("linux-arm64", 183, "AArch64", "aarch64")}
 
 
 def safe_path(path):
@@ -28,7 +34,7 @@ def encode(version, platform, files):
     """files maps safe relative paths to (bytes, archive mode)."""
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", version):
         raise ValueError("invalid inventory version")
-    if platform not in ("darwin-arm64", "linux-x64", "windows-x64"):
+    if platform not in PLATFORMS:
         raise ValueError("invalid inventory platform")
     members = []
     for path, (data, mode) in sorted(files.items()):

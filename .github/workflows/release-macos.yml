@@ -1,8 +1,8 @@
 name: Release (signed macOS, unsigned experimental Windows and Linux)
 
 # Signed, notarized Apple Silicon release, plus an explicitly unsigned,
-# experimental Windows x64 artifact (docs/windows-artifact.md) and an
-# explicitly unsigned, experimental Linux x86_64 artifact
+# experimental Windows x64 artifact (docs/windows-artifact.md) and
+# explicitly unsigned, experimental Linux x86_64 and arm64 artifacts
 # (docs/linux-artifact.md).
 #
 # Deliberately manual: there is no push, tag or pull_request trigger, so
@@ -14,11 +14,11 @@ name: Release (signed macOS, unsigned experimental Windows and Linux)
 # Configure that environment with required reviewers so a run cannot reach
 # Apple credentials without human approval. See docs/macos-release-build.md.
 #
-# The `build-windows` and `build-linux` jobs are deliberately OUTSIDE that
-# environment: they hold no secrets of any kind and produce explicitly
-# unsigned, experimental artifacts (docs/windows-artifact.md,
-# docs/linux-artifact.md). They must never gain signing secrets or the
-# release environment.
+# The `build-windows`, `build-linux`, `build-linux-arm64` and
+# `linux-packages-review` jobs are deliberately OUTSIDE that environment: they
+# hold no secrets of any kind and produce explicitly unsigned, experimental
+# artifacts (docs/windows-artifact.md, docs/linux-artifact.md). They must
+# never gain signing secrets or the release environment.
 on:
   workflow_dispatch:
     inputs:
@@ -56,7 +56,7 @@ jobs:
 
   build:
     name: Build, sign, notarize, verify and release
-    needs: [publication-preflight, build-windows, build-linux]
+    needs: [publication-preflight, build-windows, build-linux, build-linux-arm64, linux-packages-review]
     # One protected approval covers signing and publication, including the tap.
     permissions:
       contents: write
@@ -267,6 +267,12 @@ jobs:
           name: cercano-${{ inputs.version }}-linux-x64
           path: dist
 
+      - uses: actions/download-artifact@v4
+        if: inputs.publish
+        with:
+          name: cercano-${{ inputs.version }}-linux-arm64
+          path: dist
+
       - name: Refuse to replace an existing published artifact
         if: inputs.publish
         env:
@@ -290,7 +296,9 @@ jobs:
                        "cercano-$VERSION-windows-x64.zip" \
                        "cercano-$VERSION-windows-x64.zip.sha256" \
                        "cercano-$VERSION-linux-x64.tar.gz" \
-                       "cercano-$VERSION-linux-x64.tar.gz.sha256"; do
+                       "cercano-$VERSION-linux-x64.tar.gz.sha256" \
+                       "cercano-$VERSION-linux-arm64.tar.gz" \
+                       "cercano-$VERSION-linux-arm64.tar.gz.sha256"; do
             if grep -Fxq "$ASSET" <<< "$ASSETS"; then
               echo "::error::$ASSET is already published on v$VERSION. Publish a new version instead of replacing it."
               exit 1
@@ -300,6 +308,7 @@ jobs:
           echo "${{ steps.build.outputs.sha256 }}  dist/cercano-$VERSION-darwin-arm64.tar.gz" | shasum -a 256 -c -
           echo "${{ needs.build-windows.outputs.sha256 }}  dist/cercano-$VERSION-windows-x64.zip" | shasum -a 256 -c -
           echo "${{ needs.build-linux.outputs.sha256 }}  dist/cercano-$VERSION-linux-x64.tar.gz" | shasum -a 256 -c -
+          echo "${{ needs.build-linux-arm64.outputs.sha256 }}  dist/cercano-$VERSION-linux-arm64.tar.gz" | shasum -a 256 -c -
 
       - name: Publish release
         if: inputs.publish
@@ -317,6 +326,8 @@ jobs:
             dist/cercano-${{ inputs.version }}-windows-x64.zip.sha256
             dist/cercano-${{ inputs.version }}-linux-x64.tar.gz
             dist/cercano-${{ inputs.version }}-linux-x64.tar.gz.sha256
+            dist/cercano-${{ inputs.version }}-linux-arm64.tar.gz
+            dist/cercano-${{ inputs.version }}-linux-arm64.tar.gz.sha256
 
       - name: Test tap updater
         if: inputs.publish
@@ -597,7 +608,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          python3 scripts/build-linux-release.py "$VERSION" dist
+          python3 scripts/build-linux-release.py "$VERSION" dist amd64
           ARCHIVE="dist/cercano-$VERSION-linux-x64.tar.gz"
           echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
           echo "sha256=$(sha256sum "$ARCHIVE" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
@@ -658,17 +669,25 @@ jobs:
           bash release/linux/install-nfpm.sh "$RUNNER_TEMP/linux-tools"
           echo "$RUNNER_TEMP/linux-tools" >> "$GITHUB_PATH"
 
+      # amd64 packages include the architecture-independent `cercano`
+      # package; build-linux-arm64 adds only its own components (see
+      # release/linux/package-verified.sh). The tag's commit time makes the
+      # changelog date and file times reproducible.
       - name: Package verified Linux archive for review only
         env:
           VERSION: ${{ inputs.version }}
           ARCHIVE: ${{ steps.build.outputs.archive }}
           SHA256: ${{ steps.build.outputs.sha256 }}
-        run: bash release/linux/package-verified.sh "$VERSION" "$ARCHIVE" "$SHA256" dist/linux-packages
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct HEAD)"
+          export SOURCE_DATE_EPOCH
+          bash release/linux/package-verified.sh "$VERSION" "$ARCHIVE" "$SHA256" dist/linux-packages amd64
 
-      - name: Upload Linux packages for review (not release assets)
+      - name: Upload amd64 Linux packages for review assembly (not release assets)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: cercano-${{ inputs.version }}-linux-packages-review
+          name: cercano-${{ inputs.version }}-linux-packages-amd64
           path: dist/linux-packages/
           if-no-files-found: error
           retention-days: 14
@@ -680,6 +699,207 @@ jobs:
           path: |
             dist/cercano-${{ inputs.version }}-linux-x64.tar.gz
             dist/cercano-${{ inputs.version }}-linux-x64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  # Experimental, UNSIGNED Linux arm64 artifact: build-linux's steps on a
+  # native arm64 runner, so the gate, smoke test and helper tests run on the
+  # target architecture. Same rules: not in the protected `release`
+  # environment, no secrets, and the publish flag still gates distribution.
+  build-linux-arm64:
+    needs: [publication-preflight]
+    name: Build unsigned experimental Linux arm64 archive
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    outputs:
+      archive: ${{ steps.build.outputs.archive }}
+      sha256: ${{ steps.build.outputs.sha256 }}
+    steps:
+      # The manually selected ref supplies only the workflow. All release code,
+      # tests (including their workflow fixture), and tap tooling come from the tag.
+      - name: Validate source version
+        id: source
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "::error::Version must be stable X.Y.Z without a leading v: $VERSION"; exit 1; }
+          echo "ref=refs/tags/v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+          fetch-depth: 0  # the build script requires the version tag to exist
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: source/server/go.mod
+          cache-dependency-path: source/server/go.sum
+
+      - name: Validate inputs
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "::error::Version must be stable X.Y.Z without a leading v: $VERSION"; exit 1; }
+          TAG_COMMIT="$(git rev-parse --verify "refs/tags/v$VERSION^{commit}")" \
+            || { echo "::error::No commit tag v$VERSION in this repository."; exit 1; }
+          [[ "$TAG_COMMIT" == "$(git rev-parse --verify 'HEAD^{commit}')" ]] \
+            || { echo "::error::Checked-out source does not match v$VERSION; refusing to label different source as this release."; exit 1; }
+          echo "Release source: refs/tags/v$VERSION at $TAG_COMMIT"
+          echo "Workflow: ${GITHUB_WORKFLOW_REF:-local} at ${GITHUB_SHA:-local}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run release test gate
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == aarch64 ]] \
+            || { echo "::error::Expected a native aarch64 runner, got $(uname -m)."; exit 1; }
+          python3 -m pip install --disable-pip-version-check --quiet pyyaml
+          python3 scripts/test-linux-release-build.py
+          python3 scripts/test-release-workflow.py
+
+      - name: Build unsigned Linux archive
+        id: build
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/build-linux-release.py "$VERSION" dist arm64
+          ARCHIVE="dist/cercano-$VERSION-linux-arm64.tar.gz"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$ARCHIVE" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      # Same isolation as build-linux: versions only, no agent launch,
+      # credentials, models or downloads.
+      - name: Smoke test binaries with isolated user directories
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          ISOLATED="$RUNNER_TEMP/cercano-smoke"
+          rm -rf "$ISOLATED"
+          mkdir -p "$ISOLATED/home" "$ISOLATED/config" "$ISOLATED/cache" \
+                   "$ISOLATED/data" "$ISOLATED/state" "$ISOLATED/runtime" \
+                   "$ISOLATED/temp" "$ISOLATED/run"
+          chmod 700 "$ISOLATED/runtime"  # XDG_RUNTIME_DIR must be 0700
+          export HOME="$ISOLATED/home"
+          export XDG_CONFIG_HOME="$ISOLATED/config"
+          export XDG_CACHE_HOME="$ISOLATED/cache"
+          export XDG_DATA_HOME="$ISOLATED/data"
+          export XDG_STATE_HOME="$ISOLATED/state"
+          export XDG_RUNTIME_DIR="$ISOLATED/runtime"
+          export TMPDIR="$ISOLATED/temp"
+          export TEMP="$ISOLATED/temp"
+          export TMP="$ISOLATED/temp"
+          cd "$ISOLATED/run"
+          tar -xzf "$GITHUB_WORKSPACE/dist/cercano-$VERSION-linux-arm64.tar.gz"
+          AGENT="$ISOLATED/run/cercano-$VERSION-linux-arm64/bin/cercano"
+          CLI="$ISOLATED/run/cercano-$VERSION-linux-arm64/bin/cercano-cli"
+          got="$("$AGENT" --version)"
+          [[ "$got" == "cercano v$VERSION" ]] \
+            || { echo "::error::cercano reports '$got', expected 'cercano v$VERSION'."; exit 1; }
+          got="$("$CLI" --version)"
+          [[ "$got" == "cercano-cli v$VERSION" ]] \
+            || { echo "::error::cercano-cli reports '$got', expected 'cercano-cli v$VERSION'."; exit 1; }
+          # The isolated directories must stay free of agent state.
+          [[ -z "$(find "$ISOLATED/home" "$ISOLATED/config" "$ISOLATED/cache" "$ISOLATED/data" "$ISOLATED/state" -type f -print -quit)" ]] \
+            || { echo "::error::Version smoke test wrote outside the isolated directories; refusing."; exit 1; }
+          echo "Smoke test passed: both binaries report v$VERSION from an isolated environment."
+
+      - name: Run Linux-native helper tests
+        run: |
+          set -euo pipefail
+          ( cd source/server && go test -count=1 ./internal/procx/... )
+
+      - name: Install checksum-pinned Linux packaging tool
+        run: |
+          bash release/linux/install-nfpm.sh "$RUNNER_TEMP/linux-tools"
+          echo "$RUNNER_TEMP/linux-tools" >> "$GITHUB_PATH"
+
+      # cercano-agent and cercano-cli only: the architecture-independent
+      # `cercano` package comes from build-linux.
+      - name: Package verified Linux archive for review only
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCHIVE: ${{ steps.build.outputs.archive }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct HEAD)"
+          export SOURCE_DATE_EPOCH
+          bash release/linux/package-verified.sh "$VERSION" "$ARCHIVE" "$SHA256" dist/linux-packages arm64
+
+      - name: Upload arm64 Linux packages for review assembly (not release assets)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cercano-${{ inputs.version }}-linux-packages-arm64
+          path: dist/linux-packages/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload artifacts for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: cercano-${{ inputs.version }}-linux-arm64
+          path: |
+            dist/cercano-${{ inputs.version }}-linux-arm64.tar.gz
+            dist/cercano-${{ inputs.version }}-linux-arm64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  # One review set for apt promotion (cercano-ai/packages), merged from both
+  # architectures by a checked script. Secret-free; nothing is built here.
+  linux-packages-review:
+    needs: [build-linux, build-linux-arm64]
+    name: Assemble Linux packages for review (amd64 and arm64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # The merge script comes from the tag, like all other release code.
+      - name: Validate source version
+        id: source
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "::error::Version must be stable X.Y.Z without a leading v: $VERSION"; exit 1; }
+          echo "ref=refs/tags/v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: cercano-${{ inputs.version }}-linux-packages-amd64
+          path: ${{ runner.temp }}/linux-packages-amd64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: cercano-${{ inputs.version }}-linux-packages-arm64
+          path: ${{ runner.temp }}/linux-packages-arm64
+
+      - name: Merge verified package sets
+        run: |
+          set -euo pipefail
+          bash release/linux/merge-review-packages.sh \
+            "$RUNNER_TEMP/linux-packages-amd64" "$RUNNER_TEMP/linux-packages-arm64" dist/linux-packages
+
+      - name: Upload Linux packages for review (not release assets)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cercano-${{ inputs.version }}-linux-packages-review
+          path: dist/linux-packages/
           if-no-files-found: error
           retention-days: 14
 

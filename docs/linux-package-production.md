@@ -5,7 +5,8 @@
 Linux remains experimental. The apt repository is live: the separate
 `cercano-ai/packages` repository publishes it with GitHub Pages at
 `https://cercano-ai.github.io/packages/` (first release 0.28.1, 2026-11-26;
-x86_64/amd64 only). The public package maintainer is
+amd64 only). The release workflow also builds arm64 packages; they reach the
+repository once `cercano-ai/packages` accepts arm64. The public package maintainer is
 `cercano maintainers <maintainers@cercloud.ai>`.
 
 **Publication happens in `cercano-ai/packages`, not in this repository.** Its
@@ -17,18 +18,27 @@ workflow artifacts, not release assets.
 
 ## Local and CI staging (no signing credentials)
 
-`build-linux` remains outside the protected release environment, with read-only
-contents permission and no secrets. After the existing release archive is built
-and smoke-tested, `release/linux/package-verified.sh VERSION ARCHIVE SHA256 OUT`
-verifies the archive digest/layout/runtime inventory and renders the approved
-maintainer into all twelve packages. It refuses an existing output directory.
-The workflow uploads these packages and their `SHA256SUMS` for review only.
+`build-linux` and `build-linux-arm64` remain outside the protected release
+environment, with read-only contents permission and no secrets. After each
+release archive is built and smoke-tested,
+`release/linux/package-verified.sh VERSION ARCHIVE SHA256 OUT ARCH` verifies the
+archive digest/layout/runtime inventory and renders the approved maintainer
+into the packages. It refuses an existing output directory. amd64 builds all
+twelve packages; arm64 builds only `cercano-agent` and `cercano-cli` (eight),
+because the architecture-independent `cercano` package must have one set of
+bytes per version and separate builders do not reproduce it exactly. Both
+jobs set `SOURCE_DATE_EPOCH` to the tag's commit time.
+`linux-packages-review` then checks both sets against their `SHA256SUMS` and
+merges them with `release/linux/merge-review-packages.sh` into the one
+`linux-packages-review` artifact (twenty packages and one `SHA256SUMS`), for
+review only.
 The digest is the checksum produced alongside that job's archive; this is not
 independent provenance attestation or authentication of a downloaded release.
 
 `release/linux/install-nfpm.sh TOOL_DIR` installs only into a caller-owned
-location on Linux x86_64. nfpm v2.48.0 is pinned by the SHA-256 of its upstream
-Linux x86_64 archive; verification happens before extraction/execution. Updating
+location on Linux x86_64 or aarch64. nfpm v2.48.0 is pinned by the SHA-256 of
+its upstream Linux x86_64 and arm64 archives; verification happens before
+extraction/execution. Updating
 that version or digest requires review against the upstream release. New CI
 checkout/upload actions are pinned to full commits. CI's apt-utils/GnuPG are
 Ubuntu runner packages installed explicitly through the runner's signed apt
