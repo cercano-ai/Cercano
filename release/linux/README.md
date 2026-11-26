@@ -99,8 +99,8 @@ private key in `GNUPGHOME`; it never creates a key, and it refuses to replace
 a published file with different bytes. Users then run:
 
 ```bash
-curl -fsSL https://cercano-ai.github.io/packages/apt/cercano.gpg | sudo tee /etc/apt/keyrings/cercano.gpg >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/cercano.gpg] https://cercano-ai.github.io/packages/apt/ stable main" \
+curl -fsSL https://cercano-ai.github.io/packages/cercano.gpg | sudo tee /etc/apt/keyrings/cercano.gpg >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/cercano.gpg] https://cercano-ai.github.io/packages/ stable main" \
   | sudo tee /etc/apt/sources.list.d/cercano.list
 sudo apt update && sudo apt install cercano
 ```
@@ -113,7 +113,7 @@ package index (hash mismatch) and a repository signed by another key
 (`NO_PUBKEY`).
 
 The approved future host is `cercano-ai/packages` on GitHub Pages at
-`https://cercano-ai.github.io/packages/apt/`. This is **not configured or live
+`https://cercano-ai.github.io/packages/`. This is **not configured or live
 acceptance**; the commands above apply only after independent fingerprint
 verification and production provisioning. No publication job or credentials are
 added. Signing must stay outside the unsigned `build-linux` job. The offline

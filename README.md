@@ -172,10 +172,37 @@ acceptance caveats.
 See the [macOS installation guide](docs/installation-macos.md) for first-run
 setup, upgrade troubleshooting, and development-launcher PATH conflicts.
 
-### Linux x86_64 (experimental, unsigned)
+### Linux x86_64 (experimental)
 
-Download and unpack the published release, verify its checksum, then launch
-from the extracted directory (requires `curl`, `sha256sum`, and `tar`):
+On Debian, Ubuntu and derivatives, install from the signed apt repository.
+First download the repository key and check its fingerprint:
+
+```bash
+sudo install -d -m 0755 /etc/apt/keyrings
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://cercano-ai.github.io/packages/cercano.gpg -o cercano.gpg
+gpg --show-keys --with-fingerprint cercano.gpg
+```
+
+The primary key fingerprint must be
+`55368AC6 14FE6CD9 DAC04A45 8A03FD1D 0192F44A`. If it isn't, stop. Then add the
+repository and install:
+
+```bash
+sudo install -m 0644 cercano.gpg /etc/apt/keyrings/cercano.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/cercano.gpg] https://cercano-ai.github.io/packages/ stable main' \
+  | sudo tee /etc/apt/sources.list.d/cercano.list
+sudo apt update
+sudo apt install cercano
+cercano-cli
+```
+
+`cercano` installs `cercano-agent` and `cercano-cli`; `sudo apt upgrade` keeps
+them current. The repository signature covers the apt metadata and packages; the
+binaries themselves are not code-signed.
+
+Alternatively, download and unpack the published release, verify its checksum,
+then launch from the extracted directory (requires `curl`, `sha256sum`, and `tar`):
 
 ```bash
 version=0.24.0
@@ -232,8 +259,7 @@ The Linux tarball and Windows ZIP examples are pinned to release **0.24.0**;
 they do not identify the latest release or the Chocolatey package version. Both
 leave the binaries together in the extracted `bin` directory; no administrator
 access or PATH changes are needed. Linux and Windows remain **experimental,
-not supported releases**. An APT package for installation via `apt-get` is
-planned for Linux but is not yet available. Chocolatey
+not supported releases**. Chocolatey
 submission does not establish approval or default-source availability.
 Checksums verify download integrity, not publisher identity.
 
