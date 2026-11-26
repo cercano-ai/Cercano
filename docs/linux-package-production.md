@@ -2,15 +2,18 @@
 
 ## Status and approved destination
 
-Linux remains experimental and unsupported. The approved future apt host is the
-separate `cercano-ai/packages` repository, with Pages serving
-`https://cercano-ai.github.io/packages/`. The public package maintainer is
+Linux remains experimental. The apt repository is live: the separate
+`cercano-ai/packages` repository publishes it with GitHub Pages at
+`https://cercano-ai.github.io/packages/` (first release 0.28.1, 2026-11-26;
+x86_64/amd64 only). The public package maintainer is
 `cercano maintainers <maintainers@cercloud.ai>`.
 
-**Publication is not configured or enabled by this integration.** No Pages job,
-production key, secret, token, repository creation or environment is added.
-Existing macOS/Windows/Linux archive publication policy is unchanged; Linux
-packages are additional review-only workflow artifacts, not release assets.
+**Publication happens in `cercano-ai/packages`, not in this repository.** Its
+`apt-pages.yml` workflow promotes one reviewed `linux-packages-review` artifact
+from a successful release run, behind protected environments. This repository
+adds no Pages job, production key, secret or token. Existing macOS/Windows/Linux
+archive publication policy is unchanged; Linux packages here are review-only
+workflow artifacts, not release assets.
 
 ## Local and CI staging (no signing credentials)
 
@@ -107,9 +110,9 @@ release/tag/publication guards in `docs/macos-release-build.md`. A production
 process must serialize staging/publication and retain a reviewed rollback
 snapshot; no deployment workflow implementing these gates is included here.
 
-## Future client configuration (not live acceptance)
+## Client configuration
 
-Only after Pages and key custody are separately provisioned and accepted:
+Verify the primary key fingerprint before installing:
 
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
@@ -125,18 +128,13 @@ sudo apt update
 sudo apt install cercano
 ```
 
-Do not document a production fingerprint until the offline ceremony establishes
-it. A repository signature authenticates apt metadata/packages, not a signature
-on the original Linux archive or a Linux support commitment.
+The primary key fingerprint is `55368AC6 14FE6CD9 DAC04A45 8A03FD1D 0192F44A`
+(also in the top-level README). A repository signature authenticates apt
+metadata/packages, not a signature on the original Linux archive or a Linux
+support commitment.
 
-## Remaining owner inputs before any production action
+## Production setup
 
-- Confirm the administrator responsible for creating/configuring
-  `cercano-ai/packages` and Pages, plus the protected deployment environment,
-  reviewer list and least-privilege deployment credential/permissions.
-- Provide the independently verified public primary/subkey fingerprints and
-  expiration/rotation/revocation owners after the offline ceremony.
-- Approve the CI subkey/passphrase custody mechanism and credential-file cleanup
-  policy. Do not send private key material in a chat response.
-- Separately authorize provisioning and publication, after Linux-host package,
-  lifecycle/upgrade, apt signature/tamper and staging review gates pass.
+Provisioning, credentials, protected environments, the real-package acceptance
+gate and recovery are documented in the `cercano-ai/packages` README. Do not
+send private key material in a chat response.

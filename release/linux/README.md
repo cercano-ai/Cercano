@@ -112,11 +112,11 @@ and apt refuses an `InRelease` altered after signing (`BADSIG`), an altered
 package index (hash mismatch) and a repository signed by another key
 (`NO_PUBKEY`).
 
-The approved future host is `cercano-ai/packages` on GitHub Pages at
-`https://cercano-ai.github.io/packages/`. This is **not configured or live
-acceptance**; the commands above apply only after independent fingerprint
-verification and production provisioning. No publication job or credentials are
-added. Signing must stay outside the unsigned `build-linux` job. The offline
+The live repository is published by `cercano-ai/packages` on GitHub Pages at
+`https://cercano-ai.github.io/packages/` (first release 0.28.1, 2026-11-26).
+Verify the primary key fingerprint before installing, as in the top-level
+README. This repository adds no publication job or credentials. Signing must
+stay outside the unsigned `build-linux` job. The offline
 primary / CI signing-subkey custody model and remaining provisioning gates are
 in [production setup](../../docs/linux-package-production.md).
 
