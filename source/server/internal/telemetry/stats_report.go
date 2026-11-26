@@ -60,10 +60,66 @@ func (s *SQLiteStore) UsageReport(ctx context.Context, now time.Time) (*proto.Ge
 	if err != nil {
 		return nil, err
 	}
-	return s.QueryTokenMetrics(ctx, StatsRequest(), now, "", nil)
+	return s.queryTokenMetrics(ctx, StatsRequest(), now, "", nil, true)
 }
 
-// FormatTokenMetricsASCII renders attempt accounting as a text dashboard.
+// UsageReport includes live accounting health for the MCP stats report.
+func (c *Collector) UsageReport(ctx context.Context) (*proto.GetTokenMetricsResponse, error) {
+	return c.tokenMetrics(ctx, StatsRequest(), true)
+}
+
+// queryStatsDays seeks backwards through active calendar days, avoiding both
+// widened chart buckets and a scan/query per empty day in sparse history.
+// All aggregates share the all-time report's read transaction and population.
+func queryStatsDays(ctx context.Context, tx *sql.Tx, base string, args []any, start, end, now time.Time, loc *time.Location) ([]*proto.TokenMetricBucket, error) {
+	var days []*proto.TokenMetricBucket
+	before := end
+	for len(days) < statsRecentDays && before.After(start) {
+		var latest sql.NullInt64
+		a := append(append([]any{}, args...), before.UnixMicro())
+		if err := tx.QueryRowContext(ctx, "SELECT MAX(timestamp) FROM ("+base+") WHERE timestamp<?", a...).Scan(&latest); err != nil {
+			return nil, err
+		}
+		if !latest.Valid {
+			break
+		}
+		local := time.UnixMicro(latest.Int64).In(loc)
+		midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+		lower, upper := midnight.UTC(), midnight.AddDate(0, 0, 1).UTC()
+		if lower.Before(start) {
+			lower = start
+		}
+		if upper.After(end) {
+			upper = end
+		}
+		a = append(append([]any{}, args...), lower.UnixMicro(), upper.UnixMicro())
+		rows, err := tx.QueryContext(ctx, "SELECT "+metricAggregate+" FROM ("+base+") WHERE timestamp>=? AND timestamp<?", a...)
+		if err != nil {
+			return nil, err
+		}
+		b := &proto.TokenMetricBucket{StartUnixMicros: lower.UnixMicro(), EndUnixMicros: upper.UnixMicro(), Label: midnight.Format("2006-01-02"), Partial: lower.After(midnight.UTC()) || (lower.Before(now) && upper.After(now))}
+		if rows.Next() {
+			b.Totals, err = scanMetricTotals(rows, nil)
+		}
+		rowErr := rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if rowErr != nil {
+			return nil, rowErr
+		}
+		days = append(days, b)
+		before = lower
+	}
+	for i, j := 0, len(days)-1; i < j; i, j = i+1, j-1 {
+		days[i], days[j] = days[j], days[i]
+	}
+	return days, nil
+}
+
+// FormatTokenMetricsASCII renders a UsageReport as a text dashboard.
+// UsageReport totals count the union of missing and unfinished counts in Incomplete.
 func FormatTokenMetricsASCII(r *proto.GetTokenMetricsResponse) string {
 	var out strings.Builder
 	out.WriteString(box("CERCANO USAGE"))
@@ -82,7 +138,7 @@ func FormatTokenMetricsASCII(r *proto.GetTokenMetricsResponse) string {
 	if t.GetReasoning().GetKnownRecords() > 0 {
 		out.WriteString(fmt.Sprintf("  Reasoning:       %s (part of output)\n", formatCount(t.GetReasoning())))
 	}
-	if n := t.GetIncomplete() + t.GetUnfinished(); n > 0 {
+	if n := t.GetIncomplete(); n > 0 {
 		out.WriteString(fmt.Sprintf("  Incomplete:      %s calls with missing or unfinished counts\n", formatNumber(int(n))))
 	}
 	out.WriteString("\n")

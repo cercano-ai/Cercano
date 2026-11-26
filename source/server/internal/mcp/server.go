@@ -652,7 +652,7 @@ func (s *Server) handleStats(ctx context.Context, request *gomcp.CallToolRequest
 
 	// Prefer the live collector (includes in-memory accounting health); fall
 	// back to the store when attempt accounting is not enabled in this process.
-	report, err := s.collector.TokenMetrics(ctx, telemetry.StatsRequest())
+	report, err := s.collector.UsageReport(ctx)
 	if err != nil {
 		store, ok := s.collector.Store().(*telemetry.SQLiteStore)
 		if !ok {

@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/usage"
+	"cercano/source/server/pkg/proto"
 )
 
 // A tool loop makes several model calls but the legacy events table records one
@@ -109,5 +111,146 @@ func TestStatsTimezoneIsLoadable(t *testing.T) {
 	}
 	if _, err := time.LoadLocation(tz); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUsageReportLongHistoryActiveDays(t *testing.T) {
+	t.Setenv("TZ", "UTC")
+	s := metricsStore(t)
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := s.db.Exec("UPDATE accounting_metadata SET value=? WHERE key='tracking_since'", start.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	// Jan 1 and Jan 2 used to land in the same widened bucket. Sparse
+	// history must return active days, not just the most recent fortnight.
+	for i := 0; i < 16; i++ {
+		a := accountingFixture(fmt.Sprintf("day-%d", i))
+		a.StartedAt = start.AddDate(0, 0, i).Add(time.Hour)
+		a.Outcome, a.EndedAt = usage.Completed, a.StartedAt.Add(time.Second)
+		a.Tokens = llm.TokenUsage{Input: llm.ReportedTokens(10), Output: llm.ReportedTokens(1), Final: true}
+		if err := s.WriteAttempts(t.Context(), []usage.AttemptObservation{a}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := s.UsageReport(t.Context(), start.AddDate(0, 0, 240))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GetTotals().GetRecords() != 16 || report.GetTotals().GetInput().GetTokens() != 160 {
+		t.Fatalf("all-time totals: %v", report.GetTotals())
+	}
+	var active []*proto.TokenMetricBucket
+	for _, b := range report.GetBuckets() {
+		if b.GetTotals().GetRecords() > 0 {
+			active = append(active, b)
+		}
+	}
+	if len(active) != 14 {
+		t.Fatalf("got %d active day buckets, want 14: %v", len(active), active)
+	}
+	for i, b := range active {
+		want := start.AddDate(0, 0, i+2).Format("2006-01-02")
+		if b.GetLabel() != want || b.GetTotals().GetRecords() != 1 || b.GetEndUnixMicros()-b.GetStartUnixMicros() != int64(24*time.Hour/time.Microsecond) {
+			t.Errorf("day %d: %v, want %s with one call", i, b, want)
+		}
+	}
+}
+
+func TestUsageReportIncompleteUnion(t *testing.T) {
+	s := metricsStore(t)
+	a := accountingFixture("started-unknown")
+	a.StartedAt = time.Now().Add(-time.Hour)
+	a.Outcome, a.EndedAt, a.Tokens = usage.Started, time.Time{}, llm.TokenUsage{}
+	if err := s.WriteAttempts(t.Context(), []usage.AttemptObservation{a}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := s.UsageReport(t.Context(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the live-collector path used by MCP as well as offline stats.
+	c := NewCollector(s, 10)
+	if err := c.EnableAccounting(testAccountingOptions()); err != nil {
+		c.Close()
+		t.Fatal(err)
+	}
+	defer c.Close()
+	live, err := c.UsageReport(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live.GetTotals().GetIncomplete() != 1 || len(live.GetBuckets()) != 1 {
+		t.Fatalf("live stats: %v", live)
+	}
+	text := FormatTokenMetricsASCII(report)
+	if !strings.Contains(text, "Incomplete:      1 calls") {
+		t.Fatalf("one attempt must count once:\n%s", text)
+	}
+}
+
+// Neither predicate implies the other: even a started observation can carry
+// final known counters. Verify the union, not a sum or max of the two counts.
+func TestUsageReportIncompleteUnionDisjointAndOverlap(t *testing.T) {
+	s := metricsStore(t)
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	for i, kind := range []string{"both", "missing", "unfinished", "complete"} {
+		a := accountingFixture(kind)
+		a.StartedAt = now.Add(-time.Hour)
+		a.Outcome, a.EndedAt = usage.Completed, a.StartedAt.Add(time.Second)
+		a.Tokens = llm.TokenUsage{Input: llm.ReportedTokens(1), Output: llm.ReportedTokens(1), Final: true}
+		if i == 0 || i == 1 {
+			a.Tokens = llm.TokenUsage{}
+		}
+		if i == 0 || i == 2 {
+			a.Outcome, a.EndedAt = usage.Started, time.Time{}
+		}
+		if err := s.WriteAttempts(t.Context(), []usage.AttemptObservation{a}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := s.UsageReport(t.Context(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(FormatTokenMetricsASCII(report), "Incomplete:      3 calls") {
+		t.Fatal(FormatTokenMetricsASCII(report))
+	}
+	shared, err := s.QueryTokenMetrics(t.Context(), StatsRequest(), now, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shared.GetTotals().GetIncomplete() != 2 || shared.GetTotals().GetUnfinished() != 2 {
+		t.Fatalf("shared counters changed: %v", shared.GetTotals())
+	}
+}
+
+func TestUsageReportCalendarDayDSTAndPartialCutover(t *testing.T) {
+	t.Setenv("TZ", "America/New_York")
+	s := metricsStore(t)
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutover := time.Date(2026, 3, 7, 12, 0, 0, 0, loc)
+	if _, err := s.db.Exec("UPDATE accounting_metadata SET value=? WHERE key='tracking_since'", cutover.UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		a := accountingFixture(fmt.Sprintf("dst-%d", i))
+		a.StartedAt = cutover.AddDate(0, 0, i)
+		if err := s.WriteAttempts(t.Context(), []usage.AttemptObservation{a}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := s.UsageReport(t.Context(), cutover.AddDate(0, 0, 2).Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	days := report.GetBuckets()
+	if len(days) != 3 {
+		t.Fatalf("days: %v", days)
+	}
+	if !days[0].GetPartial() || !days[2].GetPartial() || days[1].GetLabel() != "2026-03-08" || days[1].GetEndUnixMicros()-days[1].GetStartUnixMicros() != int64(23*time.Hour/time.Microsecond) {
+		t.Fatalf("calendar boundaries/partial flags: %v", days)
 	}
 }
