@@ -13,16 +13,18 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// beginAccountingTurn registers every turn in the shared lifetime/drain registry.
+// Accounting attribution and collection remain opt-in via non-nil metadata.
 func (w *WorkerServer) beginAccountingTurn(parent context.Context, work *wire.AccountingWork, conversation string) (context.Context, func(), error) {
 	w.accountingMu.Lock()
 	if w.accountingClosing {
 		w.accountingMu.Unlock()
 		return nil, nil, status.Error(codes.Unavailable, "worker is shutting down")
 	}
-	if w.accountingTransport == nil {
+	if work != nil && w.accountingTransport == nil {
 		w.accountingTransport = &workerAccountingWriter{}
 	}
-	if w.accountingCollector == nil {
+	if work != nil && w.accountingCollector == nil {
 		w.accountingCollector = telemetry.NewAccountingCollector(w.accountingTransport, telemetry.AccountingOptions{})
 	}
 	if w.accountingTurns == nil {
@@ -34,6 +36,20 @@ func (w *WorkerServer) beginAccountingTurn(parent context.Context, work *wire.Ac
 	w.accountingTurns[registration] = cancel
 	w.accountingWorkers.Add(1)
 	w.accountingMu.Unlock()
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			cancel()
+			w.accountingMu.Lock()
+			delete(w.accountingTurns, registration)
+			w.accountingMu.Unlock()
+			w.accountingWorkers.Done()
+		})
+	}
+	if work == nil {
+		return ctx, release, nil
+	}
+
 	a := usage.Attribution{OperationID: work.GetOperationId(), ConversationID: work.GetConversationId(), SessionID: work.GetSessionId(), Source: work.GetSource()}
 	if a.ConversationID == "" {
 		a.ConversationID = conversation
@@ -53,16 +69,7 @@ func (w *WorkerServer) beginAccountingTurn(parent context.Context, work *wire.Ac
 		a.OperationID = usage.NewIdentity()
 	}
 	ctx = usage.WithAttempts(ctx, collector.Emit, a)
-	var once sync.Once
-	release := func() {
-		once.Do(func() {
-			cancel()
-			w.accountingMu.Lock()
-			delete(w.accountingTurns, registration)
-			w.accountingMu.Unlock()
-			w.accountingWorkers.Done()
-		})
-	}
+
 	return ctx, release, nil
 }
 

@@ -169,14 +169,14 @@ func (w *WorkerServer) runTurn(stream proto.Worker_RunTurnServer, authRecovery, 
 	} else if len(start.GetEnterpriseSettingsJson()) != 0 {
 		return status.Error(codes.FailedPrecondition, "standalone turn cannot contain managed settings")
 	}
-	if start.Accounting != nil {
-		scoped, release, scopeErr := w.beginAccountingTurn(parent, start.Accounting, start.GetConversationId())
-		if scopeErr != nil {
-			return scopeErr
-		}
-		defer release()
-		parent = scoped
+	// Every turn participates in worker lifetime admission and shutdown, even
+	// when the host has no accounting manager and sends no metadata.
+	scoped, release, scopeErr := w.beginAccountingTurn(parent, start.Accounting, start.GetConversationId())
+	if scopeErr != nil {
+		return scopeErr
 	}
+	defer release()
+	parent = scoped
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	var dispatchLifetime *preparedDispatchLifetime

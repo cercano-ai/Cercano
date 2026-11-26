@@ -106,3 +106,6 @@ func HandleFromConn(conn *grpc.ClientConn) *WorkerHandleForTest {
 
 // Ensure proto package is used (suppress unused import if needed).
 var _ = proto.NewWorkerClient
+
+// WatchOwnerPipeForTest uses a test-owned pipe and exit callback.
+var WatchOwnerPipeForTest = watchOwnerPipe
