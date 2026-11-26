@@ -85,6 +85,12 @@ const metricsWarnings = "Reported usage only; unknown counters are not zero. Cac
 // records. now is explicit for deterministic tests. live replaces one persisted
 // writer snapshot, avoiding double counting host health.
 func (s *SQLiteStore) QueryTokenMetrics(ctx context.Context, r *proto.GetTokenMetricsRequest, now time.Time, writer string, live *AccountingHealth) (*proto.GetTokenMetricsResponse, error) {
+	return s.queryTokenMetrics(ctx, r, now, writer, live, false)
+}
+
+// stats selects report-only daily buckets and the missing-or-unfinished union.
+// The public Token Metrics query retains its existing bucket and counter semantics.
+func (s *SQLiteStore) queryTokenMetrics(ctx context.Context, r *proto.GetTokenMetricsRequest, now time.Time, writer string, live *AccountingHealth, stats bool) (*proto.GetTokenMetricsResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -119,6 +125,9 @@ func (s *SQLiteStore) QueryTokenMetrics(ctx context.Context, r *proto.GetTokenMe
 		unfinished = "0"
 		out.Warnings = append(out.Warnings, "External reports may overlap internal attempts. Do not add populations together. Source filter selects reporter; report ingestion coverage is not certified.")
 	}
+	if stats {
+		incomplete = "(" + incomplete + ") OR (" + unfinished + ")"
+	}
 	// A normalized subquery keeps all aggregate paths on the identical population.
 	base := fmt.Sprintf("SELECT provider,model,%s AS source,%s AS timestamp,input_tokens,output_tokens,%s,(%s) AS incomplete,(%s) AS unfinished FROM %s WHERE %s>=? AND %s<?", source, stamp, extra, incomplete, unfinished, table, stamp, stamp)
 	// Alias nullable external-only categories explicitly.
@@ -152,40 +161,47 @@ func (s *SQLiteStore) QueryTokenMetrics(ctx context.Context, r *proto.GetTokenMe
 	if rowErr != nil {
 		return nil, rowErr
 	}
-	// At most 120 calendar buckets, widening for long ranges, never truncating totals.
-	days := int(end.Sub(start)/(24*time.Hour)) + 2
-	stride := (days + 119) / 120
-	if stride < 1 {
-		stride = 1
-	}
-	cursor := start
-	for cursor.Before(end) {
-		local := cursor.In(loc)
-		boundary := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, stride).UTC()
-		if boundary.After(end) {
-			boundary = end
-		}
-		rows, err = query("WHERE timestamp>=? AND timestamp<?", cursor.UnixMicro(), boundary.UnixMicro())
+	if stats {
+		out.Buckets, err = queryStatsDays(ctx, tx, base, args, start, end, now, loc)
 		if err != nil {
 			return nil, err
 		}
-		b := &proto.TokenMetricBucket{StartUnixMicros: cursor.UnixMicro(), EndUnixMicros: boundary.UnixMicro(), Label: local.Format("2006-01-02"), Partial: cursor.Before(now) && boundary.After(now)}
-		if !cursor.Equal(time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)) {
-			b.Partial = true
+	} else {
+		// At most 120 calendar buckets, widening for long ranges, never truncating totals.
+		days := int(end.Sub(start)/(24*time.Hour)) + 2
+		stride := (days + 119) / 120
+		if stride < 1 {
+			stride = 1
 		}
-		if rows.Next() {
-			b.Totals, err = scanMetricTotals(rows, nil)
+		cursor := start
+		for cursor.Before(end) {
+			local := cursor.In(loc)
+			boundary := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, stride).UTC()
+			if boundary.After(end) {
+				boundary = end
+			}
+			rows, err = query("WHERE timestamp>=? AND timestamp<?", cursor.UnixMicro(), boundary.UnixMicro())
+			if err != nil {
+				return nil, err
+			}
+			b := &proto.TokenMetricBucket{StartUnixMicros: cursor.UnixMicro(), EndUnixMicros: boundary.UnixMicro(), Label: local.Format("2006-01-02"), Partial: cursor.Before(now) && boundary.After(now)}
+			if !cursor.Equal(time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)) {
+				b.Partial = true
+			}
+			if rows.Next() {
+				b.Totals, err = scanMetricTotals(rows, nil)
+			}
+			rowErr = rows.Err()
+			rows.Close()
+			if err != nil {
+				return nil, err
+			}
+			if rowErr != nil {
+				return nil, rowErr
+			}
+			out.Buckets = append(out.Buckets, b)
+			cursor = boundary
 		}
-		rowErr = rows.Err()
-		rows.Close()
-		if err != nil {
-			return nil, err
-		}
-		if rowErr != nil {
-			return nil, rowErr
-		}
-		out.Buckets = append(out.Buckets, b)
-		cursor = boundary
 	}
 	for _, dim := range []string{"provider", "model", "source"} {
 		rows, err = tx.QueryContext(ctx, "SELECT "+dim+","+metricAggregate+" FROM ("+base+") GROUP BY "+dim+" ORDER BY COALESCE(SUM(input_tokens),0)+COALESCE(SUM(output_tokens),0) DESC,"+dim+" LIMIT 51", args...)
@@ -287,6 +303,10 @@ func queryMetricsHealth(ctx context.Context, tx *sql.Tx, writer string, live *Ac
 
 // TokenMetrics runs only on the reporting path, independent of collector admission.
 func (c *Collector) TokenMetrics(ctx context.Context, r *proto.GetTokenMetricsRequest) (*proto.GetTokenMetricsResponse, error) {
+	return c.tokenMetrics(ctx, r, false)
+}
+
+func (c *Collector) tokenMetrics(ctx context.Context, r *proto.GetTokenMetricsRequest, stats bool) (*proto.GetTokenMetricsResponse, error) {
 	store, ok := c.store.(*SQLiteStore)
 	if !ok {
 		return nil, errors.New("metrics storage unavailable")
@@ -298,7 +318,7 @@ func (c *Collector) TokenMetrics(ctx context.Context, r *proto.GetTokenMetricsRe
 		return nil, errors.New("attempt accounting not enabled")
 	}
 	h := attempts.Health()
-	return store.QueryTokenMetrics(ctx, r, time.Now(), attempts.WriterID(), &h)
+	return store.queryTokenMetrics(ctx, r, time.Now(), attempts.WriterID(), &h, stats)
 }
 
 func metricsTimeAfter(a, b string) bool {

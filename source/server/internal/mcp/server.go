@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -377,7 +378,7 @@ func (s *Server) registerTools() {
 
 	gomcp.AddTool(s.mcpServer, &gomcp.Tool{
 		Name:        "cercano_stats",
-		Description: "View Cercano usage statistics and cloud token savings. Shows total requests, tokens processed locally, cloud tokens reported by the host, percentage kept local, and breakdowns by tool, model, and day.",
+		Description: "View Cercano usage statistics from attempt accounting (the same data as the Token Metrics page). Shows model calls, reported input, output, cache and reasoning tokens since tracking began, and breakdowns by source, model, provider, and day.",
 	}, s.handleStats)
 
 	gomcp.AddTool(s.mcpServer, &gomcp.Tool{
@@ -649,12 +650,24 @@ func (s *Server) handleStats(ctx context.Context, request *gomcp.CallToolRequest
 		}, nil, nil
 	}
 
-	stats, err := s.collector.Store().GetStats(ctx)
+	// Prefer the live collector (includes in-memory accounting health); fall
+	// back to the store when attempt accounting is not enabled in this process.
+	report, err := s.collector.UsageReport(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cercano_stats: %w", err)
+		store, ok := s.collector.Store().(*telemetry.SQLiteStore)
+		if !ok {
+			return nil, nil, fmt.Errorf("cercano_stats: %w", err)
+		}
+		if report, err = store.UsageReport(ctx, time.Now()); errors.Is(err, telemetry.ErrNoAccounting) {
+			return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: "Cercano usage: " + err.Error()}}}, nil, nil
+		} else if err != nil {
+			return nil, nil, fmt.Errorf("cercano_stats: %w", err)
+		}
 	}
 
-	formatted := telemetry.FormatStatsASCII(stats)
+	// Host-submitted cloud usage still lives in the legacy table; show it separately.
+	legacy, _ := s.collector.Store().GetStats(ctx)
+	formatted := telemetry.FormatUsageReport(report, legacy)
 
 	return &gomcp.CallToolResult{
 		Content: []gomcp.Content{

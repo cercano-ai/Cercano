@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"cercano/source/server/internal/llm"
 	"cercano/source/server/internal/telemetry"
+	"cercano/source/server/internal/usage"
 	"cercano/source/server/pkg/proto"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -1091,8 +1093,22 @@ func TestCercanoStats_ReturnsUsageSummary(t *testing.T) {
 	collector := telemetry.NewCollector(store, 100)
 	s.SetCollector(collector)
 
-	// Seed some data
-	e := telemetry.NewEvent("cercano_summarize", "qwen3-coder")
+	// Seed attempt accounting (what cercano_stats reports) plus a legacy event
+	// that must not be counted, and host-submitted cloud usage shown separately.
+	if err := store.InitializeAccounting(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	var attempts []usage.AttemptObservation
+	for i, tok := range [][2]int64{{500, 100}, {700, 40}} {
+		attempts = append(attempts, usage.AttemptObservation{ID: fmt.Sprintf("a%d", i), Revision: 1, Provider: "llama_server", Model: "qwen3-coder",
+			Attribution: usage.Attribution{Source: "main"}, StartedAt: now.Add(time.Duration(i) * time.Second), EndedAt: now.Add(time.Duration(i)*time.Second + time.Millisecond),
+			Outcome: usage.Completed, Tokens: llm.TokenUsage{Input: llm.ReportedTokens(tok[0]), Output: llm.ReportedTokens(tok[1]), Final: true}})
+	}
+	if err := store.WriteAttempts(context.Background(), attempts); err != nil {
+		t.Fatal(err)
+	}
+	e := telemetry.NewEvent("cercano_summarize", "legacy-only-model")
 	e.Complete(500, 100, false, "", "")
 	collector.Emit(e)
 	collector.EmitCloudUsage(telemetry.CloudUsageReport{
@@ -1120,17 +1136,41 @@ func TestCercanoStats_ReturnsUsageSummary(t *testing.T) {
 	}
 
 	text := result.Content[0].(*gomcp.TextContent).Text
-	if !strings.Contains(text, "Total Requests") {
-		t.Errorf("expected 'Total Requests' in output, got %q", text)
+	for _, want := range []string{"Model calls:     2", "Input tokens:    1,200", "Output tokens:   140", "qwen3-coder", "By Source", "Cloud Usage Reported by Host", "12,000 tokens (10,000 in, 2,000 out)"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q in output, got %q", want, text)
+		}
 	}
-	if !strings.Contains(text, "summarize") {
-		t.Errorf("expected tool breakdown, got %q", text)
+	if strings.Contains(text, "legacy-only-model") {
+		t.Errorf("legacy event leaked into attempt totals: %q", text)
 	}
-	if !strings.Contains(text, "qwen3-coder") {
-		t.Errorf("expected model breakdown, got %q", text)
+}
+
+func TestCercanoStats_BeforeAccountingStarts(t *testing.T) {
+	mock := &mockAgentClient{}
+	s := NewServer(mock)
+	store, err := telemetry.NewSQLiteStore(filepath.Join(t.TempDir(), "test_telemetry.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(text, "Local vs Cloud") {
-		t.Errorf("expected local vs cloud bar, got %q", text)
+	defer store.Close()
+	collector := telemetry.NewCollector(store, 100)
+	s.SetCollector(collector)
+	defer collector.Close()
+
+	ctx := context.Background()
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "test", Version: "1.0"}, nil)
+	t1, t2 := gomcp.NewInMemoryTransports()
+	s.MCPServer().Connect(ctx, t1, nil)
+	cs, _ := client.Connect(ctx, t2, nil)
+	defer cs.Close()
+
+	result, err := cs.CallTool(ctx, &gomcp.CallToolParams{Name: "cercano_stats", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("CallTool failed: %v", err)
+	}
+	if text := result.Content[0].(*gomcp.TextContent).Text; !strings.Contains(text, "no usage tracked yet") {
+		t.Errorf("expected no-usage message, got %q", text)
 	}
 }
 
