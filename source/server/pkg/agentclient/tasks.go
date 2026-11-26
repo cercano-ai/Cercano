@@ -24,7 +24,7 @@ func (c *Client) SubscribeTasks(ctx context.Context, parent string) (<-chan Task
 	c.connMu.Unlock()
 	stream, err := agent.SubscribeTasks(ctx, &proto.SubscribeTasksRequest{ParentId: parent})
 	recovered := false
-	if err != nil && c.pinned != nil && isUnavailable(err) {
+	if err != nil && c.pinned != nil && pinnedTransportLost(err, failedConn) {
 		if recoveryErr := c.reconnectPinnedTransport(ctx, failedConn); recoveryErr != nil {
 			err = recoveryErr
 		} else {
@@ -82,7 +82,7 @@ func (c *Client) SubscribeTasks(ctx context.Context, parent string) (<-chan Task
 				if ctx.Err() != nil {
 					return
 				}
-				if c.pinned != nil && (isUnavailable(err) || errors.Is(err, io.EOF)) {
+				if c.pinned != nil && (pinnedTransportLost(err, failedConn) || errors.Is(err, io.EOF)) {
 					if recovered {
 						send(TaskUpdate{Err: err})
 						return

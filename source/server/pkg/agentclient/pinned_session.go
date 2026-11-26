@@ -236,6 +236,19 @@ func transientPinnedFailure(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded)
 }
 
+// pinnedTransportLost reports whether an RPC on a pinned client lost its
+// transport. Recovery, often started by the standing connection watcher,
+// closes the failed connection before it redials. An RPC that is still on that
+// connection then sees Canceled ("client connection is closing") rather than
+// Unavailable. Both cases must go through recovery, so a changed host is
+// refused instead of surfacing as a bare cancellation.
+func pinnedTransportLost(err error, used *grpcConn) bool {
+	if isUnavailable(err) {
+		return true
+	}
+	return status.Code(err) == codes.Canceled && used != nil && used.GetState() == connectivity.Shutdown
+}
+
 // preparePinnedDemand runs before a Chat RPC is created, never as a replay.
 func (c *Client) preparePinnedDemand(ctx context.Context) error {
 	if c.pinned == nil {
@@ -252,7 +265,7 @@ func (c *Client) preparePinnedDemand(ctx context.Context) error {
 
 // Never replay chat: even an error opening a server stream can follow delivery.
 func (c *Client) recoverChatTransport(ctx context.Context, failed *grpcConn, cause error) error {
-	if c.pinned == nil || !isUnavailable(cause) {
+	if c.pinned == nil || !pinnedTransportLost(cause, failed) {
 		return cause
 	}
 	if err := c.reconnectPinnedTransport(ctx, failed); err != nil {
