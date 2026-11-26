@@ -74,7 +74,7 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 	}
 	stream, err := agent.AttachConversation(firstCtx, request)
 	if err != nil {
-		if c.pinned != nil && isUnavailable(err) {
+		if c.pinned != nil && pinnedTransportLost(err, failedConn) {
 			err = c.recoverChatTransport(ctx, failedConn, err)
 		}
 		cancel()
@@ -91,7 +91,7 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 				// survive the real HTTP/2 boundary and can offer explicit takeover.
 				_, headerErr = stream.Recv()
 			}
-			if c.pinned != nil && isUnavailable(headerErr) {
+			if c.pinned != nil && pinnedTransportLost(headerErr, failedConn) {
 				headerErr = c.recoverChatTransport(ctx, failedConn, headerErr)
 			}
 			cancel()
@@ -142,8 +142,9 @@ func (c *Client) attachConversation(ctx context.Context, parent string, firstMet
 				if ctx.Err() != nil {
 					return
 				}
-				if isUnavailable(err) || errors.Is(err, io.EOF) {
-					if c.pinned != nil && isUnavailable(err) {
+				pinnedLost := c.pinned != nil && pinnedTransportLost(err, failedConn)
+				if pinnedLost || isUnavailable(err) || errors.Is(err, io.EOF) {
+					if pinnedLost {
 						if recoveryErr := c.reconnectPinnedTransport(ctx, failedConn); recoveryErr != nil {
 							send(ConversationUpdate{Err: recoveryErr})
 							return

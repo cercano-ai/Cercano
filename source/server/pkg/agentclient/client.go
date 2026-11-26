@@ -1656,7 +1656,7 @@ func (c *Client) drainSubscribeEvents(ctx context.Context, stream proto.Agent_Su
 			c.connMu.Unlock()
 			s, err := agent.SubscribeEvents(ctx, &proto.SubscribeEventsRequest{})
 			if err != nil {
-				if isUnavailable(err) {
+				if isUnavailable(err) || (c.pinned != nil && pinnedTransportLost(err, failedConn)) {
 					// Still bad — trigger a reconnect and try again.
 					if rErr := recoverTransport(); rErr != nil {
 						out <- AgentEvent{Err: rErr}
@@ -1677,7 +1677,7 @@ func (c *Client) drainSubscribeEvents(ctx context.Context, stream proto.Agent_Su
 			if ctx.Err() != nil {
 				return
 			}
-			if isUnavailable(err) {
+			if isUnavailable(err) || (c.pinned != nil && pinnedTransportLost(err, failedConn)) {
 				// Server death mid-stream. Ask the reconnector to
 				// bring us back and loop to re-open the stream.
 				stream = nil
