@@ -1,6 +1,7 @@
 # Linux packages
 
-Draft packaging for the experimental, unsigned `linux-x64` release tarball (see
+Draft packaging for the experimental, unsigned `linux-x64` and `linux-arm64`
+release tarballs (see
 [linux-artifact.md](../../docs/linux-artifact.md), checklist item 5), built
 with [nfpm](https://github.com/goreleaser/nfpm) in four formats:
 
@@ -19,7 +20,8 @@ with [nfpm](https://github.com/goreleaser/nfpm) in four formats:
 
 This is the same split as the Homebrew formulas and the Chocolatey packages.
 Each component installs only its own executable, byte for byte from the
-verified `cercano-<version>-linux-x64.tar.gz`. Both binaries are statically
+verified `cercano-<version>-linux-x64.tar.gz` (amd64) or
+`cercano-<version>-linux-arm64.tar.gz` (arm64). Both binaries are statically
 linked, so the packages have no library dependencies. No local model runtime
 is bundled. The package renderer does not sign packages or publish anything. The separate
 apt staging helpers sign repository metadata locally; publication remains
@@ -28,7 +30,8 @@ unconfigured. See [production gates and key custody](../../docs/linux-package-pr
 ## Build
 
 On Linux (file modes are part of the packages), with nfpm on `PATH`. Tested
-with nfpm v2.48.0; `install-nfpm.sh` pins and checks its Linux x86_64 digest.
+with nfpm v2.48.0; `install-nfpm.sh` pins and checks its Linux x86_64 and
+arm64 digests.
 
 ```bash
 python3 release/linux/render_packages.py \
@@ -46,8 +49,10 @@ done
 ```
 
 `render_packages.py` checks the archive's SHA-256 before opening it, then the
-exact release layout, the runtime inventory and an x86-64 ELF64 header on both
-binaries, and writes nothing unless every check passes. It then writes one
+exact release layout, the runtime inventory and an ELF64 header for the
+selected architecture on both binaries, and writes nothing unless every check
+passes. `--arch arm64` reads `cercano-<version>-linux-arm64.tar.gz` and expects
+AArch64 binaries; `--without-convenience` leaves out the `cercano` package. It then writes one
 nfpm config per package plus the files it ships: the binary, and for `.deb`
 a DEP-5 `copyright`, `changelog.gz` and lintian overrides; the other formats
 get the release `LICENSE` in `/usr/share/licenses/<package>/`. nfpm only
@@ -84,11 +89,14 @@ restarted, matching the Homebrew formulas), a new agent starts on an older
 version's `~/.config/cercano`, and a downgrade needs `--allow-downgrades`.
 `~/.config/cercano` is user data and is kept on removal.
 
-arm64: no code or config changes are needed beyond the architecture. Both
-binaries cross-compile with `GOARCH=arm64`, and arm64 deb, rpm and apk
-packages passed the lifecycle test under QEMU on Ubuntu, Fedora and Alpine.
-Shipping them needs a `linux-arm64` release tarball first (the release
-builder, the runtime inventory and this renderer are x86-64 only today).
+arm64: the release workflow builds a `linux-arm64` tarball and its
+`cercano-agent` and `cercano-cli` packages natively on an arm64 runner
+(`package-verified.sh ... arm64`). The architecture-independent `cercano`
+package comes only from the amd64 build, and `merge-review-packages.sh`
+refuses an arm64 set that contains it. arm64 deb, rpm and apk packages passed
+the lifecycle test under QEMU on Ubuntu, Fedora and Alpine (PR92), and arm64
+debs built from v0.28.1 installed from a disposable apt repository on a
+Raspberry Pi 4 (Debian 13).
 
 ## apt repository
 

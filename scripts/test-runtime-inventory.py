@@ -22,7 +22,7 @@ class InventoryTest(unittest.TestCase):
                 inv.encode("1.2.3", "darwin-arm64", {path: (b"", 0o644)})
 
     def test_archive_refusals(self):
-        for platform in ("darwin-arm64", "linux-x64", "windows-x64"):
+        for platform in inv.PLATFORMS:
             files = {"bin/agent": (b"final signed bytes", 0o755)}
             inventory = inv.encode("1.2.3", platform, files)
             cases = {

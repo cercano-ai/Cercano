@@ -6,16 +6,19 @@ Cercano's supported platform today is macOS (Apple Silicon), distributed as a
 signed and notarized tarball plus a Homebrew formula via
 [release-macos.yml](../.github/workflows/release-macos.yml) — see
 [macos-release-build.md](macos-release-build.md). For Linux there is a single
-bounded deliverable: a manual, opt-in **unsigned** `linux-x64` tarball produced
-by the same manual release pipeline. There is no package-manager story, no
+bounded deliverable: manual, opt-in **unsigned** `linux-x64` and `linux-arm64`
+tarballs produced by the same manual release pipeline. There is no package-manager story, no
 signing, and **no claim of full Linux support yet**. A supported Linux release
 is a possible future deliverable; this artifact is its first
 build-and-smoke-test milestone, not a support commitment.
 
 ## What is produced
 
-`cercano-<version>-linux-x64.tar.gz` and its `.sha256` checksum, attached to
-the GitHub release when `publish=true` (the default; `false` is an optional dry run).
+`cercano-<version>-linux-x64.tar.gz` (x86-64) and
+`cercano-<version>-linux-arm64.tar.gz` (AArch64), each with its `.sha256`
+checksum, attached to the GitHub release when `publish=true` (the default;
+`false` is an optional dry run). Each has this layout (`linux-arm64` in place
+of `linux-x64`):
 
 ```
 cercano-<version>-linux-x64/
@@ -27,15 +30,18 @@ cercano-<version>-linux-x64/
 ```
 
 Both binaries are built from the same validated source (a `v<version>` tag
-matching HEAD), natively on an `ubuntu-24.04` runner, with `CGO_ENABLED=0` and
-`GOOS=linux GOARCH=amd64`, producing statically linked ELF64 little-endian
-x86-64 executables. CGO is not required: the SQLite driver is
+matching HEAD) with `CGO_ENABLED=0`, producing statically linked ELF64
+little-endian executables: natively on an `ubuntu-24.04` runner with
+`GOOS=linux GOARCH=amd64` (x86-64), and natively on an `ubuntu-24.04-arm`
+runner with `GOOS=linux GOARCH=arm64` (AArch64). CGO is not required: the SQLite driver is
 `modernc.org/sqlite` (pure Go), and no reachable dependency needs a C
 toolchain. This was verified by cross-compiling both binaries for
 `linux/amd64` on macOS before the pipeline was written, and confirmed again
 on the real cross-build (`file`: "ELF 64-bit LSB executable, x86-64,
-statically linked"). `os/user` is resolved by Go's pure-Go `/etc/passwd`
-fallback when CGO is disabled.
+statically linked"). The arm64 build was first checked natively on a
+Raspberry Pi 4 (Debian 13 arm64) at `v0.28.1`: the archive, all twelve
+packages and an apt install from a disposable test repository. `os/user` is
+resolved by Go's pure-Go `/etc/passwd` fallback when CGO is disabled.
 
 **Runtime caveat that matters for support:** the credential keyring
 (`99designs/keyring`) speaks Linux Secret Service/KWallet over D-Bus from
@@ -46,14 +52,16 @@ is a core reason Linux is **not** a supported platform yet.
 
 ## What the pipeline verifies (and what it does not)
 
-The `build-linux` job of [release-macos.yml](../.github/workflows/release-macos.yml):
+The `build-linux` (amd64) and `build-linux-arm64` jobs of
+[release-macos.yml](../.github/workflows/release-macos.yml) each:
 
 - runs the release test gates first, before producing anything;
 - refuses unstable versions (`X.Y.Z` only, no leading `v`) and a tag that does
   not match HEAD;
 - builds both `cercano` and `cercano-cli` from the same version;
-- requires an executable ELF64 little-endian x86-64 header, rejecting non-ELF,
-  32-bit, big-endian and other architectures (e.g. AArch64);
+- requires an executable ELF64 little-endian header for its own architecture
+  (x86-64 or AArch64), rejecting non-ELF, 32-bit, big-endian and the other
+  architecture;
 - verifies the tarball layout and contents, and that the binaries keep
   executable (0755) permissions while `LICENSE`/`README.txt` stay 0644;
 - extracts the exact tarball contents and smoke-tests **both** binaries' exact
@@ -62,10 +70,10 @@ The `build-linux` job of [release-macos.yml](../.github/workflows/release-macos.
   state is read or written (stray writes fail the job);
 - runs the Linux-safe hermetic native tests (`procx` unix process-group
   tests, which spawn and reap throwaway `/bin/sh` children only);
-- publishes with `publish=true` (the default), after **all three**
-  platform verification gates (macOS, Windows, Linux) pass, verifies the Linux checksum
-  against the digest the build recorded, and refuses to replace any already
-  published asset.
+- publishes with `publish=true` (the default), after **every** platform
+  verification gate (macOS, Windows, Linux amd64 and arm64) passes, verifies
+  each Linux checksum against the digest its build recorded, and refuses to
+  replace any already published asset.
 
 The smoke test exercises **only** `--version` on both binaries. It does not
 launch the agent, does not use provider credentials, and does not download
@@ -84,8 +92,9 @@ coverage is part of the support checklist below.
 
 ## Safety invariants
 
-- The `build-linux` job holds **no secrets and no `environment`**: no signing
-  credentials of any kind reach it. There is no Linux signing at all — see
+- The `build-linux`, `build-linux-arm64` and `linux-packages-review` jobs
+  hold **no secrets and no `environment`**: no signing credentials of any kind
+  reach them. There is no Linux signing at all — see
   the checklist.
 - The workflow remains manual-dispatch only; there is no push/tag/PR trigger,
   so no untrusted code can start it.
@@ -131,7 +140,8 @@ version, tag mismatch, failed build, wrong architecture, wrong ELF class or
 endianness, non-ELF binary, existing artifact) — a refused or failed build
 never leaves a tarball behind. The test fixtures are portable Python
 subprocess fixtures that write inert binaries with proper ELF64 little-endian
-x86-64 headers; no Go compilation is needed to run them.
+x86-64 or AArch64 headers; no Go compilation is needed to run them. Pass
+`arm64` as a third argument to build the `linux-arm64` tarball.
 
 ## Verification recorded for this change
 

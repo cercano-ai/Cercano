@@ -98,7 +98,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         return sandbox
 
     def run_build(self, version=VERSION, env=None, output=None, tagged=False,
-                  allow_untagged=True, sandbox=None):
+                  allow_untagged=True, sandbox=None, arch=None):
         sandbox = sandbox or self._sandbox(tagged=tagged)
         environ = dict(os.environ)
         environ.pop("CERCANO_ALLOW_UNTAGGED", None)
@@ -108,7 +108,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         environ.update(env or {})
         return subprocess.run(
             [sys.executable, str(self.launcher), str(sandbox / "scripts" / SCRIPT.name),
-             version, str(output or self.out)],
+             version, str(output or self.out), *([arch] if arch else [])],
             capture_output=True, text=True, env=environ, cwd=str(sandbox))
 
     def assert_refused(self, result, fragment):
@@ -211,6 +211,47 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         # 183 is EM_AARCH64: a valid ELF64 LE image of the wrong architecture.
         self.assert_refused(self.run_build(env={"FAKE_MACHINE": "183"}),
                             "expected x86-64 ELF")
+
+    def test_builds_arm64_archive(self):
+        result = self.run_build(arch="arm64", env={"FAKE_MACHINE": "183"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        name = f"cercano-{VERSION}-linux-arm64"
+        archive = self.out / f"{name}.tar.gz"
+        with tarfile.open(archive) as tf:
+            self.assertEqual(sorted(m.name.rstrip("/") for m in tf.getmembers()), [
+                f"{name}", f"{name}/LICENSE", f"{name}/README.txt",
+                f"{name}/bin", f"{name}/bin/cercano", f"{name}/bin/cercano-cli",
+                f"{name}/runtime-inventory.json",
+            ])
+            readme = tf.extractfile(f"{name}/README.txt").read().decode()
+            inventory = tf.extractfile(f"{name}/runtime-inventory.json").read().decode()
+        self.assertIn("for Linux aarch64", readme)
+        self.assertIn('"platform": "linux-arm64"', inventory)
+        calls = self.log.read_text()
+        self.assertIn("GOARCH=arm64", calls)
+        self.assertNotIn("GOARCH=amd64", calls)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        self.assertEqual((self.out / f"{name}.tar.gz.sha256").read_text(),
+                         f"{digest}  {name}.tar.gz\n")
+        self.assertEqual(list(self.out.glob("*linux-x64*")), [])
+
+    def test_amd64_is_the_default_and_explicit_amd64_matches(self):
+        self.assertEqual(self.run_build().returncode, 0)
+        default = (self.out / f"{NAME}.tar.gz").read_bytes()
+        explicit_out = self.dir / "explicit"
+        self.assertEqual(self.run_build(output=explicit_out, arch="amd64").returncode, 0)
+        self.assertEqual((explicit_out / f"{NAME}.tar.gz").read_bytes(), default)
+
+    def test_arm64_refuses_x86_64_binary(self):
+        self.assert_refused(self.run_build(arch="arm64"), "expected AArch64 ELF")
+
+    def test_refuses_unknown_architecture(self):
+        for arch in ("x86_64", "aarch64", "386", "arm"):
+            with self.subTest(arch=arch):
+                result = self.run_build(arch=arch)
+                self.assert_refused(result, "Architecture must be one of amd64, arm64")
+                self.assertFalse(self.log.exists() and "go env" in self.log.read_text(),
+                                 "an unknown architecture must be refused before building")
 
     def test_refuses_non_elf_binary(self):
         self.assert_refused(self.run_build(env={"FAKE_NON_ELF": "1"}),

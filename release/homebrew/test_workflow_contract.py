@@ -27,9 +27,10 @@ class WorkflowContractTest(unittest.TestCase):
         release = next(s for s in jobs['build']['steps']
                        if s.get('uses', '').startswith('softprops/action-gh-release@'))
         self.assertEqual(release['if'], 'inputs.publish')
-        for name in ('build', 'build-windows', 'build-linux'):
+        for name in ('build', 'build-windows', 'build-linux', 'build-linux-arm64'):
             self.assertIn('publication-preflight', jobs[name]['needs'])
             self.assertNotIn('if', jobs[name])  # no always() bypass of failed needs
+        self.assertNotIn('if', jobs['linux-packages-review'])
         # Execute the real preflight shell, then model Actions' default success()
         # dependency scheduling. Never execute builds, signing, or remote actions.
         for publish in (True, False):
@@ -39,13 +40,14 @@ class WorkflowContractTest(unittest.TestCase):
             if publish:
                 self.assertIn('publication is disabled', result.stderr)
             reached = []
-            for name in ('build-windows', 'build-linux', 'build'):
+            order = ('build-windows', 'build-linux', 'build-linux-arm64', 'linux-packages-review', 'build')
+            for name in order:
                 status[name] = all(status[dep] for dep in jobs[name]['needs'])
                 if status[name]:
                     reached.append(name)
             release_invoked = status['build'] and publish
             self.assertFalse(release_invoked, 'closed gate reached public release action')
-            self.assertEqual(reached, [] if publish else ['build-windows', 'build-linux', 'build'])
+            self.assertEqual(reached, [] if publish else list(order))
 
     def test_main_and_recovery_full_set_and_gate(self):
         for filename, job_name in [('release-macos.yml', 'build'),
