@@ -23,7 +23,7 @@ test("renders the Cercano landing page", async () => {
   assert.match(html, /A complete agent, not a model wrapper/);
   assert.match(html, /Background compaction/);
   assert.match(html, /Headless automation/);
-  assert.match(html, /Run a full-power agent entirely on your machine/);
+  assert.match(html, /Run a full-power agent on local models/);
   assert.match(html, /Use rich media models for specialized tasks/);
   assert.match(html, /The agent is yours/);
   assert.match(html, /free and open source under Apache 2\.0/);
@@ -38,8 +38,10 @@ test("renders the Cercano landing page", async () => {
   assert.match(html, /brew install cercano-ai\/cercano\/cercano-agent/);
   assert.match(html, /Homebrew/);
   assert.match(html, /Debian \+ Ubuntu/);
+  assert.match(html, /amd64 only/);
+  assert.match(html, /sudo apt install cercano/);
   assert.match(html, /choco install cercano -y/);
-  assert.match(html, /Package publishing in progress/);
+  assert.doesNotMatch(html, /Package publishing in progress|Coming soon/);
   assert.match(html, /href="https:\/\/developer\.cercloud\.ai\/getting-started\/install\/"/);
   assert.doesNotMatch(html, /github\.com\/cercano-ai\/Cercano\/blob\/main\/docs/);
   assert.match(html, /Switch to (daylight|night) theme/);
@@ -66,6 +68,7 @@ test("keeps the TUI palettes and persistent theme behavior", async () => {
   assert.match(page, /Other OS installation instructions/);
   assert.match(page, /copyInstallCommand\("brew install cercano-ai\/cercano\/cercano-agent cercano-ai\/cercano\/cercano-cli cercano-ai\/cercano\/cercano", "homebrew"\)/);
   assert.match(page, /copyInstallCommand\("choco install cercano -y", "chocolatey"\)/);
+  assert.match(page, /copyInstallCommand\(aptCommand, "apt"\)/);
   assert.match(layout, /prefers-color-scheme:\s*dark/);
   assert.match(layout, /fonts\.googleapis\.com\/css2\?family=IBM\+Plex\+Mono:wght@400;500;600/);
 });
@@ -74,7 +77,9 @@ test("shows current package availability and links the developer documentation",
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /choco install cercano -y/);
   assert.match(page, /Chocolatey[\s\S]*Available/);
-  assert.match(page, /apt[\s\S]*Coming soon/);
+  assert.match(page, /apt[\s\S]*Available/);
+  assert.match(page, /Debian \+ Ubuntu · amd64 only/);
+  assert.match(page, /sudo apt install cercano/);
   assert.doesNotMatch(page, /moderation pending|availability are not confirmed/i);
   assert.match(page, /developer\.cercloud\.ai/);
   assert.match(page, /getting-started\/install/);

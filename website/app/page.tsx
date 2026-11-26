@@ -12,6 +12,7 @@ type DetectedOs = "macos" | "windows" | "linux" | "other";
 
 const homebrewCommand = "brew install cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli cercano-ai/cercano/cercano";
 const chocolateyCommand = "choco install cercano -y";
+const aptCommand = "sudo apt install cercano";
 
 const capabilityGroups = [
   {
@@ -77,7 +78,7 @@ const valueBlocks = [
 
 export default function Home() {
   const [theme, setTheme] = useState<"day" | "night">("day");
-  const [copiedCommand, setCopiedCommand] = useState<"homebrew" | "chocolatey" | null>(null);
+  const [copiedCommand, setCopiedCommand] = useState<"homebrew" | "chocolatey" | "apt" | null>(null);
   const [detectedOs, setDetectedOs] = useState<DetectedOs>("other");
 
   useEffect(() => {
@@ -100,7 +101,7 @@ export default function Home() {
     setTheme(next);
   };
 
-  const copyInstallCommand = async (command: string, installer: "homebrew" | "chocolatey") => {
+  const copyInstallCommand = async (command: string, installer: "homebrew" | "chocolatey" | "apt") => {
     await navigator.clipboard.writeText(command);
     setCopiedCommand(installer);
     window.setTimeout(() => setCopiedCommand(null), 1800);
@@ -111,7 +112,7 @@ export default function Home() {
     : detectedOs === "windows"
       ? { label: "Windows detected · Chocolatey", command: chocolateyCommand, installer: "chocolatey" as const }
       : detectedOs === "linux"
-        ? { label: "Linux detected", command: null, installer: null }
+        ? { label: "Linux detected · apt for Debian + Ubuntu · amd64 only", command: aptCommand, installer: "apt" as const }
         : { label: "Choose your operating system", command: null, installer: null };
 
   return (
@@ -315,10 +316,13 @@ export default function Home() {
                   <button type="button" onClick={() => copyInstallCommand("choco install cercano -y", "chocolatey")} aria-label="Copy Chocolatey install command">{copiedCommand === "chocolatey" ? "Copied" : "Copy"}</button>
                 </div>
               </article>
-              <article className="installer-option installer-option--pending">
-                <div className="installer-heading"><span>apt</span><span className="availability availability--pending">Coming soon</span></div>
-                <p className="installer-platform">Debian + Ubuntu</p>
-                <div className="install-pending">Package publishing in progress</div>
+              <article className="installer-option">
+                <div className="installer-heading"><span>apt</span><span className="availability">Available</span></div>
+                <p className="installer-platform">Debian + Ubuntu · amd64 only</p>
+                <div className="install-command">
+                  <code><span>$</span> {aptCommand}</code>
+                  <button type="button" onClick={() => copyInstallCommand(aptCommand, "apt")} aria-label="Copy apt install command">{copiedCommand === "apt" ? "Copied" : "Copy"}</button>
+                </div>
               </article>
             </div>
             <p className="after-install">Then run <code>cercano-cli</code>.</p>
