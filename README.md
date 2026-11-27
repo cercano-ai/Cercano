@@ -329,6 +329,35 @@ welcome. See the [developer guide](docs/agent/self-dev.md) to get started, or
   Background: [earlier VS Code integration fixes](docs/internal/ide-fixes.md)
   and [IDE technology stack / Zed scaffold](docs/reference/tech-stack.md#3-ide-integration).
 
+## Roadmap
+
+These are roadmap goals, not a list of currently available features.
+
+### Host and development environments
+
+- **Persistent server:** A long-running Cercano host in the spirit of dots/*claw,
+  bringing integrations and remote access together beyond individual client sessions.
+- **Tool locus — Almost Done:** Select whether workspace tools run on the host
+  or a connected client while keeping orchestration on the host. See the
+  [execution plan](efforts/client-side-tool-execution/plan.md).
+- **Container skills:** Skills for creating, tearing down, and managing containers
+  as isolated development spaces, with security dependent on configuration and
+  permissions—not guaranteed by containers alone.
+
+### Integrations
+
+- **Computer use — Planned:** Shared desktop control for the CLI and future
+  desktop client. See the [approved spec](efforts/cua-computer-use-integration/spec.md).
+- **Remote control:** Remote access and control, including a mobile app.
+- **Google apps:** Integration with Google's productivity apps.
+- **Microsoft Office 365:** Integration with Microsoft's productivity suite.
+- **Slack:** Messaging and workspace integration.
+- **Texting:** Explore computer use and/or Twilio as possible integration paths.
+
+### Desktop Client
+
+- A ChatGPT-style desktop client written in Avalonia.
+
 ## Documentation and support
 
 - [Feature guide](docs/agent/features/README.md): what each differentiator does and why it matters.
