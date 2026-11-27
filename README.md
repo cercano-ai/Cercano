@@ -1,313 +1,51 @@
 # Cercano
 
-**Cercano is a 100% free + open agent/harness that not only has a premium 
-UX, but is designed to use context and compute deliberately.**
-
-**Frontier + open, separately or together.** Use a frontier provider through an
-available subscription sign-in or API credentials, run open-weight models, or
-combine them in one terminal workflow. Keep demanding reasoning in the main
-conversation and delegate bounded work to appropriately priced models, on your
-hardware or with a hosted provider. Subscription eligibility and limits depend
-on the provider; see [provider options](docs/agent/features/openai-providers.md).
-
-Built-in workflows guide **research**, **planning**, **sub-agent execution**, 
-**debugging**, and **design decisions**. Background context management and 
-compaction and a polished terminal interface help you stay focused as sessions 
-grow, with subagent tabs keeping delegated work visible without mixing every 
-intermediate step into the main conversation.
-
-## What makes Cercano different
-
-### The right model for the job
-
-**Don't spend frontier compute on every task.** Route demanding reasoning,
-routine searches, and mechanical edits independently. Choose quality and
-execution destination separately, mixing frontier and open-weight models to
-match the work—not forcing every task through the same model.
-
-[Explore the routing engine →](docs/agent/features/advanced-routing.md)
-
-### Delegate the work. Keep the focus.
-
-**Give investigations their own workspace, not your entire context window.**
-Built-in subagents work with separate context and scoped tools, then return
-focused results. Follow their progress in dedicated tabs while keeping the main
-conversation centered on decisions and the context clean.
-
-Watch a delegated investigation in its own subagent tab:
-
-https://github.com/user-attachments/assets/0656f5b1-a0bd-4faf-a0b3-50db4ea43cbf
-
-[Explore built-in delegation →](docs/agent/features/built-in-delegation.md)
-
-### A process, not just a prompt
-
-**Spend less time telling your agent how to work.** Built-in workflows guide
-research, planning, execution, debugging, and design decisions. Reproduce the
-failure before fixing it. Compare real alternatives before choosing one. Verify
-the result instead of stopping at plausible output.
-
-[Explore agent workflows →](docs/agent/features/powerful-agent-workflows.md)
-
-### Keep working. Let context catch up.
-
-**Long sessions shouldn't mean carrying every old token forward.** Background
-compaction turns older conversation into layered summaries while retaining
-recent working context. Make room for current evidence without stopping for a
-summarizer—with stored history kept separate from lossy summaries.
-
-[Explore context management →](docs/agent/features/context-management.md)
-
-### Know where your tokens go
-
-**Make model choices with numbers, not guesses.** Break token usage down by
-provider, model, and source. See what's consuming your budget and use that
-visibility to tune your routes; estimated savings stay labeled as estimates.
-
-See the token metrics dashboard in action:
-
-https://github.com/user-attachments/assets/82c65acd-6b7f-4d6e-8a56-dbe0d3133d8c
-
-[Explore token metrics →](docs/agent/features/advanced-metrics.md)
-
-### Local models, less assembly required
-
-**Use your hardware without building an inference stack first.** Cercano's
-managed local model runtime brings open-weight models into the same workflow as your
-cloud providers. Configure a suitable model and let Cercano manage the runtime.
-
-[Explore the integrated runtime →](docs/agent/features/integrated-local-runtime.md)
-
-### Your workflow. Your choice of provider.
-
-**Switch models without switching coding agents.** Connect compatible hosted
-services or self-hosted endpoints, and combine them with frontier providers.
-Keep your sessions, tools, and delegation workflow while choosing where the
-work runs. Subscription sign-in and API access have provider-specific limits.
-
-[Explore provider options →](docs/agent/features/openai-providers.md)
-
-### A terminal that keeps the work readable
-
-**Less log-diving. More clarity.** Rich formatting, subagent tabs, a live context
-meter, and responsive layouts organize dense agent activity. Model settings,
-routing, and permissions live in the same interface—and themes make it yours.
-
-Take a quick tour of configuration and theming:
-
-https://github.com/user-attachments/assets/89989b0f-91a1-4fa6-aca0-98ce12a446c6
-
-[Explore the terminal UI →](docs/agent/features/advanced-terminal-ui.md)
-
-### Pick up where you left off
-
-**Your last investigation shouldn't disappear when you close the terminal.**
-Conversations are saved automatically, with titles, history, search, and resume
-helping you find prior work and continue without reconstructing the discussion.
-
-Watch how to resume a saved conversation:
-
-https://github.com/user-attachments/assets/d4a81e65-0206-475c-994b-067174f3a5f2
-
-[Explore session retention →](docs/agent/features/automatic-session-retention.md)
-
-### One agent. Room for any client.
-
-**The agent isn't tied to the interface.** Cercano's independent agent server
-handles execution, models, permissions, and saved conversations; clients provide
-the experience. Today, that means the terminal UI, headless commands, and an
-Agent Client Protocol (ACP) v1 stdio adapter for ACP-capable editors or extensions.
-Launch the server executable with `cercano acp` to connect to the same local agent;
-execution and permission policy stay in the shared server. The initial adapter
-supports new sessions, prompts, streamed responses, tool activity, approvals,
-and cancellation—not ACP v2 or session history loading.
-
-[Explore the client/server architecture →](docs/agent/features/client-server-architecture.md) · [Set up ACP →](docs/acp.md)
-
-### Free and open. Yours to build on.
-
-**A premium agent experience, without a software subscription.** Cercano is free
-and open source under the Apache 2.0 license. Inspect how it works, change it to
-fit your workflow, or build something new on top of it. The software is free;
-cloud inference, provider subscriptions, and the hardware you run it on can
-still carry costs.
-
-[Read the license →](LICENSE) · [Build and contribute →](docs/agent/self-dev.md)
-
-## Get started
-
-### macOS (supported)
-
-**macOS 12 (Monterey) or later, Apple Silicon:** install with
-[Homebrew](https://brew.sh) and launch the terminal client:
-
-```bash
-brew install cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli cercano-ai/cercano/cercano
-cercano-cli
-```
-
-The client starts the agent (`cercano`) automatically; you do not need to start
-it separately. Intel Macs are not supported by this release.
-
-All three formulas are named because Homebrew 6.0.0 and later only load
-formulas from a third-party tap that you have trusted, and naming a fully
-qualified formula trusts only that formula. Installing just
-`cercano-ai/cercano/cercano` fails with "Refusing to load formula
-cercano-ai/cercano/cercano-agent from untrusted tap". See
-[Tap Trust](https://docs.brew.sh/Tap-Trust).
-
-For an existing split-package installation, upgrade all three formulas:
-
-```bash
-brew update
-brew upgrade cercano-ai/cercano/cercano cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli
-```
-
-Since v0.27.0, `cercano` installs the separate `cercano-agent` and `cercano-cli`
-formulas and owns no binaries. The split has no automatic agent-restart hook.
-**Older monolithic installs:** read the migration precautions before upgrading;
-do not force link overwrites. Published formulas still carry runtime/migration
-acceptance caveats.
-
-See the [macOS installation guide](docs/installation-macos.md) for first-run
-setup, upgrade troubleshooting, and development-launcher PATH conflicts.
-
-### Linux x86_64 (experimental)
-
-On Debian, Ubuntu and derivatives, install from the signed apt repository.
-First download the repository key and check its fingerprint:
-
-```bash
-sudo install -d -m 0755 /etc/apt/keyrings
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://cercano-ai.github.io/packages/cercano.gpg -o cercano.gpg
-gpg --show-keys --with-fingerprint cercano.gpg
-```
-
-The primary key fingerprint must be
-`55368AC6 14FE6CD9 DAC04A45 8A03FD1D 0192F44A`. If it isn't, stop. Then add the
-repository and install:
-
-```bash
-sudo install -m 0644 cercano.gpg /etc/apt/keyrings/cercano.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/cercano.gpg] https://cercano-ai.github.io/packages/ stable main' \
-  | sudo tee /etc/apt/sources.list.d/cercano.list
-sudo apt update
-sudo apt install cercano
-cercano-cli
-```
-
-`cercano` installs `cercano-agent` and `cercano-cli`; `sudo apt upgrade` keeps
-them current. The repository signature covers the apt metadata and packages; the
-binaries themselves are not code-signed.
-
-Alternatively, download and unpack the published release, verify its checksum,
-then launch from the extracted directory (requires `curl`, `sha256sum`, and `tar`):
-
-```bash
-version=0.24.0
-archive="cercano-$version-linux-x64.tar.gz"
-url="https://github.com/cercano-ai/Cercano/releases/download/v$version"
-curl -fLO "$url/$archive" &&
-curl -fLO "$url/$archive.sha256" &&
-sha256sum -c "$archive.sha256" &&
-tar -xzf "$archive" &&
-"./cercano-$version-linux-x64/bin/cercano-cli"
-```
-
-See the [Linux artifact guide](docs/linux-artifact.md) for limitations,
-including credential storage requiring a desktop Secret Service/KWallet.
-
-### Windows x64 (experimental, unsigned)
-
-**Chocolatey v0.27.0 was submitted, not confirmed approved.** Last known status:
-`cercano-agent` and `cercano-cli` Pending automated review; the `cercano`
-convenience package is waiting on dependencies. A public status recheck on
-2026-11-15 returned HTTP 403, so default-source availability is not confirmed.
-Once approved and available from your configured source, in an elevated PowerShell:
-
-```powershell
-choco install cercano -y
-cercano-cli
-```
-
-For individual components and dependency-aware upgrades (`choco upgrade cercano -y`),
-see the [Windows installation guide](docs/installation-windows.md). Windows
-remains experimental and unsigned; submission does not change that status.
-
-The ZIP is an alternative to Chocolatey, including when moderation or missing
-dependencies block installation. In a normal (non-elevated) PowerShell, download,
-verify, extract, and launch the published release:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-$version = '0.24.0'
-$archive = "cercano-$version-windows-x64.zip"
-$url = "https://github.com/cercano-ai/Cercano/releases/download/v$version"
-Invoke-WebRequest "$url/$archive" -OutFile $archive
-Invoke-WebRequest "$url/$archive.sha256" -OutFile "$archive.sha256"
-$expected = ((Get-Content "$archive.sha256" -Raw).Trim() -split '\s+')[0]
-if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $expected) { throw 'Checksum mismatch' }
-Expand-Archive -Path $archive -DestinationPath .
-& ".\cercano-$version-windows-x64\bin\cercano-cli.exe"
-```
-
-Windows may show an unknown-publisher warning. See the
-[Windows artifact guide](docs/windows-artifact.md) for limitations and testing.
-
-The Linux tarball and Windows ZIP examples are pinned to release **0.24.0**;
-they do not identify the latest release or the Chocolatey package version. Both
-leave the binaries together in the extracted `bin` directory; no administrator
-access or PATH changes are needed. Linux and Windows remain **experimental,
-not supported releases**. Chocolatey
-submission does not establish approval or default-source availability.
-Checksums verify download integrity, not publisher identity.
-
-### First run
-
-The terminal client starts the agent automatically on all three platforms.
-For development, use the [source build instructions](docs/agent/self-dev.md#layout--build).
-
-Open `/config` to configure models, routing, and permissions. Then try a bounded,
-read-only task in a repository you know:
-
-> Find where this project loads its configuration. Delegate the code search to
-> a read-only subagent, then explain the result with file references. Do not edit files.
-
-[GitHub Releases](https://github.com/cercano-ai/Cercano/releases) provides the
-archives and checksums above, plus a signed and notarized macOS Apple Silicon
-tarball.
-
-For scripts and automation (on Linux/Windows, use the extracted
-`bin/cercano` or `bin\cercano.exe` path instead of the bare command):
-
-```bash
-cercano run "Explain this repository's top-level structure without editing files"
-```
-
-Cloud routes require the relevant provider credentials. Local routes require
-suitable hardware and model downloads. Model quality, latency, and cost depend
-on your configuration; delegation is not a guarantee of savings. See each
-feature page for controls and limitations.
+Cercano is a free, open-source AI coding agent and harness with a terminal
+interface, built-in delegation, and configurable cloud and local inference.
+
+**[Visit the Cercano website](https://cercano-ai.github.io/Cercano/)** for the
+product overview and links to [installation](https://developer.cercloud.ai/getting-started/install/),
+[first-run setup and usage](https://developer.cercloud.ai/getting-started/first-run/),
+and user documentation. This README focuses on development and planning.
+
+## Development
+
+- **[Developer guide](docs/agent/self-dev.md)** - Start here for source builds, tests, isolated development hosts, and exact reconnect guidance.
+- **[Agent architecture](docs/agent/README.md)** - Understand the shared agent, configuration, permissions, and client/server responsibilities.
+- **[CLI development](docs/features/cli/README.md)** - Find the current terminal interface, implementation status, and outstanding work.
+- **[Contributor instructions](AGENTS.md)** - Follow repository-specific guidance when working on Cercano.
+
+Build and test both Go modules from the repository root using the
+[developer guide](docs/agent/self-dev.md#layout--build). Prefer its Makefile
+builds for version metadata and conditional signing; module builds do not launch
+an agent. Follow the guide's separate launcher and state-isolation instructions
+before running a development host against real conversations.
+
+## Architecture and repository map
+
+The shared Go agent owns execution, model routing, permissions, and conversation
+storage; the terminal UI is a separate Go module and gRPC client.
+
+- **[Agent server](source/server/)** - Agent, gRPC server, MCP handlers, and shared packages.
+- **[Terminal client](source/clients/cli/)** - Bubble Tea terminal UI and gRPC client.
+- **[Inference interfaces](source/server/internal/engine/)** - Pluggable inference and embedding services.
+- **[MCP tools](source/server/internal/mcp/)** - Cercano tool handlers; [web pipelines](source/server/internal/web/) handle fetching, search, and research.
+- **[Tool skills](source/server/internal/skills/catalog/)** - Canonical skill instructions; see [contributor instructions](AGENTS.md) for generated mirrors and distribution copies.
+- **[Website](website/README.md)** - Website development and deployment guidance.
+- **[Documentation](docs/)** - Architecture, developer guides, specifications, plans, and research.
+- **[Efforts](efforts/)** - Scoped specifications and execution plans, including the roadmap links below.
 
 ## Known issues
 
-These are current limitations and areas where real-workflow feedback is welcome,
-not all confirmed defects. Bug reports, reproducible examples, and pull requests
-are welcome. See the [developer guide](docs/agent/self-dev.md) to get started, or
-[open an issue](https://github.com/cercano-ai/Cercano/issues) to share feedback.
+These are limitations and areas needing real-workflow feedback, not all
+confirmed defects. Report reproducible examples rather than assuming roadmap
+goals are available features.
 
-- **Supervisory threads** - Real-workflow feedback is welcome, especially
-  reproducible examples of unnecessary challenges or escalation.
-- **Task pane** - Please report reproducible bookkeeping inconsistencies between
-  the task pane, plans, and conversation.
-- **Windows support** - Windows artifacts are experimental and unsigned; native
-  test coverage and real-workflow validation remain incomplete. See the
-  [Windows artifact and testing checklist](docs/windows-artifact.md).
-- **IDE plugins** - An Agent Client Protocol (ACP) v1 stdio adapter is implemented,
-  but editor-specific UI validation remains. Session-history loading,
-  editor-provided MCP servers, and ACP v2 are unsupported. See the
-  [ACP setup and limitations](docs/acp.md).
+- **Supervisory threads** - Real-workflow feedback is welcome, especially reproducible examples of unnecessary challenges or escalation.
+- **Task pane** - Report reproducible bookkeeping inconsistencies between the task pane, plans, and conversation.
+- **Platform validation** - Linux and Windows remain experimental; Windows artifacts are unsigned and native test coverage and real-workflow validation remain incomplete. See the [Linux artifact guide](docs/linux-artifact.md) and [Windows testing checklist](docs/windows-artifact.md); check the [Windows installation guide](docs/installation-windows.md) for package availability caveats.
+- **Package migration** - Split Homebrew packages do not automatically restart agents, and migration from older monolithic installs needs care. See the [macOS installation guide](docs/installation-macos.md) before upgrading.
+- **IDE integration** - ACP v1 stdio is implemented, but editor-specific UI validation remains. Session-history loading, editor-provided MCP servers, and ACP v2 are unsupported; see [ACP limitations](docs/acp.md).
 
 ## Roadmap
 
@@ -346,11 +84,9 @@ These are roadmap goals, not a list of currently available features.
 
 - **Desktop client** - A ChatGPT-style desktop client written in Avalonia.
 
-## Documentation and support
+## Planning and contributing
 
-- **[Feature guide](docs/agent/features/README.md)** - What each differentiator does and why it matters.
-- **[Agent guide](docs/agent/README.md)** - Setup, commands, permissions, and architecture.
-- **[Routing guide](docs/cloud-routing.md)** - Task classes, model quality, destinations, and backups.
-- **[CLI track](docs/features/cli/README.md)** - Implementation status and outstanding work.
-- **[Developer guide](docs/agent/self-dev.md)** - Building, testing, and working on Cercano.
-- **[Report a problem](https://github.com/cercano-ai/Cercano/issues)** - Include your version, platform, route/model, and reproduction steps; redact credentials and private content.
+- **[CLI track](docs/features/cli/README.md)** - Consult current implementation status and outstanding work alongside the roadmap above.
+- **[Routing design](docs/cloud-routing.md)** - Understand task classes, model quality, destinations, and backups before changing execution policy.
+- **[Report a problem](https://github.com/cercano-ai/Cercano/issues)** - Include version, platform, route/model, and reproduction steps; redact credentials and private content. Bug reports and pull requests are welcome.
+- **[License](LICENSE)** - Cercano is open source under Apache 2.0.
