@@ -4,28 +4,26 @@ Windows x64 remains **experimental, unsigned, and not a supported release**.
 Windows may show SmartScreen/unknown-publisher warnings. Package submission
 is not code signing or a claim of full Windows support. No local llama/model
 runtime is bundled. See the [artifact and testing guide](windows-artifact.md)
-for limitations and the [README ZIP example](../README.md#windows-x64-experimental-unsigned)
-for a checksum-verified alternative without package-manager installation.
+for limitations and the ZIP download, an alternative without package-manager
+installation.
 
 ## Chocolatey availability
 
-All three **v0.27.0** packages were submitted successfully to the Chocolatey
-Community Repository. The last known component status was **Pending automated
-review** for `cercano-agent` and `cercano-cli`; the `cercano` convenience package
-was waiting on its dependencies. Submission is **not approval**.
+`cercano`, `cercano-agent` and `cercano-cli` **0.27.1** are approved on the
+Chocolatey Community Repository (checked 2026-11-27). Package version 0.27.1
+contains application **0.27.0**, so `cercano --version` and
+`cercano-cli --version` report `v0.27.0`.
 
-A read-only public recheck on **2026-11-15** returned HTTP 403 for all three
-package pages, so current approval and default-source availability could not
-be independently confirmed. Check the public pages before installing:
+- [cercano](https://community.chocolatey.org/packages/cercano)
+- [cercano-agent](https://community.chocolatey.org/packages/cercano-agent)
+- [cercano-cli](https://community.chocolatey.org/packages/cercano-cli)
 
-- [cercano](https://community.chocolatey.org/packages/cercano/0.27.0)
-- [cercano-agent](https://community.chocolatey.org/packages/cercano-agent/0.27.0)
-- [cercano-cli](https://community.chocolatey.org/packages/cercano-cli/0.27.0)
+Tested on Windows 11 (2026-11-27): a fresh install after uninstalling, an
+upgrade from locally built 0.27.0 packages, and uninstall. The installed
+executables matched the v0.27.0 release ZIP. That machine had run Cercano
+before. Approval and these tests are not a claim of full Windows support.
 
-If moderation or dependency availability blocks installation, wait for approval
-or use the verified ZIP. Do not bypass moderation or checksum validation.
-
-## Install (once approved and available)
+## Install
 
 With Chocolatey already installed, run in an elevated PowerShell:
 

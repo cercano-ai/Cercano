@@ -10,15 +10,31 @@ and user documentation. This README focuses on development and planning.
 
 ## Installation
 
+Public versions as of 2026-11-27:
+
+| Channel | Cercano version |
+| --- | --- |
+| Linux apt (amd64 and arm64) | 0.28.2 |
+| macOS Homebrew | 0.27.0 |
+| Windows Chocolatey | 0.27.0 (package version 0.27.1) |
+| Latest [GitHub release](https://github.com/cercano-ai/Cercano/releases/latest) | 0.27.0 |
+
 - **macOS** - Requires Apple Silicon and macOS 12 or later. Install with [Homebrew](https://brew.sh/):
 
   ```bash
   brew install cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli cercano-ai/cercano/cercano
   ```
 
+- **Windows (x64, experimental, unsigned)** - Install with [Chocolatey](https://chocolatey.org/install) from an elevated PowerShell:
+
+  ```powershell
+  choco install cercano -y
+  ```
+
+  See the [Windows installation guide](docs/installation-windows.md).
+- **Linux (amd64 and arm64, experimental)** - Install from the apt repository using the [Linux apt steps](docs/linux-artifact.md#install-with-apt), which include checking the signing key. arm64 packages have not yet been tested on real arm64 hardware.
 - **First run** - Run `cercano-cli` and follow the setup prompts; it starts the local agent automatically.
 - **Package details and upgrades** - See the [macOS installation guide](docs/installation-macos.md) for split-package readiness caveats and migration guidance before upgrading an older install.
-- **Linux and Windows** - Remain experimental and unsigned. See the [Linux artifact guide](docs/linux-artifact.md) and [Windows installation guide](docs/installation-windows.md); Windows package approval and availability are not yet confirmed.
 - **More help** - See the [installation guide](https://developer.cercloud.ai/getting-started/install/) and [first-run guide](https://developer.cercloud.ai/getting-started/first-run/).
 
 ## Development
@@ -56,7 +72,7 @@ goals are available features.
 
 - **Supervisory threads** - Real-workflow feedback is welcome, especially reproducible examples of unnecessary challenges or escalation.
 - **Task pane** - Report reproducible bookkeeping inconsistencies between the task pane, plans, and conversation.
-- **Platform validation** - Linux and Windows remain experimental; Windows artifacts are unsigned and native test coverage and real-workflow validation remain incomplete. See the [Linux artifact guide](docs/linux-artifact.md) and [Windows testing checklist](docs/windows-artifact.md); check the [Windows installation guide](docs/installation-windows.md) for package availability caveats.
+- **Platform validation** - Linux and Windows remain experimental; Windows artifacts are unsigned and native test coverage and real-workflow validation remain incomplete. See the [Linux artifact guide](docs/linux-artifact.md) and [Windows testing checklist](docs/windows-artifact.md); see the [Windows installation guide](docs/installation-windows.md) for package details.
 - **Package migration** - Split Homebrew packages do not automatically restart agents, and migration from older monolithic installs needs care. See the [macOS installation guide](docs/installation-macos.md) before upgrading.
 - **IDE integration** - ACP v1 stdio is implemented, but editor-specific UI validation remains. Session-history loading, editor-provided MCP servers, and ACP v2 are unsupported; see [ACP limitations](docs/acp.md).
 
