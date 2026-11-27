@@ -292,42 +292,22 @@ feature page for controls and limitations.
 
 ## Known issues
 
-Looking for a place to contribute? These are great areas to jump in. Some already
-have substantial foundations but need testing, tuning, or user-experience polish.
-Bug reports, reproducible examples, design feedback, and pull requests are all
-welcome. See the [developer guide](docs/agent/self-dev.md) to get started, or
-[open an issue](https://github.com/cercano-ai/Cercano/issues) to discuss an idea.
+These are current limitations and areas where real-workflow feedback is welcome,
+not all confirmed defects. Bug reports, reproducible examples, and pull requests
+are welcome. See the [developer guide](docs/agent/self-dev.md) to get started, or
+[open an issue](https://github.com/cercano-ai/Cercano/issues) to share feedback.
 
-- **Supervisory threads** - The architecture and much of the implementation are
-  in place, but the behavior needs polish. Supervisors currently intervene too
-  aggressively; tuning when and how they step in would make them more useful.
-  See the [watchdog design](docs/features/agent-capabilities/watchdog/design.md)
-  and [polish plan](docs/features/agent-capabilities/watchdog/polish-plan.md).
-- **Task pane** - Most of the implementation is in place, including a development
-  sandbox, but expanding and collapsing tasks needs to be more reliable. Mouse
-  events should go to the individual controls rather than the entire panel, and
-  task tracking needs better bookkeeping. Longer term, the pane should support
-  conversations and edits that stay synchronized with plans and the main thread.
-  See the [interaction-fix spec](efforts/fix-task-panel-scrollbars/spec.md),
-  [debug sandbox plan](efforts/debug-task-pane-controls/plan.md), and
-  [task-model design](docs/features/agent-capabilities/task-model/design.md).
-- **Skills** - Cercano supports built-in workflow protocols via `get_protocol`
-  and organization-assigned text skills via `get_shared_skill`. General discovery
-  and loading of user or third-party `SKILL.md` packages is not yet supported;
-  skills sync only exports skills for other agents.
-- **Windows support** - Windows remains under-tested. Testing real workflows,
-  reporting reproducible platform-specific bugs, and improving compatibility
-  are especially valuable contributions. See the
+- **Supervisory threads** - Real-workflow feedback is welcome, especially
+  reproducible examples of unnecessary challenges or escalation.
+- **Task pane** - Please report reproducible bookkeeping inconsistencies between
+  the task pane, plans, and conversation.
+- **Windows support** - Windows artifacts are experimental and unsigned; native
+  test coverage and real-workflow validation remain incomplete. See the
   [Windows artifact and testing checklist](docs/windows-artifact.md).
-- **IDE plugins** - An older VS Code extension draft needs to be reworked for
-  Cercano's current full agent architecture. Infrastructure for a Zed integration
-  has also been drafted, but the integration itself is not implemented.
-  One approach to evaluate is implementing Agent Client Protocol (ACP) to connect
-  compatible editors to Cercano's existing agent. This could cover much of IDE
-  integration and reduce bespoke plugin work, depending on each editor's ACP
-  support and capabilities.
-  Background: [earlier VS Code integration fixes](docs/internal/ide-fixes.md)
-  and [IDE technology stack / Zed scaffold](docs/reference/tech-stack.md#3-ide-integration).
+- **IDE plugins** - An Agent Client Protocol (ACP) v1 stdio adapter is implemented,
+  but editor-specific UI validation remains. Session-history loading,
+  editor-provided MCP servers, and ACP v2 are unsupported. See the
+  [ACP setup and limitations](docs/acp.md).
 
 ## Roadmap
 
