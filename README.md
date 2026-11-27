@@ -344,6 +344,14 @@ These are roadmap goals, not a list of currently available features.
     as isolated development spaces, with security dependent on configuration and
     permissions—not guaranteed by containers alone.
 
+### Personal agent and orchestration
+
+- **Personal Agent — Semi-prototyped** - Early exploration exists as
+  [throwaway prototype code](https://github.com/cercano-ai/personal-assistant-old).
+- **Orchestration** - Similar in concept to Gas City and other agent orchestration
+  systems, with specialized organizational role agents such as a "director of
+  engineering" or "executive assistant," tied closely to the personal agent architecture.
+
 ### Integrations
 
 - **Computer use — Planned** - Shared desktop control for the CLI and future
