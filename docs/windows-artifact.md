@@ -7,8 +7,8 @@ signed and notarized tarball plus a Homebrew formula via
 [release-macos.yml](../.github/workflows/release-macos.yml) — see
 [macos-release-build.md](macos-release-build.md). For Windows there is a
 manual, opt-in **unsigned** `windows-x64` ZIP produced by the same manual
-release pipeline. Chocolatey v0.27.0 packages have also been submitted, with
-moderation/availability not confirmed; see the [Windows installation guide](installation-windows.md)
+release pipeline. Chocolatey packages (version 0.27.1, containing application
+0.27.0) are also published; see the [Windows installation guide](installation-windows.md)
 for status, commands, and upgrade precautions. There is no signing or claim
 of full Windows support. The artifact details below describe the ZIP pipeline,
 not Chocolatey approval or complete runtime acceptance.

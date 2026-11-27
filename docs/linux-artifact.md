@@ -7,10 +7,73 @@ signed and notarized tarball plus a Homebrew formula via
 [release-macos.yml](../.github/workflows/release-macos.yml) — see
 [macos-release-build.md](macos-release-build.md). For Linux there is a single
 bounded deliverable: manual, opt-in **unsigned** `linux-x64` and `linux-arm64`
-tarballs produced by the same manual release pipeline. There is no package-manager story, no
-signing, and **no claim of full Linux support yet**. A supported Linux release
+tarballs produced by the same manual release pipeline. The tarballs are
+unsigned, and there is **no claim of full Linux support yet**. To install with
+a package manager, see [Install with apt](#install-with-apt). A supported Linux release
 is a possible future deliverable; this artifact is its first
 build-and-smoke-test milestone, not a support commitment.
+
+## Install with apt
+
+The `.deb` packages from this pipeline are published separately, from
+[cercano-ai/packages](https://github.com/cercano-ai/packages), to an apt
+repository for **amd64 and arm64**. This is still experimental. The apt
+repository can be ahead of the latest GitHub release and the other install
+channels.
+
+Tested with 0.28.2:
+
+- **amd64:** Debian 12 and 13 and Ubuntu 22.04 and 24.04 containers before
+  publication. From the live repository, install, upgrade and reinstall on
+  Debian 12 and Ubuntu 24.04.
+- **arm64:** the same four distributions before publication, under QEMU
+  emulation only. **Not yet tested on real arm64 hardware.**
+
+Download the repository key and show its fingerprint:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+key="$(mktemp)"
+curl -fsSL https://cercano-ai.github.io/packages/cercano.gpg -o "$key"
+gpg --show-keys --with-fingerprint "$key"
+```
+
+Continue **only** if the primary key (`pub`) fingerprint is exactly:
+
+```
+5536 8AC6 14FE 6CD9 DAC0  4A45 8A03 FD1D 0192 F44A
+```
+
+Then add the key and repository, and install:
+
+```sh
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo install -m 0644 "$key" /etc/apt/keyrings/cercano.gpg
+echo "deb [signed-by=/etc/apt/keyrings/cercano.gpg] https://cercano-ai.github.io/packages/ stable main" |
+  sudo tee /etc/apt/sources.list.d/cercano.list
+sudo apt-get update
+sudo apt-get install -y cercano
+```
+
+Run `cercano-cli` as your normal user. The headless keyring caveat below
+applies to packaged installs too.
+
+To upgrade, close Cercano first, then:
+
+```sh
+sudo apt-get update
+sudo apt-get install --only-upgrade -y cercano cercano-agent cercano-cli
+```
+
+To remove the packages:
+
+```sh
+sudo apt-get purge -y cercano cercano-agent cercano-cli
+```
+
+Per-user configuration and conversations in your home directory are not
+removed.
 
 ## What is produced
 
@@ -117,8 +180,9 @@ This artifact is a stepping stone. A *supported* Linux release still owes:
    (Ubuntu, Debian, Fedora, Arch), glibc versions and libc-less containers.
 4. **Keyring behavior** — verify Secret Service/KWallet storage on desktop
    sessions and document the headless-server story (or provide a fallback).
-5. **Distribution & install story** — decide among `.deb`/`.rpm`, `apt`/`dnf`
-   repositories, or plain tarball; document upgrade/downgrade and uninstall.
+5. **Distribution & install story** — `.deb` packages and a signed apt
+   repository are published (see [Install with apt](#install-with-apt)). Still
+   open: RPM/`dnf`, and downgrade documentation.
 6. **Runtime verification** — the agent's process management, local model
    runtime, and GPU/CPU detection verified end-to-end on Linux.
 7. **Support policy** — issue triage for Linux reports, and an explicit
