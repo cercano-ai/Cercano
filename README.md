@@ -8,6 +8,19 @@ product overview and links to [installation](https://developer.cercloud.ai/getti
 [first-run setup and usage](https://developer.cercloud.ai/getting-started/first-run/),
 and user documentation. This README focuses on development and planning.
 
+## Installation
+
+- **macOS** - Requires Apple Silicon and macOS 12 or later. Install with [Homebrew](https://brew.sh/):
+
+  ```bash
+  brew install cercano-ai/cercano/cercano-agent cercano-ai/cercano/cercano-cli cercano-ai/cercano/cercano
+  ```
+
+- **First run** - Run `cercano-cli` and follow the setup prompts; it starts the local agent automatically.
+- **Package details and upgrades** - See the [macOS installation guide](docs/installation-macos.md) for split-package readiness caveats and migration guidance before upgrading an older install.
+- **Linux and Windows** - Remain experimental and unsigned. See the [Linux artifact guide](docs/linux-artifact.md) and [Windows installation guide](docs/installation-windows.md); Windows package approval and availability are not yet confirmed.
+- **More help** - See the [installation guide](https://developer.cercloud.ai/getting-started/install/) and [first-run guide](https://developer.cercloud.ai/getting-started/first-run/).
+
 ## Development
 
 - **[Developer guide](docs/agent/self-dev.md)** - Start here for source builds, tests, isolated development hosts, and exact reconnect guidance.
