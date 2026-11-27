@@ -337,12 +337,12 @@ These are roadmap goals, not a list of currently available features.
 
 - **Persistent server** - A long-running Cercano host in the spirit of dots/*claw,
   bringing integrations and remote access together beyond individual client sessions.
-- **Tool locus — Almost Done** - Select whether workspace tools run on the host
-  or a connected client while keeping orchestration on the host. See the
-  [execution plan](efforts/client-side-tool-execution/plan.md).
-- **Container skills** - Skills for creating, tearing down, and managing containers
-  as isolated development spaces, with security dependent on configuration and
-  permissions—not guaranteed by containers alone.
+  - **Tool locus — Almost Done** - Select whether workspace tools run on the host
+    or a connected client while keeping orchestration on the host. See the
+    [execution plan](efforts/client-side-tool-execution/plan.md).
+  - **Container skills** - Skills for creating, tearing down, and managing containers
+    as isolated development spaces, with security dependent on configuration and
+    permissions—not guaranteed by containers alone.
 
 ### Integrations
 
