@@ -298,12 +298,12 @@ Bug reports, reproducible examples, design feedback, and pull requests are all
 welcome. See the [developer guide](docs/agent/self-dev.md) to get started, or
 [open an issue](https://github.com/cercano-ai/Cercano/issues) to discuss an idea.
 
-- **Supervisory threads:** The architecture and much of the implementation are
+- **Supervisory threads** - The architecture and much of the implementation are
   in place, but the behavior needs polish. Supervisors currently intervene too
   aggressively; tuning when and how they step in would make them more useful.
   See the [watchdog design](docs/features/agent-capabilities/watchdog/design.md)
   and [polish plan](docs/features/agent-capabilities/watchdog/polish-plan.md).
-- **Task pane:** Most of the implementation is in place, including a development
+- **Task pane** - Most of the implementation is in place, including a development
   sandbox, but expanding and collapsing tasks needs to be more reliable. Mouse
   events should go to the individual controls rather than the entire panel, and
   task tracking needs better bookkeeping. Longer term, the pane should support
@@ -311,15 +311,15 @@ welcome. See the [developer guide](docs/agent/self-dev.md) to get started, or
   See the [interaction-fix spec](efforts/fix-task-panel-scrollbars/spec.md),
   [debug sandbox plan](efforts/debug-task-pane-controls/plan.md), and
   [task-model design](docs/features/agent-capabilities/task-model/design.md).
-- **Skills:** Cercano supports built-in workflow protocols via `get_protocol`
+- **Skills** - Cercano supports built-in workflow protocols via `get_protocol`
   and organization-assigned text skills via `get_shared_skill`. General discovery
   and loading of user or third-party `SKILL.md` packages is not yet supported;
   skills sync only exports skills for other agents.
-- **Windows support:** Windows remains under-tested. Testing real workflows,
+- **Windows support** - Windows remains under-tested. Testing real workflows,
   reporting reproducible platform-specific bugs, and improving compatibility
   are especially valuable contributions. See the
   [Windows artifact and testing checklist](docs/windows-artifact.md).
-- **IDE plugins:** An older VS Code extension draft needs to be reworked for
+- **IDE plugins** - An older VS Code extension draft needs to be reworked for
   Cercano's current full agent architecture. Infrastructure for a Zed integration
   has also been drafted, but the integration itself is not implemented.
   One approach to evaluate is implementing Agent Client Protocol (ACP) to connect
@@ -335,34 +335,34 @@ These are roadmap goals, not a list of currently available features.
 
 ### Host and development environments
 
-- **Persistent server:** A long-running Cercano host in the spirit of dots/*claw,
+- **Persistent server** - A long-running Cercano host in the spirit of dots/*claw,
   bringing integrations and remote access together beyond individual client sessions.
-- **Tool locus — Almost Done:** Select whether workspace tools run on the host
+- **Tool locus — Almost Done** - Select whether workspace tools run on the host
   or a connected client while keeping orchestration on the host. See the
   [execution plan](efforts/client-side-tool-execution/plan.md).
-- **Container skills:** Skills for creating, tearing down, and managing containers
+- **Container skills** - Skills for creating, tearing down, and managing containers
   as isolated development spaces, with security dependent on configuration and
   permissions—not guaranteed by containers alone.
 
 ### Integrations
 
-- **Computer use — Planned:** Shared desktop control for the CLI and future
+- **Computer use — Planned** - Shared desktop control for the CLI and future
   desktop client. See the [approved spec](efforts/cua-computer-use-integration/spec.md).
-- **Remote control:** Remote access and control, including a mobile app.
-- **Google apps:** Integration with Google's productivity apps.
-- **Microsoft Office 365:** Integration with Microsoft's productivity suite.
-- **Slack:** Messaging and workspace integration.
-- **Texting:** Explore computer use and/or Twilio as possible integration paths.
+- **Remote control** - Remote access and control, including a mobile app.
+- **Google apps** - Integration with Google's productivity apps.
+- **Microsoft Office 365** - Integration with Microsoft's productivity suite.
+- **Slack** - Messaging and workspace integration.
+- **Texting** - Explore computer use and/or Twilio as possible integration paths.
 
 ### Desktop Client
 
-- A ChatGPT-style desktop client written in Avalonia.
+- **Desktop client** - A ChatGPT-style desktop client written in Avalonia.
 
 ## Documentation and support
 
-- [Feature guide](docs/agent/features/README.md): what each differentiator does and why it matters.
-- [Agent guide](docs/agent/README.md): setup, commands, permissions, and architecture.
-- [Routing guide](docs/cloud-routing.md): task classes, model quality, destinations, and backups.
-- [CLI track](docs/features/cli/README.md): implementation status and outstanding work.
-- [Developer guide](docs/agent/self-dev.md): building, testing, and working on Cercano.
-- [Report a problem](https://github.com/cercano-ai/Cercano/issues): include your version, platform, route/model, and reproduction steps; redact credentials and private content.
+- **[Feature guide](docs/agent/features/README.md)** - What each differentiator does and why it matters.
+- **[Agent guide](docs/agent/README.md)** - Setup, commands, permissions, and architecture.
+- **[Routing guide](docs/cloud-routing.md)** - Task classes, model quality, destinations, and backups.
+- **[CLI track](docs/features/cli/README.md)** - Implementation status and outstanding work.
+- **[Developer guide](docs/agent/self-dev.md)** - Building, testing, and working on Cercano.
+- **[Report a problem](https://github.com/cercano-ai/Cercano/issues)** - Include your version, platform, route/model, and reproduction steps; redact credentials and private content.
